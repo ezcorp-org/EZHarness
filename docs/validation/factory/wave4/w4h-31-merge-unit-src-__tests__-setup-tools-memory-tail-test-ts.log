@@ -1,0 +1,10 @@
+bun test v1.4.2 (744846f84)
+{"ts":"2026-10-16T01:14:59.719Z","level":"info","msg":"skipped: model lacks image input capability","subsystem":"executor.loadHistory.rehydrate","branchLen":0}
+{"ts":"2026-10-16T01:14:59.730Z","level":"warn","msg":"ask-user extension not installed — did ensureBundledExtensions() run?","subsystem":"ask-user-host"}
+{"ts":"2026-10-16T01:14:59.730Z","level":"warn","msg":"run_workflow wire skipped — the conversation row has no owner, so a run could not be authorized","subsystem":"executor.streamChat.setup","conversationId":"cc295ffd-8ff4-4718-bf79-4656eba22194"}
+{"ts":"2026-10-16T01:14:59.732Z","level":"info","msg":"Agent orchestration resolution","subsystem":"executor.streamChat.setup","userMessage":"what are my preferences?","agents":[],"teams":[],"depth":0}
+
+ 1 pass
+ 0 fail
+ 6 expect() calls
+Ran 1 test across 1 file. [1093.00ms]

@@ -21,7 +21,7 @@ describe("Memory creation integration", () => {
 		const db = getTestDb();
 		await db.insert(users).values({
 			id: "user-int-1",
-			email: "inttest@test.com",
+			email: "inttest@test.example",
 			name: "Integration User",
 			passwordHash: "fake-hash",
 		}).onConflictDoNothing();

@@ -1,0 +1,10 @@
+bun test v1.4.2 (744846f84)
+
+src/__tests__/runner-worker-isolation.proof.test.ts:
+[runner-isolation-proof] live arms SKIPPED: set EZCORP_RUNNER_ISOLATION_PROOF=1 on a host with rootless Podman
+
+ 8 pass
+ 10 skip
+ 0 fail
+ 23 expect() calls
+Ran 18 tests across 1 file. [648.00ms]

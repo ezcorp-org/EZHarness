@@ -1,0 +1,77 @@
+src/__tests__/first-party-sealed-test-references.test.ts:50:73 lint/suspicious/noTemplateCurlyInString ━━━━━━━━━━
+
+  ! Unexpected template string placeholder.
+  
+    48 │   test("a sealed test naming a left-out suite (also by a template) is a finding; a kept target is not", () => {
+    49 │     const sealed = new Map([
+  > 50 │       ["test/unit/drives.test.ts", "Bun.spawn([bun, 'test', `./test/e2e/${suite}.test.ts`])"],
+       │                                                                         ^^^^^^^^
+    51 │       ["test/unit/helper.test.ts", "import { poll } from '../e2e/_poll'; const data = './fixtures/data.json';"],
+    52 │       ["test/e2e/_poll.ts", "export const poll = 1;"],
+  
+  i Turn the string into a template string.
+  
+
+src/__tests__/first-party-sealed-test-references.test.ts:55:51 lint/suspicious/noTemplateCurlyInString ━━━━━━━━━━
+
+  ! Unexpected template string placeholder.
+  
+    53 │     ]);
+    54 │     expect(sealedReferencesToExcluded(sealed, ["test/e2e/bundled.test.ts", "fixtures/data.json"])).toEqual([
+  > 55 │       "test/unit/drives.test.ts: names ./test/e2e/${suite}.test.ts, which the release snapshot leaves out",
+       │                                                   ^^^^^^^^
+    56 │       "test/unit/helper.test.ts: names ./fixtures/data.json, which the release snapshot leaves out",
+    57 │     ]);
+  
+  i Turn the string into a template string.
+  
+
+Checked 10 files in 9ms. No fixes applied.
+Found 2 warnings.
+── Tests (staged) ─────────────────────────────────
+  bun: packages/@ezcorp/ai-kit/test/unit/deployed-preconditions.test.ts
+bun test v1.4.2 (744846f84)
+
+ 6 pass
+ 0 fail
+ 24 expect() calls
+Ran 6 tests across 1 file. [489.00ms]
+  bun: scripts/test-skip-inventory.test.ts
+bun test v1.4.2 (744846f84)
+
+ 27 pass
+ 0 fail
+ 65 expect() calls
+Ran 27 tests across 1 file. [1345.00ms]
+  bun: src/__tests__/ci-test-set-drift.test.ts
+bun test v1.4.2 (744846f84)
+
+ 18 pass
+ 0 fail
+ 177 expect() calls
+Ran 18 tests across 1 file. [1480.00ms]
+  bun: src/__tests__/first-party-sealed-test-references.test.ts
+bun test v1.4.2 (744846f84)
+
+ 2 pass
+ 0 fail
+ 3 expect() calls
+Ran 2 tests across 1 file. [690.00ms]
+  bun: src/__tests__/shipping-preview-isolation.test.ts
+bun test v1.4.2 (744846f84)
+
+ 3 pass
+ 0 fail
+ 27 expect() calls
+Ran 3 tests across 1 file. [449.00ms]
+  vitest: src/__tests__/stryker-sandbox-aliases.unit.test.ts
+
+ RUN  v5.0.3 /home/dev/work/EZCorp/EZHarness-worktrees/composable-factory-platform/.worktrees/w00-integration/web
+
+
+ Test Files  1 passed (1)
+      Tests  2 passed (2)
+   Start at  22:44:35
+   Duration  718ms (transform 57%, tests 28%, setup 14%)
+
+[detached HEAD 7f8317656] merge: wp/w4h-33b-hosted-fixes ef5e29a25 into integ/w00 (the hosted fixes for W4H-33: the ai-kit release snapshot, the price-chart host lane, the Stryker sandbox alias, the preview-isolation log driver, the seed login (W4H-33b))

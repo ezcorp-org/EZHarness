@@ -1,0 +1,5 @@
+gated-flock w4h32b-relock: start gate mem>=12GiB+3GiB margin 2026-10-17T05:55:14Z
+resource-gate 2026-10-17T05:55:14Z w4h32b-relock outside-lock disk=141G memAvailable=17GiB swapFreeKiB=3683488/17173956 floors disk>=104G mem>=15GiB mem+swap>=18350080KiB (swap component 2621440KiB)
+gated-flock w4h32b-relock: gate green outside the lock, queue for the lock (try 1) 2026-10-17T05:55:14Z
+gated-flock w4h32b-relock: bun pin repo=/home/dev/work/EZCorp/EZHarness/.worktrees/w4h-32b ok bun 1.4.2 /tmp/factory-tools/bun-1.4.2/bun-linux-x64 node v24.14.1 /tmp/factory-tools/node-24.14.1/bin
+gated-flock w4h32b-relock: command exit 0 2026-10-17T05:55:44Z

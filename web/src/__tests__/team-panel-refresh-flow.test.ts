@@ -90,7 +90,7 @@ const realAuthMiddleware = serverModule("auth/middleware", {});
 beforeAll(() => {
   mock.module("$server/auth/middleware", () => ({
     ...realAuthMiddleware,
-    requireAuth: () => ({ id: "user-1", email: "u@e.com", name: "U", role: "member" }),
+    requireAuth: () => ({ id: "user-1", email: "u@e.example", name: "U", role: "member" }),
   }));
 });
 afterAll(() => {

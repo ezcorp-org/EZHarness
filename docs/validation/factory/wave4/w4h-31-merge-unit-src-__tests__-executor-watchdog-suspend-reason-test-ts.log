@@ -1,0 +1,16 @@
+bun test v1.4.2 (744846f84)
+{"ts":"2026-10-16T01:04:01.157Z","level":"warn","msg":"Watchdog: process may have been suspended","subsystem":"executor.watchdog","runId":"run-1","conversationId":"conv-1","suspendedMs":585000}
+{"ts":"2026-10-16T01:04:01.157Z","level":"error","msg":"Watchdog tripped, interrupting run","subsystem":"executor.watchdog","runId":"run-1","conversationId":"conv-1","idleMs":615000,"reason":"Watchdog: no activity for 615s — the computer may have been asleep or suspended for about 10 min during this run, which can interrupt the model connection. Send your message again to retry."}
+{"ts":"2026-10-16T01:04:01.157Z","level":"warn","msg":"Watchdog: process may have been suspended","subsystem":"executor.watchdog","runId":"run-1","conversationId":"conv-1","suspendedMs":585000}
+{"ts":"2026-10-16T01:04:01.157Z","level":"error","msg":"Watchdog tripped, interrupting run","subsystem":"executor.watchdog","runId":"run-1","conversationId":"conv-1","idleMs":600000,"reason":"Watchdog: no activity for 600s — the computer may have been asleep or suspended for about 10 min during this run, which can interrupt the model connection. Send your message again to retry."}
+{"ts":"2026-10-16T01:04:01.158Z","level":"warn","msg":"Watchdog: process may have been suspended","subsystem":"executor.watchdog","runId":"run-1","conversationId":"conv-1","suspendedMs":585000}
+{"ts":"2026-10-16T01:04:01.158Z","level":"error","msg":"Watchdog tripped, interrupting run","subsystem":"executor.watchdog","runId":"run-1","conversationId":"conv-1","idleMs":600000,"reason":"Tool shell exceeded its 90000ms call timeout — the computer may have been asleep or suspended for about 10 min during this run, which can interrupt the model connection. Send your message again to retry."}
+{"ts":"2026-10-16T01:04:01.158Z","level":"error","msg":"Watchdog tripped, interrupting run","subsystem":"executor.watchdog","runId":"run-1","conversationId":"conv-1","idleMs":90000,"reason":"Watchdog: no activity for 90s"}
+{"ts":"2026-10-16T01:04:01.158Z","level":"warn","msg":"Watchdog: process may have been suspended","subsystem":"executor.watchdog","runId":"run-1","conversationId":"conv-1","suspendedMs":45000}
+{"ts":"2026-10-16T01:04:01.158Z","level":"error","msg":"Watchdog tripped, interrupting run","subsystem":"executor.watchdog","runId":"run-1","conversationId":"conv-1","idleMs":90000,"reason":"Watchdog: no activity for 90s"}
+{"ts":"2026-10-16T01:04:01.158Z","level":"error","msg":"Watchdog tripped, interrupting run","subsystem":"executor.watchdog","runId":"run-1","conversationId":"conv-1","idleMs":90000,"reason":"Watchdog: no activity for 90s"}
+
+ 6 pass
+ 0 fail
+ 19 expect() calls
+Ran 6 tests across 1 file. [471.00ms]

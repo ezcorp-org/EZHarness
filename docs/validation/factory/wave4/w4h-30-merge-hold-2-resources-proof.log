@@ -1,0 +1,9 @@
+hold acquired 2026-10-14T14:09:41Z out=/tmp/factory-platform-evidence/w00/w4h-merge/w4h-30-resources-sockets/proof/hold/hold-20261014T140941Z rev=560dbe2a702f98098adec57533bd8ac20d04206a label=hold shards=resources load=1.36 3.30 5.70
+snapshot /tmp/i5-w4h30-home-snap-hold source=560dbe2a702f98098adec57533bd8ac20d04206a snapshot_tree=8fd646af1864928c7ab17ae88053bc714af8fcb5 source_tree=8fd646af1864928c7ab17ae88053bc714af8fcb5
+image localhost/integrator-5-runner:24.04 id=018851857b666c16bf44cabbc2153ea481e6b3ad5bc83987f31a03c19ebd8fa1
+leg=setup rc=0 start=2026-10-14T14:09:46Z end=2026-10-14T14:17:34Z host_oom=0 load=3.06 2.58 4.32
+node=v24.14.1 nproc=4 taskset=0-3 mem=30GiB
+candidate build exit=0 start=2026-10-14T14:12:36Z end=2026-10-14T14:17:34Z
+candidate id=ba7b12486cb4fd7a1084ca950503cd7192f8bdce2b4ad03572a0b2387a86651e
+SETUP-OK
+gate red inside the lock before proof-resources: exit 75

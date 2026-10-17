@@ -6,8 +6,8 @@
 // an existing account. An attacker could enumerate valid emails by timing.
 //
 // Exploit narrative:
-//   1. Attacker POSTs /api/auth/login with {email: "ceo@target.com",
-//      password: "x"}. If ceo@target.com is NOT a user the response comes
+//   1. Attacker POSTs /api/auth/login with {email: "ceo@target.example",
+//      password: "x"}. If ceo@target.example is NOT a user the response comes
 //      back in a few milliseconds — no argon2id verify ran. If it IS a
 //      user the response takes ~100ms because argon2id ran against the
 //      real hash.

@@ -1,0 +1,56 @@
+bun test v1.4.2 (744846f84)
+
+src/extensions/install-grant.test.ts:
+
+Extension "test-ext" requests the following permissions:
+
+  - Network access to api.example.com
+  - Filesystem access to $CWD
+  - Start other programs or processes (enforced in the extension's worker; without it, process creation is blocked)
+  - Read environment variable FOO
+  - Persistent key-value storage
+  - Start sub-agent runs (at most 100 per hour, 4 at a time)
+  - Receive these app events: test-ext:ping, test-ext:pong
+  - Run on a schedule: */15 * * * *
+
+
+Extension "test-ext" requests the following permissions:
+
+  - Network access to api.example.com
+  - Filesystem access to $CWD
+  - Start other programs or processes (enforced in the extension's worker; without it, process creation is blocked)
+  - Read environment variable FOO
+  - Persistent key-value storage
+  - Start sub-agent runs (at most 100 per hour, 4 at a time)
+  - Receive these app events: test-ext:ping, test-ext:pong
+  - Run on a schedule: */15 * * * *
+
+
+Extension "test-ext" requests the following permissions:
+
+  - Network access to api.example.com
+  - Filesystem access to $CWD
+  - Start other programs or processes (enforced in the extension's worker; without it, process creation is blocked)
+  - Read environment variable FOO
+  - Persistent key-value storage
+  - Start sub-agent runs (at most 100 per hour, 4 at a time)
+  - Receive these app events: test-ext:ping, test-ext:pong
+  - Run on a schedule: */15 * * * *
+
+
+Extension "test-ext" requests the following permissions:
+
+  - Network access to api.example.com
+  - Filesystem access to $CWD
+  - Start other programs or processes (enforced in the extension's worker; without it, process creation is blocked)
+  - Read environment variable FOO
+  - Persistent key-value storage
+  - Start sub-agent runs (at most 5 per hour)
+  - Receive these app events: test-ext:ping, test-ext:pong
+  - Run on a schedule: */15 * * * *
+
+
+ 25 pass
+ 0 fail
+ 89 expect() calls
+Ran 25 tests across 1 file. [460.00ms]

@@ -1,0 +1,31 @@
+# 2026-10-16T00:01:58.429604+00:00 mutant m7-start-registers-before-artifact in packages/@ezcorp/extension-runner/src/podman.ts
+# cmd: bun test --timeout 30000 ./packages/@ezcorp/extension-runner/tests/store-reuse.test.ts
+bun test v1.4.2 (744846f84)
+
+packages/@ezcorp/extension-runner/tests/store-reuse.test.ts:
+74 | test("a start refused for a missing artifact registers no worker, so the same start goes past the artifact after a restore (W4H-32)", async () => {
+75 |   const runner = boot(new UnprobedRunner({ root: await store() }));
+76 |   await expect(runner.start(startRequest("worker-1"), noReverse)).rejects.toMatchObject({ code: "artifact_missing" });
+77 |   await runner.restoreArtifact(artifact, files);
+78 |   // The fixture's recipe names no image, so the retried start stops at the profile check: past the artifact, and not a duplicate.
+79 |   await expect(runner.start(startRequest("worker-1"), noReverse)).rejects.toMatchObject({ code: "runtime_profile_changed" });
+                                                                               ^
+error: expect(received).toMatchObject(expected)
+
+- {
+-   "code": "runtime_profile_changed",
+- }
++ [RunnerError: Worker ID is already used]
+
+- Expected  - 3
++ Received  + 1
+
+      at <anonymous> (/home/dev/work/EZCorp/EZHarness/.worktrees/w4h-32/packages/@ezcorp/extension-runner/tests/store-reuse.test.ts:79:75)
+(fail) a start refused for a missing artifact registers no worker, so the same start goes past the artifact after a restore (W4H-32) [13.34ms]
+
+ 5 pass
+ 1 fail
+ 11 expect() calls
+Ran 6 tests across 1 file. [561.00ms]
+
+# exit=1

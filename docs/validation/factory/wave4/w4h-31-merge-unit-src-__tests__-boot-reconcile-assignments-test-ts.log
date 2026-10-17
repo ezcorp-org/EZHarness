@@ -1,0 +1,11 @@
+bun test v1.4.2 (744846f84)
+{"ts":"2026-10-16T01:01:38.792Z","level":"info","msg":"Reconciled interrupted assignments","subsystem":"boot-reconcile-assignments","conversationId":"conv-success","count":1}
+{"ts":"2026-10-16T01:01:38.821Z","level":"info","msg":"Reconciled interrupted assignments","subsystem":"boot-reconcile-assignments","conversationId":"conv-dead","count":1}
+{"ts":"2026-10-16T01:01:38.838Z","level":"info","msg":"Reconciled interrupted assignments","subsystem":"boot-reconcile-assignments","conversationId":"conv-gone","count":1}
+{"ts":"2026-10-16T01:01:38.849Z","level":"info","msg":"Reconciled interrupted assignments","subsystem":"boot-reconcile-assignments","conversationId":"conv-noid","count":1}
+{"ts":"2026-10-16T01:01:38.862Z","level":"info","msg":"Reconciled interrupted assignments","subsystem":"boot-reconcile-assignments","conversationId":"conv-sub","count":1}
+
+ 9 pass
+ 0 fail
+ 37 expect() calls
+Ran 9 tests across 1 file. [1103.00ms]

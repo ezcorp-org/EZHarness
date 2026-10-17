@@ -83,7 +83,7 @@ beforeAll(async () => {
   await setupTestDb();
   const db = getTestDb();
   await db.insert(users).values({
-    id: USER_ID, email: "e@x.com", passwordHash: "x", name: "E", role: "admin",
+    id: USER_ID, email: "e@x.example", passwordHash: "x", name: "E", role: "admin",
   } as any);
   await db.insert(projects).values({ id: PROJECT_ID, name: "e", path: "/tmp/e" } as any);
   for (const id of [CONV_LIVE, CONV_OLD]) {

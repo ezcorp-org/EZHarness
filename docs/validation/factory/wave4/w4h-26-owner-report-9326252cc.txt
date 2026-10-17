@@ -1,0 +1,40 @@
+W4H-26 REPORT — R5 (FROZEN, third freeze)
+
+Branch wp/w4h-26-runner-wiring from origin/main 1981febd2. FROZEN head 9326252cc (code head 4fa87697d; 9326252cc adds only the
+gate file tasks/factory/w4h-26-GATES.md 12a99fe22acb818e and tasks/todo.md lines). Earlier reports kept:
+report-d2d78d98e.txt (9bb9a7be72ced967), report-fa15418c4.txt (86620a7cddd665d2). 51 files, +2049 -239 vs origin/main.
+Identity: every commit author and committer is 281643943+EZArchy@users.noreply.github.com. No model call.
+
+R5 (validator-8 verdict 9360f9199ee215da, G1; ruled):
+- 792dcb6b7: the HostRunner alias is reverted (class extends PodmanRunner). The Podman-guest guard gains GUEST_EXEMPTIONS
+  (file, text, reason; exempts the text only when it occurs exactly once in that file). Tests: without the exemption the
+  provisioning step is red; with it, a real subclass beside the loader, a second loader, a new PodmanRunner(, or the same
+  text in another file still count. Mutation: GUEST_EXEMPTIONS emptied -> 2 of 9 red (logs/guard-exemption-removed.log).
+- 4fa87697d (H4): a finished preparation is recorded durably beside the host key; after a restart a repeated build identity
+  reads the record and the artifacts from the runner's store: never a second build, never duplicate_operation; other source
+  refused without poisoning the identity. Red on the frozen logic (logs/h4-red.log: 17 pass, 1 fail), green now.
+- Gate file notes N1 (cpu allocation 1,000 -> 50,000 tokens, w09b guest too) and N3 (factory modules imported with factories
+  off, no work done) recorded as leftovers.
+
+LEGS at 4fa87697d: red-first 17 of 17 red on 1981febd2; D6 mutants 4 of 4 killed; patch PASS (25 files); new-file PASS (5);
+CRAP none over 30; guard 42 files 524/0; typecheck 0 (tc-gate in the lock, after build:packages); lint 0; gate-integrity 0
+findings on both legs. Proof at 4fa87697d (proof/final-3.json): /api/ready builtinRunnerPackages staged both, failed none;
+snapshot-repository executed in the pinned guest; sealed snapshot sha256:e020cd24… and port output equal the product's own
+snapshot of the fixture; run stops at generate-private-candidate (the later package).
+
+Unchanged leftovers: generateCandidate fleet profile (definition's placeholder pin); G7 Compose proof after W4H-27; G8d blocked.
+
+EVIDENCE (sha256, first 16; earlier entries in the earlier reports still hold)
+3726e99755022c21 proof/final-3.json
+cb083aac7fcb45a5 red/red-on-base.txt
+a5b764c6810f38e4 mutants/d6-mutants.txt
+32ee3177640b8f5f legs/final.log
+569ca3a26d7a1596 legs/final-focused-4.out
+2a6d2c4b4bf7856b legs/focused/patch.log
+2fd85852d5f1fcb6 legs/focused/crap.log
+f93e1376c1dc8113 legs/final-guard-3.out
+270c4c3f584f55da legs/final-typecheck-4.out
+a74f933e1f11fe72 legs/final-lint-3.log
+b1a0297506aab4a1 legs/final-gi-main-3.log
+35b6e63b11391e55 logs/h4-red.log
+9ec9e9b71f3203a4 logs/guard-exemption-removed.log

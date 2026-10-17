@@ -1,0 +1,23 @@
+bun test v1.4.2 (744846f84)
+{"ts":"2026-10-16T00:55:04.179Z","level":"info","msg":"preview conversation reaped","subsystem":"preview.reaper","conversationId":"conv-1","processesKilled":2,"processesUnconfirmed":0,"previewsRevoked":3,"uidReleased":true,"uidQuarantined":false}
+{"ts":"2026-10-16T00:55:04.179Z","level":"info","msg":"preview conversation reaped","subsystem":"preview.reaper","conversationId":"conv-q","processesKilled":1,"processesUnconfirmed":1,"previewsRevoked":3,"uidReleased":false,"uidQuarantined":true}
+{"ts":"2026-10-16T00:55:04.180Z","level":"warn","msg":"reap: killing processes failed","subsystem":"preview.reaper","conversationId":"conv-3","error":"Error: kill boom"}
+{"ts":"2026-10-16T00:55:04.180Z","level":"info","msg":"preview conversation reaped","subsystem":"preview.reaper","conversationId":"conv-3","processesKilled":0,"processesUnconfirmed":0,"previewsRevoked":3,"uidReleased":false,"uidQuarantined":true}
+{"ts":"2026-10-16T00:55:04.180Z","level":"warn","msg":"reap: revoking previews failed","subsystem":"preview.reaper","conversationId":"conv-2","error":"Error: db down"}
+{"ts":"2026-10-16T00:55:04.180Z","level":"info","msg":"preview conversation reaped","subsystem":"preview.reaper","conversationId":"conv-2","processesKilled":2,"processesUnconfirmed":0,"previewsRevoked":0,"uidReleased":true,"uidQuarantined":false}
+{"ts":"2026-10-16T00:55:04.180Z","level":"warn","msg":"reap: forgetting quota failed","subsystem":"preview.reaper","conversationId":"conv-f","previewId":"p1","error":"Error: forget boom"}
+{"ts":"2026-10-16T00:55:04.180Z","level":"warn","msg":"reap: forgetting quota failed","subsystem":"preview.reaper","conversationId":"conv-f","previewId":"p2","error":"Error: forget boom"}
+{"ts":"2026-10-16T00:55:04.180Z","level":"warn","msg":"reap: forgetting quota failed","subsystem":"preview.reaper","conversationId":"conv-f","previewId":"p3","error":"Error: forget boom"}
+{"ts":"2026-10-16T00:55:04.180Z","level":"info","msg":"preview conversation reaped","subsystem":"preview.reaper","conversationId":"conv-f","processesKilled":2,"processesUnconfirmed":0,"previewsRevoked":3,"uidReleased":true,"uidQuarantined":false}
+{"ts":"2026-10-16T00:55:04.180Z","level":"warn","msg":"reap: releasing/quarantining uid failed","subsystem":"preview.reaper","conversationId":"conv-u","error":"Error: uid boom"}
+{"ts":"2026-10-16T00:55:04.180Z","level":"info","msg":"preview conversation reaped","subsystem":"preview.reaper","conversationId":"conv-u","processesKilled":2,"processesUnconfirmed":0,"previewsRevoked":3,"uidReleased":false,"uidQuarantined":false}
+{"ts":"2026-10-16T00:55:04.180Z","level":"warn","msg":"reap: releasing/quarantining uid failed","subsystem":"preview.reaper","conversationId":"conv-qx","error":"Error: quarantine boom"}
+{"ts":"2026-10-16T00:55:04.180Z","level":"info","msg":"preview conversation reaped","subsystem":"preview.reaper","conversationId":"conv-qx","processesKilled":1,"processesUnconfirmed":1,"previewsRevoked":3,"uidReleased":false,"uidQuarantined":false}
+{"ts":"2026-10-16T00:55:04.180Z","level":"warn","msg":"reap: unwatch failed","subsystem":"preview.reaper","conversationId":"conv-w","error":"Error: unwatch boom"}
+{"ts":"2026-10-16T00:55:04.180Z","level":"info","msg":"preview conversation reaped","subsystem":"preview.reaper","conversationId":"conv-w","processesKilled":2,"processesUnconfirmed":0,"previewsRevoked":3,"uidReleased":true,"uidQuarantined":false}
+{"ts":"2026-10-16T00:55:04.565Z","level":"info","msg":"preview conversation reaped","subsystem":"preview.reaper","conversationId":"conv-no-rows","processesKilled":0,"processesUnconfirmed":0,"previewsRevoked":0,"uidReleased":true,"uidQuarantined":false}
+
+ 10 pass
+ 0 fail
+ 35 expect() calls
+Ran 10 tests across 1 file. [920.00ms]

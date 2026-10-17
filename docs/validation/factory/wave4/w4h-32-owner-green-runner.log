@@ -1,0 +1,8 @@
+# 2026-10-15T23:41:04Z cwd=/home/dev/work/EZCorp/EZHarness/.worktrees/w4h-32/packages/@ezcorp/extension-runner cmd: bun test --timeout 30000 ./tests/store-reuse.test.ts ./tests/service.test.ts
+bun test v1.4.2 (744846f84)
+
+ 16 pass
+ 0 fail
+ 56 expect() calls
+Ran 16 tests across 2 files. [811.00ms]
+# exit=0 end=2026-10-15T23:41:05Z

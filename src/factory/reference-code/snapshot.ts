@@ -86,6 +86,21 @@ export interface ReferenceCodeRepositoryReader {
   readTree(commitSha: string): Promise<readonly ReferenceCodeTreeEntry[]>;
 }
 
+/** One file as JSON carries it: its bytes as base64, the form guest payloads and artifacts use. */
+export interface ReferenceCodeWireFile {
+  readonly path: string;
+  readonly mode: FactoryGitFileMode;
+  readonly contentBase64: string;
+}
+
+export function referenceCodeFilesToWire(files: readonly ReferenceCodeFile[]): ReferenceCodeWireFile[] {
+  return files.map(file => ({ path: file.path, mode: file.mode, contentBase64: Buffer.from(file.content).toString("base64") }));
+}
+
+export function referenceCodeFilesFromWire(files: readonly ReferenceCodeWireFile[]): ReferenceCodeFile[] {
+  return files.map(file => ({ path: file.path, mode: file.mode, content: new Uint8Array(Buffer.from(file.contentBase64, "base64")) }));
+}
+
 function sortFiles(files: readonly ReferenceCodeFile[]): readonly ReferenceCodeFile[] {
   return [...files].sort((left, right) => (left.path < right.path ? -1 : left.path > right.path ? 1 : 0));
 }

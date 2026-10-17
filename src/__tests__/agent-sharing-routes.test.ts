@@ -31,9 +31,9 @@ let teamId: string;
 beforeAll(async () => {
   await setupTestDb();
 
-  const owner = await createUser({ email: "share-rt-owner@test.com", passwordHash: "hash", name: "Share Route Owner", role: "member" });
-  const recipient = await createUser({ email: "share-rt-recip@test.com", passwordHash: "hash", name: "Share Route Recipient", role: "member" });
-  const admin = await createUser({ email: "share-rt-admin@test.com", passwordHash: "hash", name: "Share Route Admin", role: "admin" });
+  const owner = await createUser({ email: "share-rt-owner@test.example", passwordHash: "hash", name: "Share Route Owner", role: "member" });
+  const recipient = await createUser({ email: "share-rt-recip@test.example", passwordHash: "hash", name: "Share Route Recipient", role: "member" });
+  const admin = await createUser({ email: "share-rt-admin@test.example", passwordHash: "hash", name: "Share Route Admin", role: "admin" });
 
   OWNER = { id: owner.id, email: owner.email, name: owner.name, role: "member" };
   RECIPIENT = { id: recipient.id, email: recipient.email, name: recipient.name, role: "member" };
@@ -164,7 +164,7 @@ describe("POST /api/agents/[id]/share", () => {
   });
 
   test("shares with edit permission", async () => {
-    const recipient2 = await createUser({ email: "share-rt-recip2@test.com", passwordHash: "hash", name: "Recipient 2", role: "member" });
+    const recipient2 = await createUser({ email: "share-rt-recip2@test.example", passwordHash: "hash", name: "Recipient 2", role: "member" });
     const event = createMockEvent({
       method: "POST", params: { id: agentId }, user: OWNER,
       body: { userIds: [recipient2.id], permission: "edit" },
@@ -176,8 +176,8 @@ describe("POST /api/agents/[id]/share", () => {
   });
 
   test("shares to multiple users successfully", async () => {
-    const r3 = await createUser({ email: "share-rt-r3@test.com", passwordHash: "hash", name: "R3", role: "member" });
-    const r4 = await createUser({ email: "share-rt-r4@test.com", passwordHash: "hash", name: "R4", role: "member" });
+    const r3 = await createUser({ email: "share-rt-r3@test.example", passwordHash: "hash", name: "R3", role: "member" });
+    const r4 = await createUser({ email: "share-rt-r4@test.example", passwordHash: "hash", name: "R4", role: "member" });
     const event = createMockEvent({
       method: "POST", params: { id: agentId }, user: OWNER,
       body: { userIds: [r3.id, r4.id] },

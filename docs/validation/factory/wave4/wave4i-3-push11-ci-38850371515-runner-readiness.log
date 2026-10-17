@@ -1,0 +1,269 @@
+Factory runner readiness precheck	Set up job	﻿2026-10-16T04:23:32.9371983Z Current runner version: '2.337.0'
+Factory runner readiness precheck	Set up job	2026-10-16T04:23:32.9406532Z ##[group]Runner Image Provisioner
+Factory runner readiness precheck	Set up job	2026-10-16T04:23:32.9408107Z Hosted Compute Agent
+Factory runner readiness precheck	Set up job	2026-10-16T04:23:32.9409245Z Version: 20261012.601
+Factory runner readiness precheck	Set up job	2026-10-16T04:23:32.9410320Z Commit: f3dc54e1fb89da6852db922499a0233137369e1d
+Factory runner readiness precheck	Set up job	2026-10-16T04:23:32.9411567Z Build Date: 2026-10-12T17:48:21Z
+Factory runner readiness precheck	Set up job	2026-10-16T04:23:32.9412813Z Worker ID: {f32881e4-28a0-4fa1-894a-78447a7d4611}
+Factory runner readiness precheck	Set up job	2026-10-16T04:23:32.9413977Z Region: eastus
+Factory runner readiness precheck	Set up job	2026-10-16T04:23:32.9415018Z Cloud: Azure
+Factory runner readiness precheck	Set up job	2026-10-16T04:23:32.9415945Z ##[endgroup]
+Factory runner readiness precheck	Set up job	2026-10-16T04:23:32.9418614Z ##[group]Operating System
+Factory runner readiness precheck	Set up job	2026-10-16T04:23:32.9419703Z Ubuntu
+Factory runner readiness precheck	Set up job	2026-10-16T04:23:32.9420655Z 24.04.5
+Factory runner readiness precheck	Set up job	2026-10-16T04:23:32.9421498Z LTS
+Factory runner readiness precheck	Set up job	2026-10-16T04:23:32.9422337Z ##[endgroup]
+Factory runner readiness precheck	Set up job	2026-10-16T04:23:32.9423438Z ##[group]Runner Image
+Factory runner readiness precheck	Set up job	2026-10-16T04:23:32.9424449Z Image: ubuntu-24.04
+Factory runner readiness precheck	Set up job	2026-10-16T04:23:32.9425359Z Version: 20261012.334.1
+Factory runner readiness precheck	Set up job	2026-10-16T04:23:32.9427675Z Included Software: https://github.com/actions/runner-images/blob/ubuntu24/20261012.334/images/ubuntu/Ubuntu2404-Readme.md
+Factory runner readiness precheck	Set up job	2026-10-16T04:23:32.9430709Z Image Release: https://github.com/actions/runner-images/releases/tag/ubuntu24%2F20261012.334
+Factory runner readiness precheck	Set up job	2026-10-16T04:23:32.9432439Z ##[endgroup]
+Factory runner readiness precheck	Set up job	2026-10-16T04:23:32.9434594Z ##[group]GITHUB_TOKEN Permissions
+Factory runner readiness precheck	Set up job	2026-10-16T04:23:32.9437518Z Actions: read
+Factory runner readiness precheck	Set up job	2026-10-16T04:23:32.9438662Z Contents: read
+Factory runner readiness precheck	Set up job	2026-10-16T04:23:32.9439578Z Metadata: read
+Factory runner readiness precheck	Set up job	2026-10-16T04:23:32.9440608Z ##[endgroup]
+Factory runner readiness precheck	Set up job	2026-10-16T04:23:32.9443677Z Secret source: Actions
+Factory runner readiness precheck	Set up job	2026-10-16T04:23:32.9445364Z Cache mode: write
+Factory runner readiness precheck	Set up job	2026-10-16T04:23:32.9446456Z Prepare workflow directory
+Factory runner readiness precheck	Set up job	2026-10-16T04:23:33.1752180Z Prepare all required actions
+Factory runner readiness precheck	Set up job	2026-10-16T04:23:33.1803958Z Getting action download info
+Factory runner readiness precheck	Set up job	2026-10-16T04:23:33.3428340Z Download action repository 'actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1' (SHA:3d3c42e5aac5ba805825da76410c181273ba90b1)
+Factory runner readiness precheck	Set up job	2026-10-16T04:23:33.4473341Z Download action repository 'oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6' (SHA:0c5077e51419868618aeaa5fe8019c62421857d6)
+Factory runner readiness precheck	Set up job	2026-10-16T04:23:33.7723218Z Complete job name: Factory runner readiness precheck
+Factory runner readiness precheck	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	﻿2026-10-16T04:23:34.2220395Z ##[group]Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+Factory runner readiness precheck	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:23:34.2221523Z with:
+Factory runner readiness precheck	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:23:34.2222034Z   repository: ezcorp-org/EZHarness
+Factory runner readiness precheck	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:23:34.2225792Z   token: ***
+Factory runner readiness precheck	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:23:34.2226250Z   ssh-strict: true
+Factory runner readiness precheck	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:23:34.2226697Z   ssh-user: git
+Factory runner readiness precheck	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:23:34.2227389Z   persist-credentials: true
+Factory runner readiness precheck	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:23:34.2227903Z   clean: true
+Factory runner readiness precheck	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:23:34.2228355Z   sparse-checkout-cone-mode: true
+Factory runner readiness precheck	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:23:34.2228883Z   fetch-depth: 1
+Factory runner readiness precheck	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:23:34.2229311Z   fetch-tags: false
+Factory runner readiness precheck	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:23:34.2229755Z   show-progress: true
+Factory runner readiness precheck	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:23:34.2230208Z   lfs: false
+Factory runner readiness precheck	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:23:34.2230622Z   submodules: false
+Factory runner readiness precheck	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:23:34.2231066Z   set-safe-directory: true
+Factory runner readiness precheck	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:23:34.2231563Z   allow-unsafe-pr-checkout: false
+Factory runner readiness precheck	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:23:34.2232318Z env:
+Factory runner readiness precheck	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:23:34.2232814Z   BUN_FEATURE_FLAG_DISABLE_SQL_AUTO_PIPELINING: 1
+Factory runner readiness precheck	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:23:34.2233474Z   BUN_RUNTIME_TRANSPILER_CACHE_PATH: 0
+Factory runner readiness precheck	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:23:34.2234045Z ##[endgroup]
+Factory runner readiness precheck	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:23:34.3283624Z Syncing repository: ezcorp-org/EZHarness
+Factory runner readiness precheck	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:23:34.3286317Z ##[group]Getting Git version info
+Factory runner readiness precheck	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:23:34.3287722Z Working directory is '/home/runner/work/EZHarness/EZHarness'
+Factory runner readiness precheck	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:23:34.3289370Z [command]/usr/bin/git version
+Factory runner readiness precheck	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:23:34.3368342Z git version 2.55.0
+Factory runner readiness precheck	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:23:34.3404322Z ##[endgroup]
+Factory runner readiness precheck	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:23:34.3413984Z Temporarily overriding HOME='/home/runner/work/_temp/36517210-6fe3-4b47-916e-e5329ed8d726' before making global git config changes
+Factory runner readiness precheck	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:23:34.3416672Z Adding repository directory to the temporary git global config as a safe directory
+Factory runner readiness precheck	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:23:34.3419289Z [command]/usr/bin/git config --global --add safe.directory /home/runner/work/EZHarness/EZHarness
+Factory runner readiness precheck	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:23:34.3469198Z Deleting the contents of '/home/runner/work/EZHarness/EZHarness'
+Factory runner readiness precheck	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:23:34.3473567Z ##[group]Determining repository object format
+Factory runner readiness precheck	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:23:34.3475568Z ##[endgroup]
+Factory runner readiness precheck	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:23:34.3477399Z ##[group]Initializing the repository
+Factory runner readiness precheck	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:23:34.3481434Z [command]/usr/bin/git init /home/runner/work/EZHarness/EZHarness
+Factory runner readiness precheck	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:23:34.3619179Z hint: Using 'master' as the name for the initial branch. This default branch name
+Factory runner readiness precheck	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:23:34.3620824Z hint: will change to "main" in Git 3.0. To configure the initial branch name
+Factory runner readiness precheck	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:23:34.3621899Z hint: to use in all of your new repositories, which will suppress this warning,
+Factory runner readiness precheck	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:23:34.3622673Z hint: call:
+Factory runner readiness precheck	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:23:34.3623101Z hint:
+Factory runner readiness precheck	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:23:34.3623695Z hint: 	git config --global init.defaultBranch <name>
+Factory runner readiness precheck	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:23:34.3624344Z hint:
+Factory runner readiness precheck	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:23:34.3624946Z hint: Names commonly chosen instead of 'master' are 'main', 'trunk' and
+Factory runner readiness precheck	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:23:34.3625882Z hint: 'development'. The just-created branch can be renamed via this command:
+Factory runner readiness precheck	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:23:34.3626626Z hint:
+Factory runner readiness precheck	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:23:34.3627624Z hint: 	git branch -m <name>
+Factory runner readiness precheck	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:23:34.3628181Z hint:
+Factory runner readiness precheck	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:23:34.3628829Z hint: Disable this message with "git config set advice.defaultBranchName false"
+Factory runner readiness precheck	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:23:34.3635189Z Initialized empty Git repository in /home/runner/work/EZHarness/EZHarness/.git/
+Factory runner readiness precheck	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:23:34.3675536Z [command]/usr/bin/git remote add origin https://github.com/ezcorp-org/EZHarness
+Factory runner readiness precheck	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:23:34.3708086Z ##[endgroup]
+Factory runner readiness precheck	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:23:34.3709447Z ##[group]Disabling automatic garbage collection
+Factory runner readiness precheck	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:23:34.3712089Z [command]/usr/bin/git config --local gc.auto 0
+Factory runner readiness precheck	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:23:34.3750706Z ##[endgroup]
+Factory runner readiness precheck	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:23:34.3751959Z ##[group]Setting up auth
+Factory runner readiness precheck	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:23:34.3752883Z Removing SSH command configuration
+Factory runner readiness precheck	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:23:34.3757627Z [command]/usr/bin/git config --local --name-only --get-regexp core\.sshCommand
+Factory runner readiness precheck	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:23:34.3796350Z [command]/usr/bin/git submodule foreach --recursive sh -c "git config --local --name-only --get-regexp 'core\.sshCommand' && git config --local --unset-all 'core.sshCommand' || :"
+Factory runner readiness precheck	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:23:34.4199766Z Removing HTTP extra header
+Factory runner readiness precheck	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:23:34.4205434Z [command]/usr/bin/git config --local --name-only --get-regexp http\.https\:\/\/github\.com\/\.extraheader
+Factory runner readiness precheck	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:23:34.4243068Z [command]/usr/bin/git submodule foreach --recursive sh -c "git config --local --name-only --get-regexp 'http\.https\:\/\/github\.com\/\.extraheader' && git config --local --unset-all 'http.https://github.com/.extraheader' || :"
+Factory runner readiness precheck	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:23:34.4464476Z Removing includeIf entries pointing to credentials config files
+Factory runner readiness precheck	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:23:34.4470278Z [command]/usr/bin/git config --local --name-only --get-regexp ^includeIf\.gitdir:
+Factory runner readiness precheck	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:23:34.4506601Z [command]/usr/bin/git submodule foreach --recursive git config --local --show-origin --name-only --get-regexp remote.origin.url
+Factory runner readiness precheck	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:23:34.4733045Z [command]/usr/bin/git config --file /home/runner/work/_temp/git-credentials-cfa26b7f-ad19-44b9-b2de-0963fe489603.config http.https://github.com/.extraheader AUTHORIZATION: basic ***
+Factory runner readiness precheck	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:23:34.4773669Z [command]/usr/bin/git config --local includeIf.gitdir:/home/runner/work/EZHarness/EZHarness/.git.path /home/runner/work/_temp/git-credentials-cfa26b7f-ad19-44b9-b2de-0963fe489603.config
+Factory runner readiness precheck	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:23:34.4809024Z [command]/usr/bin/git config --local includeIf.gitdir:/home/runner/work/EZHarness/EZHarness/.git/worktrees/*.path /home/runner/work/_temp/git-credentials-cfa26b7f-ad19-44b9-b2de-0963fe489603.config
+Factory runner readiness precheck	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:23:34.4848200Z [command]/usr/bin/git config --local includeIf.gitdir:/github/workspace/.git.path /github/runner_temp/git-credentials-cfa26b7f-ad19-44b9-b2de-0963fe489603.config
+Factory runner readiness precheck	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:23:34.4882674Z [command]/usr/bin/git config --local includeIf.gitdir:/github/workspace/.git/worktrees/*.path /github/runner_temp/git-credentials-cfa26b7f-ad19-44b9-b2de-0963fe489603.config
+Factory runner readiness precheck	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:23:34.4913945Z ##[endgroup]
+Factory runner readiness precheck	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:23:34.4914733Z ##[group]Fetching the repository
+Factory runner readiness precheck	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:23:34.4921273Z [command]/usr/bin/git -c protocol.version=2 fetch --no-tags --prune --no-recurse-submodules --depth=1 origin +5dcc037abe0acf2d3261f6327a31a474adde5e1a:refs/remotes/pull/341/merge
+Factory runner readiness precheck	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:23:38.6816593Z From https://github.com/ezcorp-org/EZHarness
+Factory runner readiness precheck	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:23:38.6818681Z  * [new ref]         5dcc037abe0acf2d3261f6327a31a474adde5e1a -> pull/341/merge
+Factory runner readiness precheck	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:23:38.6822077Z ##[endgroup]
+Factory runner readiness precheck	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:23:38.6823277Z ##[group]Determining the checkout info
+Factory runner readiness precheck	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:23:38.6824597Z ##[endgroup]
+Factory runner readiness precheck	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:23:38.6826937Z [command]/usr/bin/git sparse-checkout disable
+Factory runner readiness precheck	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:23:38.6886640Z [command]/usr/bin/git config --local --unset-all extensions.worktreeConfig
+Factory runner readiness precheck	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:23:38.6921227Z ##[group]Checking out the ref
+Factory runner readiness precheck	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:23:38.6924975Z [command]/usr/bin/git checkout --progress --force refs/remotes/pull/341/merge
+Factory runner readiness precheck	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:23:39.7385389Z Updating files:  33% (5718/17084)
+Factory runner readiness precheck	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:23:39.7621206Z Updating files:  34% (5809/17084)
+Factory runner readiness precheck	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:23:39.7768852Z Updating files:  35% (5980/17084)
+Factory runner readiness precheck	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:23:39.7849649Z Updating files:  36% (6151/17084)
+Factory runner readiness precheck	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:23:39.7952469Z Updating files:  37% (6322/17084)
+Factory runner readiness precheck	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:23:39.8055933Z Updating files:  38% (6492/17084)
+Factory runner readiness precheck	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:23:39.8151514Z Updating files:  39% (6663/17084)
+Factory runner readiness precheck	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:23:39.8260267Z Updating files:  40% (6834/17084)
+Factory runner readiness precheck	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:23:39.8352756Z Updating files:  41% (7005/17084)
+Factory runner readiness precheck	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:23:39.8423166Z Updating files:  42% (7176/17084)
+Factory runner readiness precheck	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:23:39.8493934Z Updating files:  43% (7347/17084)
+Factory runner readiness precheck	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:23:39.8576121Z Updating files:  44% (7517/17084)
+Factory runner readiness precheck	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:23:39.8650572Z Updating files:  45% (7688/17084)
+Factory runner readiness precheck	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:23:39.8730966Z Updating files:  46% (7859/17084)
+Factory runner readiness precheck	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:23:39.8805481Z Updating files:  47% (8030/17084)
+Factory runner readiness precheck	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:23:39.8879659Z Updating files:  48% (8201/17084)
+Factory runner readiness precheck	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:23:39.8949116Z Updating files:  49% (8372/17084)
+Factory runner readiness precheck	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:23:39.9044539Z Updating files:  50% (8542/17084)
+Factory runner readiness precheck	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:23:39.9114807Z Updating files:  51% (8713/17084)
+Factory runner readiness precheck	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:23:39.9207757Z Updating files:  52% (8884/17084)
+Factory runner readiness precheck	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:23:39.9281626Z Updating files:  53% (9055/17084)
+Factory runner readiness precheck	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:23:39.9345132Z Updating files:  54% (9226/17084)
+Factory runner readiness precheck	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:23:39.9410077Z Updating files:  55% (9397/17084)
+Factory runner readiness precheck	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:23:39.9474599Z Updating files:  56% (9568/17084)
+Factory runner readiness precheck	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:23:39.9544111Z Updating files:  57% (9738/17084)
+Factory runner readiness precheck	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:23:39.9613142Z Updating files:  58% (9909/17084)
+Factory runner readiness precheck	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:23:39.9685648Z Updating files:  59% (10080/17084)
+Factory runner readiness precheck	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:23:39.9783581Z Updating files:  60% (10251/17084)
+Factory runner readiness precheck	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:23:39.9923281Z Updating files:  61% (10422/17084)
+Factory runner readiness precheck	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:23:40.0112018Z Updating files:  62% (10593/17084)
+Factory runner readiness precheck	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:23:40.0285576Z Updating files:  63% (10763/17084)
+Factory runner readiness precheck	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:23:40.0399241Z Updating files:  64% (10934/17084)
+Factory runner readiness precheck	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:23:40.0527130Z Updating files:  65% (11105/17084)
+Factory runner readiness precheck	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:23:40.0646451Z Updating files:  66% (11276/17084)
+Factory runner readiness precheck	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:23:40.0763569Z Updating files:  67% (11447/17084)
+Factory runner readiness precheck	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:23:40.0890050Z Updating files:  68% (11618/17084)
+Factory runner readiness precheck	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:23:40.1019889Z Updating files:  69% (11788/17084)
+Factory runner readiness precheck	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:23:40.1156273Z Updating files:  70% (11959/17084)
+Factory runner readiness precheck	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:23:40.1316676Z Updating files:  71% (12130/17084)
+Factory runner readiness precheck	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:23:40.1446931Z Updating files:  72% (12301/17084)
+Factory runner readiness precheck	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:23:40.1594445Z Updating files:  73% (12472/17084)
+Factory runner readiness precheck	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:23:40.1726864Z Updating files:  74% (12643/17084)
+Factory runner readiness precheck	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:23:40.1864329Z Updating files:  75% (12813/17084)
+Factory runner readiness precheck	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:23:40.2001896Z Updating files:  76% (12984/17084)
+Factory runner readiness precheck	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:23:40.2119230Z Updating files:  77% (13155/17084)
+Factory runner readiness precheck	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:23:40.2267779Z Updating files:  78% (13326/17084)
+Factory runner readiness precheck	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:23:40.2408903Z Updating files:  79% (13497/17084)
+Factory runner readiness precheck	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:23:40.2544949Z Updating files:  80% (13668/17084)
+Factory runner readiness precheck	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:23:40.2668638Z Updating files:  81% (13839/17084)
+Factory runner readiness precheck	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:23:40.2807507Z Updating files:  82% (14009/17084)
+Factory runner readiness precheck	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:23:40.2941154Z Updating files:  83% (14180/17084)
+Factory runner readiness precheck	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:23:40.3075341Z Updating files:  84% (14351/17084)
+Factory runner readiness precheck	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:23:40.3263857Z Updating files:  85% (14522/17084)
+Factory runner readiness precheck	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:23:40.3375344Z Updating files:  86% (14693/17084)
+Factory runner readiness precheck	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:23:40.3500805Z Updating files:  87% (14864/17084)
+Factory runner readiness precheck	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:23:40.3619307Z Updating files:  88% (15034/17084)
+Factory runner readiness precheck	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:23:40.3732441Z Updating files:  89% (15205/17084)
+Factory runner readiness precheck	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:23:40.3912748Z Updating files:  90% (15376/17084)
+Factory runner readiness precheck	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:23:40.4055671Z Updating files:  91% (15547/17084)
+Factory runner readiness precheck	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:23:40.4199302Z Updating files:  92% (15718/17084)
+Factory runner readiness precheck	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:23:40.4330735Z Updating files:  93% (15889/17084)
+Factory runner readiness precheck	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:23:40.4450753Z Updating files:  94% (16059/17084)
+Factory runner readiness precheck	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:23:40.4568741Z Updating files:  95% (16230/17084)
+Factory runner readiness precheck	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:23:40.4673216Z Updating files:  96% (16401/17084)
+Factory runner readiness precheck	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:23:40.4817222Z Updating files:  97% (16572/17084)
+Factory runner readiness precheck	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:23:40.4967626Z Updating files:  98% (16743/17084)
+Factory runner readiness precheck	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:23:40.5117607Z Updating files:  99% (16914/17084)
+Factory runner readiness precheck	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:23:40.5118540Z Updating files: 100% (17084/17084)
+Factory runner readiness precheck	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:23:40.5119012Z Updating files: 100% (17084/17084), done.
+Factory runner readiness precheck	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:23:40.5292098Z Note: switching to 'refs/remotes/pull/341/merge'.
+Factory runner readiness precheck	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:23:40.5292387Z 
+Factory runner readiness precheck	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:23:40.5292609Z You are in 'detached HEAD' state. You can look around, make experimental
+Factory runner readiness precheck	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:23:40.5293131Z changes and commit them, and you can discard any commits you make in this
+Factory runner readiness precheck	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:23:40.5293643Z state without impacting any branches by switching back to a branch.
+Factory runner readiness precheck	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:23:40.5293933Z 
+Factory runner readiness precheck	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:23:40.5294137Z If you want to create a new branch to retain commits you create, you may
+Factory runner readiness precheck	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:23:40.5294610Z do so (now or later) by using -c with the switch command. Example:
+Factory runner readiness precheck	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:23:40.5294884Z 
+Factory runner readiness precheck	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:23:40.5294990Z   git switch -c <new-branch-name>
+Factory runner readiness precheck	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:23:40.5295183Z 
+Factory runner readiness precheck	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:23:40.5295290Z Or undo this operation with:
+Factory runner readiness precheck	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:23:40.5295454Z 
+Factory runner readiness precheck	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:23:40.5295545Z   git switch -
+Factory runner readiness precheck	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:23:40.5295709Z 
+Factory runner readiness precheck	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:23:40.5295942Z Turn off this advice by setting config variable advice.detachedHead to false
+Factory runner readiness precheck	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:23:40.5296558Z 
+Factory runner readiness precheck	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:23:40.5296919Z HEAD is now at 5dcc037 Merge ff8331a70d86e600c6d23dd4c9c664320a656dfe into 934531e2e9e8fd0c3c97e48527d545ca3476eb5e
+Factory runner readiness precheck	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:23:40.5340270Z ##[endgroup]
+Factory runner readiness precheck	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:23:40.5390836Z [command]/usr/bin/git log -1 --format=%H
+Factory runner readiness precheck	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:23:40.5420671Z 5dcc037abe0acf2d3261f6327a31a474adde5e1a
+Factory runner readiness precheck	Run oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6	﻿2026-10-16T04:23:40.7413388Z ##[group]Run oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6
+Factory runner readiness precheck	Run oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6	2026-10-16T04:23:40.7413816Z with:
+Factory runner readiness precheck	Run oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6	2026-10-16T04:23:40.7414029Z   bun-version-file: .bun-version
+Factory runner readiness precheck	Run oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6	2026-10-16T04:23:40.7414286Z   no-cache: false
+Factory runner readiness precheck	Run oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6	2026-10-16T04:23:40.7416658Z   token: ***
+Factory runner readiness precheck	Run oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6	2026-10-16T04:23:40.7416855Z env:
+Factory runner readiness precheck	Run oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6	2026-10-16T04:23:40.7417253Z   BUN_FEATURE_FLAG_DISABLE_SQL_AUTO_PIPELINING: 1
+Factory runner readiness precheck	Run oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6	2026-10-16T04:23:40.7417594Z   BUN_RUNTIME_TRANSPILER_CACHE_PATH: 0
+Factory runner readiness precheck	Run oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6	2026-10-16T04:23:40.7417857Z ##[endgroup]
+Factory runner readiness precheck	Run oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6	2026-10-16T04:23:40.9088598Z Obtained version 1.4.2 from .bun-version
+Factory runner readiness precheck	Run oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6	2026-10-16T04:23:40.9981361Z Cache hit for: bun-gmoqYqdUbaYsI0KujeXt7Zg/p0I=
+Factory runner readiness precheck	Run oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6	2026-10-16T04:23:41.2739889Z Received 35684134 of 35684134 (100.0%), 148.6 MBs/sec
+Factory runner readiness precheck	Run oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6	2026-10-16T04:23:41.2740563Z Cache Size: ~34 MB (35684134 B)
+Factory runner readiness precheck	Run oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6	2026-10-16T04:23:41.2777307Z [command]/usr/bin/tar -xf /home/runner/work/_temp/b68d0924-13f2-4670-969d-e52b42a00182/cache.tzst -P -C /home/runner/work/EZHarness/EZHarness --use-compress-program unzstd
+Factory runner readiness precheck	Run oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6	2026-10-16T04:23:41.4237726Z Cache restored successfully
+Factory runner readiness precheck	Run oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6	2026-10-16T04:23:41.4262610Z [command]/home/runner/.bun/bin/bun --revision
+Factory runner readiness precheck	Run oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6	2026-10-16T04:23:41.4312774Z 1.4.2+744846f84
+Factory runner readiness precheck	Run oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6	2026-10-16T04:23:41.4330190Z Using a cached version of Bun: 1.4.2+744846f84
+Factory runner readiness precheck	Require online real and GPU runners before self-hosted jobs queue	﻿2026-10-16T04:23:41.5635212Z ##[group]Run bun scripts/check-factory-runners.ts
+Factory runner readiness precheck	Require online real and GPU runners before self-hosted jobs queue	2026-10-16T04:23:41.5635709Z ^[[36;1mbun scripts/check-factory-runners.ts^[[0m
+Factory runner readiness precheck	Require online real and GPU runners before self-hosted jobs queue	2026-10-16T04:23:41.5926327Z shell: /usr/bin/bash -e {0}
+Factory runner readiness precheck	Require online real and GPU runners before self-hosted jobs queue	2026-10-16T04:23:41.5926637Z env:
+Factory runner readiness precheck	Require online real and GPU runners before self-hosted jobs queue	2026-10-16T04:23:41.5926905Z   BUN_FEATURE_FLAG_DISABLE_SQL_AUTO_PIPELINING: 1
+Factory runner readiness precheck	Require online real and GPU runners before self-hosted jobs queue	2026-10-16T04:23:41.5927834Z   BUN_RUNTIME_TRANSPILER_CACHE_PATH: 0
+Factory runner readiness precheck	Require online real and GPU runners before self-hosted jobs queue	2026-10-16T04:23:41.5928467Z   FACTORY_RUNNER_READ_TOKEN: ***
+Factory runner readiness precheck	Require online real and GPU runners before self-hosted jobs queue	2026-10-16T04:23:41.5928768Z   FACTORY_TEST_TENANT_COUNT: 10
+Factory runner readiness precheck	Require online real and GPU runners before self-hosted jobs queue	2026-10-16T04:23:41.5929035Z ##[endgroup]
+Factory runner readiness precheck	Require online real and GPU runners before self-hosted jobs queue	2026-10-16T04:23:41.9745979Z Factory runner readiness: ezcorp-org/EZHarness
+Factory runner readiness precheck	Require online real and GPU runners before self-hosted jobs queue	2026-10-16T04:23:41.9746693Z test tenant count: 10
+Factory runner readiness precheck	Require online real and GPU runners before self-hosted jobs queue	2026-10-16T04:23:41.9747680Z registered runners (1): nixos-amd-factory-gpu:online[Linux,X64,factory-gpu,self-hosted]
+Factory runner readiness precheck	Require online real and GPU runners before self-hosted jobs queue	2026-10-16T04:23:41.9748653Z missing (1): no online runner has required label 'factory-real'
+Factory runner readiness precheck	Require online real and GPU runners before self-hosted jobs queue	2026-10-16T04:23:41.9782031Z ##[error]Process completed with exit code 1.
+Factory runner readiness precheck	Post Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	﻿2026-10-16T04:23:42.3217621Z Post job cleanup.
+Factory runner readiness precheck	Post Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:23:42.4064997Z [command]/usr/bin/git version
+Factory runner readiness precheck	Post Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:23:42.4109781Z git version 2.55.0
+Factory runner readiness precheck	Post Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:23:42.4181540Z Temporarily overriding HOME='/home/runner/work/_temp/bba73899-3b6e-4ead-a274-653ffeb13cde' before making global git config changes
+Factory runner readiness precheck	Post Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:23:42.4182900Z Adding repository directory to the temporary git global config as a safe directory
+Factory runner readiness precheck	Post Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:23:42.4187622Z [command]/usr/bin/git config --global --add safe.directory /home/runner/work/EZHarness/EZHarness
+Factory runner readiness precheck	Post Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:23:42.4223181Z Removing SSH command configuration
+Factory runner readiness precheck	Post Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:23:42.4230643Z [command]/usr/bin/git config --local --name-only --get-regexp core\.sshCommand
+Factory runner readiness precheck	Post Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:23:42.4273040Z [command]/usr/bin/git submodule foreach --recursive sh -c "git config --local --name-only --get-regexp 'core\.sshCommand' && git config --local --unset-all 'core.sshCommand' || :"
+Factory runner readiness precheck	Post Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:23:42.4537521Z Removing HTTP extra header
+Factory runner readiness precheck	Post Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:23:42.4544490Z [command]/usr/bin/git config --local --name-only --get-regexp http\.https\:\/\/github\.com\/\.extraheader
+Factory runner readiness precheck	Post Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:23:42.4585443Z [command]/usr/bin/git submodule foreach --recursive sh -c "git config --local --name-only --get-regexp 'http\.https\:\/\/github\.com\/\.extraheader' && git config --local --unset-all 'http.https://github.com/.extraheader' || :"
+Factory runner readiness precheck	Post Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:23:42.4860313Z Removing includeIf entries pointing to credentials config files
+Factory runner readiness precheck	Post Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:23:42.4867518Z [command]/usr/bin/git config --local --name-only --get-regexp ^includeIf\.gitdir:
+Factory runner readiness precheck	Post Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:23:42.4904107Z includeif.gitdir:/home/runner/work/EZHarness/EZHarness/.git.path
+Factory runner readiness precheck	Post Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:23:42.4905203Z includeif.gitdir:/home/runner/work/EZHarness/EZHarness/.git/worktrees/*.path
+Factory runner readiness precheck	Post Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:23:42.4906284Z includeif.gitdir:/github/workspace/.git.path
+Factory runner readiness precheck	Post Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:23:42.4907485Z includeif.gitdir:/github/workspace/.git/worktrees/*.path
+Factory runner readiness precheck	Post Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:23:42.4914494Z [command]/usr/bin/git config --local --get-all includeif.gitdir:/home/runner/work/EZHarness/EZHarness/.git.path
+Factory runner readiness precheck	Post Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:23:42.4944323Z /home/runner/work/_temp/git-credentials-cfa26b7f-ad19-44b9-b2de-0963fe489603.config
+Factory runner readiness precheck	Post Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:23:42.4955166Z [command]/usr/bin/git config --local --unset includeif.gitdir:/home/runner/work/EZHarness/EZHarness/.git.path \/home\/runner\/work\/_temp\/git\-credentials\-cfa26b7f\-ad19\-44b9\-b2de\-0963fe489603\.config
+Factory runner readiness precheck	Post Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:23:42.4999488Z [command]/usr/bin/git config --local --get-all includeif.gitdir:/home/runner/work/EZHarness/EZHarness/.git/worktrees/*.path
+Factory runner readiness precheck	Post Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:23:42.5036248Z /home/runner/work/_temp/git-credentials-cfa26b7f-ad19-44b9-b2de-0963fe489603.config
+Factory runner readiness precheck	Post Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:23:42.5048428Z [command]/usr/bin/git config --local --unset includeif.gitdir:/home/runner/work/EZHarness/EZHarness/.git/worktrees/*.path \/home\/runner\/work\/_temp\/git\-credentials\-cfa26b7f\-ad19\-44b9\-b2de\-0963fe489603\.config
+Factory runner readiness precheck	Post Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:23:42.5089693Z [command]/usr/bin/git config --local --get-all includeif.gitdir:/github/workspace/.git.path
+Factory runner readiness precheck	Post Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:23:42.5118397Z /github/runner_temp/git-credentials-cfa26b7f-ad19-44b9-b2de-0963fe489603.config
+Factory runner readiness precheck	Post Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:23:42.5129561Z [command]/usr/bin/git config --local --unset includeif.gitdir:/github/workspace/.git.path \/github\/runner_temp\/git\-credentials\-cfa26b7f\-ad19\-44b9\-b2de\-0963fe489603\.config
+Factory runner readiness precheck	Post Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:23:42.5168614Z [command]/usr/bin/git config --local --get-all includeif.gitdir:/github/workspace/.git/worktrees/*.path
+Factory runner readiness precheck	Post Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:23:42.5195476Z /github/runner_temp/git-credentials-cfa26b7f-ad19-44b9-b2de-0963fe489603.config
+Factory runner readiness precheck	Post Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:23:42.5203413Z [command]/usr/bin/git config --local --unset includeif.gitdir:/github/workspace/.git/worktrees/*.path \/github\/runner_temp\/git\-credentials\-cfa26b7f\-ad19\-44b9\-b2de\-0963fe489603\.config
+Factory runner readiness precheck	Post Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:23:42.5243487Z [command]/usr/bin/git submodule foreach --recursive git config --local --show-origin --name-only --get-regexp remote.origin.url
+Factory runner readiness precheck	Post Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:23:42.5504547Z Removing credentials config '/home/runner/work/_temp/git-credentials-cfa26b7f-ad19-44b9-b2de-0963fe489603.config'
+Factory runner readiness precheck	Complete job	﻿2026-10-16T04:23:42.5668405Z Cleaning up orphan processes

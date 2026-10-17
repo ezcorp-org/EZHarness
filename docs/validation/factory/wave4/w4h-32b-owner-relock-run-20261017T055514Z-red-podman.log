@@ -1,0 +1,31 @@
+bun test v1.4.2 (744846f84)
+
+src/factory/s3-release-adapter/package.podman.integration.test.ts:
+13 |   const { result, lock } = await buildS3ReleaseAdapter();
+14 |   // Checked on its own, apart from the lock: a helper that stopped refusing a failed build cannot hide one here.
+15 |   expect(result.state).toBe("succeeded");
+16 |   expect(result.imageDigest).toBe(DEFAULT_IMAGE);
+17 |   expect(S3_RELEASE_ADAPTER_LOCK.image).toBe(DEFAULT_IMAGE);
+18 |   expect(lock).toEqual(S3_RELEASE_ADAPTER_LOCK);
+                    ^
+error: expect(received).toEqual(expected)
+
+@@ -1,5 +1,5 @@
+  {
+-   "artifactDigest": "sha256:54dcd1fd33774934dc1a5a2ec4d4adb19daa059b355856f168d6ee1468d8f0bc",
++   "artifactDigest": "sha256:04a33827f5aad8a0e3ad36feeb39c62f356a5d0f2a4b71da6948d7bc1323d147",
+    "image": "docker.io/oven/bun@sha256:9114c058aeae42162ee16dd5084b95fe9473970bb6bcb5b232ab1630f0546895",
+-   "sdkDigest": "sha256:f3c4fba229fcaed6c10fb60f79785e566aaae8b26923bd832d7246b8f169dc26",
++   "sdkDigest": "sha256:a8c4f87236d4cbc8225d453650e7bc6786a8d329918d518ad68ccecf7deeb480",
+    "sourceDigest": "sha256:d982310251572b9b600532a38fcc169df500d4d8031e70d33301338e94368f45",
+
+- Expected  - 2
++ Received  + 2
+
+      at <anonymous> (/home/dev/work/EZCorp/EZHarness/.worktrees/w4h-32b/src/factory/s3-release-adapter/package.podman.integration.test.ts:18:16)
+(fail) the pinned image builds the locked source into the artifact the SDK names [6746.64ms]
+
+ 1 pass
+ 1 fail
+ 5 expect() calls
+Ran 2 tests across 1 file. [10.09s]

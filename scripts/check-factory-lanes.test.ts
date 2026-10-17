@@ -238,6 +238,9 @@ describe("C11 lane inventory CLI seam", () => {
 const USAGE = "usage: bun scripts/check-factory-lanes.ts [--lane-tests <job> | --lane-images <job> | --bound-tests]";
 const DEVICE_TEST = "packages/@ezcorp/extension-runner/tests/podman-devices.integration.test.ts";
 const JOURNEY_TEST = "src/factory/reference-data/journey.integration.test.ts";
+/** Bound to the production-proof lane (proof preview-isolation in scripts/production-proof-plan.ts), not to a factory lane. */
+const PREVIEW_PROOF_TESTS = ["src/__tests__/preview-dynamic-e2e.docker.test.ts", "src/__tests__/preview-uid-keystone.docker.test.ts"];
+const HOSTED_SUBTRACTION = [DEVICE_TEST, JOURNEY_TEST, ...PREVIEW_PROOF_TESTS].sort();
 const DATA_IMAGE_PIN = "src/factory/reference-data/image/pinned.json";
 const SHARED_GPU_TESTS = [
   "packages/@ezcorp/extension-runner/tests/podman.integration.test.ts",
@@ -264,7 +267,8 @@ function hostedSet(script: string): { exitCode: number; files: string[]; stderr:
 
 describe("lane manifest: one list names the lane-bound tests", () => {
   test("the device test is bound to the factory-gpu lane and the data journey to a factory-real lane", () => {
-    expect(laneBoundTestFiles()).toEqual([DEVICE_TEST, JOURNEY_TEST]);
+    expect(laneBoundTestFiles()).toEqual(HOSTED_SUBTRACTION);
+    expect(laneBoundTestFiles(FACTORY_LANES, [])).toEqual([DEVICE_TEST, JOURNEY_TEST]);
     const owner = (file: string) => FACTORY_LANES.find((entry) => entry.boundTests.includes(file))!;
     expect(owner(DEVICE_TEST).job).toBe("factory-isolation");
     expect(owner(DEVICE_TEST).runnerLabels).toEqual(["factory-gpu"]);
@@ -356,7 +360,7 @@ describe("lane selection: the lane job runs the manifest", () => {
     expect(lanes.output).toEqual([[...SHARED_GPU_TESTS, DEVICE_TEST].join("\n")]);
     const bound = capture();
     expect(await factoryLaneMain(["--bound-tests"], { log: bound.log })).toBe(0);
-    expect(bound.output).toEqual([`${DEVICE_TEST}\n${JOURNEY_TEST}`]);
+    expect(bound.output).toEqual([HOSTED_SUBTRACTION.join("\n")]);
     const images = capture();
     expect(await factoryLaneMain(["--lane-images", "factory-deployment-operations"], { log: images.log })).toBe(0);
     expect(images.output).toEqual(laneRequiredImages("factory-deployment-operations"));
@@ -417,7 +421,8 @@ describe("hosted selection: no shard selects a lane-bound test", () => {
   test("the bash library reads the same manifest", () => {
     const bound = hostedSet("lane_bound_test_files");
     expect(bound.exitCode).toBe(0);
-    expect(bound.files).toEqual(laneBoundTestFiles());
+    // bash sorts by locale, JavaScript by code unit: the contract is the set.
+    expect([...bound.files].sort()).toEqual(laneBoundTestFiles());
   });
 
   test("P, C and the residual set hold no bound test, and keep the shared lane tests", () => {
@@ -464,7 +469,7 @@ describe("the manifest lookup runs the pinned Bun and stops its caller when it f
       });
       expect(result.exitCode).toBe(0);
       const lines = result.stdout.toString().trim().split("\n");
-      expect(lines.slice(0, -1)).toEqual(laneBoundTestFiles());
+      expect(lines.slice(0, -1).sort()).toEqual(laneBoundTestFiles());
       expect(Number(lines.at(-1))).toBeGreaterThan(1000);
       expect(existsSync(join(root, "calls"))).toBe(false);
     } finally {

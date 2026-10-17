@@ -1,0 +1,73 @@
+W4H-33b - the five hosted defects of PR 341 ci 38974581371 (owner w4h-33)
+Branch wp/w4h-33b-hosted-fixes from 8fb4474e9; worktree .worktrees/w4h-33b. Frozen head 31ce24621.
+Validator names: D1 ai-kit bundle build, D2 = F1, D3 = F2, D4 = F3, D5 fixture seed.
+Commits (archy noreply author and committer; normal hook, each hook green; one per finding):
+  097850d0e F1/D2 test(lanes): price-chart release suite routed to the prepared host lanes
+  d7a5cf534 F3/D4 fix(proof): preview-isolation container with --log-driver=none
+  27606e6a5 F2/D3 fix(mutation): $server names the repository src/ inside Stryker's sandbox
+  b4fa0d12b D1    test(ai-kit): deployed-preconditions marked host integration; sealed-reference rule; ai-kit source lock
+  31ce24621 D5    fix(fixtures): seeds make test@test.example; account-source address rule; login pair case; file-organizer lock
+No lock launch. No repo-wide typecheck. Single-file runs only.
+
+INVENTORY (file, cause, hosted job script reproduced with, decision)
+D1 packages/@ezcorp/ai-kit/test/unit/deployed-preconditions.test.ts -> six production lanes.
+   Cause: it runs bun test ./test/e2e/<suite>.test.ts as a child; the release snapshot (scripts/migrate-extension-v4.ts)
+   leaves out every test with the host-integration marker on line 1 (all test/e2e suites), and the runner runs every
+   sealed test as a feature test (extension-runner podman.ts runFeatureTests) -> "had no matches" -> build_failed.
+   Reproduced with: the snapshot from scripts/migrate-extension-v4.ts written to a temp folder, and the runner's
+   feature-test command (bun test --config=/dev/null ./<test> --timeout 30000 --bail) outside the container
+   (bin/d1-repro.sh, bin/d1-snapshot-repro.ts): logs/d1-repro-8fb4474e9.log has the hosted message.
+   Decision: the file gets the marker (it drives host-integration suites); aikit_leg_files (plain find) still runs it.
+   Rule: src/__tests__/first-party-sealed-test-references.test.ts (no sealed test names a left-out file, templates too).
+F1/D2 web/src/__tests__/price-chart-stream-bridge.test.ts -> "Web tests (bun-leg orphans)" 2 fail "(unnamed)".
+   Cause: since 6e6506ba5 its beforeAll builds a release with the Podman runner; that job does not install the runner.
+   Reproduced with: scripts/test-web.sh's per-file form (cd web; bun test --timeout 30000 ./file) and a podman stand-in
+   that exits 127 (bin/web-lane.sh): logs/f1-repro-nopodman-8fb4474e9.log, 0 pass 2 fail "(unnamed)".
+   Decision: web_host_files, as hub-isolated-action. CORRECTION (2026-10-16): that set feeds the host pool of
+   scripts/test-coverage.sh, which runs in the "Coverage shard N" jobs (they run setup-extension-runner-ci.sh --install);
+   my earlier messages named "Coverage extras (legs)", which is wrong. The commit message names no job.
+F2/D3 web/src/lib/chat/page-handlers/send-message.ts -> "Mutation (changed files)" 21 mutants with no test run.
+   Cause: in web/.stryker-tmp/sandbox-*, $server = web/.stryker-tmp/src; send-message.test.ts cannot load
+   (model-selector-logic.ts imports $server/runtime/routing/default-selection). Pre-existing; the range made it a changed file.
+   Reproduced with: web/vitest.stryker.config.ts (the config scripts/mutation.ts gives Stryker) loaded from a
+   sandbox-shaped folder (the red unit test). A Stryker run itself: freeze leg in the lock, on team-lead's word.
+   Decision: vitest.stryker.config.ts maps $server to the real src/ above tempDirName. No threshold change.
+F3/D4 scripts/verify-shipping-preview-isolation.sh -> "Production proof (namespace)" "conmon failed: exit status 1".
+   Cause: the job installs the pinned static conmon v2.2.1 without journald (scripts/lib/extension-runner-conmon.sh);
+   Podman logs to journald by default.
+   Reproduced with: the script's podman run form, the same conmon release checked against the CI checksum via
+   "podman --conmon", alpine --rm --network=none: logs/f3-conmon-matrix.log (default exit 126 with the hosted error;
+   none and k8s-file exit 0 with output).
+   Decision: --log-driver=none, as the extension runner. Watch item, not changed: build-factory-image-guest.sh,
+   verify-extension-container.sh, verify-factory-local-gpu.sh run podman without a log driver; their jobs do not
+   install the pinned conmon today.
+D5 web/e2e/docker-auth-setup.ts login vs its seeds -> content proof 401 "Invalid credentials".
+   Cause: 2ddf43f8f moved the login to test@test.example in the test tree only; scripts/verify-production-image-lifecycle.sh
+   (setup and login) and scripts/seed-marketplace.ts (Compose seed) still made <a non-noreply address>.
+   Reproduced with: the pair case over web/e2e/docker-auth-setup.ts and scripts/verify-production-image-lifecycle.sh
+   (the hosted content job's setup script); the full search of the moved addresses (logs/d5-moved-old-addresses.txt,
+   logs/d5-files-with-old.txt; non-live hits are frozen docs/validation records, dated plans, and substring false hits).
+   A live login against the production image: a lock leg.
+   Decision: both seeds and the TEST-COVERAGE note move to test@test.example; FIXTURE_ACCOUNT_SOURCES (scripts, Compose,
+   deploy, workflows) joins the fixture-address rule; the login pair case. Lock regenerated for file-organizer.
+
+RED / GREEN / MUTANT (logs/)
+  F1/D2: red-f1-drift.log -> green-f1-drift.log -> mutant-f1-route-removed.log
+  F2/D3: red-f2-alias.log -> green-f2-alias.log -> mutant-f2-alias-removed.log
+  F3/D4: red-f3-preview.log -> green-f3-preview.log -> mutant-f3-logdriver-removed.log
+  D1:    red-d1-sealed.log (exactly the one file) -> green-d1-sealed.log, green-d1-preconditions-host.log,
+         d1-repro-fixed.log (the file is no longer in the snapshot) -> mutant-d1-marker-removed.log
+  D5:    red-d5-inventory.log (2 fail) -> green-d5-inventory.log (27 pass) -> mutant-d5-seed-reverted.log,
+         mutant-d5-lifecycle-reverted.log
+  Each mutant: bin/mutants.sh [f|d], restores the file byte for byte; every mutant exit 1 on its intended case.
+
+STATIC
+  identity-check files on the 14 changed files: clean (logs/identity-files.log).
+  gate-integrity BASE_REF=8fb4474e9: PASSED. BASE_REF=origin/main: exit 1 with finding lines byte-identical to the
+  same leg at 8fb4474e9; none names a W4H-33b file.
+  bundled-source-lock.test.ts: 3 pass after the two lock regenerations.
+
+FREEZE LEGS WAITING FOR THE LOCK (team-lead's word)
+  1. Stryker on send-message.ts (scripts/mutation.ts, scoped).
+  2. The isolated ai-kit release build (buildFirstPartyRelease("ai-kit") with the Podman runner).
+  3. Optional: price-chart-stream-bridge in its new host lane form with Podman.

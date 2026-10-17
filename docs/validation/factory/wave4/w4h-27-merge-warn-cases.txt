@@ -1,0 +1,22 @@
+a failed tenant names its failed step: the error's own, else the one its installation records, else none
+a command with any failed tenant fails through the channel, naming the tenant, step, and reason; a clean one only prints
+stop stops the installations newest first, then the host, then the platform; up is its reverse; both are idempotent
+a release declaration is accepted exactly when the block the deployer writes from it passes the startup parser
+with profiles, the installation's own S3 destination and the declared GitHub one resolve through the release reader; the token travels by path
+S3 always, GitHub only when declared; no profile, no release block
+stop stops both services and keeps every admission; start re-publishes the recorded state; a host serving nobody stays down
+stop keeps the containers and start brings them back, then waits ready; stop is idempotent and a never-applied installation has nothing to stop
+serving: the pool container runs and the supervisor unit is active; anything less is not serving
+stop stops the unit and the pool's containers, keeping them; a host never applied only checks its unit
+the orchestrator runs keep-id as the deployer's user, read-only, with the noexec /tmp, no new privileges, no capabilities, and the deployer's HOME
+every installation service gets the same isolation; each its own HOME
+each isolation key maps to its flag; a writable root maps to none; keys that do not isolate are ignored
+a key the guard cannot apply, a variable it does not render, or a malformed list is a refusal, never a skipped flag
+no network, the shipped flags, the replay program and the committed history mounted read-only, the image's own node
+passes only when the image replays with its build-time bundle
+the replay program replays the committed history with this tree's build-time bundle
+runs only as the process entry, needs an image, and exits by the result
+ci.yml builds the factory image and runs the guard on it, bounded
+fails closed by name when the job, the build, the guard, the tag, the order, the setup or the bound drifts
+the reference S3 publication adapter names a placeholder digest, so the local fleet refuses it by name and declares no release profile
+an adapter with a real digest becomes the S3 release profile, and the fleet parser accepts it

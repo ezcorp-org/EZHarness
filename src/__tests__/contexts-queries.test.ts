@@ -70,9 +70,9 @@ describe("contexts queries", () => {
     projectId = p.id;
     const p2 = await createProject({ name: "beta", path: "/tmp/beta" });
     otherProjectId = p2.id;
-    const u = await createUser({ email: "owner@test.com", passwordHash: "h", name: "Owner" });
+    const u = await createUser({ email: "owner@test.example", passwordHash: "h", name: "Owner" });
     userId = u.id;
-    const u2 = await createUser({ email: "other@test.com", passwordHash: "h", name: "Other" });
+    const u2 = await createUser({ email: "other@test.example", passwordHash: "h", name: "Other" });
     otherUserId = u2.id;
     conversationId = await makeConversation(projectId, userId);
   });

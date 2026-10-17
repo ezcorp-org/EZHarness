@@ -45,7 +45,7 @@ const SOURCE_CONV_ID = "conv-qc-source";
 async function seedBase() {
   const db = getTestDb();
   await db.insert(users).values({
-    id: USER_ID, email: "qc@x.com", passwordHash: "x", name: "QC", role: "member",
+    id: USER_ID, email: "qc@x.example", passwordHash: "x", name: "QC", role: "member",
   } as any);
   await db.insert(projects).values({ id: PROJECT_ID, name: "p", path: "/tmp/p" } as any);
   await db.insert(extensions).values({

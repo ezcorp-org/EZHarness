@@ -1,0 +1,607 @@
+Production proof (resources)	Set up job	﻿2026-10-16T04:28:36.2115771Z Current runner version: '2.337.0'
+Production proof (resources)	Set up job	2026-10-16T04:28:36.2135195Z ##[group]Runner Image Provisioner
+Production proof (resources)	Set up job	2026-10-16T04:28:36.2135979Z Hosted Compute Agent
+Production proof (resources)	Set up job	2026-10-16T04:28:36.2136582Z Version: 20261012.601
+Production proof (resources)	Set up job	2026-10-16T04:28:36.2137145Z Commit: f3dc54e1fb89da6852db922499a0233137369e1d
+Production proof (resources)	Set up job	2026-10-16T04:28:36.2137771Z Build Date: 2026-10-12T17:48:21Z
+Production proof (resources)	Set up job	2026-10-16T04:28:36.2138359Z Worker ID: {9cb694ae-a774-4359-85ef-b024bff92a9b}
+Production proof (resources)	Set up job	2026-10-16T04:28:36.2138944Z Region: centralus
+Production proof (resources)	Set up job	2026-10-16T04:28:36.2139562Z Cloud: Azure
+Production proof (resources)	Set up job	2026-10-16T04:28:36.2140056Z ##[endgroup]
+Production proof (resources)	Set up job	2026-10-16T04:28:36.2141169Z ##[group]Operating System
+Production proof (resources)	Set up job	2026-10-16T04:28:36.2141725Z Ubuntu
+Production proof (resources)	Set up job	2026-10-16T04:28:36.2142169Z 24.04.5
+Production proof (resources)	Set up job	2026-10-16T04:28:36.2142582Z LTS
+Production proof (resources)	Set up job	2026-10-16T04:28:36.2143057Z ##[endgroup]
+Production proof (resources)	Set up job	2026-10-16T04:28:36.2143537Z ##[group]Runner Image
+Production proof (resources)	Set up job	2026-10-16T04:28:36.2144040Z Image: ubuntu-24.04
+Production proof (resources)	Set up job	2026-10-16T04:28:36.2144523Z Version: 20261012.334.1
+Production proof (resources)	Set up job	2026-10-16T04:28:36.2145394Z Included Software: https://github.com/actions/runner-images/blob/ubuntu24/20261012.334/images/ubuntu/Ubuntu2404-Readme.md
+Production proof (resources)	Set up job	2026-10-16T04:28:36.2146850Z Image Release: https://github.com/actions/runner-images/releases/tag/ubuntu24%2F20261012.334
+Production proof (resources)	Set up job	2026-10-16T04:28:36.2147636Z ##[endgroup]
+Production proof (resources)	Set up job	2026-10-16T04:28:36.2148572Z ##[group]GITHUB_TOKEN Permissions
+Production proof (resources)	Set up job	2026-10-16T04:28:36.2150378Z Contents: read
+Production proof (resources)	Set up job	2026-10-16T04:28:36.2150906Z Metadata: read
+Production proof (resources)	Set up job	2026-10-16T04:28:36.2151371Z ##[endgroup]
+Production proof (resources)	Set up job	2026-10-16T04:28:36.2153020Z Secret source: Actions
+Production proof (resources)	Set up job	2026-10-16T04:28:36.2153802Z Cache mode: write
+Production proof (resources)	Set up job	2026-10-16T04:28:36.2154398Z Prepare workflow directory
+Production proof (resources)	Set up job	2026-10-16T04:28:36.3367521Z Prepare all required actions
+Production proof (resources)	Set up job	2026-10-16T04:28:36.3410650Z Getting action download info
+Production proof (resources)	Set up job	2026-10-16T04:28:36.5488202Z Download action repository 'actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1' (SHA:3d3c42e5aac5ba805825da76410c181273ba90b1)
+Production proof (resources)	Set up job	2026-10-16T04:28:36.6737191Z Download action repository 'actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c' (SHA:3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c)
+Production proof (resources)	Set up job	2026-10-16T04:28:37.1301454Z Download action repository 'actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a' (SHA:043fb46d1a93c77aae656e7c1c64a875d1fc6a0a)
+Production proof (resources)	Set up job	2026-10-16T04:28:37.5496188Z Complete job name: Production proof (resources)
+Production proof (resources)	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	﻿2026-10-16T04:28:37.8827422Z ##[group]Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+Production proof (resources)	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:28:37.8828914Z with:
+Production proof (resources)	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:28:37.8829548Z   repository: ezcorp-org/EZHarness
+Production proof (resources)	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:28:37.8839391Z   token: ***
+Production proof (resources)	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:28:37.8839869Z   ssh-strict: true
+Production proof (resources)	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:28:37.8840349Z   ssh-user: git
+Production proof (resources)	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:28:37.8840791Z   persist-credentials: true
+Production proof (resources)	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:28:37.8841253Z   clean: true
+Production proof (resources)	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:28:37.8841679Z   sparse-checkout-cone-mode: true
+Production proof (resources)	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:28:37.8842166Z   fetch-depth: 1
+Production proof (resources)	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:28:37.8842577Z   fetch-tags: false
+Production proof (resources)	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:28:37.8842997Z   show-progress: true
+Production proof (resources)	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:28:37.8843430Z   lfs: false
+Production proof (resources)	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:28:37.8843839Z   submodules: false
+Production proof (resources)	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:28:37.8844263Z   set-safe-directory: true
+Production proof (resources)	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:28:37.8844764Z   allow-unsafe-pr-checkout: false
+Production proof (resources)	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:28:37.8845463Z env:
+Production proof (resources)	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:28:37.8845918Z   BUN_FEATURE_FLAG_DISABLE_SQL_AUTO_PIPELINING: 1
+Production proof (resources)	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:28:37.8846517Z   BUN_RUNTIME_TRANSPILER_CACHE_PATH: 0
+Production proof (resources)	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:28:37.8847073Z ##[endgroup]
+Production proof (resources)	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:28:37.9709589Z Syncing repository: ezcorp-org/EZHarness
+Production proof (resources)	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:28:37.9711941Z ##[group]Getting Git version info
+Production proof (resources)	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:28:37.9712953Z Working directory is '/home/runner/work/EZHarness/EZHarness'
+Production proof (resources)	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:28:37.9714382Z [command]/usr/bin/git version
+Production proof (resources)	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:28:37.9752674Z git version 2.55.0
+Production proof (resources)	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:28:37.9768371Z ##[endgroup]
+Production proof (resources)	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:28:37.9777207Z Temporarily overriding HOME='/home/runner/work/_temp/3e214123-839c-40e4-9d34-8420474d41d0' before making global git config changes
+Production proof (resources)	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:28:37.9779326Z Adding repository directory to the temporary git global config as a safe directory
+Production proof (resources)	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:28:37.9782382Z [command]/usr/bin/git config --global --add safe.directory /home/runner/work/EZHarness/EZHarness
+Production proof (resources)	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:28:37.9824988Z Deleting the contents of '/home/runner/work/EZHarness/EZHarness'
+Production proof (resources)	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:28:37.9827693Z ##[group]Determining repository object format
+Production proof (resources)	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:28:37.9829423Z ##[endgroup]
+Production proof (resources)	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:28:37.9830740Z ##[group]Initializing the repository
+Production proof (resources)	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:28:37.9833976Z [command]/usr/bin/git init /home/runner/work/EZHarness/EZHarness
+Production proof (resources)	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:28:37.9939908Z hint: Using 'master' as the name for the initial branch. This default branch name
+Production proof (resources)	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:28:37.9941498Z hint: will change to "main" in Git 3.0. To configure the initial branch name
+Production proof (resources)	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:28:37.9942845Z hint: to use in all of your new repositories, which will suppress this warning,
+Production proof (resources)	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:28:37.9943840Z hint: call:
+Production proof (resources)	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:28:37.9944416Z hint:
+Production proof (resources)	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:28:37.9944911Z hint: 	git config --global init.defaultBranch <name>
+Production proof (resources)	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:28:37.9945717Z hint:
+Production proof (resources)	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:28:37.9946281Z hint: Names commonly chosen instead of 'master' are 'main', 'trunk' and
+Production proof (resources)	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:28:37.9947194Z hint: 'development'. The just-created branch can be renamed via this command:
+Production proof (resources)	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:28:37.9947894Z hint:
+Production proof (resources)	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:28:37.9948301Z hint: 	git branch -m <name>
+Production proof (resources)	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:28:37.9948751Z hint:
+Production proof (resources)	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:28:37.9950026Z hint: Disable this message with "git config set advice.defaultBranchName false"
+Production proof (resources)	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:28:37.9951088Z Initialized empty Git repository in /home/runner/work/EZHarness/EZHarness/.git/
+Production proof (resources)	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:28:37.9952666Z [command]/usr/bin/git remote add origin https://github.com/ezcorp-org/EZHarness
+Production proof (resources)	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:28:37.9995482Z ##[endgroup]
+Production proof (resources)	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:28:37.9996262Z ##[group]Disabling automatic garbage collection
+Production proof (resources)	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:28:37.9999299Z [command]/usr/bin/git config --local gc.auto 0
+Production proof (resources)	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:28:38.0025257Z ##[endgroup]
+Production proof (resources)	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:28:38.0026509Z ##[group]Setting up auth
+Production proof (resources)	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:28:38.0027212Z Removing SSH command configuration
+Production proof (resources)	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:28:38.0030664Z [command]/usr/bin/git config --local --name-only --get-regexp core\.sshCommand
+Production proof (resources)	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:28:38.0055685Z [command]/usr/bin/git submodule foreach --recursive sh -c "git config --local --name-only --get-regexp 'core\.sshCommand' && git config --local --unset-all 'core.sshCommand' || :"
+Production proof (resources)	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:28:38.0361651Z Removing HTTP extra header
+Production proof (resources)	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:28:38.0365179Z [command]/usr/bin/git config --local --name-only --get-regexp http\.https\:\/\/github\.com\/\.extraheader
+Production proof (resources)	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:28:38.0389387Z [command]/usr/bin/git submodule foreach --recursive sh -c "git config --local --name-only --get-regexp 'http\.https\:\/\/github\.com\/\.extraheader' && git config --local --unset-all 'http.https://github.com/.extraheader' || :"
+Production proof (resources)	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:28:38.0558430Z Removing includeIf entries pointing to credentials config files
+Production proof (resources)	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:28:38.0562019Z [command]/usr/bin/git config --local --name-only --get-regexp ^includeIf\.gitdir:
+Production proof (resources)	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:28:38.0585149Z [command]/usr/bin/git submodule foreach --recursive git config --local --show-origin --name-only --get-regexp remote.origin.url
+Production proof (resources)	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:28:38.0740924Z [command]/usr/bin/git config --file /home/runner/work/_temp/git-credentials-e75e9ec6-5508-4b31-9039-7a2b9843a2cb.config http.https://github.com/.extraheader AUTHORIZATION: basic ***
+Production proof (resources)	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:28:38.0767797Z [command]/usr/bin/git config --local includeIf.gitdir:/home/runner/work/EZHarness/EZHarness/.git.path /home/runner/work/_temp/git-credentials-e75e9ec6-5508-4b31-9039-7a2b9843a2cb.config
+Production proof (resources)	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:28:38.0800650Z [command]/usr/bin/git config --local includeIf.gitdir:/home/runner/work/EZHarness/EZHarness/.git/worktrees/*.path /home/runner/work/_temp/git-credentials-e75e9ec6-5508-4b31-9039-7a2b9843a2cb.config
+Production proof (resources)	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:28:38.0828920Z [command]/usr/bin/git config --local includeIf.gitdir:/github/workspace/.git.path /github/runner_temp/git-credentials-e75e9ec6-5508-4b31-9039-7a2b9843a2cb.config
+Production proof (resources)	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:28:38.0853012Z [command]/usr/bin/git config --local includeIf.gitdir:/github/workspace/.git/worktrees/*.path /github/runner_temp/git-credentials-e75e9ec6-5508-4b31-9039-7a2b9843a2cb.config
+Production proof (resources)	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:28:38.1033519Z ##[endgroup]
+Production proof (resources)	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:28:38.1034725Z ##[group]Fetching the repository
+Production proof (resources)	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:28:38.1039927Z [command]/usr/bin/git -c protocol.version=2 fetch --no-tags --prune --no-recurse-submodules --depth=1 origin +5dcc037abe0acf2d3261f6327a31a474adde5e1a:refs/remotes/pull/341/merge
+Production proof (resources)	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:28:43.8359694Z From https://github.com/ezcorp-org/EZHarness
+Production proof (resources)	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:28:43.8361465Z  * [new ref]         5dcc037abe0acf2d3261f6327a31a474adde5e1a -> pull/341/merge
+Production proof (resources)	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:28:43.8363487Z ##[endgroup]
+Production proof (resources)	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:28:43.8364409Z ##[group]Determining the checkout info
+Production proof (resources)	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:28:43.8365280Z ##[endgroup]
+Production proof (resources)	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:28:43.8370172Z [command]/usr/bin/git sparse-checkout disable
+Production proof (resources)	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:28:43.8413856Z [command]/usr/bin/git config --local --unset-all extensions.worktreeConfig
+Production proof (resources)	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:28:43.8439777Z ##[group]Checking out the ref
+Production proof (resources)	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:28:43.8443286Z [command]/usr/bin/git checkout --progress --force refs/remotes/pull/341/merge
+Production proof (resources)	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:28:44.8656578Z Updating files:  33% (5789/17084)
+Production proof (resources)	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:28:44.8876753Z Updating files:  34% (5809/17084)
+Production proof (resources)	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:28:44.8990956Z Updating files:  35% (5980/17084)
+Production proof (resources)	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:28:44.9037448Z Updating files:  36% (6151/17084)
+Production proof (resources)	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:28:44.9106110Z Updating files:  37% (6322/17084)
+Production proof (resources)	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:28:44.9171217Z Updating files:  38% (6492/17084)
+Production proof (resources)	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:28:44.9230990Z Updating files:  39% (6663/17084)
+Production proof (resources)	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:28:44.9300772Z Updating files:  40% (6834/17084)
+Production proof (resources)	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:28:44.9357098Z Updating files:  41% (7005/17084)
+Production proof (resources)	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:28:44.9391270Z Updating files:  42% (7176/17084)
+Production proof (resources)	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:28:44.9424069Z Updating files:  43% (7347/17084)
+Production proof (resources)	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:28:44.9468870Z Updating files:  44% (7517/17084)
+Production proof (resources)	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:28:44.9505635Z Updating files:  45% (7688/17084)
+Production proof (resources)	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:28:44.9549042Z Updating files:  46% (7859/17084)
+Production proof (resources)	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:28:44.9589040Z Updating files:  47% (8030/17084)
+Production proof (resources)	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:28:44.9627622Z Updating files:  48% (8201/17084)
+Production proof (resources)	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:28:44.9662171Z Updating files:  49% (8372/17084)
+Production proof (resources)	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:28:44.9720776Z Updating files:  50% (8542/17084)
+Production proof (resources)	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:28:44.9754090Z Updating files:  51% (8713/17084)
+Production proof (resources)	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:28:44.9808926Z Updating files:  52% (8884/17084)
+Production proof (resources)	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:28:44.9842896Z Updating files:  53% (9055/17084)
+Production proof (resources)	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:28:44.9871425Z Updating files:  54% (9226/17084)
+Production proof (resources)	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:28:44.9898544Z Updating files:  55% (9397/17084)
+Production proof (resources)	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:28:44.9926635Z Updating files:  56% (9568/17084)
+Production proof (resources)	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:28:44.9959751Z Updating files:  57% (9738/17084)
+Production proof (resources)	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:28:44.9992415Z Updating files:  58% (9909/17084)
+Production proof (resources)	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:28:45.0028616Z Updating files:  59% (10080/17084)
+Production proof (resources)	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:28:45.0086990Z Updating files:  60% (10251/17084)
+Production proof (resources)	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:28:45.0194088Z Updating files:  61% (10422/17084)
+Production proof (resources)	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:28:45.0274759Z Updating files:  62% (10593/17084)
+Production proof (resources)	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:28:45.0364164Z Updating files:  63% (10763/17084)
+Production proof (resources)	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:28:45.0438813Z Updating files:  64% (10934/17084)
+Production proof (resources)	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:28:45.0527023Z Updating files:  65% (11105/17084)
+Production proof (resources)	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:28:45.0609303Z Updating files:  66% (11276/17084)
+Production proof (resources)	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:28:45.0688245Z Updating files:  67% (11447/17084)
+Production proof (resources)	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:28:45.0777490Z Updating files:  68% (11618/17084)
+Production proof (resources)	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:28:45.0868120Z Updating files:  69% (11788/17084)
+Production proof (resources)	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:28:45.0964621Z Updating files:  70% (11959/17084)
+Production proof (resources)	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:28:45.1085896Z Updating files:  71% (12130/17084)
+Production proof (resources)	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:28:45.1176843Z Updating files:  72% (12301/17084)
+Production proof (resources)	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:28:45.1281703Z Updating files:  73% (12472/17084)
+Production proof (resources)	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:28:45.1371842Z Updating files:  74% (12643/17084)
+Production proof (resources)	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:28:45.1469589Z Updating files:  75% (12813/17084)
+Production proof (resources)	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:28:45.1569740Z Updating files:  76% (12984/17084)
+Production proof (resources)	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:28:45.1651269Z Updating files:  77% (13155/17084)
+Production proof (resources)	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:28:45.1765623Z Updating files:  78% (13326/17084)
+Production proof (resources)	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:28:45.1865826Z Updating files:  79% (13497/17084)
+Production proof (resources)	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:28:45.1964688Z Updating files:  80% (13668/17084)
+Production proof (resources)	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:28:45.2052309Z Updating files:  81% (13839/17084)
+Production proof (resources)	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:28:45.2151991Z Updating files:  82% (14009/17084)
+Production proof (resources)	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:28:45.2249431Z Updating files:  83% (14180/17084)
+Production proof (resources)	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:28:45.2347940Z Updating files:  84% (14351/17084)
+Production proof (resources)	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:28:45.2501169Z Updating files:  85% (14522/17084)
+Production proof (resources)	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:28:45.2577332Z Updating files:  86% (14693/17084)
+Production proof (resources)	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:28:45.2663996Z Updating files:  87% (14864/17084)
+Production proof (resources)	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:28:45.2744814Z Updating files:  88% (15034/17084)
+Production proof (resources)	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:28:45.2830059Z Updating files:  89% (15205/17084)
+Production proof (resources)	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:28:45.2904694Z Updating files:  90% (15376/17084)
+Production proof (resources)	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:28:45.2983546Z Updating files:  91% (15547/17084)
+Production proof (resources)	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:28:45.3066286Z Updating files:  92% (15718/17084)
+Production proof (resources)	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:28:45.3157767Z Updating files:  93% (15889/17084)
+Production proof (resources)	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:28:45.3239377Z Updating files:  94% (16059/17084)
+Production proof (resources)	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:28:45.3319776Z Updating files:  95% (16230/17084)
+Production proof (resources)	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:28:45.3386932Z Updating files:  96% (16401/17084)
+Production proof (resources)	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:28:45.3469287Z Updating files:  97% (16572/17084)
+Production proof (resources)	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:28:45.3543850Z Updating files:  98% (16743/17084)
+Production proof (resources)	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:28:45.3629938Z Updating files:  99% (16914/17084)
+Production proof (resources)	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:28:45.3630662Z Updating files: 100% (17084/17084)
+Production proof (resources)	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:28:45.3631359Z Updating files: 100% (17084/17084), done.
+Production proof (resources)	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:28:45.3778748Z Note: switching to 'refs/remotes/pull/341/merge'.
+Production proof (resources)	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:28:45.3779333Z 
+Production proof (resources)	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:28:45.3779662Z You are in 'detached HEAD' state. You can look around, make experimental
+Production proof (resources)	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:28:45.3780317Z changes and commit them, and you can discard any commits you make in this
+Production proof (resources)	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:28:45.3780759Z state without impacting any branches by switching back to a branch.
+Production proof (resources)	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:28:45.3781012Z 
+Production proof (resources)	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:28:45.3781182Z If you want to create a new branch to retain commits you create, you may
+Production proof (resources)	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:28:45.3781580Z do so (now or later) by using -c with the switch command. Example:
+Production proof (resources)	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:28:45.3781813Z 
+Production proof (resources)	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:28:45.3781930Z   git switch -c <new-branch-name>
+Production proof (resources)	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:28:45.3782291Z 
+Production proof (resources)	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:28:45.3782444Z Or undo this operation with:
+Production proof (resources)	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:28:45.3782673Z 
+Production proof (resources)	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:28:45.3782796Z   git switch -
+Production proof (resources)	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:28:45.3782966Z 
+Production proof (resources)	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:28:45.3783250Z Turn off this advice by setting config variable advice.detachedHead to false
+Production proof (resources)	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:28:45.3783980Z 
+Production proof (resources)	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:28:45.3784397Z HEAD is now at 5dcc037 Merge ff8331a70d86e600c6d23dd4c9c664320a656dfe into 934531e2e9e8fd0c3c97e48527d545ca3476eb5e
+Production proof (resources)	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:28:45.3804591Z ##[endgroup]
+Production proof (resources)	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:28:45.3847532Z [command]/usr/bin/git log -1 --format=%H
+Production proof (resources)	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:28:45.3870896Z 5dcc037abe0acf2d3261f6327a31a474adde5e1a
+Production proof (resources)	Run ./.github/actions/setup	﻿2026-10-16T04:28:45.5092991Z Prepare all required actions
+Production proof (resources)	Run ./.github/actions/setup	2026-10-16T04:28:45.5093466Z Getting action download info
+Production proof (resources)	Run ./.github/actions/setup	2026-10-16T04:28:45.6189648Z Download action repository 'oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6' (SHA:0c5077e51419868618aeaa5fe8019c62421857d6)
+Production proof (resources)	Run ./.github/actions/setup	2026-10-16T04:28:45.9940001Z Download action repository 'actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9' (SHA:55cc8345863c7cc4c66a329aec7e433d2d1c52a9)
+Production proof (resources)	Run ./.github/actions/setup	2026-10-16T04:28:46.1998719Z ##[group]Run ./.github/actions/setup
+Production proof (resources)	Run ./.github/actions/setup	2026-10-16T04:28:46.1998986Z with:
+Production proof (resources)	Run ./.github/actions/setup	2026-10-16T04:28:46.1999409Z   web: false
+Production proof (resources)	Run ./.github/actions/setup	2026-10-16T04:28:46.1999601Z   playwright: false
+Production proof (resources)	Run ./.github/actions/setup	2026-10-16T04:28:46.1999794Z   sync: false
+Production proof (resources)	Run ./.github/actions/setup	2026-10-16T04:28:46.1999975Z env:
+Production proof (resources)	Run ./.github/actions/setup	2026-10-16T04:28:46.2000190Z   BUN_FEATURE_FLAG_DISABLE_SQL_AUTO_PIPELINING: 1
+Production proof (resources)	Run ./.github/actions/setup	2026-10-16T04:28:46.2000488Z   BUN_RUNTIME_TRANSPILER_CACHE_PATH: 0
+Production proof (resources)	Run ./.github/actions/setup	2026-10-16T04:28:46.2000744Z ##[endgroup]
+Production proof (resources)	Run ./.github/actions/setup	2026-10-16T04:28:46.2323275Z ##[start-action display=Isolate runtime configuration between Bun processes;id=__self.__run]
+Production proof (resources)	Run ./.github/actions/setup	2026-10-16T04:28:46.2436403Z ##[group]Run echo 'BUN_RUNTIME_TRANSPILER_CACHE_PATH=0' >> "$GITHUB_ENV"
+Production proof (resources)	Run ./.github/actions/setup	2026-10-16T04:28:46.2436905Z ^[[36;1mecho 'BUN_RUNTIME_TRANSPILER_CACHE_PATH=0' >> "$GITHUB_ENV"^[[0m
+Production proof (resources)	Run ./.github/actions/setup	2026-10-16T04:28:46.2618858Z shell: /usr/bin/bash --noprofile --norc -e -o pipefail {0}
+Production proof (resources)	Run ./.github/actions/setup	2026-10-16T04:28:46.2619302Z env:
+Production proof (resources)	Run ./.github/actions/setup	2026-10-16T04:28:46.2619529Z   BUN_FEATURE_FLAG_DISABLE_SQL_AUTO_PIPELINING: 1
+Production proof (resources)	Run ./.github/actions/setup	2026-10-16T04:28:46.2619924Z   BUN_RUNTIME_TRANSPILER_CACHE_PATH: 0
+Production proof (resources)	Run ./.github/actions/setup	2026-10-16T04:28:46.2620157Z ##[endgroup]
+Production proof (resources)	Run ./.github/actions/setup	2026-10-16T04:28:46.2706448Z ##[end-action id=__self.__run;outcome=success;conclusion=success;duration_ms=38]
+Production proof (resources)	Run ./.github/actions/setup	2026-10-16T04:28:46.2783213Z ##[start-action display=Run oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6;id=__self.__oven-sh_setup-bun]
+Production proof (resources)	Run ./.github/actions/setup	2026-10-16T04:28:46.3204488Z ##[group]Run oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6
+Production proof (resources)	Run ./.github/actions/setup	2026-10-16T04:28:46.3204806Z with:
+Production proof (resources)	Run ./.github/actions/setup	2026-10-16T04:28:46.3205001Z   bun-version-file: .bun-version
+Production proof (resources)	Run ./.github/actions/setup	2026-10-16T04:28:46.3205220Z   no-cache: false
+Production proof (resources)	Run ./.github/actions/setup	2026-10-16T04:28:46.3207111Z   token: ***
+Production proof (resources)	Run ./.github/actions/setup	2026-10-16T04:28:46.3207301Z env:
+Production proof (resources)	Run ./.github/actions/setup	2026-10-16T04:28:46.3207509Z   BUN_FEATURE_FLAG_DISABLE_SQL_AUTO_PIPELINING: 1
+Production proof (resources)	Run ./.github/actions/setup	2026-10-16T04:28:46.3207781Z   BUN_RUNTIME_TRANSPILER_CACHE_PATH: 0
+Production proof (resources)	Run ./.github/actions/setup	2026-10-16T04:28:46.3208010Z ##[endgroup]
+Production proof (resources)	Run ./.github/actions/setup	2026-10-16T04:28:46.4518480Z Obtained version 1.4.2 from .bun-version
+Production proof (resources)	Run ./.github/actions/setup	2026-10-16T04:28:46.5879862Z Cache hit for: bun-gmoqYqdUbaYsI0KujeXt7Zg/p0I=
+Production proof (resources)	Run ./.github/actions/setup	2026-10-16T04:28:47.4254054Z Received 35684134 of 35684134 (100.0%), 51.2 MBs/sec
+Production proof (resources)	Run ./.github/actions/setup	2026-10-16T04:28:47.4254629Z Cache Size: ~34 MB (35684134 B)
+Production proof (resources)	Run ./.github/actions/setup	2026-10-16T04:28:47.4283309Z [command]/usr/bin/tar -xf /home/runner/work/_temp/91fb32cd-f110-40fc-9b64-dccc1a2c5588/cache.tzst -P -C /home/runner/work/EZHarness/EZHarness --use-compress-program unzstd
+Production proof (resources)	Run ./.github/actions/setup	2026-10-16T04:28:47.5391454Z Cache restored successfully
+Production proof (resources)	Run ./.github/actions/setup	2026-10-16T04:28:47.5408591Z [command]/home/runner/.bun/bin/bun --revision
+Production proof (resources)	Run ./.github/actions/setup	2026-10-16T04:28:47.5435198Z 1.4.2+744846f84
+Production proof (resources)	Run ./.github/actions/setup	2026-10-16T04:28:47.5440337Z Using a cached version of Bun: 1.4.2+744846f84
+Production proof (resources)	Run ./.github/actions/setup	2026-10-16T04:28:47.5500329Z ##[end-action id=__self.__oven-sh_setup-bun;outcome=success;conclusion=success;duration_ms=1271]
+Production proof (resources)	Run ./.github/actions/setup	2026-10-16T04:28:47.5568103Z ##[start-action display=Cache bun global install cache;id=__self.__actions_cache]
+Production proof (resources)	Run ./.github/actions/setup	2026-10-16T04:28:47.8677445Z ##[group]Run actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9
+Production proof (resources)	Run ./.github/actions/setup	2026-10-16T04:28:47.8677771Z with:
+Production proof (resources)	Run ./.github/actions/setup	2026-10-16T04:28:47.8677974Z   path: ~/.bun/install/cache
+Production proof (resources)	Run ./.github/actions/setup	2026-10-16T04:28:47.8678542Z   key: bun-Linux-1cb0b65f53718e04a897d6022305d459ca3163956ac9c65ff703d281bfc19c1c-1dac0a653fe0a5657494557972d43ceb2a90cc64b3a4f001424de9a6fbfafd47
+Production proof (resources)	Run ./.github/actions/setup	2026-10-16T04:28:47.8679507Z   restore-keys: bun-Linux-1cb0b65f53718e04a897d6022305d459ca3163956ac9c65ff703d281bfc19c1c-
+Production proof (resources)	Run ./.github/actions/setup	
+Production proof (resources)	Run ./.github/actions/setup	2026-10-16T04:28:47.8679920Z   enableCrossOsArchive: false
+Production proof (resources)	Run ./.github/actions/setup	2026-10-16T04:28:47.8680166Z   fail-on-cache-miss: false
+Production proof (resources)	Run ./.github/actions/setup	2026-10-16T04:28:47.8680390Z   lookup-only: false
+Production proof (resources)	Run ./.github/actions/setup	2026-10-16T04:28:47.8680592Z   save-always: false
+Production proof (resources)	Run ./.github/actions/setup	2026-10-16T04:28:47.8680788Z env:
+Production proof (resources)	Run ./.github/actions/setup	2026-10-16T04:28:47.8681010Z   BUN_FEATURE_FLAG_DISABLE_SQL_AUTO_PIPELINING: 1
+Production proof (resources)	Run ./.github/actions/setup	2026-10-16T04:28:47.8681507Z   BUN_RUNTIME_TRANSPILER_CACHE_PATH: 0
+Production proof (resources)	Run ./.github/actions/setup	2026-10-16T04:28:47.8681759Z ##[endgroup]
+Production proof (resources)	Run ./.github/actions/setup	2026-10-16T04:28:48.0960252Z Cache hit for: bun-Linux-1cb0b65f53718e04a897d6022305d459ca3163956ac9c65ff703d281bfc19c1c-1dac0a653fe0a5657494557972d43ceb2a90cc64b3a4f001424de9a6fbfafd47
+Production proof (resources)	Run ./.github/actions/setup	2026-10-16T04:28:49.2658952Z Received 125829120 of 358988266 (35.1%), 120.0 MBs/sec
+Production proof (resources)	Run ./.github/actions/setup	2026-10-16T04:28:50.2670284Z Received 272629760 of 358988266 (75.9%), 129.9 MBs/sec
+Production proof (resources)	Run ./.github/actions/setup	2026-10-16T04:28:50.6669376Z Received 358988266 of 358988266 (100.0%), 142.6 MBs/sec
+Production proof (resources)	Run ./.github/actions/setup	2026-10-16T04:28:50.6669923Z Cache Size: ~342 MB (358988266 B)
+Production proof (resources)	Run ./.github/actions/setup	2026-10-16T04:28:50.6704573Z [command]/usr/bin/tar -xf /home/runner/work/_temp/0e86ed65-0b18-457b-b5d0-e09f4fd54dd9/cache.tzst -P -C /home/runner/work/EZHarness/EZHarness --use-compress-program unzstd
+Production proof (resources)	Run ./.github/actions/setup	2026-10-16T04:28:52.7756641Z Cache restored successfully
+Production proof (resources)	Run ./.github/actions/setup	2026-10-16T04:28:52.7936141Z Cache restored from key: bun-Linux-1cb0b65f53718e04a897d6022305d459ca3163956ac9c65ff703d281bfc19c1c-1dac0a653fe0a5657494557972d43ceb2a90cc64b3a4f001424de9a6fbfafd47
+Production proof (resources)	Run ./.github/actions/setup	2026-10-16T04:28:52.8001395Z ##[end-action id=__self.__actions_cache;outcome=success;conclusion=success;duration_ms=5243]
+Production proof (resources)	Run ./.github/actions/setup	2026-10-16T04:28:52.8071296Z ##[start-action display=Install root deps;id=__self.__run_2]
+Production proof (resources)	Run ./.github/actions/setup	2026-10-16T04:28:52.8740601Z ##[group]Run bun install --frozen-lockfile
+Production proof (resources)	Run ./.github/actions/setup	2026-10-16T04:28:52.8740962Z ^[[36;1mbun install --frozen-lockfile^[[0m
+Production proof (resources)	Run ./.github/actions/setup	2026-10-16T04:28:52.8775859Z shell: /usr/bin/bash --noprofile --norc -e -o pipefail {0}
+Production proof (resources)	Run ./.github/actions/setup	2026-10-16T04:28:52.8776184Z env:
+Production proof (resources)	Run ./.github/actions/setup	2026-10-16T04:28:52.8776414Z   BUN_FEATURE_FLAG_DISABLE_SQL_AUTO_PIPELINING: 1
+Production proof (resources)	Run ./.github/actions/setup	2026-10-16T04:28:52.8776711Z   BUN_RUNTIME_TRANSPILER_CACHE_PATH: 0
+Production proof (resources)	Run ./.github/actions/setup	2026-10-16T04:28:52.8776955Z ##[endgroup]
+Production proof (resources)	Run ./.github/actions/setup	2026-10-16T04:28:52.8869921Z bun install v1.4.2 (744846f84)
+Production proof (resources)	Run ./.github/actions/setup	2026-10-16T04:28:52.8931254Z Resolving dependencies
+Production proof (resources)	Run ./.github/actions/setup	2026-10-16T04:28:53.2366689Z Resolved, downloaded and extracted [3]
+Production proof (resources)	Run ./.github/actions/setup	2026-10-16T04:28:59.8431107Z 
+Production proof (resources)	Run ./.github/actions/setup	2026-10-16T04:28:59.8431952Z $ bun run build:packages && bash scripts/setup-git-hooks.sh
+Production proof (resources)	Run ./.github/actions/setup	2026-10-16T04:28:59.8457815Z $ bun scripts/build-workspace-packages.ts
+Production proof (resources)	Run ./.github/actions/setup	2026-10-16T04:28:59.8572639Z build:packages: @ezcorp/extension-contract (packages/@ezcorp/extension-contract)
+Production proof (resources)	Run ./.github/actions/setup	2026-10-16T04:28:59.8594713Z $ tsc -b tsconfig.build.json
+Production proof (resources)	Run ./.github/actions/setup	2026-10-16T04:28:59.9283470Z build:packages: @ezcorp/sdk (packages/@ezcorp/sdk)
+Production proof (resources)	Run ./.github/actions/setup	2026-10-16T04:28:59.9302616Z $ bunx tsc -b tsconfig.build.json
+Production proof (resources)	Run ./.github/actions/setup	2026-10-16T04:29:00.0071220Z build:packages: @ezcorp/factory-sdk (packages/@ezcorp/factory-sdk)
+Production proof (resources)	Run ./.github/actions/setup	2026-10-16T04:29:00.0100057Z $ bunx tsc -b tsconfig.build.json
+Production proof (resources)	Run ./.github/actions/setup	2026-10-16T04:29:02.3654368Z build:packages: @ezcorp/factory-transport (packages/@ezcorp/factory-transport)
+Production proof (resources)	Run ./.github/actions/setup	2026-10-16T04:29:02.3677211Z $ tsc -b tsconfig.build.json
+Production proof (resources)	Run ./.github/actions/setup	2026-10-16T04:29:03.0840366Z build:packages: @ezcorp/factory-orchestrator (packages/@ezcorp/factory-orchestrator)
+Production proof (resources)	Run ./.github/actions/setup	2026-10-16T04:29:03.0862796Z $ bun run --cwd ../factory-transport build && tsc -b tsconfig.build.json
+Production proof (resources)	Run ./.github/actions/setup	2026-10-16T04:29:03.0893583Z $ tsc -b tsconfig.build.json
+Production proof (resources)	Run ./.github/actions/setup	2026-10-16T04:29:05.3715001Z build:packages: @ezcorp/harness-client (packages/@ezcorp/harness-client)
+Production proof (resources)	Run ./.github/actions/setup	2026-10-16T04:29:05.3746940Z $ bunx tsc -b tsconfig.build.json
+Production proof (resources)	Run ./.github/actions/setup	2026-10-16T04:29:06.3701086Z 
+Production proof (resources)	Run ./.github/actions/setup	2026-10-16T04:29:06.3701469Z + @biomejs/biome@2.5.14
+Production proof (resources)	Run ./.github/actions/setup	2026-10-16T04:29:06.3701815Z + @types/bun@1.4.2
+Production proof (resources)	Run ./.github/actions/setup	2026-10-16T04:29:06.3702061Z + @types/js-yaml@4.0.9
+Production proof (resources)	Run ./.github/actions/setup	2026-10-16T04:29:06.3702308Z + @types/node@26.6.3 (v26.6.5 available)
+Production proof (resources)	Run ./.github/actions/setup	2026-10-16T04:29:06.3702624Z + drizzle-kit@0.31.11
+Production proof (resources)	Run ./.github/actions/setup	2026-10-16T04:29:06.3702906Z + @aws-sdk/client-kms@3.1131.0
+Production proof (resources)	Run ./.github/actions/setup	2026-10-16T04:29:06.3703175Z + @aws-sdk/client-s3@3.1131.0
+Production proof (resources)	Run ./.github/actions/setup	2026-10-16T04:29:06.3703453Z + @balena/dockerignore@1.0.2
+Production proof (resources)	Run ./.github/actions/setup	2026-10-16T04:29:06.3703729Z + @earendil-works/pi-agent-core@0.99.2
+Production proof (resources)	Run ./.github/actions/setup	2026-10-16T04:29:06.3703988Z + @earendil-works/pi-ai@0.99.2
+Production proof (resources)	Run ./.github/actions/setup	2026-10-16T04:29:06.3704238Z + @electric-sql/pglite@0.5.8
+Production proof (resources)	Run ./.github/actions/setup	2026-10-16T04:29:06.3704476Z + @electric-sql/pglite-pgvector@0.0.9
+Production proof (resources)	Run ./.github/actions/setup	2026-10-16T04:29:06.3704733Z + @huggingface/transformers@4.3.0
+Production proof (resources)	Run ./.github/actions/setup	2026-10-16T04:29:06.3704989Z + @modelcontextprotocol/sdk@1.31.0
+Production proof (resources)	Run ./.github/actions/setup	2026-10-16T04:29:06.3705227Z + @zxing/library@0.23.0
+Production proof (resources)	Run ./.github/actions/setup	2026-10-16T04:29:06.3705475Z + drizzle-orm@0.45.3
+Production proof (resources)	Run ./.github/actions/setup	2026-10-16T04:29:06.3705934Z + exceljs@4.4.0
+Production proof (resources)	Run ./.github/actions/setup	2026-10-16T04:29:06.3706171Z + fast-png@8.0.0
+Production proof (resources)	Run ./.github/actions/setup	2026-10-16T04:29:06.3706376Z + file-type@22.1.1
+Production proof (resources)	Run ./.github/actions/setup	2026-10-16T04:29:06.3706578Z + jpeg-js@0.4.4
+Production proof (resources)	Run ./.github/actions/setup	2026-10-16T04:29:06.3706779Z + pdf-parse@2.4.5
+Production proof (resources)	Run ./.github/actions/setup	2026-10-16T04:29:06.3706971Z + yaml@2.9.1
+Production proof (resources)	Run ./.github/actions/setup	2026-10-16T04:29:06.3707172Z + typescript@5.9.3 (v7.0.2 available)
+Production proof (resources)	Run ./.github/actions/setup	2026-10-16T04:29:06.3707343Z 
+Production proof (resources)	Run ./.github/actions/setup	2026-10-16T04:29:06.3707443Z 481 packages installed [13.48s]
+Production proof (resources)	Run ./.github/actions/setup	2026-10-16T04:29:06.3717777Z ##[end-action id=__self.__run_2;outcome=success;conclusion=success;duration_ms=13564]
+Production proof (resources)	Run ./.github/actions/setup	2026-10-16T04:29:06.3788213Z ##[start-action display=Install web deps;id=__self.__run_3]
+Production proof (resources)	Run ./.github/actions/setup	2026-10-16T04:29:06.3829351Z ##[end-action id=__self.__run_3;outcome=skipped;conclusion=skipped;duration_ms=0]
+Production proof (resources)	Run ./.github/actions/setup	2026-10-16T04:29:06.3895725Z ##[start-action display=SvelteKit sync;id=__self.__run_4]
+Production proof (resources)	Run ./.github/actions/setup	2026-10-16T04:29:06.3932512Z ##[end-action id=__self.__run_4;outcome=skipped;conclusion=skipped;duration_ms=0]
+Production proof (resources)	Run ./.github/actions/setup	2026-10-16T04:29:06.3999284Z ##[start-action display=Cache Playwright browsers;id=__self.pw-cache]
+Production proof (resources)	Run ./.github/actions/setup	2026-10-16T04:29:06.4038858Z ##[end-action id=__self.pw-cache;outcome=skipped;conclusion=skipped;duration_ms=0]
+Production proof (resources)	Run ./.github/actions/setup	2026-10-16T04:29:06.4103699Z ##[start-action display=Install Playwright chromium;id=__self.__run_5]
+Production proof (resources)	Run ./.github/actions/setup	2026-10-16T04:29:06.4306703Z ##[end-action id=__self.__run_5;outcome=skipped;conclusion=skipped;duration_ms=0]
+Production proof (resources)	Run ./.github/actions/setup	2026-10-16T04:29:06.4371379Z ##[start-action display=Install Playwright system deps (browser-cache miss only);id=__self.__run_6]
+Production proof (resources)	Run ./.github/actions/setup	2026-10-16T04:29:06.4411483Z ##[end-action id=__self.__run_6;outcome=skipped;conclusion=skipped;duration_ms=0]
+Production proof (resources)	Run bash scripts/setup-extension-runner-ci.sh --install	﻿2026-10-16T04:29:06.4565617Z ##[group]Run bash scripts/setup-extension-runner-ci.sh --install
+Production proof (resources)	Run bash scripts/setup-extension-runner-ci.sh --install	2026-10-16T04:29:06.4566038Z ^[[36;1mbash scripts/setup-extension-runner-ci.sh --install^[[0m
+Production proof (resources)	Run bash scripts/setup-extension-runner-ci.sh --install	2026-10-16T04:29:06.4601772Z shell: /usr/bin/bash -e {0}
+Production proof (resources)	Run bash scripts/setup-extension-runner-ci.sh --install	2026-10-16T04:29:06.4602027Z env:
+Production proof (resources)	Run bash scripts/setup-extension-runner-ci.sh --install	2026-10-16T04:29:06.4602254Z   BUN_FEATURE_FLAG_DISABLE_SQL_AUTO_PIPELINING: 1
+Production proof (resources)	Run bash scripts/setup-extension-runner-ci.sh --install	2026-10-16T04:29:06.4602546Z   BUN_RUNTIME_TRANSPILER_CACHE_PATH: 0
+Production proof (resources)	Run bash scripts/setup-extension-runner-ci.sh --install	2026-10-16T04:29:06.4602792Z ##[endgroup]
+Production proof (resources)	Run bash scripts/setup-extension-runner-ci.sh --install	2026-10-16T04:29:06.5716184Z Get:1 file:/etc/apt/apt-mirrors.txt Mirrorlist [144 B]
+Production proof (resources)	Run bash scripts/setup-extension-runner-ci.sh --install	2026-10-16T04:29:06.5903734Z Get:6 https://packages.microsoft.com/ubuntu/24.04/prod noble InRelease [3600 B]
+Production proof (resources)	Run bash scripts/setup-extension-runner-ci.sh --install	2026-10-16T04:29:06.6098895Z Hit:2 http://azure.archive.ubuntu.com/ubuntu noble InRelease
+Production proof (resources)	Run bash scripts/setup-extension-runner-ci.sh --install	2026-10-16T04:29:06.6152250Z Get:3 http://azure.archive.ubuntu.com/ubuntu noble-updates InRelease [126 kB]
+Production proof (resources)	Run bash scripts/setup-extension-runner-ci.sh --install	2026-10-16T04:29:06.6227572Z Get:4 http://azure.archive.ubuntu.com/ubuntu noble-backports InRelease [126 kB]
+Production proof (resources)	Run bash scripts/setup-extension-runner-ci.sh --install	2026-10-16T04:29:06.6292769Z Get:5 http://azure.archive.ubuntu.com/ubuntu noble-security InRelease [126 kB]
+Production proof (resources)	Run bash scripts/setup-extension-runner-ci.sh --install	2026-10-16T04:29:06.7012853Z Get:7 https://packages.microsoft.com/ubuntu/24.04/prod noble/main amd64 Packages [581 kB]
+Production proof (resources)	Run bash scripts/setup-extension-runner-ci.sh --install	2026-10-16T04:29:06.7230086Z Get:8 https://packages.microsoft.com/ubuntu/24.04/prod noble/main arm64 Packages [523 kB]
+Production proof (resources)	Run bash scripts/setup-extension-runner-ci.sh --install	2026-10-16T04:29:06.7312446Z Get:9 https://packages.microsoft.com/ubuntu/24.04/prod noble/main armhf Packages [12.4 kB]
+Production proof (resources)	Run bash scripts/setup-extension-runner-ci.sh --install	2026-10-16T04:29:06.7957878Z Get:10 http://azure.archive.ubuntu.com/ubuntu noble-updates/main amd64 Packages [1397 kB]
+Production proof (resources)	Run bash scripts/setup-extension-runner-ci.sh --install	2026-10-16T04:29:06.8016293Z Get:11 http://azure.archive.ubuntu.com/ubuntu noble-updates/main Translation-en [308 kB]
+Production proof (resources)	Run bash scripts/setup-extension-runner-ci.sh --install	2026-10-16T04:29:06.8064583Z Get:12 http://azure.archive.ubuntu.com/ubuntu noble-updates/universe amd64 Packages [1704 kB]
+Production proof (resources)	Run bash scripts/setup-extension-runner-ci.sh --install	2026-10-16T04:29:06.8131003Z Get:13 http://azure.archive.ubuntu.com/ubuntu noble-updates/universe Translation-en [342 kB]
+Production proof (resources)	Run bash scripts/setup-extension-runner-ci.sh --install	2026-10-16T04:29:06.8150896Z Get:14 http://azure.archive.ubuntu.com/ubuntu noble-updates/restricted amd64 Packages [1805 kB]
+Production proof (resources)	Run bash scripts/setup-extension-runner-ci.sh --install	2026-10-16T04:29:06.8232819Z Get:15 http://azure.archive.ubuntu.com/ubuntu noble-updates/restricted Translation-en [411 kB]
+Production proof (resources)	Run bash scripts/setup-extension-runner-ci.sh --install	2026-10-16T04:29:06.8712436Z Get:16 http://azure.archive.ubuntu.com/ubuntu noble-security/main amd64 Packages [1144 kB]
+Production proof (resources)	Run bash scripts/setup-extension-runner-ci.sh --install	2026-10-16T04:29:06.8765509Z Get:17 http://azure.archive.ubuntu.com/ubuntu noble-security/main Translation-en [231 kB]
+Production proof (resources)	Run bash scripts/setup-extension-runner-ci.sh --install	2026-10-16T04:29:06.8780962Z Get:18 http://azure.archive.ubuntu.com/ubuntu noble-security/universe amd64 Packages [1222 kB]
+Production proof (resources)	Run bash scripts/setup-extension-runner-ci.sh --install	2026-10-16T04:29:06.8833133Z Get:19 http://azure.archive.ubuntu.com/ubuntu noble-security/universe Translation-en [246 kB]
+Production proof (resources)	Run bash scripts/setup-extension-runner-ci.sh --install	2026-10-16T04:29:06.9293096Z Get:20 http://azure.archive.ubuntu.com/ubuntu noble-security/restricted amd64 Packages [1713 kB]
+Production proof (resources)	Run bash scripts/setup-extension-runner-ci.sh --install	2026-10-16T04:29:06.9363088Z Get:21 http://azure.archive.ubuntu.com/ubuntu noble-security/restricted Translation-en [392 kB]
+Production proof (resources)	Run bash scripts/setup-extension-runner-ci.sh --install	2026-10-16T04:29:15.2527796Z Fetched 12.4 MB in 1s (10.3 MB/s)
+Production proof (resources)	Run bash scripts/setup-extension-runner-ci.sh --install	2026-10-16T04:29:15.9770621Z Reading package lists...
+Production proof (resources)	Run bash scripts/setup-extension-runner-ci.sh --install	2026-10-16T04:29:16.0040137Z Reading package lists...
+Production proof (resources)	Run bash scripts/setup-extension-runner-ci.sh --install	2026-10-16T04:29:16.1405374Z Building dependency tree...
+Production proof (resources)	Run bash scripts/setup-extension-runner-ci.sh --install	2026-10-16T04:29:16.1411130Z Reading state information...
+Production proof (resources)	Run bash scripts/setup-extension-runner-ci.sh --install	2026-10-16T04:29:16.2803590Z podman is already the newest version (4.9.3+ds1-1ubuntu0.2).
+Production proof (resources)	Run bash scripts/setup-extension-runner-ci.sh --install	2026-10-16T04:29:16.2804282Z uidmap is already the newest version (1:4.13+dfsg1-4ubuntu3.2).
+Production proof (resources)	Run bash scripts/setup-extension-runner-ci.sh --install	2026-10-16T04:29:16.2804782Z uidmap set to manually installed.
+Production proof (resources)	Run bash scripts/setup-extension-runner-ci.sh --install	2026-10-16T04:29:16.2805236Z slirp4netns is already the newest version (1.2.1-1build2).
+Production proof (resources)	Run bash scripts/setup-extension-runner-ci.sh --install	2026-10-16T04:29:16.2805722Z slirp4netns set to manually installed.
+Production proof (resources)	Run bash scripts/setup-extension-runner-ci.sh --install	2026-10-16T04:29:16.2806166Z fuse-overlayfs is already the newest version (1.13-1).
+Production proof (resources)	Run bash scripts/setup-extension-runner-ci.sh --install	2026-10-16T04:29:16.2806638Z fuse-overlayfs set to manually installed.
+Production proof (resources)	Run bash scripts/setup-extension-runner-ci.sh --install	2026-10-16T04:29:16.2807158Z dbus-user-session is already the newest version (1.14.10-4ubuntu4.1).
+Production proof (resources)	Run bash scripts/setup-extension-runner-ci.sh --install	2026-10-16T04:29:16.2808216Z dbus-user-session set to manually installed.
+Production proof (resources)	Run bash scripts/setup-extension-runner-ci.sh --install	2026-10-16T04:29:16.2808730Z python3 is already the newest version (3.12.3-0ubuntu2.1).
+Production proof (resources)	Run bash scripts/setup-extension-runner-ci.sh --install	2026-10-16T04:29:16.2809524Z util-linux is already the newest version (2.39.3-9ubuntu6.6).
+Production proof (resources)	Run bash scripts/setup-extension-runner-ci.sh --install	2026-10-16T04:29:16.2810199Z ca-certificates is already the newest version (20260601~24.04.1).
+Production proof (resources)	Run bash scripts/setup-extension-runner-ci.sh --install	2026-10-16T04:29:16.2811228Z The following additional packages will be installed:
+Production proof (resources)	Run bash scripts/setup-extension-runner-ci.sh --install	2026-10-16T04:29:16.2811778Z   libcurl3t64-gnutls libcurl4t64
+Production proof (resources)	Run bash scripts/setup-extension-runner-ci.sh --install	2026-10-16T04:29:16.3164052Z The following packages will be upgraded:
+Production proof (resources)	Run bash scripts/setup-extension-runner-ci.sh --install	2026-10-16T04:29:16.3169859Z   curl libcurl3t64-gnutls libcurl4t64
+Production proof (resources)	Run bash scripts/setup-extension-runner-ci.sh --install	2026-10-16T04:29:16.3304514Z 3 upgraded, 0 newly installed, 0 to remove and 41 not upgraded.
+Production proof (resources)	Run bash scripts/setup-extension-runner-ci.sh --install	2026-10-16T04:29:16.3305035Z Need to get 907 kB of archives.
+Production proof (resources)	Run bash scripts/setup-extension-runner-ci.sh --install	2026-10-16T04:29:16.3305478Z After this operation, 3072 B of additional disk space will be used.
+Production proof (resources)	Run bash scripts/setup-extension-runner-ci.sh --install	2026-10-16T04:29:16.3306017Z Get:1 file:/etc/apt/apt-mirrors.txt Mirrorlist [144 B]
+Production proof (resources)	Run bash scripts/setup-extension-runner-ci.sh --install	2026-10-16T04:29:16.4015863Z Get:2 http://azure.archive.ubuntu.com/ubuntu noble-security/main amd64 curl amd64 8.5.0-2ubuntu10.16 [226 kB]
+Production proof (resources)	Run bash scripts/setup-extension-runner-ci.sh --install	2026-10-16T04:29:16.4386839Z Get:3 http://azure.archive.ubuntu.com/ubuntu noble-security/main amd64 libcurl4t64 amd64 8.5.0-2ubuntu10.16 [344 kB]
+Production proof (resources)	Run bash scripts/setup-extension-runner-ci.sh --install	2026-10-16T04:29:16.4765778Z Get:4 http://azure.archive.ubuntu.com/ubuntu noble-security/main amd64 libcurl3t64-gnutls amd64 8.5.0-2ubuntu10.16 [337 kB]
+Production proof (resources)	Run bash scripts/setup-extension-runner-ci.sh --install	2026-10-16T04:29:16.7153512Z Fetched 907 kB in 0s (5792 kB/s)
+Production proof (resources)	Run bash scripts/setup-extension-runner-ci.sh --install	2026-10-16T04:29:16.8249756Z (Reading database ... 
+Production proof (resources)	Run bash scripts/setup-extension-runner-ci.sh --install	2026-10-16T04:29:16.8250251Z (Reading database ... 5%
+Production proof (resources)	Run bash scripts/setup-extension-runner-ci.sh --install	2026-10-16T04:29:16.8250578Z (Reading database ... 10%
+Production proof (resources)	Run bash scripts/setup-extension-runner-ci.sh --install	2026-10-16T04:29:16.8250991Z (Reading database ... 15%
+Production proof (resources)	Run bash scripts/setup-extension-runner-ci.sh --install	2026-10-16T04:29:16.8251338Z (Reading database ... 20%
+Production proof (resources)	Run bash scripts/setup-extension-runner-ci.sh --install	2026-10-16T04:29:16.8251679Z (Reading database ... 25%
+Production proof (resources)	Run bash scripts/setup-extension-runner-ci.sh --install	2026-10-16T04:29:16.8251966Z (Reading database ... 30%
+Production proof (resources)	Run bash scripts/setup-extension-runner-ci.sh --install	2026-10-16T04:29:16.8252201Z (Reading database ... 35%
+Production proof (resources)	Run bash scripts/setup-extension-runner-ci.sh --install	2026-10-16T04:29:16.8252430Z (Reading database ... 40%
+Production proof (resources)	Run bash scripts/setup-extension-runner-ci.sh --install	2026-10-16T04:29:16.8252697Z (Reading database ... 45%
+Production proof (resources)	Run bash scripts/setup-extension-runner-ci.sh --install	2026-10-16T04:29:16.8252912Z (Reading database ... 50%
+Production proof (resources)	Run bash scripts/setup-extension-runner-ci.sh --install	2026-10-16T04:29:16.8750710Z (Reading database ... 55%
+Production proof (resources)	Run bash scripts/setup-extension-runner-ci.sh --install	2026-10-16T04:29:17.2475513Z (Reading database ... 60%
+Production proof (resources)	Run bash scripts/setup-extension-runner-ci.sh --install	2026-10-16T04:29:17.5572955Z (Reading database ... 65%
+Production proof (resources)	Run bash scripts/setup-extension-runner-ci.sh --install	2026-10-16T04:29:17.8531318Z (Reading database ... 70%
+Production proof (resources)	Run bash scripts/setup-extension-runner-ci.sh --install	2026-10-16T04:29:18.2151455Z (Reading database ... 75%
+Production proof (resources)	Run bash scripts/setup-extension-runner-ci.sh --install	2026-10-16T04:29:18.6417331Z (Reading database ... 80%
+Production proof (resources)	Run bash scripts/setup-extension-runner-ci.sh --install	2026-10-16T04:29:19.3568465Z (Reading database ... 85%
+Production proof (resources)	Run bash scripts/setup-extension-runner-ci.sh --install	2026-10-16T04:29:20.1279482Z (Reading database ... 90%
+Production proof (resources)	Run bash scripts/setup-extension-runner-ci.sh --install	2026-10-16T04:29:20.7546402Z (Reading database ... 95%
+Production proof (resources)	Run bash scripts/setup-extension-runner-ci.sh --install	2026-10-16T04:29:20.7546756Z (Reading database ... 100%
+Production proof (resources)	Run bash scripts/setup-extension-runner-ci.sh --install	2026-10-16T04:29:20.7547070Z (Reading database ... 203540 files and directories currently installed.)
+Production proof (resources)	Run bash scripts/setup-extension-runner-ci.sh --install	2026-10-16T04:29:20.7587526Z Preparing to unpack .../curl_8.5.0-2ubuntu10.16_amd64.deb ...
+Production proof (resources)	Run bash scripts/setup-extension-runner-ci.sh --install	2026-10-16T04:29:20.7619624Z Unpacking curl (8.5.0-2ubuntu10.16) over (8.5.0-2ubuntu10.15) ...
+Production proof (resources)	Run bash scripts/setup-extension-runner-ci.sh --install	2026-10-16T04:29:20.8029583Z Preparing to unpack .../libcurl4t64_8.5.0-2ubuntu10.16_amd64.deb ...
+Production proof (resources)	Run bash scripts/setup-extension-runner-ci.sh --install	2026-10-16T04:29:20.8060571Z Unpacking libcurl4t64:amd64 (8.5.0-2ubuntu10.16) over (8.5.0-2ubuntu10.15) ...
+Production proof (resources)	Run bash scripts/setup-extension-runner-ci.sh --install	2026-10-16T04:29:20.8400177Z Preparing to unpack .../libcurl3t64-gnutls_8.5.0-2ubuntu10.16_amd64.deb ...
+Production proof (resources)	Run bash scripts/setup-extension-runner-ci.sh --install	2026-10-16T04:29:20.8466911Z Unpacking libcurl3t64-gnutls:amd64 (8.5.0-2ubuntu10.16) over (8.5.0-2ubuntu10.15) ...
+Production proof (resources)	Run bash scripts/setup-extension-runner-ci.sh --install	2026-10-16T04:29:20.8843224Z Setting up libcurl4t64:amd64 (8.5.0-2ubuntu10.16) ...
+Production proof (resources)	Run bash scripts/setup-extension-runner-ci.sh --install	2026-10-16T04:29:20.8868629Z Setting up libcurl3t64-gnutls:amd64 (8.5.0-2ubuntu10.16) ...
+Production proof (resources)	Run bash scripts/setup-extension-runner-ci.sh --install	2026-10-16T04:29:20.8885492Z Setting up curl (8.5.0-2ubuntu10.16) ...
+Production proof (resources)	Run bash scripts/setup-extension-runner-ci.sh --install	2026-10-16T04:29:20.8902977Z Processing triggers for man-db (2.12.0-4build2) ...
+Production proof (resources)	Run bash scripts/setup-extension-runner-ci.sh --install	2026-10-16T04:29:20.8921945Z Not building database; man-db/auto-update is not 'true'.
+Production proof (resources)	Run bash scripts/setup-extension-runner-ci.sh --install	2026-10-16T04:29:20.8930735Z Processing triggers for libc-bin (2.39-0ubuntu8.9) ...
+Production proof (resources)	Run bash scripts/setup-extension-runner-ci.sh --install	2026-10-16T04:29:26.2331414Z 
+Production proof (resources)	Run bash scripts/setup-extension-runner-ci.sh --install	2026-10-16T04:29:26.2332332Z Running kernel seems to be up-to-date.
+Production proof (resources)	Run bash scripts/setup-extension-runner-ci.sh --install	2026-10-16T04:29:26.2332667Z 
+Production proof (resources)	Run bash scripts/setup-extension-runner-ci.sh --install	2026-10-16T04:29:26.2332787Z Restarting services...
+Production proof (resources)	Run bash scripts/setup-extension-runner-ci.sh --install	2026-10-16T04:29:26.2471131Z  systemctl restart packagekit.service php8.3-fpm.service
+Production proof (resources)	Run bash scripts/setup-extension-runner-ci.sh --install	2026-10-16T04:29:26.4286348Z 
+Production proof (resources)	Run bash scripts/setup-extension-runner-ci.sh --install	2026-10-16T04:29:26.4287168Z No containers need to be restarted.
+Production proof (resources)	Run bash scripts/setup-extension-runner-ci.sh --install	2026-10-16T04:29:26.4287487Z 
+Production proof (resources)	Run bash scripts/setup-extension-runner-ci.sh --install	2026-10-16T04:29:26.4287649Z No user sessions are running outdated binaries.
+Production proof (resources)	Run bash scripts/setup-extension-runner-ci.sh --install	2026-10-16T04:29:26.4287926Z 
+Production proof (resources)	Run bash scripts/setup-extension-runner-ci.sh --install	2026-10-16T04:29:26.4288188Z No VM guests are running outdated hypervisor (qemu) binaries on this host.
+Production proof (resources)	Run bash scripts/setup-extension-runner-ci.sh --install	2026-10-16T04:29:27.4329784Z   % Total    % Received % Xferd  Average Speed   Time    Time     Time  Current
+Production proof (resources)	Run bash scripts/setup-extension-runner-ci.sh --install	2026-10-16T04:29:27.4330388Z                                  Dload  Upload   Total   Spent    Left  Speed
+Production proof (resources)	Run bash scripts/setup-extension-runner-ci.sh --install	2026-10-16T04:29:27.4330683Z 
+Production proof (resources)	Run bash scripts/setup-extension-runner-ci.sh --install	2026-10-16T04:29:27.5938308Z   0     0    0     0    0     0      0      0 --:--:-- --:--:-- --:--:--     0
+Production proof (resources)	Run bash scripts/setup-extension-runner-ci.sh --install	2026-10-16T04:29:27.5938898Z   0     0    0     0    0     0      0      0 --:--:-- --:--:-- --:--:--     0
+Production proof (resources)	Run bash scripts/setup-extension-runner-ci.sh --install	2026-10-16T04:29:27.6549803Z 
+Production proof (resources)	Run bash scripts/setup-extension-runner-ci.sh --install	2026-10-16T04:29:27.7392854Z   1 1939k    1 32750    0     0   143k      0  0:00:13 --:--:--  0:00:13  143k
+Production proof (resources)	Run bash scripts/setup-extension-runner-ci.sh --install	2026-10-16T04:29:27.7393553Z 100 1939k  100 1939k    0     0  6329k      0 --:--:-- --:--:-- --:--:-- 22.1M
+Production proof (resources)	Run bash scripts/setup-extension-runner-ci.sh --install	2026-10-16T04:29:27.7558249Z /tmp/tmp.6C1wgaX7dF/conmon: OK
+Production proof (resources)	Run bash scripts/setup-extension-runner-ci.sh --install	2026-10-16T04:29:32.3995325Z Trying to pull docker.io/oven/bun@sha256:9114c058aeae42162ee16dd5084b95fe9473970bb6bcb5b232ab1630f0546895...
+Production proof (resources)	Run bash scripts/setup-extension-runner-ci.sh --install	2026-10-16T04:29:33.0328612Z Getting image source signatures
+Production proof (resources)	Run bash scripts/setup-extension-runner-ci.sh --install	2026-10-16T04:29:33.0338191Z Copying blob sha256:dd000cfe5146b0540e51ab7091b532f4575a75f0b7d02da7e3b5f0c2b4f69931
+Production proof (resources)	Run bash scripts/setup-extension-runner-ci.sh --install	2026-10-16T04:29:33.0339009Z Copying blob sha256:27ee9a8250487842a26b1ffa1215982ba9ae27010bce1997d52f9f8628578d17
+Production proof (resources)	Run bash scripts/setup-extension-runner-ci.sh --install	2026-10-16T04:29:33.0339885Z Copying blob sha256:1ba340e2e4f41ebc3af50c87bbd556db48c0d67b69a845466ea0500df4ff8b59
+Production proof (resources)	Run bash scripts/setup-extension-runner-ci.sh --install	2026-10-16T04:29:33.0340640Z Copying blob sha256:c1bdc9ba2b9ee10de067d50e69caa7454dcd7e80a7f363bc3f26c85ab44175f0
+Production proof (resources)	Run bash scripts/setup-extension-runner-ci.sh --install	2026-10-16T04:29:33.0341395Z Copying blob sha256:ccb86fd70cf1a92d9dddfaaebf11f09cebaec4c7fa60a748c8313b0828b9e41c
+Production proof (resources)	Run bash scripts/setup-extension-runner-ci.sh --install	2026-10-16T04:29:33.0342167Z Copying blob sha256:995f23d6717fb18d9e3ee7901ce64cf02d5386f0358688dcb35682d362a9fa11
+Production proof (resources)	Run bash scripts/setup-extension-runner-ci.sh --install	2026-10-16T04:29:33.1819463Z Copying blob sha256:1b4f41477e9a25fc12a8bc441d03b5ebb9a3bc14d066bd5fa789c596bbea8622
+Production proof (resources)	Run bash scripts/setup-extension-runner-ci.sh --install	2026-10-16T04:29:35.3004732Z Copying config sha256:8165c75cee6a4fca90a1229b3db2b3910e7bc99675f7490df5a112085f224d6d
+Production proof (resources)	Run bash scripts/setup-extension-runner-ci.sh --install	2026-10-16T04:29:35.3021072Z Writing manifest to image destination
+Production proof (resources)	Run bash scripts/setup-extension-runner-ci.sh --install	2026-10-16T04:29:35.3184654Z 8165c75cee6a4fca90a1229b3db2b3910e7bc99675f7490df5a112085f224d6d
+Production proof (resources)	Run bash scripts/setup-extension-runner-ci.sh --install	2026-10-16T04:29:35.3785620Z Trying to pull docker.io/library/postgres@sha256:485935f94cc7165afa896978809c37b592dc07f0a37d2c8f645f12412d0212c8...
+Production proof (resources)	Run bash scripts/setup-extension-runner-ci.sh --install	2026-10-16T04:29:35.8174922Z Getting image source signatures
+Production proof (resources)	Run bash scripts/setup-extension-runner-ci.sh --install	2026-10-16T04:29:35.8175910Z Copying blob sha256:5322d81b9b217c87a43577e23239fc6a88a6f3e085f532e1a1b3d5b33f047656
+Production proof (resources)	Run bash scripts/setup-extension-runner-ci.sh --install	2026-10-16T04:29:35.8176706Z Copying blob sha256:6310eb16bf4251731feab01e8f633bf5e2d75a657ccad97f420b1f83cce457be
+Production proof (resources)	Run bash scripts/setup-extension-runner-ci.sh --install	2026-10-16T04:29:35.8177438Z Copying blob sha256:b3ffe1fd6e790dd0031bc457848413848192d46780df6b0fa215d320328761e3
+Production proof (resources)	Run bash scripts/setup-extension-runner-ci.sh --install	2026-10-16T04:29:35.8178151Z Copying blob sha256:f122bc3261fca7a06590f6a4049863353c31056e3b750f2b2dbc1bb659f421e8
+Production proof (resources)	Run bash scripts/setup-extension-runner-ci.sh --install	2026-10-16T04:29:35.8178861Z Copying blob sha256:4d710b756578431859d64aba2677b0ec802f3aee2b140d52a08adfd356735af2
+Production proof (resources)	Run bash scripts/setup-extension-runner-ci.sh --install	2026-10-16T04:29:35.8179778Z Copying blob sha256:3fa541d8cac9d4fcff05950140a988377f814010f25d91eddf5e3de3fc0eede3
+Production proof (resources)	Run bash scripts/setup-extension-runner-ci.sh --install	2026-10-16T04:29:35.9621800Z Copying blob sha256:9bd242f25e75abc607bab0096841b43ce91e69c72d584ec8637bf557131cded7
+Production proof (resources)	Run bash scripts/setup-extension-runner-ci.sh --install	2026-10-16T04:29:35.9680924Z Copying blob sha256:9d1e9c1e61f48dcb9d1933fa4bdc4bdb7da928a152dafef0f067c3b477fa11c8
+Production proof (resources)	Run bash scripts/setup-extension-runner-ci.sh --install	2026-10-16T04:29:36.0192577Z Copying blob sha256:48dd761b6bfedc28017c2a57e1cd2fda93170658c93e3c5d96142a51bf9b899f
+Production proof (resources)	Run bash scripts/setup-extension-runner-ci.sh --install	2026-10-16T04:29:36.0267282Z Copying blob sha256:00034b17b963695ef825816fbf4147c71f32b66d5c0743dcaee4c4711e8ba8b6
+Production proof (resources)	Run bash scripts/setup-extension-runner-ci.sh --install	2026-10-16T04:29:36.0368874Z Copying blob sha256:8a082189cfe1ba85cc864ec354ce138ffc28d56a4f8a04d910f26fbba45d919a
+Production proof (resources)	Run bash scripts/setup-extension-runner-ci.sh --install	2026-10-16T04:29:36.0946458Z Copying blob sha256:988d57697ad269f5e634484dce52709cd86e00caa62e10f5792a16fbb34ec1e0
+Production proof (resources)	Run bash scripts/setup-extension-runner-ci.sh --install	2026-10-16T04:29:36.1201544Z Copying blob sha256:9f809ec5ff35e5621dfadefb22aaeaa1a2bb5329093f0cf36dcac3d5cb199f71
+Production proof (resources)	Run bash scripts/setup-extension-runner-ci.sh --install	2026-10-16T04:29:36.1297603Z Copying blob sha256:af7708f26521b296d032340dadac5d3f546177d5819709f22e0118e29751f5e9
+Production proof (resources)	Run bash scripts/setup-extension-runner-ci.sh --install	2026-10-16T04:29:39.7644764Z Copying config sha256:80f4c7a5e91618546dce5b4fe60cf03b14c0f9efa7e40157278d122772ced8d2
+Production proof (resources)	Run bash scripts/setup-extension-runner-ci.sh --install	2026-10-16T04:29:39.7661822Z Writing manifest to image destination
+Production proof (resources)	Run bash scripts/setup-extension-runner-ci.sh --install	2026-10-16T04:29:39.7873068Z 80f4c7a5e91618546dce5b4fe60cf03b14c0f9efa7e40157278d122772ced8d2
+Production proof (resources)	Run bash scripts/setup-extension-runner-ci.sh --install	2026-10-16T04:29:44.5431234Z Extension runner kernel controls verified
+Production proof (resources)	Run actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c	﻿2026-10-16T04:29:44.5925762Z ##[group]Run actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
+Production proof (resources)	Run actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c	2026-10-16T04:29:44.5926138Z with:
+Production proof (resources)	Run actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c	2026-10-16T04:29:44.5926348Z   name: production-candidate-image
+Production proof (resources)	Run actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c	2026-10-16T04:29:44.5926614Z   path: .cache/production-candidate
+Production proof (resources)	Run actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c	2026-10-16T04:29:44.5926864Z   merge-multiple: false
+Production proof (resources)	Run actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c	2026-10-16T04:29:44.5927089Z   repository: ezcorp-org/EZHarness
+Production proof (resources)	Run actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c	2026-10-16T04:29:44.5927324Z   run-id: 38850371515
+Production proof (resources)	Run actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c	2026-10-16T04:29:44.5927532Z   skip-decompress: false
+Production proof (resources)	Run actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c	2026-10-16T04:29:44.5927749Z   digest-mismatch: error
+Production proof (resources)	Run actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c	2026-10-16T04:29:44.5927954Z env:
+Production proof (resources)	Run actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c	2026-10-16T04:29:44.5928165Z   BUN_FEATURE_FLAG_DISABLE_SQL_AUTO_PIPELINING: 1
+Production proof (resources)	Run actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c	2026-10-16T04:29:44.5928461Z   BUN_RUNTIME_TRANSPILER_CACHE_PATH: 0
+Production proof (resources)	Run actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c	2026-10-16T04:29:44.5928712Z   XDG_RUNTIME_DIR: /run/user/1001
+Production proof (resources)	Run actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c	2026-10-16T04:29:44.5928984Z   DBUS_SESSION_BUS_ADDRESS: unix:path=/run/user/1001/bus
+Production proof (resources)	Run actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c	2026-10-16T04:29:44.5929513Z ##[endgroup]
+Production proof (resources)	Run actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c	2026-10-16T04:29:44.7078813Z Downloading single artifact
+Production proof (resources)	Run actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c	2026-10-16T04:29:44.8694357Z Preparing to download the following artifacts:
+Production proof (resources)	Run actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c	2026-10-16T04:29:44.8695638Z - production-candidate-image (ID: 12025190939, Size: 1865722730, Expected Digest: sha256:3d853327a9c3e75f20e0c1ab8984dbd213bee2e604aa7bfcbcaf113fd3ebf8bc)
+Production proof (resources)	Run actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c	2026-10-16T04:29:45.2092334Z Redirecting to blob download url: https://productionresultssa1.blob.core.windows.net/actions-results/54b6548b-5aee-8f83-b9cf-30af94d09988/workflow-job-run-c711cdd2-1a11-58f1-8fab-abcc6b2e9cf9/artifacts/4c6e28551a5c2ec8f1ef160da186105707fede83fa5d295a86d722e955c08d07.zip
+Production proof (resources)	Run actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c	2026-10-16T04:29:45.2093641Z Starting download of artifact to: /home/runner/work/EZHarness/EZHarness/.cache/production-candidate
+Production proof (resources)	Run actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c	2026-10-16T04:29:45.3865049Z (node:3398) [DEP0005] DeprecationWarning: Buffer() is deprecated due to security and usability issues. Please use the Buffer.alloc(), Buffer.allocUnsafe(), or Buffer.from() methods instead.
+Production proof (resources)	Run actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c	2026-10-16T04:29:45.3866281Z (Use `node --trace-deprecation ...` to show where the warning was created)
+Production proof (resources)	Run actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c	2026-10-16T04:31:04.8330687Z SHA256 digest of downloaded artifact is 3d853327a9c3e75f20e0c1ab8984dbd213bee2e604aa7bfcbcaf113fd3ebf8bc
+Production proof (resources)	Run actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c	2026-10-16T04:31:04.8331315Z Artifact download completed successfully.
+Production proof (resources)	Run actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c	2026-10-16T04:31:04.8331612Z Total of 1 artifact(s) downloaded
+Production proof (resources)	Run actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c	2026-10-16T04:31:04.8336228Z Download artifact has finished successfully
+Production proof (resources)	Verify and load the exact candidate in both engines	﻿2026-10-16T04:31:04.8561822Z ##[group]Run bun scripts/production-image-artifact.ts load .cache/production-candidate "$GITHUB_SHA" "$EXPECTED_IMAGE_ID"
+Production proof (resources)	Verify and load the exact candidate in both engines	2026-10-16T04:31:04.8562583Z ^[[36;1mbun scripts/production-image-artifact.ts load .cache/production-candidate "$GITHUB_SHA" "$EXPECTED_IMAGE_ID"^[[0m
+Production proof (resources)	Verify and load the exact candidate in both engines	2026-10-16T04:31:04.8597011Z shell: /usr/bin/bash -e {0}
+Production proof (resources)	Verify and load the exact candidate in both engines	2026-10-16T04:31:04.8597291Z env:
+Production proof (resources)	Verify and load the exact candidate in both engines	2026-10-16T04:31:04.8597541Z   BUN_FEATURE_FLAG_DISABLE_SQL_AUTO_PIPELINING: 1
+Production proof (resources)	Verify and load the exact candidate in both engines	2026-10-16T04:31:04.8597838Z   BUN_RUNTIME_TRANSPILER_CACHE_PATH: 0
+Production proof (resources)	Verify and load the exact candidate in both engines	2026-10-16T04:31:04.8598110Z   XDG_RUNTIME_DIR: /run/user/1001
+Production proof (resources)	Verify and load the exact candidate in both engines	2026-10-16T04:31:04.8598394Z   DBUS_SESSION_BUS_ADDRESS: unix:path=/run/user/1001/bus
+Production proof (resources)	Verify and load the exact candidate in both engines	2026-10-16T04:31:04.8598832Z   EXPECTED_IMAGE_ID: sha256:294d132b0d366ecdb97bfcb17fedd590bfc6c4daf9921c3fb311bf27905bf4a5
+Production proof (resources)	Verify and load the exact candidate in both engines	2026-10-16T04:31:04.8599287Z ##[endgroup]
+Production proof (resources)	Run the assigned production proofs	﻿2026-10-16T04:34:57.8432040Z ##[group]Run BUILDX_BUILDER=default EZ_SHIPPING_CANDIDATE_IMAGE=ezcorp:ci-production \
+Production proof (resources)	Run the assigned production proofs	2026-10-16T04:34:57.8432612Z ^[[36;1mBUILDX_BUILDER=default EZ_SHIPPING_CANDIDATE_IMAGE=ezcorp:ci-production \^[[0m
+Production proof (resources)	Run the assigned production proofs	2026-10-16T04:34:57.8433036Z ^[[36;1m  EZ_SHIPPING_RECEIPT_ROOT=.cache/production-lifecycle \^[[0m
+Production proof (resources)	Run the assigned production proofs	2026-10-16T04:34:57.8433422Z ^[[36;1m  EZ_SHIPPING_APP_UID="$(id -u)" EZ_SHIPPING_APP_GID="$(id -g)" \^[[0m
+Production proof (resources)	Run the assigned production proofs	2026-10-16T04:34:57.8433772Z ^[[36;1m  EZ_SHIPPING_RUNNER_APP_UID=1001 \^[[0m
+Production proof (resources)	Run the assigned production proofs	2026-10-16T04:34:57.8434216Z ^[[36;1m  VERIFY_UPGRADE_CANDIDATE_SOURCE="$GITHUB_SHA" \^[[0m
+Production proof (resources)	Run the assigned production proofs	2026-10-16T04:34:57.8434574Z ^[[36;1m  bash scripts/verify-shipping-production-suite.sh^[[0m
+Production proof (resources)	Run the assigned production proofs	2026-10-16T04:34:57.9448077Z shell: /usr/bin/bash --noprofile --norc -e -o pipefail {0}
+Production proof (resources)	Run the assigned production proofs	2026-10-16T04:34:57.9448415Z env:
+Production proof (resources)	Run the assigned production proofs	2026-10-16T04:34:57.9448669Z   BUN_FEATURE_FLAG_DISABLE_SQL_AUTO_PIPELINING: 1
+Production proof (resources)	Run the assigned production proofs	2026-10-16T04:34:57.9448961Z   BUN_RUNTIME_TRANSPILER_CACHE_PATH: 0
+Production proof (resources)	Run the assigned production proofs	2026-10-16T04:34:57.9449321Z   XDG_RUNTIME_DIR: /run/user/1001
+Production proof (resources)	Run the assigned production proofs	2026-10-16T04:34:57.9449615Z   DBUS_SESSION_BUS_ADDRESS: unix:path=/run/user/1001/bus
+Production proof (resources)	Run the assigned production proofs	2026-10-16T04:34:57.9449984Z   EZ_SHIPPING_SHARD: resources
+Production proof (resources)	Run the assigned production proofs	2026-10-16T04:34:57.9450399Z   EZ_SHIPPING_EXPECTED_IMAGE_ID: sha256:294d132b0d366ecdb97bfcb17fedd590bfc6c4daf9921c3fb311bf27905bf4a5
+Production proof (resources)	Run the assigned production proofs	2026-10-16T04:34:57.9450802Z ##[endgroup]
+Production proof (resources)	Run the assigned production proofs	2026-10-16T04:35:03.8412548Z  Network ezcorp-production-lifecycle-886626219_default  Creating
+Production proof (resources)	Run the assigned production proofs	2026-10-16T04:35:03.8707682Z  Network ezcorp-production-lifecycle-886626219_default  Created
+Production proof (resources)	Run the assigned production proofs	2026-10-16T04:35:03.8718894Z  Container ezcorp-production-lifecycle-886626219-app  Creating
+Production proof (resources)	Run the assigned production proofs	2026-10-16T04:35:03.9154924Z  Container ezcorp-production-lifecycle-886626219-app  Created
+Production proof (resources)	Run the assigned production proofs	2026-10-16T04:35:03.9164868Z  Container ezcorp-production-lifecycle-886626219-app  Starting
+Production proof (resources)	Run the assigned production proofs	2026-10-16T04:35:04.6672409Z  Container ezcorp-production-lifecycle-886626219-app  Started
+Production proof (resources)	Run the assigned production proofs	2026-10-16T04:43:29.2618036Z {"check":"R4","mode":"cycles","maximumCycles":10,"cycles":10,"completedCycles":10,"reconnectsPerCycle":10,"totalReconnects":100,"relationCacheWarmupCycles":6,"actualDurationMs":173382,"durationMs":173382,"baseline":{"cycle":0,"runnerContainers":0,"runnerFds":25,"appFds":330,"appEstablishedTcpConnections":0,"appContainerMemoryBytes":702336205,"pgliteRelationDescriptorCount":0},"relationCacheWarmup":{"cycle":6,"runnerContainers":0,"runnerFds":25,"appFds":428,"appEstablishedTcpConnections":1,"appContainerMemoryBytes":710200525,"sseCleanup":{"baselineConnections":1,"remainingConnections":0,"polls":1,"durationMs":1},"runnerFdSettle":{"baseline":25,"remaining":25,"polls":1,"maxPolls":150},"appFdClasses":{"socket":2,"pipe":3,"anon":4,"path":419,"other":0},"pgliteRelationDescriptorCount":407},"final":{"cycle":10,"runnerContainers":0,"runnerFds":25,"appFds":428,"appEstablishedTcpConnections":1,"appContainerMemoryBytes":710305382,"sseCleanup":{"baselineConnections":1,"remainingConnections":0,"polls":1,"durationMs":1},"runnerFdSettle":{"baseline":25,"remaining":25,"polls":1,"maxPolls":150},"appFdClasses":{"socket":2,"pipe":3,"anon":4,"path":419,"other":0},"pgliteRelationDescriptorCount":407},"samples":[{"cycle":0,"runnerContainers":0,"runnerFds":25,"appFds":330,"appEstablishedTcpConnections":0,"appContainerMemoryBytes":702336205,"pgliteRelationDescriptorCount":0},{"cycle":1,"runnerContainers":0,"runnerFds":25,"appFds":426,"appEstablishedTcpConnections":1,"appContainerMemoryBytes":703279923,"sseCleanup":{"baselineConnections":1,"remainingConnections":0,"polls":1,"durationMs":1},"runnerFdSettle":{"baseline":25,"remaining":25,"polls":1,"maxPolls":150},"appFdClasses":{"socket":2,"pipe":3,"anon":4,"path":417,"other":0},"pgliteRelationDescriptorCount":405},{"cycle":2,"runnerContainers":0,"runnerFds":25,"appFds":426,"appEstablishedTcpConnections":1,"appContainerMemoryBytes":702860493,"sseCleanup":{"baselineConnections":1,"remainingConnections":0,"polls":1,"durationMs":2},"runnerFdSettle":{"baseline":25,"remaining":25,"polls":1,"maxPolls":150},"appFdClasses":{"socket":2,"pipe":3,"anon":4,"path":417,"other":0},"pgliteRelationDescriptorCount":405},{"cycle":3,"runnerContainers":0,"runnerFds":25,"appFds":427,"appEstablishedTcpConnections":1,"appContainerMemoryBytes":700868198,"sseCleanup":{"baselineConnections":1,"remainingConnections":0,"polls":1,"durationMs":3},"runnerFdSettle":{"baseline":25,"remaining":25,"polls":1,"maxPolls":150},"appFdClasses":{"socket":2,"pipe":3,"anon":4,"path":418,"other":0},"pgliteRelationDescriptorCount":406},{"cycle":4,"runnerContainers":0,"runnerFds":25,"appFds":428,"appEstablishedTcpConnections":1,"appContainerMemoryBytes":710200525,"sseCleanup":{"baselineConnections":1,"remainingConnections":0,"polls":1,"durationMs":1},"runnerFdSettle":{"baseline":25,"remaining":25,"polls":1,"maxPolls":150},"appFdClasses":{"socket":2,"pipe":3,"anon":4,"path":419,"other":0},"pgliteRelationDescriptorCount":407},{"cycle":5,"runnerContainers":0,"runnerFds":25,"appFds":428,"appEstablishedTcpConnections":1,"appContainerMemoryBytes":707369370,"sseCleanup":{"baselineConnections":1,"remainingConnections":0,"polls":1,"durationMs":1},"runnerFdSettle":{"baseline":25,"remaining":25,"polls":1,"maxPolls":150},"appFdClasses":{"socket":2,"pipe":3,"anon":4,"path":419,"other":0},"pgliteRelationDescriptorCount":407},{"cycle":6,"runnerContainers":0,"runnerFds":25,"appFds":428,"appEstablishedTcpConnections":1,"appContainerMemoryBytes":710200525,"sseCleanup":{"baselineConnections":1,"remainingConnections":0,"polls":1,"durationMs":1},"runnerFdSettle":{"baseline":25,"remaining":25,"polls":1,"maxPolls":150},"appFdClasses":{"socket":2,"pipe":3,"anon":4,"path":419,"other":0},"pgliteRelationDescriptorCount":407},{"cycle":7,"runnerContainers":0,"runnerFds":25,"appFds":428,"appEstablishedTcpConnections":1,"appContainerMemoryBytes":713660826,"sseCleanup":{"baselineConnections":1,"remainingConnections":0,"polls":1,"durationMs":2},"runnerFdSettle":{"baseline":25,"remaining":25,"polls":1,"maxPolls":150},"appFdClasses":{"socket":2,"pipe":3,"anon":4,"path":419,"other":0},"pgliteRelationDescriptorCount":407},{"cycle":8,"runnerContainers":0,"runnerFds":25,"appFds":428,"appEstablishedTcpConnections":1,"appContainerMemoryBytes":713765683,"sseCleanup":{"baselineConnections":1,"remainingConnections":0,"polls":1,"durationMs":2},"runnerFdSettle":{"baseline":25,"remaining":25,"polls":1,"maxPolls":150},"appFdClasses":{"socket":2,"pipe":3,"anon":4,"path":419,"other":0},"pgliteRelationDescriptorCount":407},{"cycle":9,"runnerContainers":0,"runnerFds":25,"appFds":428,"appEstablishedTcpConnections":1,"appContainerMemoryBytes":722888294,"sseCleanup":{"baselineConnections":1,"remainingConnections":0,"polls":1,"durationMs":2},"runnerFdSettle":{"baseline":25,"remaining":25,"polls":1,"maxPolls":150},"appFdClasses":{"socket":2,"pipe":3,"anon":4,"path":419,"other":0},"pgliteRelationDescriptorCount":407},{"cycle":10,"runnerContainers":0,"runnerFds":25,"appFds":428,"appEstablishedTcpConnections":1,"appContainerMemoryBytes":710305382,"sseCleanup":{"baselineConnections":1,"remainingConnections":0,"polls":1,"durationMs":1},"runnerFdSettle":{"baseline":25,"remaining":25,"polls":1,"maxPolls":150},"appFdClasses":{"socket":2,"pipe":3,"anon":4,"path":419,"other":0},"pgliteRelationDescriptorCount":407}]}
+Production proof (resources)	Run the assigned production proofs	2026-10-16T04:43:31.0204640Z runtime-resources	0	2026-10-16T04:34:58.045Z	2026-10-16T04:43:31.017Z	512972	runtime-resources
+Production proof (resources)	Run actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a	﻿2026-10-16T04:43:31.0723028Z ##[group]Run actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+Production proof (resources)	Run actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a	2026-10-16T04:43:31.0723402Z with:
+Production proof (resources)	Run actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a	2026-10-16T04:43:31.0723616Z   name: production-proof-resources
+Production proof (resources)	Run actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a	2026-10-16T04:43:31.0723893Z   path: .cache/production-lifecycle/
+Production proof (resources)	Run actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a	2026-10-16T04:43:31.0724142Z   retention-days: 3
+Production proof (resources)	Run actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a	2026-10-16T04:43:31.0724376Z   if-no-files-found: error
+Production proof (resources)	Run actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a	2026-10-16T04:43:31.0724603Z   compression-level: 6
+Production proof (resources)	Run actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a	2026-10-16T04:43:31.0724814Z   overwrite: false
+Production proof (resources)	Run actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a	2026-10-16T04:43:31.0725022Z   include-hidden-files: false
+Production proof (resources)	Run actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a	2026-10-16T04:43:31.0725248Z   archive: true
+Production proof (resources)	Run actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a	2026-10-16T04:43:31.0725428Z env:
+Production proof (resources)	Run actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a	2026-10-16T04:43:31.0725638Z   BUN_FEATURE_FLAG_DISABLE_SQL_AUTO_PIPELINING: 1
+Production proof (resources)	Run actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a	2026-10-16T04:43:31.0725911Z   BUN_RUNTIME_TRANSPILER_CACHE_PATH: 0
+Production proof (resources)	Run actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a	2026-10-16T04:43:31.0726158Z   XDG_RUNTIME_DIR: /run/user/1001
+Production proof (resources)	Run actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a	2026-10-16T04:43:31.0726432Z   DBUS_SESSION_BUS_ADDRESS: unix:path=/run/user/1001/bus
+Production proof (resources)	Run actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a	2026-10-16T04:43:31.0726708Z ##[endgroup]
+Production proof (resources)	Run actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a	2026-10-16T04:43:31.3337642Z With the provided path, there will be 10 files uploaded
+Production proof (resources)	Run actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a	2026-10-16T04:43:31.3343027Z Artifact name is valid!
+Production proof (resources)	Run actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a	2026-10-16T04:43:31.3343460Z Root directory input is valid!
+Production proof (resources)	Run actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a	2026-10-16T04:43:31.6172975Z Uploading artifact: production-proof-resources.zip
+Production proof (resources)	Run actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a	2026-10-16T04:43:31.6209480Z Beginning upload of artifact content to blob storage
+Production proof (resources)	Run actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a	2026-10-16T04:43:31.8879902Z Uploaded bytes 70224
+Production proof (resources)	Run actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a	2026-10-16T04:43:31.9294304Z Finished uploading artifact content to blob storage!
+Production proof (resources)	Run actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a	2026-10-16T04:43:31.9295057Z SHA256 digest of uploaded artifact is 1fd361153b7c558fc64a58ba42cb95b9cf3811d4c474fbd2424581a8b3bb70fe
+Production proof (resources)	Run actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a	2026-10-16T04:43:31.9295681Z Finalizing artifact upload
+Production proof (resources)	Run actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a	2026-10-16T04:43:32.2515600Z Artifact production-proof-resources successfully finalized. Artifact ID 12025164127
+Production proof (resources)	Run actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a	2026-10-16T04:43:32.2516616Z Artifact production-proof-resources has been successfully uploaded! Final size is 70224 bytes. Artifact ID is 12025164127
+Production proof (resources)	Run actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a	2026-10-16T04:43:32.2520011Z Artifact download URL: https://github.com/ezcorp-org/EZHarness/actions/runs/38850371515/artifacts/12025164127
+Production proof (resources)	Post Run ./.github/actions/setup	﻿2026-10-16T04:43:32.2912751Z Post job cleanup.
+Production proof (resources)	Post Run ./.github/actions/setup	2026-10-16T04:43:32.2978572Z ##[start-action display=Cache bun global install cache;id=__acd3f133-e218-4c37-b587-8438ced3008a.__actions_cache]
+Production proof (resources)	Post Run ./.github/actions/setup	2026-10-16T04:43:32.7178386Z Post job cleanup.
+Production proof (resources)	Post Run ./.github/actions/setup	2026-10-16T04:43:32.8273804Z Cache hit occurred on the primary key bun-Linux-1cb0b65f53718e04a897d6022305d459ca3163956ac9c65ff703d281bfc19c1c-1dac0a653fe0a5657494557972d43ceb2a90cc64b3a4f001424de9a6fbfafd47, not saving cache.
+Production proof (resources)	Post Run ./.github/actions/setup	2026-10-16T04:43:32.8318184Z ##[end-action id=__acd3f133-e218-4c37-b587-8438ced3008a.__actions_cache;outcome=success;conclusion=success;duration_ms=533]
+Production proof (resources)	Post Run ./.github/actions/setup	2026-10-16T04:43:32.8403009Z ##[start-action display=Run oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6;id=__acd3f133-e218-4c37-b587-8438ced3008a.__oven-sh_setup-bun]
+Production proof (resources)	Post Run ./.github/actions/setup	2026-10-16T04:43:32.8927754Z Post job cleanup.
+Production proof (resources)	Post Run ./.github/actions/setup	2026-10-16T04:43:33.0254254Z ##[end-action id=__acd3f133-e218-4c37-b587-8438ced3008a.__oven-sh_setup-bun;outcome=success;conclusion=success;duration_ms=185]
+Production proof (resources)	Post Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	﻿2026-10-16T04:43:33.1246567Z Post job cleanup.
+Production proof (resources)	Post Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:43:33.1977358Z [command]/usr/bin/git version
+Production proof (resources)	Post Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:43:33.2020693Z git version 2.55.0
+Production proof (resources)	Post Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:43:33.2064940Z Temporarily overriding HOME='/home/runner/work/_temp/49d8ddbc-9bf5-40d2-beaf-44ea59ac9dec' before making global git config changes
+Production proof (resources)	Post Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:43:33.2072066Z Adding repository directory to the temporary git global config as a safe directory
+Production proof (resources)	Post Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:43:33.2072959Z [command]/usr/bin/git config --global --add safe.directory /home/runner/work/EZHarness/EZHarness
+Production proof (resources)	Post Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:43:33.2090896Z Removing SSH command configuration
+Production proof (resources)	Post Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:43:33.2096117Z [command]/usr/bin/git config --local --name-only --get-regexp core\.sshCommand
+Production proof (resources)	Post Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:43:33.2123611Z [command]/usr/bin/git submodule foreach --recursive sh -c "git config --local --name-only --get-regexp 'core\.sshCommand' && git config --local --unset-all 'core.sshCommand' || :"
+Production proof (resources)	Post Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:43:33.2383049Z Removing HTTP extra header
+Production proof (resources)	Post Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:43:33.2383868Z [command]/usr/bin/git config --local --name-only --get-regexp http\.https\:\/\/github\.com\/\.extraheader
+Production proof (resources)	Post Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:43:33.2443450Z [command]/usr/bin/git submodule foreach --recursive sh -c "git config --local --name-only --get-regexp 'http\.https\:\/\/github\.com\/\.extraheader' && git config --local --unset-all 'http.https://github.com/.extraheader' || :"
+Production proof (resources)	Post Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:43:33.2634687Z Removing includeIf entries pointing to credentials config files
+Production proof (resources)	Post Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:43:33.2635528Z [command]/usr/bin/git config --local --name-only --get-regexp ^includeIf\.gitdir:
+Production proof (resources)	Post Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:43:33.2654673Z includeif.gitdir:/home/runner/work/EZHarness/EZHarness/.git.path
+Production proof (resources)	Post Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:43:33.2655488Z includeif.gitdir:/home/runner/work/EZHarness/EZHarness/.git/worktrees/*.path
+Production proof (resources)	Post Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:43:33.2656274Z includeif.gitdir:/github/workspace/.git.path
+Production proof (resources)	Post Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:43:33.2656914Z includeif.gitdir:/github/workspace/.git/worktrees/*.path
+Production proof (resources)	Post Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:43:33.2680356Z [command]/usr/bin/git config --local --get-all includeif.gitdir:/home/runner/work/EZHarness/EZHarness/.git.path
+Production proof (resources)	Post Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:43:33.2698639Z /home/runner/work/_temp/git-credentials-e75e9ec6-5508-4b31-9039-7a2b9843a2cb.config
+Production proof (resources)	Post Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:43:33.2701848Z [command]/usr/bin/git config --local --unset includeif.gitdir:/home/runner/work/EZHarness/EZHarness/.git.path \/home\/runner\/work\/_temp\/git\-credentials\-e75e9ec6\-5508\-4b31\-9039\-7a2b9843a2cb\.config
+Production proof (resources)	Post Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:43:33.2779613Z [command]/usr/bin/git config --local --get-all includeif.gitdir:/home/runner/work/EZHarness/EZHarness/.git/worktrees/*.path
+Production proof (resources)	Post Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:43:33.2803416Z /home/runner/work/_temp/git-credentials-e75e9ec6-5508-4b31-9039-7a2b9843a2cb.config
+Production proof (resources)	Post Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:43:33.2811910Z [command]/usr/bin/git config --local --unset includeif.gitdir:/home/runner/work/EZHarness/EZHarness/.git/worktrees/*.path \/home\/runner\/work\/_temp\/git\-credentials\-e75e9ec6\-5508\-4b31\-9039\-7a2b9843a2cb\.config
+Production proof (resources)	Post Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:43:33.2841030Z [command]/usr/bin/git config --local --get-all includeif.gitdir:/github/workspace/.git.path
+Production proof (resources)	Post Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:43:33.2860162Z /github/runner_temp/git-credentials-e75e9ec6-5508-4b31-9039-7a2b9843a2cb.config
+Production proof (resources)	Post Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:43:33.2864680Z [command]/usr/bin/git config --local --unset includeif.gitdir:/github/workspace/.git.path \/github\/runner_temp\/git\-credentials\-e75e9ec6\-5508\-4b31\-9039\-7a2b9843a2cb\.config
+Production proof (resources)	Post Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:43:33.2890709Z [command]/usr/bin/git config --local --get-all includeif.gitdir:/github/workspace/.git/worktrees/*.path
+Production proof (resources)	Post Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:43:33.2906050Z /github/runner_temp/git-credentials-e75e9ec6-5508-4b31-9039-7a2b9843a2cb.config
+Production proof (resources)	Post Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:43:33.2912670Z [command]/usr/bin/git config --local --unset includeif.gitdir:/github/workspace/.git/worktrees/*.path \/github\/runner_temp\/git\-credentials\-e75e9ec6\-5508\-4b31\-9039\-7a2b9843a2cb\.config
+Production proof (resources)	Post Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:43:33.2945610Z [command]/usr/bin/git submodule foreach --recursive git config --local --show-origin --name-only --get-regexp remote.origin.url
+Production proof (resources)	Post Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:43:33.3120388Z Removing credentials config '/home/runner/work/_temp/git-credentials-e75e9ec6-5508-4b31-9039-7a2b9843a2cb.config'
+Production proof (resources)	Complete job	﻿2026-10-16T04:43:33.3234466Z Cleaning up orphan processes
+Production proof (resources)	Complete job	2026-10-16T04:43:33.3512929Z Terminate orphan process: pid (2939) (catatonit)

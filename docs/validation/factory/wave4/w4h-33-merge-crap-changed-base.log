@@ -1,0 +1,15 @@
+CRAP: --changed against b0b7bedf1c0de65af84febe7811171021f573b1c → 2 measured file(s) in diff
+
+CRAP: 6 functions in 2 files (max 30, warn 15)
+
+Worst 6:
+     20.0  cc=  4 cov=  0%  web/src/lib/chat/page-handlers/send-message.ts:1044 startSubConvo
+      4.0  cc=  4 cov=100%  web/src/lib/chat/page-handlers/send-message.ts:1002 handleSubConvoTurnSaved
+      1.0  cc=  1 cov=100%  web/src/lib/api.ts:710 subConversationBody
+      1.0  cc=  1 cov=100%  web/src/lib/api.ts:720 createSubConversation
+      1.0  cc=  1 cov=100%  web/src/lib/chat/page-handlers/send-message.ts:253 makeSendMessage
+      1.0  cc=  1 cov=100%  web/src/lib/chat/page-handlers/send-message.ts:1009 <anonymous@1009>
+
+1 function(s) above the warn line (not failing).
+
+✓ no touched function exceeds CRAP 30

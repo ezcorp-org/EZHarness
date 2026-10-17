@@ -1,0 +1,312 @@
+W4H-33 report (w4h-33), test hygiene on main. FROZEN at 0cfd7b104da8da3b63c772b17295afc37ceca7ef on wp/w4h-33-test-hygiene (base 390c49a90).
+Written 2026-10-16T04:54:31Z. Gates, red/green evidence and rulings: tasks/factory/w4h-33-GATES.md at the head. Lessons: pending-lesson.md.
+
+== Commits (oldest first)
+3aef512b0 test(factory): declare measured timeouts for the two real-grace router stop tests (W4H-33)
+8e4683e78 test(ai-kit): the surface drift guard fails on a missing surface instead of reading todo (W4H-33)
+ffc079986 test(web-e2e): the reliability fixture admin address uses the reserved example.com (W4H-33)
+baf9c2338 test: delete the two retired describe.skip SDK integration tests; their v4 replacements run (W4H-33, ruling 1)
+54e606157 test(preview): the two Docker-only preview tests run in the production-proof lane under rootless Podman (W4H-33)
+6869be27c ci: the backend suite jobs install ripgrep, and the ripgrep grep cases require it instead of skipping (W4H-33)
+fd450bdb7 test: the four sub-conversation test.todo placeholders are asserted where each behaviour lives (W4H-33, ruling 2)
+b8477524f test: return-to-main posts the LAST assistant message as the summary; correct the placeholder note (W4H-33, ruling 2)
+8ef65903f fix(web): an @agent sub-conversation is created without agentConfigId, so the server accepts it (W4H-33, assigned defect)
+656bb7808 ci: the PostgreSQL service image is pgvector pinned by digest from scripts/test-images.json (W4H-33, scope addition)
+703621531 fix(web): the sub-conversation's replies reach its block, so Return to main posts the last one (W4H-33, assigned defect 2)
+ccc8b705c test(web): a saved turn of an INACTIVE sub-conversation enters neither the thread nor the active block (W4H-33, validator-8)
+2ddf43f8f test: every fixture address in the test tree uses a reserved domain (W4H-33, ruling 4)
+41c06824b test(preview): the in-image proof stages its test files world-readable instead of mounting the checkout's folder (W4H-33)
+5f1cf0dbc test(ai-kit): the deployed-service suites run in the real-auth lane and skip by name what it cannot provide yet (W4H-33)
+db9b538bc test(ai-kit): the precondition skips name the repository registry id ai-kit-deployed-lane (W4H-33, team-lead's correction)
+7442d8009 test(ai-kit): a deployed-service suite with its precondition present and wrong behaviour FAILS, never skips (W4H-33, validator-8)
+0d4a9d9e7 test(ai-kit): each deployed-service suite's precondition line is proved: present runs and fails, missing skips by name (W4H-33, ruling)
+6e6506ba5 test(price-chart): the network-gated suites run on every lane against a loopback market stub (W4H-33, ruling 3)
+ebb0f1ecf fix(web): SendMessageHandlers declares handleSubConvoTurnSaved (W4H-33; the in-lock typecheck found it)
+6a2e35fd3 test: a repository inventory refuses a test that never runs, a gate no lane sets, and a fixture address on a real domain (W4H-33)
+4f16d972b test(web): the non-admin 403 case asserts that the refused caller changes nothing (W4H-33; gate-integrity)
+0cfd7b104 docs(w4h-33): the gate file lists every gate with its commits and red/green evidence (W4H-33)
+
+== Final checks at the head
+typecheck (lock): logs/heavy-typecheck-2.log exit 0 | lint: logs/lint-final.log 0 findings | guard set: logs/guard-run.log 524/0 (43 files) | factory boundaries: logs/boundaries.log passed
+gate-integrity default (BASE_REF=390c49a90) and main (origin/main 934531e2e): exactly 2 findings each, the 2 ruled deletions (ruling 1; map in the gate file); logs/gate-integrity-default.log, logs/gate-integrity-main.log
+identity-check commits 390c49a90..HEAD: identity-check commits 390c49a90..0cfd7b104: 23 commit(s) checked, clean
+Heavy legs: image localhost/w4h33-production:ffc07998683e; fixture commit 2ddf43f8f (EZ_PRECOMMIT_TEST_MAX=128); preview proof 7/0 in image; price-chart commit 6e6506ba5 (hook in lock); real-auth ai-kit 3 passed
+
+== Not in this package (leftovers / for others)
+- ai-kit deployed-service lane (registry id ai-kit-deployed-lane; W4H-36 ledger row, written in its final round)
+- integrator: add scripts/test-skip-inventory.test.ts, scripts/ripgrep-registration.test.ts, scripts/test-images-registration.test.ts to w00/invariant-tests.txt; point w00/identity-check.sh files mode at the repo rule (parity leg until then)
+- the hook ran the two preview files and the three ai-kit e2e files as skips (void runs by the zero-test rule); their real runs are the preview proof and the real-auth leg
+- whole-patch coverage merge (check-patch-coverage) was not run here; the integrator's hold runs it; new modules are 100 % (test-skip-inventory.ts, price-chart-market-stub.ts)
+
+== sha256 of every changed file at the head
+e71908da8693d784b3b524d97bda5ebf27c4f9cd710c7936cc3b0deae2f176f9  .github/actions/ripgrep/action.yml
+cee282a15c13ba356d16b397dd041ab5ab05bb8e3364addad513babe0734b145  .github/workflows/ci.yml
+6adeee67a0f6530f4d17821cd2c75b9e523bf453718babed37fdb9a2aedbf30a  .github/workflows/db-postgres.yml
+f8ac6f1286e4ca2415a543bc340d91f06f4a4bfb16ca4cb292344d2d7d0ff676  .github/workflows/release-sdk.yml
+80a385fa7f76f9d2640a69946ca5656b624938be4dcc4de04fcf731d002864a9  manifest.lock.json
+b75f2393d984e93633f08a77efd03fb8c43c25cf788926cc9e78bbf1b31bbfbf  packages/@ezcorp/ai-kit/test/e2e/_guard.ts
+9fc82df837754182449edc40e20e44653c0f7efda3366bf48696748faf8a5ac8  packages/@ezcorp/ai-kit/test/e2e/bundled.test.ts
+1adbd50a5a55a5b5055cb9eea77084ea4983f3e1c54c9c5172681b63c9daacd2  packages/@ezcorp/ai-kit/test/e2e/fanout.test.ts
+aaf91f90518eae8ee74e5831112cc332565e446612dfe54367efe5c54c489a7d  packages/@ezcorp/ai-kit/test/e2e/quickstart.test.ts
+9f7bf8b4dc6641eaca87390027b2bb7fee0d0c551283237178047c80c6683a70  packages/@ezcorp/ai-kit/test/shape.test.ts
+370cf5cfccb785ea0033d0ae885496b5848c1df326f05902b9cd75950430fee3  packages/@ezcorp/ai-kit/test/unit/deployed-preconditions.test.ts
+0d4e200619ab9818f522d17eece91a98bdab5e0ae3766434b7b9adcac49a06e3  scripts/check-factory-lanes.test.ts
+95b59fd223763f0e4ff034a18c2ce95064208f48ec73a9188b90a47a3d42fbe1  scripts/check-factory-lanes.ts
+a9702ccbd8436a6bdb0bc0d2294badc3e35a4643de4bcae49fbe7affa3961336  scripts/production-proof-plan.ts
+c0d6bba3e25098eef79a25a2e22e7780797d85f2df31c749ac4af2ca61c53262  scripts/ripgrep-registration.test.ts
+f14d7dc740917b4cb55ed0580e7813cca9d903cf67fba758bbf5142fbc2a5347  scripts/shard-timings.json
+8d1d4fe681e61be42482e72bcc54298dfcac85b5bcd73219ce80b7c7a87676b2  scripts/test-images-registration.test.ts
+a7f07437bc0971b184a2643c03ab15c4495a601f06d262332bded7f5ad8679f5  scripts/test-images.json
+6a58d7ae2bb8ff40f7c68701d19d13e9ea1ea372fd34a7403e7c64e502ffa4b7  scripts/test-skip-inventory.json
+ab8168025232e325fd3940efa45c474ba525f0757a6bfcb5aee7e426e10cc0b0  scripts/test-skip-inventory.test.ts
+39b9c48a577e2ec4ff063279b0ee46c4a5b3b0ce0da96bf6e3ce11c5735b171d  scripts/test-skip-inventory.ts
+955722d407f7dc2c888cdfa858fee9ad2dc08b919038ccac42c1e081cccabbca  scripts/test-skip-registry.json
+7277da1c62c815714d1cf6cde62690d49c71f7f96e3bdb3d71d2fa65e0eada3d  scripts/verify-shipping-preview-isolation.sh
+464712087df127842f09dbdf76e0d62fc606a40cff2e85448a61d1bba5be939a  scripts/verify-shipping-production-results.ts
+e71ab898ed3d33d1e79562bc164a311e31e0c431c0b6666ad9c58361df88f062  scripts/verify-shipping-production-suite.sh
+8a7d4bc8c422f0baaedb5fd4f0031b89ccf3318e8e15f49741694d4a539b526d  src/__tests__/account-api.test.ts
+f9811ece8a818d9f2129d9b13fe25a274fdb26684072f24b3ce69e6e492ec29c  src/__tests__/admin-analytics-api-routes.test.ts
+59b99cfad5bdd3c8c4e3b183049cf3e2432eb22afb274928e6776bbc5d559146  src/__tests__/agent-sandbox.test.ts
+64ba39ed3461d23ba27ee2005c2ff7e8040457d9f942137a9587c937f29efaa8  src/__tests__/agent-sharing-integration.test.ts
+be04ec0096fca26bf9181202ddb68beab8a9e834d4f5911fb2cde09f7f8ac021  src/__tests__/agent-sharing-routes.test.ts
+91cb3d314e06a04d13f64a0184ec08761a3b4d482bb3440be499ca7f34ca8eb4  src/__tests__/agent-sharing-users.test.ts
+1aaf41090e65ed5ec76722e522b1517329914a9afa5b654d4196de90d2fe61d1  src/__tests__/agent-sharing.test.ts
+a740aeacfa9510565969ab2127f70d898ef2f9f0fc5c57aeb336d27686ecc56d  src/__tests__/analytics.test.ts
+6ff5524fa930677f56ac98af5e5acdf4df1aad5e0179f2070c70e85f13c1fbe1  src/__tests__/auth-api.test.ts
+eacf5b08efe594e1dc3f8b34cb441d0ad7ada6bb0d0018be3972cf21732df782  src/__tests__/auth-jwt-password.test.ts
+f8e29e8188999715f024c0e3f310429b454380fe54162e0f7e06b6cf7b49c918  src/__tests__/auth-layout-e2e.test.ts
+2effd121cc4c5cf03845d9b4a604290430485189f34b237a2bf2369d9049b6e2  src/__tests__/auth-layout.test.ts
+a0a814779ddc1b4f587d3b2eec7914ae3d51bd15849ef36781bc0060bc3b0dcf  src/__tests__/auth-middleware.test.ts
+f5f64434f3ec63087615ae7f593f18ee296c6538e2ed88ca475dd17a019ec207  src/__tests__/auth-migration.test.ts
+29c278664bbb7f831ec499ff8cb0f5f5cc094356c1e53fc255a3bd0bcdba4918  src/__tests__/auth-rbac.test.ts
+87ee1ce488df28837dacd3af04ca68fba35eb9532c56a9fa6dfb913c3ce94430  src/__tests__/briefing-messages-bare-get-thread.test.ts
+ea81ca4c877dbc501027881b775d0f9692762e544b07f9029242ba245b83dfe2  src/__tests__/bundled-bootstrap-policy-change.test.ts
+324a7e53556bea13dd08f6831998b1d245a7d47827d9b30213dec633fef0f71a  src/__tests__/capability-event-root-sibling-contract.test.ts
+68c51373a539eeda632687cf592ea986fdd12e216500ac7318815d424858c02a  src/__tests__/cli-key-mint.test.ts
+5165a9de0ec9e2d061dcc90e1d8df98a3c0e913b38b7463a52c5ac7add9b99e0  src/__tests__/commands-registry-invalidation.test.ts
+3f91686673755507e180e5d28f221b10f52cdddfb8f0b99f8ba0a5d98c0bc0f8  src/__tests__/contexts-queries.test.ts
+2f9cc8ae7b34bebbcbf41a9906ee46304c0bb6d5e7e1631b851e2b7750730b05  src/__tests__/conversations-clone-turns.test.ts
+d1765a0c4f15957bf30fa3a4ad0fe687c699a043a282ccfc9615a237504d9d1d  src/__tests__/conversations-ez-mode-lock.test.ts
+c24961dbc0b619bc3b179327cdd67faede0201100b254062be0b6bf3098ab48d  src/__tests__/conversations-fork-link-integration.test.ts
+215eaf1d67c9f3b237f4de0fede79541d7e5ded8e6cac7158987fbfb6c6e2904  src/__tests__/db-queries-agent-configs.test.ts
+d3a6874ba00e0ef28d24d4d8d7806b7c782331226f02773fa3f9af494cd7fcfd  src/__tests__/db-queries-agent-shares.test.ts
+034447b7fcad945a06f92ced86cfbbf93ef7c0197439f843537634516c093791  src/__tests__/db-queries-marketplace-ratings.test.ts
+4e032bb1cb8044b196cf830c1abd93625d08783044733cfff9d828ae82487e5b  src/__tests__/db-queries-marketplace-trgm.test.ts
+b270383d45796d40f4392d35121c1ec8fe65925ee17433c94fcee33d46c7e3bc  src/__tests__/db-queries-password-resets.test.ts
+50cb63dd5235fa5fb9f14b7eb9e77935edde6b6d209f18ce796202f95fcf7d51  src/__tests__/db-queries-quickstart.test.ts
+1d4bf6ec1cbfb1f92e9f226d7c5781ad2c38252f29eb6429edc7793a3536690a  src/__tests__/db-queries-runs.test.ts
+41a6c47951d3458363a911d0783982d8fc1a5427679d341e6ef351d5511c8a9e  src/__tests__/db-queries-teams.test.ts
+999a970596904975852acf3c7ec62737eba46b484526741f76a8f28d667d80fe  src/__tests__/db-queries-user-commands-race.test.ts
+aa3f1f97a85b6e9eeacc22f226cd5a36a1d371d7029f476ca3456ed6639f9dc1  src/__tests__/db-queries-user-commands.test.ts
+2fd24fd5929a2dae360e3639ad2e2dff1c084f73b6164a58366649429d43d352  src/__tests__/db-queries-users.test.ts
+7dffcc9219da062bcfc766ec3a2f7c00c25426e65c705d83a63ec6dd6335d413  src/__tests__/distiller-settings-migration.test.ts
+dbaafc95650a7f2aa4f7d3d90eee8ccbd2a2d171a8641a2a63e121fdacc310cd  src/__tests__/extension-event-end-to-end.test.ts
+fa96512c7a515d2ff390fd0b7ccf742fa0ff9ccc4c0972ac46c06784004a3b60  src/__tests__/extension-events-hub-branch.test.ts
+b4928c46e1421dd353646a2f8072b585432103f8680ce1abe9b8a3113ac5c7c6  src/__tests__/ez-clear-leaks-context.test.ts
+e0ce805c52f45a4c59abbcdcbde5eed702e489ef44ba1f08b9abf807126f6082  src/__tests__/ez-conversation-lookup.test.ts
+d67f9cb64bd6fb86259e5367d42c8b59a34a58ad4d9c84a3a4f521f11abed4ce  src/__tests__/ez-drafts-queries.test.ts
+eef14d77cbfafabe6c391ca6540eb5dd0c7314781a96236fe4ab1c16e1836951  src/__tests__/ez-search-conversation-tool.test.ts
+20fb63e9d88d996180ed4fb2e7ca3a2579a2850be1fac76031796f23a7fef7e3  src/__tests__/ez-tools-create-agent.test.ts
+d7c931b8344c7299a56d679a4078dcd818d4cee7b77bff6978951b8321a11af7  src/__tests__/ez-tools-create-project.test.ts
+960449ebbc5587a215beb77f83d15bfd9f9b171ebb878bb91b43c2821590294a  src/__tests__/ez-tools-find-agents.test.ts
+8bcb20136cc68a4601d909b104c5e9ef20f090044dbc1b186381201fc31d7ba7  src/__tests__/ez-tools-install-extension.test.ts
+0c4d15293df6370fbbdad39211e9b50f43dde0f3f44a6018e34afe998b978e19  src/__tests__/ez-tools-summarize.test.ts
+c386eed80420cf596c2916e6527668f0f0b1f5ec97f88430eececb873984ad48  src/__tests__/get-latest-leaf-capability-event.test.ts
+0b5e7844b0d97a067bb67d676f8d129dd286bf7dee2cd8d04f821722b8bc10d4  src/__tests__/helpers/price-chart-market-stub.ts
+cd74f0f910f8f8f2ef50a0329ec6aeb14f096598c5b2437d49aa89aaa3963aba  src/__tests__/load-history-capability-event-filter.test.ts
+826abbd860e7f553b5b6f416853ea407006ebfcf013279c3ba161fcc2cc228b8  src/__tests__/load-history-excluded-filter.test.ts
+d8a02daf40b376ae9666aa53914f991363ba6cd901f6e30e7df3d951bba3c7bd  src/__tests__/load-history-ez-action-filter.test.ts
+2ddf62816e9391e1d15ec3c505b6f430843d0f156678d2c2e59b088d26a3ded5  src/__tests__/load-history-preprocess-filter.test.ts
+820c2c66a998d8c3a66df6f87da63f28d6957ffd8fb12d28bb37540693fa3595  src/__tests__/marketplace-e2e.test.ts
+c8eed2ee856eb6f0656cb54e1b3de4a5faa66a736c703db0a847444ddef3dc72  src/__tests__/marketplace-queries-deep.test.ts
+beb1fbd3599bddbe3ed675755ca2bf815e54d2f24c328ff4c4fea12414982c08  src/__tests__/marketplace-search-perf.test.ts
+b50dd53c7b4326c47835303bcd3d9ca49a2342ebccb445a2125f01c5c9c5b28d  src/__tests__/marketplace-tag-counts.test.ts
+0d185b8a99d14c920161ca091f77e10518f9a2078e3c2daed474f968169cf5ea  src/__tests__/marketplace-v2-migration.test.ts
+dc16c288c7c32725eb268839331b9d36cf55b41d4fc7cc333eb8d9468757ac66  src/__tests__/memories-api-create.test.ts
+089aff1e64a7d588d39a13dcf81fac63e15275814b29f191e394892027bedb40  src/__tests__/memory-extractor-settings-migration.test.ts
+b922f787de92bdaa07522bbb6a3e4c85831bf7a405be8601f35792fe140eb33a  src/__tests__/message-search-explain.test.ts
+a98d5c87bcfa99f3fd891bb8f81f772bdc3bd5a95bb8a78b8dc5ac914e19b85e  src/__tests__/message-search.test.ts
+0f36e10dd22bbdd07d818b493c77261a2fad23442839a5855b30e8ecbf1d5fd8  src/__tests__/messages-set-excluded.test.ts
+81169c17c87715b45df2f4c4ab333235e8a64558516ae8b4a679b4674abb43a6  src/__tests__/migrate-backfill-populated.test.ts
+0464dfc738a3fdd61f577b74f30433e62dd36dcb4c8dc7fee961e3b17e7e4819  src/__tests__/moderation-sharing-e2e.test.ts
+63aaeb715713328518be1019d2f57ec8463b2d3eab9a4133ce7b30555e9a4a57  src/__tests__/onboarding-skip-flow.integration.test.ts
+9983c3a4f9372078d1125f365f3480ef6568213557576fb0c596efac8f2230de  src/__tests__/preview-consent.test.ts
+75d3a3e1c2d6e1bccebe1288a26c3ca4c5c45537f07e99ae3b2041bf585e0e9e  src/__tests__/preview-dynamic-e2e.docker.test.ts
+b673c996b0c51b5adb794f6223bbb4dccebd14215a3da91c3d14309e017c5408  src/__tests__/preview-sessions-queries.test.ts
+0ba500ae005551761f2888091c242c6be28eb718dc15a0c827f86b6c98c0062c  src/__tests__/preview-uid-keystone.docker.test.ts
+c163cf8c2055a72dc6160024ac350c73224260c2abec55081ac8063571043631  src/__tests__/price-chart-market-stub.test.ts
+ba21eba42274497d92e801d850f7a05be365802e56cfe130450aaff3bf664c0a  src/__tests__/price-chart.e2e.test.ts
+6fef3d3735bb03b458b7c1fe7a2f83734f38a1eb9abc8c3b1406d09ff6558d32  src/__tests__/production-proof-plan.test.ts
+2080294f249f66a92449134af0103c7ad55ddc9cd357d7c920bb891a3c0bd24d  src/__tests__/production-proof-results.test.ts
+4dee8919932c4ffef6f4ef356d809a74b4b03efa5434793ad58a5ef1a04c52ea  src/__tests__/queries-lessons.test.ts
+58cb10c734988024d56e3373114fb36af93b79e3808afcdab5ffe7d996e1a2ec  src/__tests__/routing-analytics.test.ts
+86c3cbdb39c91a2586ad7075d833e238f24fe726015211dad74080ad5d968231  src/__tests__/routing-export-script.test.ts
+2c9c7dd6b8c5de76b733033f5bf903d3e7a0f6a8326f329aea90de9b08d6185d  src/__tests__/routing-spend-truncation.test.ts
+6edc2d582eb35ab5b1becadfd02875cdfc8a5acf9358d9b30b154df27a76f993  src/__tests__/routing-sweep-script.test.ts
+17a494b6affaf8d06f2140540661f998368d1a6cb07b24f9d64b62c496c5afe8  src/__tests__/runs-user-id-backfill-migration.test.ts
+9cd03b12410746bfe8f7db8e21ec50793371844e546054f2e348300a7067fe09  src/__tests__/runtime-tools-grep.test.ts
+14a837abc5af1ab2a70151812a3364f3a8b2491550f3f8c271282211a05852ad  src/__tests__/sandbox-api.test.ts
+7b3938d25d0b12f2c87ea39a24bc663075c1d81c116376f7b2428ddd763cc98b  src/__tests__/sandbox-observability-comprehensive.test.ts
+242721f8f6a954603eb4414a3d43ddc4099a10fa811d4aad8a32447ba1ab741d  src/__tests__/save-memory-integration.test.ts
+37e0b57255ae3a6a1102290222c1a4487783d8f1f296c086046e791256257521  src/__tests__/schema-migrations-first-boot-backfill.test.ts
+27cd08785ecef3e463033b73bf5f17c9dc6e951bc15dc3ed35047cb96bee1e0b  src/__tests__/schema-migrations-indexes-audit.test.ts
+9aa33b10ca22ca9690d17f2918121214738fe5dfcac09c6f2d96b009da180262  src/__tests__/security/l1-login-timing-constant-time.test.ts
+9da8657d1c0d16f1dbdc84a889ecf5df08f0b18e3436375bba6b8967c3acf1f7  src/__tests__/shipping-preview-isolation.test.ts
+534c2f64f6573165ce270fc674bc338cc8469f3e6ea6d40bef8bbb8b02eac8a7  src/__tests__/shipping-production-suite-wiring.test.ts
+e72b82c2125f1d158fad329fe8e7749b4ffd394c324e25613f403f1047a37a2a  src/__tests__/source-parser-git-coverage.test.ts
+9ff307cf11706e55410cdef42171cdd425d5d65ffaa4520644436a3348be9aac  src/__tests__/source-parser.test.ts
+568f12f3b28ec984af2f93ef5b31b3a2a3517a1e9ddf0e6302a2d9028713b947  src/__tests__/start-assignment-plumbing.test.ts
+4e68233ef58bf533c1dc8eff3aa726908b5257677a55f472a7c0eb25bc940500  src/__tests__/sub-conversation-integration.test.ts
+83f579397f763bdc8b4ad729329b375d0c6a2d5eaa809ab05ed333065bd030e7  src/__tests__/tool-call-telemetry-write.test.ts
+1888dfd224e225db7165080db36f450e359ed0b8eacc3d4f57025d402d14528d  src/__tests__/tool-calls-backfill-migration.test.ts
+868eaab35e678e9924b3ccb5799446e9c6c4fdbb2d1618a12a49761fc56295dc  src/__tests__/user-search-sharing-edge.test.ts
+1b97572a7fc143cae601ecde548d289eaf02c9cece190a92b1375380a6aeb12d  src/db/queries/__tests__/query-core-conversations.test.ts
+7253ccc34d77ebacbc630b6161be9027e0428fdb269cb6cf91d73146964da3ac  src/db/queries/__tests__/query-core-marketplace-ratings-atomic.test.ts
+fe1895734d70478e95745e8456d22358c170e5194cad68e2783b5c8a8b2d09af  src/db/queries/__tests__/suggestion-feedback.test.ts
+b171ef559d80162eb1ee58762cfc8c8aad3927482dff346340686ccbebb236ff  src/factory/provisioning/control-plane.test.ts
+83278e7d650c41aa5a72e312b7d3b8ad8a5917c894716aafe27b9a6ae4057dbc  src/factory/provisioning/fleet-cli.test.ts
+046ce0d076612860cde9d593a60163a79f54766d52bf594c3e52036ae16cca87  src/factory/provisioning/invitation.test.ts
+a1c7161b989605beb0b15f8802a8982dc4318f5b34888574e9ba92ed379ec10e  src/factory/runner/supervisor-services.test.ts
+e00c315ea7a982b685bde7b5ac4eb0557ac7e5db5797d78f17de32e5fa7985cd  tasks/factory/w4h-33-GATES.md
+5ea37d7f6c4a93b21f6e44f5a7e1af45ae5e2011e6845d0db4659de7b1ebcb0d  web/e2e/docker-auth-setup.ts
+ea2b6b301b46dc843ad56ac5ad6ba29684eab18a47f84fdd9cace5cdd699458e  web/e2e/file-organizer-real.spec.ts
+20fe861ac7b0e7a4f03158fbf0d9f98bc30c0d879f766daa4f763f0d9139fbbe  web/e2e/lanes.json
+b988b60333250c3fdba9d165ba1745070e8e26adc38d58118d522a3a5332db2e  web/e2e/real-auth/ai-kit-public-api.spec.ts
+ecf191dd7b32e7e232a5dd52922ef8419c9f0ae1f3ec3c31d73459b149f4eb21  web/e2e/real-auth/sub-conversation-flow.spec.ts
+4a6fb3ca633d48f57572cdb89d66baecc5f4433426b02ceae031673b0bf893e2  web/e2e/reliability.spec.ts
+3717a3b030d3a50a9f85e61b4c7941287e5aafd9d1b45475f309a4502cac9582  web/e2e/skeleton-loading.spec.ts
+b658bb85a6fb4cbd48f64b07794ddaf5e87efd68d2a02464ba2265b7f941348b  web/e2e/teams.spec.ts
+5dd8275b09a48aeb17392ad1cd3b15738a3c39b885b522ce178eacb44e6a7a1e  web/src/__tests__/agent-chat-api.test.ts
+89e1180288c8e1e3d174c41536ae891adab056307e9f685c239a0a5204781f84  web/src/__tests__/api-account.server.test.ts
+c79e06f3533c9756a74187f7639107ce06e99bde57eef38e8d1b6183dd42b74e  web/src/__tests__/api-admin-analytics.server.test.ts
+b5cb4947593844580f5c11843a9a645532cb3909b75b5854d0561d03a0420ae0  web/src/__tests__/api-admin-embed-progress.server.test.ts
+09aa8a18d246e01dc36b2d5a0de5a0080b99c7e1e330d99fc9ca4712f750ef42  web/src/__tests__/api-admin-errors.server.test.ts
+3ad1549b0171b58674da435556fb97b55a2173b29884e6596f7b1b77282d3b9b  web/src/__tests__/api-admin-system.server.test.ts
+70d17c2ec16fd6c6438ac6c2f836654ea6680ae73da8b3ebf158ee3ea2852b2c  web/src/__tests__/api-auth-invite-token.server.test.ts
+c09b2684c563e7f3bbc1ba5032b2ae259a8c1ffe68c95bc2bfb91721fd3f2d6f  web/src/__tests__/api-auth-invite.server.test.ts
+f38ecee9f88062ed862b55b647dafa53686acf6cb19c293ddb9bef6df4b237a7  web/src/__tests__/api-auth-login.server.test.ts
+daf9acadea521446596fa3795e324ea8317893dc4219d8efa05c9c0d8f0c00b5  web/src/__tests__/api-projects.server.test.ts
+ed01980e25ec3b2b9d53886a4630ff60fb01e1aa0614e6d94f001a18efbb60c7  web/src/__tests__/api-users-id.server.test.ts
+cb6c9a4c99906f6de38bec225b60d49356f646e2aa5105ef549b61300896fd7e  web/src/__tests__/ask-user-answer-route.test.ts
+111902054b5055cf447c0c767455c89fc2b314cb1f3d2d74f5a959a8ebb9d957  web/src/__tests__/extension-settings-api.test.ts
+f2eb54cad2a16d2e0f368ce8a3522329ff5e7e161e4f2dc160c1d87e30187ed8  web/src/__tests__/extensions-api.test.ts
+3708a4f2f4d6c5dab5ba9bb850be3cfa2d64c71f50d5eeb3263edebdb026320e  web/src/__tests__/extensions-data-route.test.ts
+53411145a50d4373d1d79d1c9bfb1bd8eb4b2b27067c5072f7fcc0a0cb871bd6  web/src/__tests__/extensions-events-route.test.ts
+dde08485cd5ff915d875765f14bcbf4e3e9a011932ae5e7fd7b784387ec61718  web/src/__tests__/file-organizer-events-route.server.test.ts
+49d82fad6e75c9664a106ad3ff7cbffb494f32cad4242e6e438403fd28045e34  web/src/__tests__/hooks-server-dev-indicator.server.test.ts
+890703e57607d3d7fe8c004f087fea4a6a89a461b93c71c5b84138ac6956e15a  web/src/__tests__/hooks-server-gate-initiator.server.test.ts
+1272935ac75c056f1e6d9cab5cba48a5bf9a896c2d354f22a52f7cdedf29546e  web/src/__tests__/hooks-server-onboarding-redirect.server.test.ts
+e2a5eb625f05108a39f8f2ef36eeb43b0ff8f6f1d00c9921a5ad46cbb5cd404b  web/src/__tests__/hooks-server-return-to.server.test.ts
+28dc5aa8329fb4d64485f286878c9d2baee0fb4e4498b2ef84e58f49c7e1b649  web/src/__tests__/hooks-server-session-refresh-e2e.server.test.ts
+9669f7e8894b5a7e8fe542e5fdfc4884a7a90480b6aa31c8bb840f243c2939c4  web/src/__tests__/hooks-server-session-refresh.server.test.ts
+097d5d956ec87af6da6f8885870a07e9704cb107c97525d017b8cfa20a3f7b7c  web/src/__tests__/login-page.server.test.ts
+b359b902a0e350b14c5eb413ff6dc1cf414dc6271290e7453e004b182da42cba  web/src/__tests__/memories-api-post.test.ts
+208f55ab06b049df634c4690cc054f88d5ce2b957536622a667f86c7d1d50b30  web/src/__tests__/mention-logic.unit.test.ts
+775284edd486b9c5d4dcd8dc69a4c641ce32fb2197eb5d9d8961a1b60f54434c  web/src/__tests__/onboarding-page.server.test.ts
+60ee44a377c8530f2794449daaa181c74715552c112f88c19cd3132af1f7d43e  web/src/__tests__/onboarding-wizard.integration.component.test.ts
+fda8aa6588800e3cfd0844b381c629aa016f115006d1ae3715cfdcae84430fd7  web/src/__tests__/price-chart-stream-bridge.test.ts
+1eb9c787ee290e7e27b41c6df64a7a3329bee8629a4381f2316648f2b5658867  web/src/__tests__/security/schema-coverage.test.ts
+cab547b9dc11b82eac7da5ebb377bb54707d66b2f2168b9e060b004615d382c6  web/src/__tests__/security/validation-routes.test.ts
+4fa42b6259424dba97e95ef013d672e5eada8a9dbd8fa0e4e0c489da05e1faa7  web/src/__tests__/setup-page.component.test.ts
+b7a07175eafcf9f69653acd31c7790decd339b5caaa16862dd92ca075d3ddb6e  web/src/__tests__/sub-conversation.test.ts
+609d105c794aa4d58e9c121e5469754971c3f6299350dc6b0d859605ed91a9bb  web/src/__tests__/tasks-api.test.ts
+04e29ddd3fa608648a72cd6847cfe9c84e23ba29836d438c32a324f0ed7aa05b  web/src/__tests__/tasks-assignment-api.test.ts
+02fc003207d080106c77f1e90fa6da5328053cf1dcfb7c10c0b69c3c4dddc8db  web/src/__tests__/tasks-stop-retry-api.test.ts
+cfc9d86904b724444705ae7d1f627f8c3849119deef8843fa4c982638f2155db  web/src/__tests__/team-panel-refresh-flow.test.ts
+2d47d30ef3b16c1de5cb3e69ea56fcdd086db2db54277598f4fbb6534889669b  web/src/lib/admin-guard.unit.test.ts
+275433b29d5eafd7445b611176d8432bfc99d975a48a553256a588edcff7112d  web/src/lib/api.ts
+0585ac027a6f5a82fcda906ee18cbf6f14cd9bec731850c5c0d2cb70cc59bfc3  web/src/lib/chat/page-handlers/__tests__/send-message.test.ts
+b521768f813e8d4f8f470db16cca2331b05d9a23b91f3f18c0a4cd57887cb4d6  web/src/lib/chat/page-handlers/send-message.ts
+6e5b24af3d4f1b430bef853d0b5d08deef973b0d1649b1b77c9645d6f47c4b16  web/src/lib/components/ChatThread.coverage.component.test.ts
+94d98b3a26ee299d240bea0f8e432af1fbf14769bda484c96b81f023ab1c203f  web/src/lib/components/ChatThread.svelte
+82334a7eb46346cf229889948971cc2fdf006b84e644402fc030b74de00d3e1a  web/src/lib/components/__tests__/UsersSection.component.test.ts
+
+== deleted
+src/__tests__/task-stack-sdk-integration.test.ts
+src/__tests__/todo-tracker-sdk-integration.test.ts
+
+== Post-freeze evidence-tooling change (team-lead ruling after validator-8 Addendum J; branch head 0cfd7b104 unchanged; no leg re-run)
+The scripts that start Bun now source w00/bun-pin.sh and call bun_pin <worktree> (one helper) instead of setting PATH by hand. Smoke: logs/bunpin-smoke.log (5/0).
+e37d7b995f8c1a5faae0c8ddf0180a8a540c4e110f34aa1b5d670b82f2b370b6  bin/commit-fixtures.sh
+63804f7f7ffc7080346278dd0956d921c8dcfb9047697a555e413e6aaf67594f  bin/inlock.sh
+2f48b553bd839f64cdb5019f477ba4b5ada2a3685e05309698b186d1bd8c6e4c  bin/preview-proof.sh
+650b89f0d44669e5474a03572d858f5180eacb83df7f2d10a2189fe564452412  bin/price-chart-commit.sh
+49fb86e4c41611bf1c32e076135d56639654e6afbe72a0f8e0ef276ec31a8a21  bin/price-chart-leg.sh
+47246e3a51b34c1678775fdc10219f02df31c25bfbf042bdfd4921bea58aa237  bin/real-auth-aikit.sh
+9d336fb508d1044ee47c1837fd23473d4a22938cf017a00379b64b1f808f6e23  bin/run1.sh
+a1bb2b320259028d1d576d7b1d86815034b793a093b400484ea27a3070cd5acb  bin/shape-red.sh
+a134e75561cb727f63082be9dacc3c9f60ab566a9cd05da32d2ab2c5650cbfd5  bin/subconvo-probe.sh
+82c2f73acf94ad4dd6b81277fe816058d04458018278896187eb4d009c6b11c5  bin/typecheck-leg.sh
+0f09c1b5251de91f2c0a5b9578e55aa15e21118afb7db4c61d1ac9a58b94a232  pending-lesson.md
+
+== RE-FREEZE at 1dcaac301c377a539ae2ef2707f3e800a3dc6396 (2026-10-16T06:33:19Z); validator-8 BLOCKING finding on 0cfd7b104 fixed
+Delta commits 0cfd7b104..HEAD:
+  86df17911 fix(scripts): the inventory lists files through the shared withoutGitContext, not a hand-stripped env (W4H-33, validator-8 BLOCKING)
+  1dcaac301 docs(w4h-33): the gate file records the git-spawn guard fix and the invariant legs (W4H-33)
+Checks at the new head: git-spawn guard 19/19; inventory 25/25 (100 %); invariant legs 54 files 629 tests 0 fail (logs/invariant-86df17911.txt); gate-integrity default and main: only the 2 ruled deletions (logs/gate-integrity-*-2.log). identity: identity-check commits 390c49a90..1dcaac301: 25 commit(s) checked, clean
+sha256 of the files changed in the delta, at the new head:
+  67b9c24f879792ce8e833100557eb60b954ab18fadc91f8ffdaeb1dd856cc7f4  scripts/test-skip-inventory.test.ts
+  3f9fbb29dcec63dd298e4d2fa529f858cb0469d2ff04580b995536acb457cf7f  scripts/test-skip-inventory.ts
+  a03d43514f3f9629c35ba161c4f5967c7032a784efd84827fdfbab4e647eed8c  tasks/factory/w4h-33-GATES.md
+  0d5bd54e8f2976298801c1606235d2a1fd77a6f725c7e346f68263e50f7c2b05  bin/invariant-legs.sh
+  ad6a8c95ac61f6cca4bb17795727409919f6d60b3000751351a57495f164f80d  pending-lesson.md
+
+== Post-freeze housekeeping (2026-10-16T08:05:32Z)
+- validator-8 verdict-w4h-33.txt: ACCEPT at 1dcaac301.
+- Removed by name (podman rmi; no prune), per team-lead after the verdict: localhost/w4h33-production:ffc07998683e, id f3c2e204a53bc89216eab163b80a5e9c3219428986c74ee424b7c8512c59a0b9, 5732930949 bytes. No container used it. podman image exists: false afterwards.
+- Evidence mirrored outside /tmp (team-lead's rule after the 07:55:48Z /tmp cleanup): /home/dev/work/EZCorp/factory-evidence-mirror/w4h-33/ via bin/mirror-evidence.sh (cp -a, then diff -rq and a sha256 list compare); list at factory-evidence-mirror/w4h-33.sha256sums.
+
+== red-on-base.txt (team-lead's request for the merge's case check; appended 2026-10-16T09:54:44Z)
+496a1fc7dce5100ba2f68af572c2b7130745607f71ef9b607753316037068661  red-on-base.txt
+run: base head 390c49a90; W4H-33 head 1dcaac301; run 2026-10-16T09:53:39Z; bun 1.4.2
+Form: W4H-28's red.sh (w4h-28/red/red.sh, its leg library w4h-28/legs/lib.sh sourced). 28 files: RED 7, RED-LOAD-ERROR 3, GREEN as listed 8 (each names its red log), not runnable lock-free 10 (each names its log). Base scratch worktree .worktrees/w4h-33-base at 390c49a90 (real installs, build:packages, svelte-kit sync), restored to 0 changes. Not listed: the two files deleted by ruling 1. Script: bin/red.sh f8e03c2d708a8d0b…; per-file outputs: logs/red-base-*.log; summary logs/red.summary.
+
+== F2 fix, re-freeze at e4aa0cb449ed7f4f66ad62a13070ebddc0201eaf (2026-10-16T10:03:15Z); validator-8 finding F2 (medium)
+Commit: e4aa0cb44 test(production-proof): the verifier's preview-isolation test list is pinned to the tests the two preview files declare (W4H-33, F2)
+Change: src/__tests__/production-proof-results.test.ts only (697820c2a63784ba0bc4baeccd49ca96ff7b995d6e58943da58323c92fabe89f); blob 12725d1efa1c987db53611ddecedc3b720c9a145
+Mutants on PREVIEW_ISOLATION_PROOF_TESTS (scripts/verify-shipping-production-results.ts, restored clean): one entry dropped -> 5 pass 1 fail (the new pin); a name no preview file declares added -> 5 pass 1 fail (the new pin).
+5a04ceead030d0fe7ce840ddf5ec27dded4cfc64b2137befa0fd6d2d23b571e4  logs/f2-mutant-drop-entry.log
+bcd93ae585100afa35ff5b6bdbaf2b7f04f828ddefd5c2d63bbd843c9eb3c817  logs/f2-mutant-add-name.log
+7780b1b94ff37645fefaf7f76b747c7186e48a03493835134f5be12f7a03ea2b  logs/f2-green.log
+c56b0b4d834d7b12983e04cbd03cfd156773d5aedbeb8affe771e7a400ff9f2b  red-on-base.txt
+Green: 6/0; hook 6/0. red-on-base.txt: dated section appended (append-only verified), base counts at 390c49a90: RED-LOAD-ERROR pass=0 fail=1. identity: identity-check commits 390c49a90..e4aa0cb44: 26 commit(s) checked, clean
+
+== Merge hold 15d71f83b RED (11:06Z): the two items team-lead assigned to W4H-33 (2026-10-16T14:01:46Z); no code change, head stays e4aa0cb44
+1. scripts/verify-shipping-production-suite.sh:112 is the case PATTERN line 'embeddings|runtime|delivery|revocation|runtime-resources|preview-isolation)' (W4H-33 added '|preview-isolation'); the file-organizer arm (line 110) is unchanged. bash xtrace never prints a case pattern line, so no test can mark it executed; bash-line-cover.py excludes then/else/fi/do/done/esac/;;/function lines but not case patterns (a tool gap, the integrator's). The arm executes in the existing leg src/__tests__/shipping-production-suite-wiring.test.ts (4/0): under the team tracer (bash-trace-env.sh) lines 113-115 are traced 12 times, line 115 dispatching scripts/verify-shipping-preview-isolation.sh twice; line 112 0 times. Logs: logs/hold2-suite-wiring.log, logs/hold2-suite-wiring-bash-trace.txt.
+2. cov/patch.log names web/src/lib/api.ts with NO lcov data. Its canonical producer is scripts/api-client-coverage.sh (BUN_CANONICAL_PRODUCERS, TN ezcorp-bun-api); run at the head it gives 100/0, LF 733 LH 724, and of the W4H-33 added lines 697-724 the 10 instrumented ones (710-717, 720, 724) are all hit, none missed. The hold's merge lacked that producer's lcov (the integrator's attribution). Logs: logs/hold2-api-client-coverage.log, logs/hold2-api-client-lcov.info.
+b1a89c7ca72952c251de79fd17a6b251f92a24869275654e24201442e2d1abcb  logs/hold2-suite-wiring.log
+2a6bb975fa7888021ecaa36af691ed2e69e1cee9cba055a3c8f73f66dcabb529  logs/hold2-suite-wiring-bash-trace.txt
+0fbcfbdf31776e190a881909af1332a618b62902d4e31907b8e7f88ab28218be  logs/hold2-api-client-coverage.log
+436b38d3c03232954a6f0649a20bcd52277663c933d440606f125a9655596c4f  logs/hold2-api-client-lcov.info
+
+== D2 (child coverage in the ai-kit real-auth spec): ordered, then withdrawn on the validator's judgment; no commit made (2026-10-16T14:38:04Z)
+Runs w4h33-d2-red, w4h33-d2-green, w4h33-d2-green2 and w4h33-d2-unset: ordered, then withdrawn; stopped by the owner on team-lead's word (d2-unset by pid 14:36:55Z-14:37:26Z; d2-green2 had exited on its own at 14:35:39Z); results discarded. They were launched while team-lead's withdrawal messages had not yet reached me (one long tool call). The uncommitted spec change is reverted; head stays e4aa0cb44.
+
+== D3 at e50aedefd96576ea4e72abb5e73e555540b77193 (2026-10-16T14:41:06Z): the fanout poll helper as a module with a host unit test
+Commit: e50aedefd test(ai-kit): the fan-out suite's sub-conversation poll is a module with a host unit test (W4H-33, D3)
+ba360eb314352d4ec019cdac5243e63506e6623ce2717055a31af123ff96fc44  manifest.lock.json
+44c3c54e6dfab03ff88ad41ec6f7a801ee0345bc35ee86b878d728575def49b2  packages/@ezcorp/ai-kit/test/e2e/_poll.ts
+96ec9eaaa57a984a22a9a26286578abedc7e12380cfcbd6436416c7c1e08dd23  packages/@ezcorp/ai-kit/test/e2e/fanout.test.ts
+14cfe8e815ca8ee6df10a0cb7e40ce3c93bf4b2d6697e7a92e801f44b6ba8945  packages/@ezcorp/ai-kit/test/unit/e2e-poll.test.ts
+Red: logs/d3-red.log (load error before the module). Mutants (restored): no re-poll -> 1 pass 2 fail; deadline ignored -> 2 pass 1 fail (5 s timeout). Green 3/0, _poll.ts 100 % lines and functions; hook: e2e-poll 3/0, fanout 0 pass 5 skip (env gate, void without the lane).
+At the head: invariant legs 54 files 0 fail (logs/invariant-e50aedefd.txt); precondition contract 6/0; gate-integrity default and main: only the 2 ruled deletions (logs/gate-integrity-*-3.log). red-on-base.txt: dated section appended (append-only verified), e2e-poll.test.ts RED-LOAD-ERROR at 390c49a90.
+59124d164d32a14580b03f1c59d097c940fd80eeebd820935387b8e530d54149  logs/d3-red.log
+6fa41b391b0ef6a581b3105f4b6e5e277dc414012efd3f8f16ae76bcd795ee9a  logs/d3-green.log
+213ff35c71ba32114a7353d4ea0ba4e0565a9bc0784b826e66093f668339b2d0  logs/d3-mutant-no-repoll.log
+0ac63348a7b411eb31205b41471ad535b08b125e21b6d6cf2d078179033712e8  logs/d3-mutant-no-deadline.log
+f156134e8f67c89d4735c7ed383399fb623a95af66e627c40854ae34c0b1d6ea  red-on-base.txt
+identity: identity-check commits 390c49a90..e50aedefd: 27 commit(s) checked, clean
+
+== validator-8 delta verdict (2026-10-16T14:43:46Z): D3 e4aa0cb44..e50aedefd ACCEPT; verdict-w4h-33.txt sha256 fe06312730a8d9e628fe6ede3947557f3f650c80048c525494de37ed90f510f0. The W4H-33 re-prep and the full hold run at e50aedefd.
+
+== Disk cleanup on team-lead's word (2026-10-16T16:07:55Z): removed by literal path the red-on-base checkout /home/dev/work/EZCorp/EZHarness/.worktrees/w4h-33-base (git worktree remove, clean at 390c49a90, 2.5G; its record is red-on-base.txt), /tmp/w4h33-norg-bin (80K, the no-rg PATH of the rg red proof; logs kept) and /tmp/w4h33-handoff-tail.txt (84K, a read copy). Kept: the w4h-33 worktree and branch at e50aedefd. Free: 97G before, 98G after.
+
+== Note from team-lead (2026-10-16T17:04:46Z), no action: with the W4H-28 follow-up landed first, the re-prep's gate-integrity expected sets are: origin/main leg = W4H-33's two ruled deletions + scripts/merge-lcov.ts (the follow-up's ruled coverage-merge change, in the base); base leg = the two deletions only. The earlier pair fed36ef2b24bf3ee is superseded. W4H-33's own runs at e50aedefd against origin/main show only the two deletions, as expected for the branch alone. Head stays e50aedefd; re-prep after W4H-32.
+
+== 2026-10-16 hold finding on b6414ec0b: web/src/__tests__/sub-conversation.test.ts ==
+Ruled by team-lead: option A, no delta for W4H-33. Head stays e50aedefd (clean).
+Fact: CI "Web tests (bun-leg orphans)" runs the file (web_bunleg_files line 164); 7 pass, 0 fail (logs/subconv-weblane-e50aedefd.log).
+All 280 web bun:test files are in web_bunleg_files or passfail_files; 0 unrouted (logs/web-buntest-unrouted.txt).
+Root cause: hold tool routing (case leg sent web files to vitest only); integrator fixes it red first.
+LEFTOVER (ruled, later round, new head): inventory lane-agreement rule. Each *.test.ts must be in a lane set whose runner agrees with its import (bun files in a test-file-sets.sh set; vitest files in the vitest config). Red case: a synthetic planted file that no lane selects.
+No move of the file (no lane needs it; a move adds a deleted-test finding without a product reason).

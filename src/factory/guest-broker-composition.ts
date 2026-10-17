@@ -31,16 +31,19 @@ import { readFactoryAttemptLaunchFacts } from "./runner/attempt-runtime";
 import { startFactoryPrivateHttps } from "./private-https";
 import { FACTORY_GUEST_BROKER_MAX_BODY_BYTES } from "./runner/guest-broker-contract";
 import { createFactoryGuestBrokerRouteHandler } from "./runner/guest-broker-service";
-import { FactoryWorkspaceCheckpoints } from "./artifact-materials";
+import { FactoryAttemptMaterials, FactoryWorkspaceCheckpoints } from "./artifact-materials";
 import { createFactoryGuestMaterialFrameBroker, createFactoryGuestMaterialServices } from "./runner/guest-material-broker";
 import type { FactoryOneHopProvider } from "./runner/guest-model-broker";
 import { createFactoryGuestModelFrameBroker } from "./runner/guest-model-route";
 import { createFactoryOneHopProvider } from "./runner/provider-one-hop";
+import { createFactoryGuestRepositoryReadBroker } from "./runner/guest-repository-read";
 import type { FactoryStartedListener } from "./runtime-composition";
 import { factoryProbeDetail } from "./service-probes";
 import type { FactoryStartupConfig } from "./startup-config";
 
 const MAX_TLS_MATERIAL_BYTES = 64 * 1024;
+/** A repository token file is a credential, bounded like every other one. */
+const MAX_TOKEN_BYTES = 16 * 1024;
 
 export const FACTORY_GUEST_BROKER_UNCONFIGURED = "factory_guest_broker_unconfigured";
 
@@ -136,6 +139,13 @@ export async function composeFactoryGuestBroker(options: FactoryGuestBrokerCompo
       provider: pin === undefined ? factoryUnpinnedModelProvider : () => provider(pin),
       ...(pin === undefined ? {} : { installationPin: pin }),
     });
+    const repositories = config.repositories;
+    const repository = repositories === undefined ? undefined : createFactoryGuestRepositoryReadBroker({
+      sources: repositories.sources,
+      cacheRoot: repositories.cachePath,
+      materials: authority => new FactoryAttemptMaterials({ ...stores, authority }),
+      readToken: path => readPrivateText(path, MAX_TOKEN_BYTES),
+    });
     const listener = startFactoryPrivateHttps({
       tls: { ca, cert, key },
       hostname: declared.hostname,
@@ -150,6 +160,7 @@ export async function composeFactoryGuestBroker(options: FactoryGuestBrokerCompo
         },
         broker,
         model,
+        ...(repository === undefined ? {} : { repository }),
         jwtSecret,
         installationId: config.installationId,
       }),

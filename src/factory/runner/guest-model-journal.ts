@@ -61,7 +61,7 @@ export function factoryGuestModelFailure(request: FactoryGuestModelRequest, fail
 }
 
 export interface FactoryJournalGuestModelOptions {
-  readonly journal: Pick<FactoryExecutionJournal, "prepare" | "dispatch" | "settle" | "operation" | "reconcileLate">;
+  readonly journal: Pick<FactoryExecutionJournal, "prepare" | "dispatch" | "settle" | "operation" | "reconcileLate" | "operations">;
   /** W04's workspace checkpoint, which a completed operation must carry. */
   readonly workspace: FactoryWorkspaceCheckpoint;
   /** Revalidated under the journal's own locks immediately before the claim. */
@@ -88,6 +88,13 @@ export function createFactoryJournalGuestModelJournal(options: FactoryJournalGue
     await options.journal.reconcileLate(authority, operationId, { providerReceiptDigest: evidence.providerReceiptDigest, usage: evidence.usage }).catch(() => { throw refused; });
   };
   return Object.freeze({
+    async spent(attempt: FactoryRunnerRequest): Promise<number> {
+      const operations = await options.journal.operations(factoryRunnerRequestAuthority(attempt));
+      return operations.reduce((total, operation) => {
+        const usage = operation.usage as { kind?: unknown; inputTokens?: unknown; outputTokens?: unknown } | undefined;
+        return usage?.kind === "measured" ? total + Number(usage.inputTokens) + Number(usage.outputTokens) : total;
+      }, 0);
+    },
     async claim(attempt: FactoryRunnerRequest, request: FactoryGuestModelRequest): Promise<FactoryGuestModelClaim> {
       const authority = factoryRunnerRequestAuthority(attempt);
       await options.authorizeAttempt?.(authority);
@@ -152,9 +159,11 @@ export function createFactoryMemoryGuestModelJournal(): FactoryGuestModelJournal
   const recorded: { operationId: string; providerReceiptDigest: string; usage: unknown }[] = [];
   const held: { operationId: string; providerReceiptDigest: string; usage: unknown }[] = [];
   const key = (attempt: FactoryRunnerRequest, request: FactoryGuestModelRequest) => `${attempt.authority.attemptId}:${request.operationId}`;
+  const spentBy = new Map<string, number>();
   return Object.freeze({
     recorded,
     held,
+    async spent(attempt: FactoryRunnerRequest): Promise<number> { return spentBy.get(attempt.authority.attemptId) ?? 0; },
     async claim(attempt: FactoryRunnerRequest, request: FactoryGuestModelRequest): Promise<FactoryGuestModelClaim> {
       const state = states.get(key(attempt, request));
       if (state === "settled") return { claimed: false, reason: "settled" };
@@ -164,6 +173,7 @@ export function createFactoryMemoryGuestModelJournal(): FactoryGuestModelJournal
     },
     async record(attempt: FactoryRunnerRequest, request: FactoryGuestModelRequest, completion: FactoryModelCompletion): Promise<void> {
       states.set(key(attempt, request), "settled");
+      spentBy.set(attempt.authority.attemptId, (spentBy.get(attempt.authority.attemptId) ?? 0) + completion.usage.inputTokens + completion.usage.outputTokens);
       recorded.push({ operationId: request.operationId, providerReceiptDigest: completion.providerReceiptDigest, usage: { ...completion.usage } });
     },
     async hold(attempt: FactoryRunnerRequest, request: FactoryGuestModelRequest, completion: FactoryModelCompletion): Promise<void> {

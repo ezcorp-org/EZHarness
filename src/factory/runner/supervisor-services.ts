@@ -31,8 +31,8 @@
  */
 import type { Runner } from "@ezcorp/extension-contract";
 import { startFactoryPrivateHttps, type FactoryPrivateRequest, type FactoryPrivateResponse } from "../private-https";
-import { FACTORY_HOST_ATTACH_PATH, FACTORY_HOST_LAUNCH_PATH, FACTORY_HOST_RESULT_PATH, createFactoryHostLaunchRouteHandler } from "./host-launch-service";
-import { createFactoryHostLaunchSupervisor } from "./host-launch-supervisor";
+import { FACTORY_HOST_ATTACH_PATH, FACTORY_HOST_LAUNCH_PATH, FACTORY_HOST_PREPARATION_PATH, FACTORY_HOST_PREPARATION_REPLY_BYTES, FACTORY_HOST_RESULT_PATH, createFactoryHostLaunchRouteHandler } from "./host-launch-service";
+import { createFactoryHostLaunchSupervisor, type FactoryHostPreparationRecords } from "./host-launch-supervisor";
 import type { FactoryHostTombstoneInput, FactoryHostTombstones } from "./host-tombstones";
 import { FactoryHostGuestTenants, type FactoryHostPeerTenants } from "./host-peer-tenants";
 import type { FactoryGuestBroker } from "./guest-model-broker";
@@ -55,6 +55,11 @@ import type { FactoryPhysicalStopReceipt, FactoryUnsignedPhysicalStopReceipt } f
 
 /** A launch body carries a whole runner request; a stop body is tiny. */
 const MAX_HOST_SERVICE_BODY_BYTES = 4 * 1024 * 1024;
+
+/** The host service's bounds: 4 MiB for every request and reply, the named bound for the preparation reply alone. */
+export function factoryHostServiceBounds(): { readonly maxBodyBytes: number; readonly maxResponseBytes: number; readonly routeResponseBytes: Readonly<Record<string, number>> } {
+  return { maxBodyBytes: MAX_HOST_SERVICE_BODY_BYTES, maxResponseBytes: MAX_HOST_SERVICE_BODY_BYTES, routeResponseBytes: { [FACTORY_HOST_PREPARATION_PATH]: FACTORY_HOST_PREPARATION_REPLY_BYTES } };
+}
 
 export class FactoryHostBrokerUnavailableError extends Error {
   readonly code = "factory_host_broker_unavailable";
@@ -198,6 +203,8 @@ export interface FactoryHostServiceOptions {
    */
   readonly pool?: FactorySupervisorPoolClient;
   readonly now?: () => number;
+  /** Durable preparation records, so a preparation survives a restart (W4H-26). */
+  readonly preparationRecords?: FactoryHostPreparationRecords;
 }
 
 /**
@@ -227,6 +234,7 @@ export function createFactoryHostServiceRouter(options: FactoryHostServiceOption
     // A guest this host refused before any container existed (W02d R4) is as first-hand an absence as one it
     // closed: nothing was created, so its stop is signed without asking the runtime to prove it.
     onRefused: (workerId) => { finished.add(workerId); },
+    ...(options.preparationRecords === undefined ? {} : { preparationRecords: options.preparationRecords }),
     ...(options.devicePresent === undefined ? {} : { devicePresent: options.devicePresent }),
     ...(options.tombstones === undefined ? {} : { stopped: (tenantId: string, workerId: string) => options.tombstones!.stopped(tenantId, workerId) }),
     ...(options.now === undefined ? {} : { now: options.now }),
@@ -295,8 +303,7 @@ export function startFactoryHostServices(options: FactoryHostServiceListenerOpti
     tls: options.tls,
     hostname: options.hostname,
     port: options.port,
-    maxBodyBytes: MAX_HOST_SERVICE_BODY_BYTES,
-    maxResponseBytes: MAX_HOST_SERVICE_BODY_BYTES,
+    ...factoryHostServiceBounds(),
     handle: createFactoryHostServiceRouter(options),
   });
 }

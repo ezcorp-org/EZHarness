@@ -1,0 +1,18 @@
+#!/usr/bin/env bash
+# integ-push-prechecks.sh <push dir> <branch> <title> [expected origin/main sha]: push-checklist step 1 for a branch pushed from the integ
+# worktree (integrator-5). Read only except `git fetch`. Prints the state; exit 1 if origin/main moved off the expected sha or is not an
+# ancestor of integ/w00, or the worktree is not clean on integ/w00.
+set -u
+I=/home/dev/work/EZCorp/EZHarness-worktrees/composable-factory-platform/.worktrees/w00-integration; P=${1:?dir} B=${2:?branch} T=${3:?title} XM=${4:-}
+st=0; echo "pre-checks $(date -u +%FT%TZ) (integrator-5, push-checklist step 1, $T)"
+echo "status --porcelain lines: $(git -C $I status --porcelain | wc -l)"; echo "branch: $(git -C $I branch --show-current)"; echo "ident: $(git -C $I var GIT_AUTHOR_IDENT | sed 's/>.*/>/')"
+[ -z "$(git -C $I status --porcelain)" ] && [ "$(git -C $I branch --show-current)" = integ/w00 ] || { echo "STOP: integ worktree not clean on integ/w00"; st=1; }
+env -u GIT_DIR -u GIT_INDEX_FILE -u GIT_WORK_TREE git -C $I fetch origin > "$P/fetch.txt" 2>&1; echo "fetch rc=$?"
+M=$(git -C $I rev-parse origin/main); echo "origin/main: $M"; echo "integ/w00:   $(git -C $I rev-parse integ/w00)"
+[ -z "$XM" ] || [ "$M" = "$(git -C $I rev-parse "$XM")" ] || { echo "STOP: origin/main moved off $XM"; st=1; }
+git -C $I merge-base --is-ancestor origin/main integ/w00 && echo "origin/main ancestor of integ/w00: yes" || { echo "STOP: origin/main is not an ancestor of integ/w00"; st=1; }
+echo "remote $B: $(git -C $I ls-remote origin refs/heads/$B | cut -c1-40)"; echo "local $B: $(git -C $I rev-parse -q --verify refs/heads/$B || echo none)"
+python3 /tmp/factory-platform-evidence/w00/config-check.py --check-only || st=1
+echo "commits ahead of origin/main: $(git -C $I rev-list --count origin/main..integ/w00)"
+echo "resources: $(df -BG / | tail -1 | awk '{print "disk "$4}') $(awk '/^MemAvailable:|^SwapFree:/ {printf "%s %.1f GiB ",$1,$2/1048576}' /proc/meminfo)"
+exit $st

@@ -1,0 +1,17 @@
+bun test v1.4.2 (744846f84)
+{"ts":"2026-10-16T01:07:43.766Z","level":"info","msg":"goal-host: boot sweep complete","subsystem":"goal-host","count":2}
+{"ts":"2026-10-16T01:07:43.766Z","level":"error","msg":"bootSweep failed","subsystem":"goal-host","error":"scan exploded"}
+{"ts":"2026-10-16T01:07:43.766Z","level":"info","msg":"goal-host: boot sweep complete","subsystem":"goal-host","count":0}
+{"ts":"2026-10-16T01:07:43.766Z","level":"info","msg":"goal-host: boot sweep complete","subsystem":"goal-host","count":0}
+{"ts":"2026-10-16T01:07:43.767Z","level":"info","msg":"goal-host: boot sweep complete","subsystem":"goal-host","count":0}
+{"ts":"2026-10-16T01:07:43.767Z","level":"info","msg":"goal-host: boot sweep complete","subsystem":"goal-host","count":0}
+{"ts":"2026-10-16T01:07:43.768Z","level":"error","msg":"goal-host: streamChat sync throw","subsystem":"goal-host","error":"sync boom"}
+{"ts":"2026-10-16T01:07:43.797Z","level":"info","msg":"goal-host: boot sweep complete","subsystem":"goal-host","count":0}
+{"ts":"2026-10-16T01:07:43.797Z","level":"error","msg":"goal-host: streamChat error","subsystem":"goal-host","error":"async boom"}
+{"ts":"2026-10-16T01:07:43.827Z","level":"info","msg":"goal-host: boot sweep complete","subsystem":"goal-host","count":0}
+{"ts":"2026-10-16T01:07:43.832Z","level":"info","msg":"goal-host: boot sweep complete","subsystem":"goal-host","count":0}
+
+ 23 pass
+ 0 fail
+ 32 expect() calls
+Ran 23 tests across 1 file. [559.00ms]

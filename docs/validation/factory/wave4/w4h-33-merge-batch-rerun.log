@@ -1,0 +1,41 @@
+=== heavy 2026-10-16T21:16:05Z
+HEAD b6414ec0b137272e413da5e0db9b4421bc7ac386 MERGE_HEAD  index-tree ba1726d7348662d09d9ab48eb9acfdc3d68e2b94
+pin: bun 1.4.2 bunx 1.4.2; BUN_FEATURE_FLAG_DISABLE_SQL_AUTO_PIPELINING=1
+resource-gate 2026-10-16T21:16:05Z hold-start disk=159G memAvailable=18GiB swapFreeKiB=3358860/17173956 floors disk>=100G mem>=6GiB mem+swap>=8388608KiB (swap component 2097152KiB)
+=== hold-tool content hashes at re-run start (sha256, first 16)
+e9ab2c05a91d7a45 heavy-lib.sh
+16c38d52cc01c97f leg-judge.sh
+6d494b2772241dea resource-gate.sh
+c70294f528decb8c test-count.sh
+36055ae9a28cf0f8 lock-veto.sh
+364ec5affe6bfa9a own-pg.sh
+cf1aad7852b8afdc bun-pin.sh
+cc982a962b99c3d7 config-check.py
+e4058b1f027c0fcb findings-match.py
+853340d4a2d00c42 lcov-foreign-sources.py
+ffd8ad5aecdcf2de child-cov-bun.sh
+ad5060a9d8573bbd guard-suites.sh
+e45a77e8c52fd7f0 prune-scan.sh
+afcbb0d8dc4a4636 attestation-check.py
+7f17dfdd9684c41c gated-flock.sh
+7c449267be86c11c merge-commit-gates.sh
+2b24cb184a26d55e image-leg.sh
+dec72f316b128cb4 tc-gate.sh
+9546de85ac79395b tracked-skip-lines.py
+247e29a17ea48697 case-web-junit.sh
+2c398d6c8aeaf95e bun-junit-lib.sh
+eea2f14dad7b00bb web-bunleg-changed.sh
+d3dacb9697e7bb0d w4f-merge/hold-w4f.sh
+a69bd85aacdd87eb w4h-merge/w4h-24-web-shard-timeout/case-check.sh
+a7a120a9b97e3a4d w4h-merge/w4h-24-web-shard-timeout/bash-line-cover.py
+9feea3b012349d1d w4h-merge/w4h-24-web-shard-timeout/bunfig-testfiles.toml
+5bd68174bcace71c w4h-merge/w4h-24-web-shard-timeout/bash-trace-env.sh
+=== end of tool hashes
+resource-gate 2026-10-16T21:16:05Z w4h33-red-first-cases disk=159G memAvailable=18GiB swapFreeKiB=3358884/17173956 floors disk>=100G mem>=6GiB mem+swap>=8388608KiB (swap component 2097152KiB)
+--- START w4h33-red-first-cases 2026-10-16T21:16:05Z
+--- END   w4h33-red-first-cases 2026-10-16T21:20:47Z exit=0 web/src/lib/chat/page-handlers/__tests__/send-message.test.ts: vitest Tests 75 passed (75) web/src/lib/components/ChatThread.coverage.component.test.ts: vitest Tests 54 passed (54) web/src/__tests__/api-users-id.server.test.ts: vitest Tests 7 passed (7) 
+web-bunleg-changed block from hold-w4f.sh d3dacb9697e7bb0d: 985b2dd1182b8b71
+resource-gate 2026-10-16T21:20:47Z web-bunleg-changed disk=173G memAvailable=16GiB swapFreeKiB=5090008/17173956 floors disk>=100G mem>=6GiB mem+swap>=8388608KiB (swap component 2097152KiB)
+--- START web-bunleg-changed 2026-10-16T21:20:47Z
+--- END   web-bunleg-changed 2026-10-16T21:20:48Z exit=0  39 pass 0 fail 55 pass 0 fail 42 pass 0 fail 20 pass 0 fail 50 pass 0 fail 28 pass 0 fail 7 pass 0 fail 10 pass 0 fail 40 pass 0 fail 17 pass 0 fail 4 pass 0 fail 
+HEAVY DONE status=0 dirty=0 2026-10-16T21:20:49Z

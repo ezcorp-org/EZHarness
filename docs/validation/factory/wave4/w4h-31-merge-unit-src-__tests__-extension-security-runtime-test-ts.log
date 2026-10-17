@@ -1,0 +1,12 @@
+bun test v1.4.2 (744846f84)
+
+src/__tests__/extension-security-runtime.test.ts:
+[ezcorp/fs] deprecated: extension "test-ext-id" called the path-check shim. Migrate to ezcorp/fs.read | write | list | stat | exists | mkdir | unlink (host-mediated; SDK helpers in @ezcorp/sdk/runtime). This shim is removed in milestone v2.
+[ezcorp/fs] deprecated: extension "unknown-ext" called the path-check shim. Migrate to ezcorp/fs.read | write | list | stat | exists | mkdir | unlink (host-mediated; SDK helpers in @ezcorp/sdk/runtime). This shim is removed in milestone v2.
+{"ts":"2026-10-16T00:53:32.046Z","level":"warn","msg":"call-provenance resolve called with no ezCallId on the reverse-RPC","subsystem":"ext.call-provenance"}
+{"ts":"2026-10-16T00:53:32.046Z","level":"warn","msg":"call-provenance resolve called with no ezCallId on the reverse-RPC","subsystem":"ext.call-provenance"}
+
+ 27 pass
+ 0 fail
+ 75 expect() calls
+Ran 27 tests across 1 file. [599.00ms]

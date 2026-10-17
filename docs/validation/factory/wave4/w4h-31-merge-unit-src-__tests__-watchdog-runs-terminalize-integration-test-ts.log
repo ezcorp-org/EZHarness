@@ -1,0 +1,14 @@
+bun test v1.4.2 (744846f84)
+{"ts":"2026-10-16T01:16:56.188Z","level":"warn","msg":"Watchdog: process may have been suspended","subsystem":"executor.watchdog","runId":"run-wd-1","conversationId":"conv-wd-1","suspendedMs":80000}
+{"ts":"2026-10-16T01:16:56.188Z","level":"error","msg":"Watchdog tripped, interrupting run","subsystem":"executor.watchdog","runId":"run-wd-1","conversationId":"conv-wd-1","idleMs":95000,"reason":"Watchdog: no activity for 95s — the computer may have been asleep or suspended for about 1 min during this run, which can interrupt the model connection. Send your message again to retry."}
+{"ts":"2026-10-16T01:16:56.189Z","level":"error","msg":"Periodic orphan cleanup failed","subsystem":"executor.watchdog","error":"Error: cleanup boom"}
+{"ts":"2026-10-16T01:16:56.189Z","level":"warn","msg":"Watchdog: process may have been suspended","subsystem":"executor.watchdog","runId":"run-wd-1","conversationId":"conv-wd-1","suspendedMs":80000}
+{"ts":"2026-10-16T01:16:56.189Z","level":"error","msg":"Watchdog tripped, interrupting run","subsystem":"executor.watchdog","runId":"run-wd-1","conversationId":"conv-wd-1","idleMs":95000,"reason":"Watchdog: no activity for 95s — the computer may have been asleep or suspended for about 1 min during this run, which can interrupt the model connection. Send your message again to retry."}
+{"ts":"2026-10-16T01:16:56.189Z","level":"error","msg":"Watchdog finalization failed","subsystem":"executor.watchdog","error":"Error: terminal transaction failed"}
+{"ts":"2026-10-16T01:16:56.189Z","level":"info","msg":"Terminalized orphaned runs rows from previous process","subsystem":"executor.watchdog","count":131}
+{"ts":"2026-10-16T01:16:56.190Z","level":"error","msg":"assignment reconciliation on startup failed","subsystem":"executor.watchdog","error":"Error: reconcile boom"}
+
+ 7 pass
+ 0 fail
+ 22 expect() calls
+Ran 7 tests across 1 file. [480.00ms]

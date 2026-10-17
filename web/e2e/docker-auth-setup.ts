@@ -20,7 +20,7 @@ export default async function globalSetup() {
 
   // Login via the real API
   const res = await page.request.post("/api/auth/login", {
-    data: { email: "test@test.com", password: "Test123!" },
+    data: { email: "test@test.example", password: "Test123!" },
   });
   if (!res.ok()) {
     const body = await res.text();

@@ -1,0 +1,59 @@
+config: cdfec66257fea5b4 = accepted baseline
+created feat/factory-platform-followup-3 at 486e6a558b38e295ed5f349764e6f3467b90d5af
+try 1 2026-10-14T05:51:02Z
+
+── Bun version ─────────────────────────────────
+   (Bun version: 0s)
+
+── Lint (biome, full) ─────────────────────────────────
+$ bash -O nullglob -c 'biome check --no-errors-on-unmatched src web packages scripts extensions worker services docs tests .github index.ts drizzle.config.ts .*.json *.json "$@"' --
+Checked 6246 files in 1309ms. No fixes applied.
+   (Lint (biome, full): 2s)
+
+── Typecheck ─────────────────────────────────
+$ bash scripts/typecheck.sh
+→ Typechecking backend (src/)...
+
+→ Typechecking web (SvelteKit)...
+
+→ Typechecking backend-tests (0 ratcheted file(s) excluded)...
+→ Typechecking web-e2e (0 ratcheted file(s) excluded)...
+✓ tests-typecheck passed (backend tests + web/e2e).
+
+→ Typechecking packages (src + tests)...
+  packages/@ezcorp/ai-kit/tsconfig.json
+  packages/@ezcorp/extension-contract/tsconfig.json
+  packages/@ezcorp/extension-runner/tsconfig.json
+  packages/@ezcorp/factory-orchestrator/tsconfig.json
+  packages/@ezcorp/factory-sdk/tsconfig.json
+  packages/@ezcorp/factory-transport/tsconfig.json
+  packages/@ezcorp/harness-client/tsconfig.json
+  packages/@ezcorp/sdk/tsconfig.json
+
+→ Typechecking the locked Python distribution (mypy --strict)...
+Resolved 14 packages in 9ms
+Checked 13 packages in 1ms
+Resolved 7 packages in 0.86ms
+Checked 6 packages in 0.07ms
+→ mypy --strict (locked src/factory/runner/python)
+Success: no issues found in 21 source files
+→ mypy --strict (locked src/factory/reference-image/python)
+Success: no issues found in 16 source files
+✓ Python typecheck passed (2 locked project(s): src/factory/runner/python src/factory/reference-image/python; interpreter 3.13.12)
+
+✓ Typecheck passed.
+   (Typecheck: 62s)
+
+── Svelte check ─────────────────────────────────
+1791957134376 START "/home/dev/work/EZCorp/EZHarness-worktrees/composable-factory-platform/.worktrees/w00-integration/web"
+1791957134378 COMPLETED 620 FILES 0 ERRORS 0 WARNINGS 0 FILES_WITH_PROBLEMS
+   (Svelte check: 7s)
+remote: 
+remote: Create a pull request for 'feat/factory-platform-followup-3' on GitHub by visiting:        
+remote:      https://github.com/ezcorp-org/EZHarness/pull/new/feat/factory-platform-followup-3        
+remote: 
+To github.com:ezcorp-org/EZHarness.git
+ * [new branch]          feat/factory-platform-followup-3 -> feat/factory-platform-followup-3
+push exit=0 2026-10-14T05:52:17Z
+local feat/factory-platform-followup-3 486e6a558b38e295ed5f349764e6f3467b90d5af remote 486e6a558b38e295ed5f349764e6f3467b90d5af
+config: cdfec66257fea5b4 = accepted baseline

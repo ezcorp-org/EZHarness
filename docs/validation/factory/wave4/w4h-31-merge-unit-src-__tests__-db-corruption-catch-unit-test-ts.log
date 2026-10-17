@@ -1,0 +1,7 @@
+bun test v1.4.2 (744846f84)
+{"ts":"2026-10-16T01:03:03.521Z","level":"warn","msg":"Could not parse recovery-needed marker","subsystem":"db","error":"SyntaxError: JSON Parse error: Unexpected identifier \"not\""}
+
+ 12 pass
+ 0 fail
+ 51 expect() calls
+Ran 12 tests across 1 file. [9.29s]

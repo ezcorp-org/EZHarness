@@ -1,0 +1,8 @@
+# 2026-10-16T19:11:23Z head=9e733721206c256d08bc5bf7f988e937c626836b dirty=4
+bun test v1.4.2 (744846f84)
+
+ 54 pass
+ 0 fail
+ 231 expect() calls
+Ran 54 tests across 4 files. [16.84s]
+# exit=0

@@ -13,7 +13,7 @@
  * this harness ships is the guest that suite proves.
  */
 import { join } from "node:path";
-import { factorySdkClosure } from "../../src/factory/guest-sdk-closure";
+import { buildFactoryGuestHarnessRelease, stageFactoryGuestPackage } from "../../src/factory/guest-package-build";
 import { GRAPH_GUEST_MANIFEST, GRAPH_GUEST_PACKAGE, GRAPH_GUEST_VERSION, type GraphGuestPackage } from "./graph";
 
 const EXPORTS = ["prepare", "infer", "combine"] as const;
@@ -29,19 +29,17 @@ const MANIFEST = {
 };
 
 /** Package specifiers rewritten to the flat files that carry them. */
-const FLAT = [
-  [/from "@ezcorp\/factory-sdk\/canonical"/g, 'from "./canonical.ts"'],
-  [/from "@ezcorp\/factory-sdk\/guest-materials"/g, 'from "./guest-materials.ts"'],
-  [/from "@ezcorp\/factory-sdk"/g, 'from "./types.ts"'],
-] as const;
+const SPECIFIERS = Object.freeze({
+  "@ezcorp/factory-sdk/canonical": "./canonical.ts",
+  "@ezcorp/factory-sdk/guest-materials": "./guest-materials.ts",
+  "@ezcorp/factory-sdk/guest-model": "./guest-model.ts",
+  "@ezcorp/factory-sdk": "./types.ts",
+});
 
-/** The exact bytes the guest is built from. */
+/** The exact bytes the guest is built from, through the product's one guest-package builder. */
 export async function graphGuestSource(repo: string): Promise<Record<string, string>> {
-  const files: Record<string, string> = {};
-  let guest = await Bun.file(join(repo, "scripts/factory-graph-proof/guest/graph-guest.ts")).text();
-  for (const [pattern, flat] of FLAT) guest = guest.replaceAll(pattern, flat);
-  files["graph-guest.ts"] = guest;
-  files["extension.ts"] = `import { defineExtension, serve } from '@ezcorp/sdk/v4';
+  const generated: Record<string, string> = {};
+  generated["extension.ts"] = `import { defineExtension, serve } from '@ezcorp/sdk/v4';
 import { combine, infer, prepare } from './graph-guest.ts';
 import type { FactoryRunnerRequest } from './types.ts';
 
@@ -55,7 +53,7 @@ const task = (run: typeof prepare) => async (input: unknown, context: GuestConte
 
 await serve(defineExtension({ manifest, tools: { prepare: task(prepare), infer: task(infer), combine: task(combine) } }));
 `;
-  files["feature.test.ts"] = `import { expect, test } from 'bun:test';
+  generated["feature.test.ts"] = `import { expect, test } from 'bun:test';
 import { combineSummary, inferMessages, prepareOutput } from './graph-guest.ts';
 
 test('the staged guest carries the graph logic the harness recomputes', () => {
@@ -66,7 +64,7 @@ test('the staged guest carries the graph logic the harness recomputes', () => {
 `;
   // The SDK files come from the imports themselves: whatever the guest's own files reach, and whatever
   // those reach, schemas included. A module the SDK gains is staged as soon as something imports it.
-  return { ...await factorySdkClosure(join(repo, "packages/@ezcorp/factory-sdk/src"), files), ...files };
+  return await stageFactoryGuestPackage(repo, { sources: { "graph-guest.ts": "scripts/factory-graph-proof/guest/graph-guest.ts" }, specifiers: SPECIFIERS, provided: new Set(), generated }) as Record<string, string>;
 }
 
 export interface GraphGuestBuild {
@@ -79,34 +77,20 @@ export interface GraphGuestBuild {
 /** Builds the guest into one runner store and describes the release it produced. */
 export async function buildGraphGuest(repo: string, runnerRoot: string, operationId: string): Promise<GraphGuestBuild> {
   const files = await graphGuestSource(repo);
-  const { PodmanRunner, buildLimits, filesDigest } = await import(join(repo, "packages/@ezcorp/extension-runner/src/index.ts"));
+  const { PodmanRunner, buildLimits } = await import(join(repo, "packages/@ezcorp/extension-runner/src/index.ts"));
   const { provisionToolchain } = await import(join(repo, "packages/@ezcorp/extension-runner/src/provision.ts"));
-  const { digestObject, FileBlobStore, putFiles } = await import(join(repo, "src/extensions/v4/blobs.ts"));
+  const { FileBlobStore } = await import(join(repo, "src/extensions/v4/blobs.ts"));
   const runner = new PodmanRunner({ root: runnerRoot, ...await provisionToolchain({ sdkEntrypoint: process.env.EZ_RUNNER_SDK_ENTRY }) });
   try {
-    const built = await runner.build({ operationId, sourceDigest: filesDigest(files), files, entrypoint: "extension.ts", limits: buildLimits });
-    if (built.state !== "succeeded" || !built.artifactDigest || !built.manifest) {
-      throw new Error(`the graph guest did not build: ${built.diagnostics?.map((entry: { code: string; message?: string }) => `${entry.code}${entry.message ? `: ${entry.message}` : ""}`).join("; ") ?? built.state}`);
-    }
-    const blobs = new FileBlobStore(join(runnerRoot, "release-blobs"));
-    const sourceDigest = await putFiles(blobs, files, "workspace");
-    const input = {
-      installationId: "w19a-guest-installation",
-      workspaceId: "workspace",
-      workspaceRevision: 1,
-      sourceDigest,
-      artifactDigest: built.artifactDigest,
-      imageDigest: built.imageDigest,
-      manifest: built.manifest,
-      evidence: built.evidence,
-      runnerProfile: "rootless-podman-v4",
-      policyDigest: digestObject({ runner: "v4" }),
-    };
+    const { build, sourceDigest, release } = await buildFactoryGuestHarnessRelease({
+      runner, blobs: new FileBlobStore(join(runnerRoot, "release-blobs")), files, operationId, limits: buildLimits,
+      installationId: "w19a-guest-installation", releaseId: "w19a-guest-release",
+    });
     return Object.freeze({
-      artifactDigest: built.artifactDigest as string,
+      artifactDigest: build.artifactDigest,
       sourceDigest,
-      guest: Object.freeze({ package: GRAPH_GUEST_PACKAGE, manifestName: GRAPH_GUEST_MANIFEST, version: GRAPH_GUEST_VERSION, digest: `sha256:${built.artifactDigest}` }),
-      release: { ...input, id: "w19a-guest-release", releaseDigest: digestObject(input), createdAt: "2030-01-01T00:00:00.000Z" },
+      guest: Object.freeze({ package: GRAPH_GUEST_PACKAGE, manifestName: GRAPH_GUEST_MANIFEST, version: GRAPH_GUEST_VERSION, digest: `sha256:${build.artifactDigest}` }),
+      release,
     });
   } finally {
     await runner.close();
@@ -119,9 +103,12 @@ export async function buildGraphGuest(repo: string, runnerRoot: string, operatio
  * Every write goes through the production class that owns it, under the
  * administrator the proof created over HTTP. No product route binds or trusts
  * a runner package yet (W02), which the record states as a harness-supplied
- * deployment fact. The preparation rebuilds the package and refuses unless the
- * artifact digest matches the binding; the second and third references reuse
- * the first one's verified artifacts.
+ * deployment fact. The preparation goes through the product runner, which
+ * restores the release's artifact copy from the release blobs into the fresh
+ * preparation store (C05 "Prepare a release built outside the lifecycle",
+ * W4H-32), and refuses unless the artifact digest matches the binding; the
+ * second and third references reuse the first one's restored, verified
+ * artifacts.
  */
 export async function installGraphGuest(options: {
   readonly repo: string;
@@ -141,6 +128,7 @@ export async function installGraphGuest(options: {
   const { FactoryPackagePreparations, FactoryPackageTrusts, FactoryV4PackageCatalog } = await import(join(repo, "src/factory/package-preparation.ts"));
   const { PodmanRunner, buildLimits } = await import(join(repo, "packages/@ezcorp/extension-runner/src/index.ts"));
   const { provisionToolchain } = await import(join(repo, "packages/@ezcorp/extension-runner/src/provision.ts"));
+  const { productExtensionRunner } = await import(join(repo, "src/extensions/runner-rehydration.ts"));
 
   const db = options.database as never;
   const admin = { kind: "user" as const, id: options.adminId, authentication: "session" as const };
@@ -157,7 +145,8 @@ export async function installGraphGuest(options: {
       workspaces: {}, revisions: {}, operations: {}, releases: { [release.id]: build.release }, approvals: {},
     });
     const trusts = new FactoryPackageTrusts(db, options.tenantId, grants);
-    const preparations = new FactoryPackagePreparations(db, options.tenantId, grants, trusts, new FactoryV4PackageCatalog(repository, new FileBlobStore(options.releaseBlobRoot)), runner, buildLimits);
+    const blobs = new FileBlobStore(options.releaseBlobRoot);
+    const preparations = new FactoryPackagePreparations(db, options.tenantId, grants, trusts, new FactoryV4PackageCatalog(repository, blobs), productExtensionRunner(blobs, db, runner), buildLimits);
     const installed: Array<{ reference: Record<string, unknown>; trustRevision: number; receiptDigest: string }> = [];
     for (const [index, reference] of options.references.entries()) {
       await preparations.bind(admin, { projectId: options.projectId, reference, installationId: release.installationId, releaseId: release.id }, `w19a-bind-${index}`);

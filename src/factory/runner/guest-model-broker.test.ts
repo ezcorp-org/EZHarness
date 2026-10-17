@@ -43,6 +43,7 @@ function broker(options: { complete?: () => Promise<FactoryModelCompletion>; jou
     record: async (a, r, c) => { calls.push("record"); await memory.record(a, r, c); },
     hold: async (a, r, c) => { calls.push("hold"); await memory.hold(a, r, c); },
     fail: async (a, r, failure) => { calls.push("fail"); return memory.fail(a, r, failure); },
+    spent: memory.spent,
   };
   const instance = createFactoryGuestModelBroker({
     provider: { complete: async () => { calls.push("provider"); return options.complete ? options.complete() : completion; } },
@@ -57,7 +58,7 @@ test("a well-formed call reaches the provider and its cost is recorded before th
   const memory = createFactoryMemoryGuestModelJournal();
   const instance = createFactoryGuestModelBroker({
     provider: { complete: async () => completion },
-    journal: { claim: memory.claim, record: async (a, r, c) => { await held; await memory.record(a, r, c); }, hold: memory.hold, fail: memory.fail },
+    journal: { claim: memory.claim, record: async (a, r, c) => { await held; await memory.record(a, r, c); }, hold: memory.hold, fail: memory.fail, spent: memory.spent },
   });
 
   let answered = false;
@@ -129,7 +130,7 @@ test("a refusal survives a release that itself fails, leaving the operation for 
   const memory = createFactoryMemoryGuestModelJournal();
   const instance = createFactoryGuestModelBroker({
     provider: { complete: async () => { throw new Error("provider gone"); } },
-    journal: { claim: memory.claim, record: memory.record, hold: memory.hold, fail: async () => { throw new Error("journal unavailable"); } },
+    journal: { claim: memory.claim, record: memory.record, hold: memory.hold, fail: async () => { throw new Error("journal unavailable"); }, spent: memory.spent },
   });
   const refused = await instance.call(attempt(), request());
   expect(refused).toMatchObject({ status: "refused", refusal: { code: "provider_unavailable", message: "provider gone" } });
@@ -145,7 +146,7 @@ test("a call whose cost cannot be recorded is refused rather than answered", asy
   const memory = createFactoryMemoryGuestModelJournal();
   const instance = createFactoryGuestModelBroker({
     provider: { complete: async () => { calls.push("provider"); return completion; } },
-    journal: { claim: memory.claim, record: async () => { throw new Error("journal unavailable"); }, hold: memory.hold, fail: memory.fail },
+    journal: { claim: memory.claim, record: async () => { throw new Error("journal unavailable"); }, hold: memory.hold, fail: memory.fail, spent: memory.spent },
   });
   const refused = await instance.call(attempt(), request());
   // The provider did run, so the cost is real; answering anyway would hand the
@@ -169,6 +170,7 @@ test("a cost that can be neither recorded nor held names both failures rather th
       record: async () => { throw new Error("journal unavailable"); },
       hold: async () => { throw new Error("journal still unavailable"); },
       fail: memory.fail,
+      spent: memory.spent,
     },
   });
   const refused = await instance.call(attempt(), request());
@@ -230,4 +232,27 @@ test("W03f: an untyped provider failure is provider_unavailable and its settled 
   expect(refused).toMatchObject({ status: "refused", refusal: { code: "provider_unavailable", message: "socket hang up" }, operation: { state: "failed" } });
   const operation = (refused as { operation?: Record<string, unknown> }).operation!;
   expect("usage" in operation || "providerReceiptDigest" in operation).toBe(false);
+});
+
+test("a call whose bound does not fit the attempt's token budget is refused before any claim (W4H-28)", async () => {
+  const { instance, calls } = broker();
+  const bounded = (maxTokens: number | undefined) => {
+    const base = attempt();
+    const { maxTokens: _unused, ...resources } = base.resources;
+    return { ...base, resources: { ...resources, ...(maxTokens === undefined ? {} : { maxTokens }) } } as FactoryRunnerRequest;
+  };
+  // "hello" is five bytes, so the input charges two tokens; 256 + 2 does not fit 100.
+  const refused = await instance.call(bounded(100), request());
+  expect(refused).toMatchObject({ status: "refused", refusal: { code: "budget_exceeded" } });
+  expect((refused as { refusal: { message: string } }).refusal.message).toContain("258 tokens");
+  expect(refused).not.toHaveProperty("operation");
+  expect(calls).toEqual([]);
+  // Nothing was claimed: the same operation still runs once the bound fits.
+  expect(await instance.call(bounded(258), request())).toMatchObject({ status: "completed" });
+  // The completed call measured 18 tokens, so 240 of 258 are left: a second bound of 240 fits, 241 does not.
+  expect(await instance.call(bounded(258), request({ operationId: "run:node:0:1", operationIndex: 1, maxOutputTokens: 239 }))).toMatchObject({ status: "refused", refusal: { code: "budget_exceeded" } });
+  expect(await instance.call(bounded(258), request({ operationId: "run:node:0:1", operationIndex: 1, maxOutputTokens: 238 }))).toMatchObject({ status: "completed" });
+  // An attempt with no token bound has no envelope.
+  expect(await instance.call(bounded(undefined), request({ operationId: "run:node:0:2", operationIndex: 2, maxOutputTokens: 8_192 }))).toMatchObject({ status: "completed" });
+  expect(calls.filter(call => call === "provider")).toHaveLength(3);
 });

@@ -30,7 +30,7 @@ let mockAgentConfig: {
 let mockScopeResponse: Response | null = null;
 const mockUser = {
   id: "user-1",
-  email: "test@test.com",
+  email: "test@test.example",
   name: "Test",
   role: "member",
 };

@@ -1,0 +1,9 @@
+a bundle a test wrote to a temporary folder is dropped, by absolute or by climbing path; the repository source stays
+a declared --source-root keeps its own files and nothing else outside the repository
+a declared --source-root matches only paths under it as a folder, never a sibling that shares its name as a prefix
+--source-root without a folder is refused with the usage line, and writes nothing
+end to end: the bundled credential-store test's lcov merges with no path outside the repository, and keeps the repository's
+ci.yml has a coverage-merging job with a quality summary that expects gates
+the merged lcov comes from a merge-only step with an id
+every step that writes the "coverage" report runs once the merge succeeded
+every step that writes the "crap" report runs once the merge succeeded

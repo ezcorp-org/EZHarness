@@ -5620,6 +5620,19 @@ order, error code or message. The existing suites cover every changed line, so n
       (the 4 manifest and lock files equal main's blobs; root and web frozen installs; hold status 0: lockfiles byte-identical after the installs, Pi 0.99.2 installed, 9 manifest and Pi suites, typecheck and svelte-check 0, deps-audit clean, the whole web vitest pool 7952/7952, guard 516/0, main leg 0 findings; receipts bfce8cd5d).
 - [x] Post-merge main sync (W-SYNC-6): origin/main d3e6871e5 (the PR 337 merge) merged at 687d511ea (0 files, ancestry only; light hold 0;
       main leg 0 findings; receipts 53689bf60).
+- [x] Post-merge main syncs (W-SYNC-7 and W-SYNC-8): origin/main 48d90eb54 (#336, a 216-file validation sweep from another session) merged at
+      70b9c8bc9 (full hold: 73 root suites, the whole web vitest pool 8035/8035, installs with no drift, typecheck with main's new per-package
+      legs, main leg 0 findings; the hook ran all 96 mapped suites; receipts f87fee8c6); origin/main 1981febd2 (the PR 338 merge) merged at
+      1b68d4493 (0 files; receipts bea35538d). The publish now goes through a compare-and-stop guard (publish-if-main.sh).
+- [x] Post-merge main sync (W-SYNC-9 = W4H-31): origin/main 934531e2e (#339: processSpawn and capabilities() on every
+      runner.start caller, the extension-runner spawn guard) merged at 390c49a90 (b80a00f47 + 9cc6fed78; 2 text conflicts,
+      both unions; processSpawn at every factory start site incl. W4H-26's; 8/8 D6 and R6 mutants red; resolution checks
+      PASS). validator-8 ACCEPT at 9cc6fed78 (verdict 8ed9d677f804b3f0). Main's own ci 38591921239 on 934531e2e: 54
+      success / 3 skipped / 1 failure (the precheck). Hold 1 status=1 only from informational and list-bound legs and a
+      tracer defect (all fixed red first); the case-check re-run status 0; full hold re-run status=0 (2026-10-16 00:39-02:45Z; 906/906 legs; validator-8 OK 2ed52d08e6bfabbe); receipts
+      b8ca14a60. Binding from here: the W-SYNC form in tasks/lessons.md.
+
+
 
 
 ## Wave 4 close (2026-10-01): follow-ups and standing user items
@@ -5949,6 +5962,80 @@ wrong; the leg built to prove it disproved it, and the change it motivated was r
       scripts/ci-wall-time.test.ts 10/11 red on the first script → 11/11; every executable line of the script traced by its test; actionlint
       0 new findings: validator-8 ACCEPT 12a62aba62e97209 at d224026d8 (9 mutants red; 16 probe paths exit 0); merge 8b1aec3f4 /
       receipts a53f93a49. Lands in the second follow-up PR.
+- [x] W4H-25 (the first full factory run on this box with the real model, 2026-10-13): FAIL, documented. The Compose installation never came up —
+      provisioning stopped at step 5 of 7 (deployment_not_ready); 0 model calls. D1 the orchestrator crash-looped on a runtime webpack bundle
+      whose @swc/core 1.16.13 native addon needs a writable, executable user cache that the shipped container (read-only root, noexec /tmp)
+      correctly denies; D2 the fleet CLI exited 0 on the failure; D3 the deployer never wrote the release block; D4 one runner profile; D5 no
+      fleet stop command. The product path also lacked the reference-code runners as installed packages (W10c G8b) and a catalog driver
+      (G8d): validator-8 ACCEPT of the report as the documented state 4677e103f64f7c63 (W10 pass line OPEN); evidence
+      /tmp/factory-platform-evidence/w4h-25/ (report dd462d6d7cbcf24b; addendum 7ed8b8c8add813b4). Fixed by W4H-27 (D1, D2, D3, D5) and
+      W4H-26 (the runners, D4); the rest is W4H-28.
+- [x] W4H-27 (the Compose installation comes up): the orchestrator's workflow bundle is built at image build time and verified by digest at
+      every worker start (a missing or altered bundle refused by name), so no compiler or native-addon cache runs in the read-only container;
+      the fleet CLI exits non-zero with tenant, step, code and reason; the deployer writes the release block whenever release profiles exist
+      (S3 always under "ordinary/releases", GitHub only when declared, tokenPath only; with no profile no block); `stop` and `up`, idempotent
+      — `up` on a running fleet no longer recreates the shared pool or restarts the supervisor; the self-hosted proof's reason for passing
+      before (an older @swc/core from the W4H-10 sync) is answered, and a shipped-isolation guard (scripts/check-factory-image-shipped-config.ts,
+      flags from installation.yml and the deployer's env, a replay through the loader) runs in a new CI job that builds deploy/factory/Dockerfile
+      on every change; the purge case of tests/postgres/factory-provisioning.test.ts is independent of its neighbours (0.3 s, was 31 s);
+      the fleet declares no default release profile while the reference S3 adapter digest is a placeholder (factory_release_adapter_unpublished):
+      validator-8 REJECT at 713593038 (a personal email on every commit; `up` recreated the host) d79ded2a15eba38e, ACCEPT at b26a63460
+      9f30740c32e511bd, ACCEPT at e3b954880 ecc53642a671a58b; merge d4f1c6b0f / receipts 1f63311fb. The installation reached
+      step 7 on this box with isolation unchanged and 0 orchestrator restarts over 10 minutes after readiness (tenant-03, -04).
+- [x] W4H-26 (a reference-code task runs through the product): the five reference-code exports ship as tools of two v4 runner packages
+      (@ezcorp/reference-code, @ezcorp/reference-code-validator) built by the one shared guest-package builder and staged at boot through the
+      v4 lifecycle behind EZCORP_FACTORY_ENABLED (approval and trust stay human); the startup document accepts the reference task profiles;
+      a global installation serves a project through the existing project-binding route; a package-preparation runtime role prepares bound
+      packages; a new internal mutual-TLS host-plane operation lets the supervisor build a bound release in its own store and return the
+      artifact digest the product verifies before writing the receipt (idempotent by release, generation and source digest; durable records for
+      succeeded builds only; concurrent first requests build once; other source under a reused identity refused); readiness publishes the
+      boot staging outcome by package with a code and fixed reason; the Podman-guest guard gains a named, tested exemption for the supervisor's
+      loader: validator-8 REJECT at d2d78d98e (a rename hid the loader from the guard) 9360f9199ee215da, at fa15418c4 7ffce00de9049836, at
+      9326252cc (one missing restart test) e29e159648b9a259, at 02fb9136c 3fe5cc1c07455e71, ACCEPT at 89716018f 8871782893825c8d; merge
+      9bd32cc3b / receipts 4ce0e2392. Proof: on the composed application over public HTTP, snapshot-repository was admitted,
+      prepared through the supervisor, dispatched and executed in the pinned guest on the shipped fixture repository; the sealed snapshot
+      equals the product's own recompute; the run then stops at generate-private-candidate (W4H-28).
+- [x] W4H-29 (the SDK-closure inventory test follows the shared builder): hosted run 38518989878 on PR 341 found one real
+      red, "Coverage shard 0", src/factory/guest-sdk-closure.test.ts:127; W4H-26's builder consolidation had left the
+      test's source list stale (the invariant itself held: guest-package-build.ts calls factorySdkClosure). One-line fix;
+      red on 486e6a558 (7/1), green at 6c15783d9 (8/0); two mutants red: validator-8 ACCEPT at 6c15783d9 b7ff54c47e081ce7,
+      after the report df2fd4a8a101b63a; merge 4cd37332c / receipts d2add3048. Standing rule since then: every hold runs
+      the 51 repository inventory and registration tests (w00/invariant-tests.txt).
+- [x] PR 341 (follow-up 3) hosted runs: attempt 1 (486e6a558, ci 38518989878) 52 success / 4 failure / 3 skipped, the
+      W4H-29 red and its cascades; attempt 2 (d2add3048, ci 38525604869) Coverage shard 0 and the new "Factory image under
+      shipped isolation" job GREEN, one red in "Production proof (resources)" (a socket count at cycle 9), classified E,
+      pre-existing (4 of 41 earlier attempts, also before W4H-26); attempt 3 (the one re-run of the failed jobs) green
+      except the runner readiness precheck. Receipts 0e305073a, 5c73aa860 and the correction 6571f8d5f (local; they land
+      with the next PR).
+- [x] W4H-30 (the resources-proof socket count no longer depends on timing): the cause was not a leak. The runner client's
+      keep-alive pool kept 1 or 2 idle connections to runner.sock for about 5 s, and a boot-time HTTPS keep-alive to the
+      Kilo catalog stayed open. Fix: RunnerClient agent: false and the Kilo fetch keepalive: false, both red first; the
+      check and the proof unchanged; about +0.1 ms per runner call. validator-8 two arms 6 × 10 cycles: main 1-2 runner
+      sockets in 66/66 samples, head 0 in 66/66: ACCEPT at 5ee55026a 10b22f97bb0b4ea1, addendum c846a474b6d9fe57;
+      merge 560dbe2a7 / receipts b80a00f47. Hold 1 red from the harness modes (cp -p), hold 2 stopped at the disk floor,
+      hold 3 in the no-proof form status 0 (ruled; risk line recorded).
+- [x] W4H-28 (the reference.code.v1 run through the product with the real model): one real run PASSED on this box.
+      run 82c88790-77c4-407d-9ea2-a45fddbf1bbf (real-9, 2026-10-15 15:01:36-15:02:56Z under the heavy lock): pin
+      openai/gpt-6-luna (reasoningEffort low) through the deployment's ChatGPT-plan login; 2 model operations: generate
+      1,318 + 92 tokens, 178 micro-USD, 2,122 ms; supervised review 334 + 57 tokens, 62 micro-USD, 2,173 ms; envelope
+      1,801 tokens, 240 micro-USD; usage equal across journal, receipts, settlement and inspection; protected claims
+      10/10 PASS; release succeeded to S3 (bucket tenant-01, ordinary/releases/w4h28/real-9/run1: candidate.json
+      6,231 B, manifest.json 540 B whose digest equals the effectDigest), outcome confirmed; productRefusals []. Record
+      real-9.json ae7a2fba9035010a. Built: a guest reads its own run's sealed material (P0); the in-guest model adapter
+      through the broker, budget_exceeded before the claim (P1); a token-free repository read of one declared commit (P2);
+      the toolchain claims lane on the pinned runner image with the validator package's locked set (P3); real pins (model
+      configuration digest; the S3 adapter digest rebuilt and locked) and fleet profiles (P4). Product defects the real
+      run found and fixed, each red first: per-node cost bounds in the definition (generate 250,000; other task nodes
+      50,000 micro-USD; before, freeze refused factory_budget_exhausted at the first non-zero cost); the built web server
+      registers pi-ai's OAuth flows statically; readiness codes provider_credential_unusable and provider_readiness_error
+      with a non-blocking warnings entry, the credential ladder classified by type (C10 rows first); the runner answers
+      runner_internal_error (500) and artifact_missing by name; setup selects the staged release by the expected digest;
+      the preparation reply has its own named 64 MiB bound; the freeze node answers two ports; the inspection's known cost
+      counts reservations settled on completion (C09 row first); a Codex-login import tool with named refusals and
+      --dry-run. The coordinator ran the user's import on the user's explicit words (a disclosed exception; outputs masked).
+      Cleanup: both product databases, both deployment directories and all runner stores removed by name; the proof
+      PostgreSQL admin password rotated and checked. validator-8 plan-w4h-28.md Addenda A to BE: ACCEPT at 5deb91a25 and OK to publish on the hold record (verdict 7cfd6fe2571297c9; hold 246/246 legs status=0, 2026-10-16 09:33-10:12Z); merge
+      7e5365696 / receipts cc6bfe54b.
 
 ## Leftover after wave 4i — 2026-10-05
 
@@ -6045,6 +6132,87 @@ Added after wave4i-2 (coordinator, 2026-10-06…08; details in w00/wave4h/leftov
 - [ ] Docker Hub anonymous pulls from the hosted runners fail intermittently (429 on 2026-10-09, 502 on 2026-10-12) on the pinned oven/bun
       images (Dockerfile.test, Dockerfile.dev, the extension-runner guest image); decide: a login step with DOCKERHUB_USERNAME and
       DOCKERHUB_TOKEN secrets (W4H-19 brief ready), or a mirror under ghcr.io/ezcorp-org. Until then a failed-jobs re-run is the recovery.
+- [ ] The orchestrator restarts a few times while the harness boots (ECONNRESET on the harness private service, bursts of about 5 s; the
+      restart-is-the-supervisor design; a depends_on wait would cycle through /api/ready): wait with a bounded back-off at boot instead of
+      exiting, so a real crash loop is visible (W4H-27).
+- [ ] Restore the self-hosted proof harness INTO the repository with its helpers and a tenant offset; the W16 copy under /tmp lost
+      ./temporal-http-checks.ts and hard-codes tenant names. Until then the W4H-27 R3 proof plus the shipped-isolation guard is the G7 pass (W4H-27).
+- [ ] The shipped-isolation guard replays a committed history through the bundle loader; it does not boot the orchestrator process itself (W4H-27 N4).
+- [ ] The reference S3 adapter's digest in the SDK is a placeholder that no published package carries, so a local installation declares no
+      release profile and cannot release; publish the adapter package, pin it, and declare the default profile (W4H-27 N3; W4H-28).
+- [ ] generateCandidate's configurationDigest in the reference.code.v1 definition is a placeholder (sha256:bbbb…), so no startup profile can pin
+      the gpt-6-luna model for it until the definition's pin is real (W4H-26; W4H-28).
+- [ ] The rest of the reference.code.v1 run through the product: the in-guest model adapter (generate, review) through the broker contract, a
+      repository-read broker operation, the toolchain claims lane on the pinned validator images (W4H-26 gap map G6; W4H-28). The catalog
+      driver (G8d) stays blocked by name.
+- [ ] GitHub publication from the started application (release-github.ts) needs the W07 GitHub App credential; the host-side scripts use the gh
+      CLI login. Install the App on the test repository and add its branch ruleset, or accept local publication (user).
+- [ ] The factory modules are imported at boot even with factories off (no work is done) (W4H-26 N3). The local fleet's cpu allocation rose
+      from 1,000 to 50,000 tokens, which applies to the existing guest too (W4H-26 N1).
+- [ ] The owners' test tenants on the shared proof PostgreSQL (fleets w4h25 and w4h27: databases and store-claim roles) stay until an approved
+      purge (administrator approval).
+- [ ] Hosted runner image: ubuntu-latest moves to Ubuntu 26 on 2026-10-19; re-measure the web shard wall-time medians (35 s install, 198 s vitest)
+      afterwards and restate them in ci.yml's comment (W4H-24 O2).
+- [ ] Runner store resilience: a runner whose store lost a release's artifact refuses artifact_missing; rehydrate the
+      artifact from the product's blob copy (W4H-28 real-8; W4H-32 in progress).
+- [ ] main: a fixture address on a real domain (test.com) in web/e2e/reliability.spec.ts:355; move it to a reserved domain
+      (example.com, .test, .invalid). In progress, W4H-33 (W4H-31 rulings; leftovers-pending.txt d40e1bd6321bf38a).
+- [ ] main: a test that can never run (describe.skip in source): src/__tests__/task-stack-sdk-integration.test.ts. A test that
+      never runs is a gate weakness. In progress, W4H-33 (same source).
+- [ ] main: a test that can never run (describe.skip in source): src/__tests__/todo-tracker-sdk-integration.test.ts. In
+      progress, W4H-33 (same source).
+- [ ] main: a Docker-only test (DOCKER_TEST=1): src/__tests__/preview-dynamic-e2e.docker.test.ts needs a Podman form or a
+      CI-only marking. In progress, W4H-33 (same source).
+- [ ] main: a Docker-only test (DOCKER_TEST=1): src/__tests__/preview-uid-keystone.docker.test.ts needs a Podman form or a
+      CI-only marking. In progress, W4H-33 (same source).
+- [ ] Two supervisor-services tests time out under Bun's 5 s default (green at 30 s; also before the W4H-31 merge). In
+      progress, W4H-33 (W4H-31 owner).
+- [ ] Two tests that need rg on PATH never run on hosted: src/__tests__/runtime-tools-grep.test.ts:246 and :259 (no
+      workflow installs ripgrep). They must run on hosted. In progress, W4H-33 (W4H-33 inventory D2; coordinator's ruling).
+- [ ] The product CLI scripts/import-codex-login.ts imports a proof-harness module
+      (scripts/factory-graph-proof/codex-import-deployment.ts); move the shared part into the product or a neutral module
+      (a layering note, W4H-28 F2).
+- [ ] The live-pid run marker yields to an unrelated live process that reuses the pid: the job only waits, which is the safe
+      side. A stated limit of gated-flock.sh (validator-8, plan-w4h-28 F1).
+- [ ] A product-readable content-addressed artifact store would remove the preparation reply's artifact transfer and
+      its 64 MiB bound (W4H-28 ruling B).
+- [ ] The production image calls a third-party API (api.kilo.ai, warmKiloCatalog) at boot; this belongs to the W02/W16
+      network policy question (W4H-30; maintainer).
+- [ ] The live GPU probe script names no processSpawn policy (also on main) (W4H-31).
+- [ ] The shared proof PostgreSQL and every rootless podman container run under user@1001.service: an OOM kill of the
+      user manager kills them all, and no restart policy runs (W4H-28; host owner).
+- [ ] An unknown agent or script ran `sudo -n systemctl start user@1001.service` from session-3.scope at 2026-10-14
+      23:38:20Z. Not the team. Find the caller; an agent on this host has passwordless sudo (user).
+- [ ] Validator node bounds are operator material (C03 row, W4H-28 AC-2); a fleet that declares validator runtimes must
+      size them to fit the run's cap beside the task nodes.
+- [ ] The W4H-28 proof objects stay in bucket tenant-01 (818 object versions listed in objects-written.json, plus real-9's
+      release); purge them with the other test tenants on an approved purge (administrator approval).
+- [ ] main: gitleaks generic-api-key fires on the product's tokenActorExtensionId log field in test logs (seen in
+      src/extensions/__tests__/workflows-delegated-seam.test.ts's log, a random id per run); allowlist by exact field regex
+      on main through the gate-change route. The W4H-31 receipts left that one log out by ruling (a); merge.json names it.
+- [ ] ai-kit-deployed-lane: ai-kit deployed-service lane: a real-auth spec that installs ai-kit through the bundled
+      lifecycle, pins the mock model by env and seeds the agents + autoSpinUp team; the three suites
+      (packages/@ezcorp/ai-kit/test/e2e/bundled.test.ts, quickstart.test.ts, fanout.test.ts) then run there. Until then
+      each suite skips with one exact tracked line (scripts/test-skip-registry.json) (W4H-33; ruling (c)).
+- [ ] The product has no producer for sandbox-escape detection; alert A8 covers broker denials (forbidden_host /
+      cross_tenant_broker) only; a detector is a separate isolation package (W4H-34).
+- [ ] The header comment of workflow-bundle-build.ts says build:packages runs the bundle build; it does not
+      (deploy/factory/Dockerfile:43 at c8ae394ca runs it as a separate step). Fix the comment or the script (W4H-35 G10 try 1).
+- [ ] The W4H-28 proof harness (proof/run.sh) starts the stack with no bundle preflight, so a missing workflow bundle
+      took 10 orchestrator restarts and 5 minutes; add a preflight refusal (W4H-35 G10 try 1; W4H-28 frozen, not reopened).
+- [ ] Six proof/*trial* branches from earlier waves remain in the shared repository (proof/v5-w03g-w03f-trial-dca1308c6,
+      proof/w02d-merge-ad22592da-trial, proof/w09c-trial-1-2, proof/w09c-trial-3, proof/w18-hygiene-c2-trial-dbb2c71d2,
+      proof/w4h-4-trial-merge-5bdbecd3c); the team removes no ref it did not create; removal by name on the user's word.
+- [ ] Bun 1.3.14: the /tmp/factory-tools/bun-1.3.14 folder no longer exists. The coordinator's listing at 08:43Z already
+      lacked it, so by all evidence the 07:55Z tmpfiles sweep removed the broken empty binary and then its empty parent
+      directories; nobody on the team removed it. A gated job from a tree pinned 1.3.14 is refused by name (exit 95); the
+      team's trees pin 1.4.2. Install Bun 1.3.14 fresh with its published checksum, on the user's word.
+- [ ] The host's daily systemd-tmpfiles cleanup deletes /tmp files older than about 10 days (2026-10-16 07:55Z: the pinned
+      Bun 1.4.2 binary, shared w00 scripts and tools, older evidence; all reachable losses restored). A tmpfiles.d exclusion
+      for /tmp/factory-platform-evidence and /tmp/factory-tools, or a relocation, is the user's decision.
+
+
+
 
 
 ## W4H-11 — bundled bootstrap deadline on the hosted 4-CPU runner (branch `wp/w4h-11-bootstrap-deadline` from integ/w00 1bc5f63c7; gates `tasks/factory/w4h-11-GATES.md`)
@@ -6137,3 +6305,47 @@ Review: the nightly turned red because a new guard told the truth about five mut
 - [ ] R3: one hosted run after validator-8's ACCEPT and the integrator's merge.
 
 Review: the shard did not hang and no test was slow; the runner was. The old cap left a 2.5x margin; the new one leaves 6x, and the log now says when a runner is slow instead of leaving a silent cancel.
+
+## W4H-27 — the Compose installation comes up (branch `wp/w4h-27-compose-comes-up` from origin/main 1981febd2; gates `tasks/factory/w4h-27-GATES.md`)
+
+- [x] R1 reproduce: step 5 `deployment_not_ready` from the kept image (orchestrator 234 restarts, "Failed to load native binding"); W16 G7 answered (swc 1.16.2 then, 1.16.13 since 7247f7e9a).
+- [x] R2 red-first: D1 build-time workflow bundle with digest check; D2 failing tenants exit 1 with step and reason; D3 the startup release block (S3 always, GitHub when declared; local default profile); D5 `stop`/`up`; the shipped-isolation guard and its ci.yml job.
+- [x] R3 proof: tenant-03 through step 7 with the isolation unchanged; 10-minute hold with 0 restarts from readiness; release destinations resolve in the started harness; stop/up twice; forced failure exits 1 naming `storage`; the guard red on 1981febd2, green on HEAD; fleet stopped with `stop`.
+- [x] R4 (validator-8 REJECT F1, F2): commits re-authored with main's noreply address, trees equal; `up` leaves a serving host alone (real up/up: no start-time change); the replay suite asserts the built bundle; the placeholder release adapter is refused by name.
+- [x] R5 (hook refusal): each PostgreSQL provisioning case drops the databases it created; the purge case went from about 31 s to 0.3 to 0.4 s (3 runs), red-first on the database set.
+- [ ] Leftovers: orchestrator boot back-off instead of exit; the self-hosted proof harness restored in-repo with a tenant offset; an independent archive release domain (W15).
+
+Review: the installation never came up because a lock re-resolution swapped SWC's plain addon for one that needs an executable cache, and no proof ran the shipped image again. The bundle is now built with the image and checked by digest, and a CI job runs the image under the shipped flags on every change.
+
+## W4H-26 — the started application can run a reference-code task: runner packages installed, prepared and dispatched (branch `wp/w4h-26-runner-wiring` from origin/main 1981febd2; gates `tasks/factory/w4h-26-GATES.md`)
+
+- [x] R1: reproduced over public HTTP on the composed application (W19a stack): the startup document refuses reference-code profiles; with a stock profile the bind is 404 `factory_package_release_unavailable` and the run fails `factory_native_package_untrusted`. Rulings 1-4 accepted (no host-side registry; D6 internal host-plane operation; D4 scope rule; split).
+- [x] D1: startup profiles admit configuration-digest runners; a class is shared only with equal allocations; a runner declared twice is refused. Fleet item: the local fleet declares snapshotRepository and freezeGitTree, tokens 50,000 (d9417ae3a).
+- [x] D2: one shared guest-package builder; the two reference-code packages declare every REFERENCE_CODE_IMPLEMENTATIONS export; snapshotRepository runs in the guest from a recorded tree and answers its port; the rest refuse by name (34d592140, 0beb0c613).
+- [x] D3: boot-time install through the v4 lifecycle behind EZCORP_FACTORY_ENABLED; contract rows first (66fc1acf7, 2e38e3aef, ea95d7fe6).
+- [x] D4: a global installation serves a project only through extension_project_bindings (737ad9151).
+- [x] D5: the package-preparation role with per-package backoff (f574b6c49, b9ce7a932). Midpoint reported (proof/midpoint-6.json).
+- [x] D6: the supervisor prepares over the W01b host service; digest checks on both sides; 4 of 4 mutants killed (6ba267aea, a32e94aa0).
+- [x] D7: snapshot-repository admitted, prepared, dispatched and executed in the pinned guest on the fixture repository; content recomputed and equal (proof/final.json).
+- [x] Visibility: the staging outcome is in readiness by name (27412cb92); the final proof reads it from /api/ready (proof/final-2.json).
+- [x] R5 (validator-8 G1): the loader is an explicit, tested guard exemption, the alias reverted (792dcb6b7); a preparation survives a supervisor restart (4fa87697d).
+- [x] N5: /api/ready carries a stable code and fixed reason per staging failure, never the raw error (9fd90638f).
+- [x] R6: synchronous join (N7), succeeded-only durable records (N6), other source refused first after a restart (T1) (abee88765).
+- [x] R7: integ/w00 1f63311fb (W4H-27) merged in (7e320fcb4); fleet.ts keeps both checks.
+- [ ] The Compose-level proof, after W4H-27 merges. The generate runner's fleet profile is blocked by the definition's placeholder pin.
+
+Review: the brief's "move the registration" had no registration to move; the product-true register is a v4 runner package per export, installed at boot and prepared by the supervisor. The composed-application runs exposed five product defects the harness-supplied graph proof had hidden (bundle-relative sources, the catalog's blob store, the host runner's toolchain, a reused build identity, the port shape); each is fixed with a test.
+
+## W4H-32 — a missing runner artifact is rehydrated from the product's own copy (branch `wp/w4h-32-runner-rehydrate` from integ/w00 390c49a90; gates `tasks/factory/w4h-32-GATES.md`)
+
+- [x] Contract rows: C05 "Rehydrate a missing runner artifact (W4H-32)"; C10 amendment (activation recovers; a rebuild is never an error handler).
+- [x] Runner: restoreArtifact (digest checked, atomic, idempotent) through the contract, the PodmanRunner, the service route and the client; a start refused for a missing artifact registers no worker.
+- [x] Host: one rehydrating wrapper around the product runner (release record required, blob digest verified, one join per digest, exactly one retry, named refusal artifact_unrecoverable).
+- [x] Readiness: non-blocking warnings {code, artifactDigest, count}.
+- [x] Package preparation: build only on the supervisor's "not built yet"; any other artifact read error refuses by name.
+- [x] Two-boot test on a kept store; mutants; static legs; heavy legs through gated-flock; freeze.
+
+Review: the product now recovers real-8's failure by construction: one wrapped product runner restores a lost release artifact from the release
+blobs (release record named, digest checked twice, one join, one retry) and says so in readiness; package preparation no longer hides runner
+faults behind a rebuild. Rulings applied: no temp-store refusal; per-process warning count; only the supervisor's not-built answer builds; the
+restore route takes one store-bounded artifact (160 MiB). Leftover: the factory host supervisor's own store has no rehydration (team-lead list).

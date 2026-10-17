@@ -1,0 +1,23 @@
+bun test v1.4.2 (744846f84)
+{"ts":"2026-10-16T01:01:43.017Z","level":"info","msg":"watchlist topic added via chat","subsystem":"briefing.chat-tools","userId":"403af606-a64a-4342-92d1-29d4bd649bd7","topic":"Bun 2.0 release"}
+{"ts":"2026-10-16T01:01:43.055Z","level":"info","msg":"watchlist topic added via chat","subsystem":"briefing.chat-tools","userId":"3676ee10-cbee-4082-99ec-7392818d9805","topic":"PGlite roadmap"}
+{"ts":"2026-10-16T01:01:43.063Z","level":"info","msg":"watchlist topic added via chat","subsystem":"briefing.chat-tools","userId":"945c8e24-a030-47a0-ae0d-fe9f31ee81a1","topic":"New topic"}
+{"ts":"2026-10-16T01:01:43.068Z","level":"info","msg":"watchlist topic added via chat","subsystem":"briefing.chat-tools","userId":"41d2ef30-dd96-4e6b-b4af-1692b06dfd3e","topic":"Bun 2.0"}
+{"ts":"2026-10-16T01:01:43.085Z","level":"info","msg":"watchlist topic removed via chat","subsystem":"briefing.chat-tools","userId":"8f14c867-69b0-4097-ad0d-2a4fcbc7777a","topic":"Bun 2.0 release"}
+{"ts":"2026-10-16T01:01:43.098Z","level":"info","msg":"briefing configured via chat","subsystem":"briefing.chat-tools","userId":"b1e5af3c-2fed-4564-8bfd-a7b17ad0d700","enabled":true,"cron":"0 7 * * 1-5"}
+{"ts":"2026-10-16T01:01:43.102Z","level":"info","msg":"briefing configured via chat","subsystem":"briefing.chat-tools","userId":"e2699b32-c873-4635-bff1-988694af8223","enabled":false,"cron":"0 8 * * 0,6"}
+{"ts":"2026-10-16T01:01:43.107Z","level":"info","msg":"briefing configured via chat","subsystem":"briefing.chat-tools","userId":"8aa1d407-7c9d-4f27-8e35-c6c0eacbd190","enabled":false,"cron":"30 8 * * *"}
+{"ts":"2026-10-16T01:01:43.112Z","level":"info","msg":"briefing configured via chat","subsystem":"briefing.chat-tools","userId":"9c51fad0-72cc-4b17-96f2-8f2a676e0aa6","enabled":false,"cron":"15 9 * * 0,6"}
+{"ts":"2026-10-16T01:01:43.116Z","level":"info","msg":"briefing configured via chat","subsystem":"briefing.chat-tools","userId":"85178d4c-6dc0-442d-9b42-f5448aff779b","enabled":false,"cron":"30 6 * * *"}
+{"ts":"2026-10-16T01:01:43.120Z","level":"info","msg":"briefing configured via chat","subsystem":"briefing.chat-tools","userId":"81eb1f1d-e6ad-4af7-80d0-0a1671ea56e8","enabled":false,"cron":"0 7 * * 1-5"}
+{"ts":"2026-10-16T01:01:43.127Z","level":"info","msg":"briefing chat tools wired for turn","subsystem":"briefing.chat-tools","conversationId":"conv-1","userId":"84d24f74-ef45-4937-be3c-ff2e7377cdaa","registered":4,"expected":4}
+{"ts":"2026-10-16T01:01:43.128Z","level":"info","msg":"briefing chat tools wired for turn","subsystem":"briefing.chat-tools","conversationId":"conv-1","userId":"c47731d3-950d-4785-abb8-0d41c47e2722","registered":4,"expected":4}
+{"ts":"2026-10-16T01:01:43.128Z","level":"info","msg":"briefing chat tools wired for turn","subsystem":"briefing.chat-tools","conversationId":"conv-1","userId":"c47731d3-950d-4785-abb8-0d41c47e2722","registered":0,"expected":4}
+{"ts":"2026-10-16T01:01:43.130Z","level":"info","msg":"briefing chat tools wired for turn","subsystem":"briefing.chat-tools","conversationId":"conv-1","userId":"7840b5df-dab0-4f95-94a6-c79e2d8ca9a6","registered":4,"expected":4}
+{"ts":"2026-10-16T01:01:43.169Z","level":"info","msg":"watchlist topic added via chat","subsystem":"briefing.chat-tools","userId":"dfa53527-e634-4c82-8deb-44e7e17f6889","topic":"mine"}
+{"ts":"2026-10-16T01:01:43.170Z","level":"info","msg":"watchlist topic added via chat","subsystem":"briefing.chat-tools","userId":"88204781-1a01-458d-84d2-83c77c0eac95","topic":"theirs"}
+
+ 32 pass
+ 0 fail
+ 118 expect() calls
+Ran 32 tests across 1 file. [1100.00ms]

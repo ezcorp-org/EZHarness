@@ -1,15 +1,14 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { join } from "node:path";
 import {
-  FACTORY_TEST_IMAGE,
   FACTORY_TEST_RUNNER_PROFILES,
   factoryRejection,
   makeFactoryPrivateRoot,
+  makeFactoryTestFleetSettings,
   removeFactoryPrivateRoot,
   writeModeFile,
 } from "../../__tests__/helpers/factory-private-root";
 import {
-  FACTORY_FLEET_SCHEMA,
   factoryInstallationHostname,
   factoryInstallationPublicOrigin,
   factoryPlatformPaths,
@@ -18,22 +17,7 @@ import {
   type FactoryFleetSettings,
 } from "./fleet";
 
-const storageDomain = (port: number) => ({ endpoint: `http://127.0.0.1:${port}`, prefix: "ordinary", issuer: { kind: "seeded" as const, serverIdentityPath: "/srv/operator/storage-identity.json" } });
-
-const VALID: FactoryFleetSettings = {
-  schemaVersion: FACTORY_FLEET_SCHEMA,
-  fleetId: "fleet-a",
-  profile: "compose",
-  roots: { operator: "/srv/operator", secrets: "/srv/secrets", runtime: "/srv/runtime" },
-  control: { databaseUrlPath: "/srv/operator/control-database-url" },
-  database: { adminUrlPath: "/srv/operator/admin-database-url", serviceHost: "127.0.0.1", servicePort: 55_432 },
-  storage: { ordinary: storageDomain(59_000), archive: { ...storageDomain(59_001), prefix: "archive" }, failureDomain: "host-a" },
-  temporal: { port: 57_233, httpPort: 57_244, serverName: "temporal.test" },
-  ingress: { address: "127.0.0.1", port: 30_443, domain: "factory.example" },
-  installations: { portBase: 40_000, cpuCapacity: 4, interpreterCompatibility: "factory-interpreter-1", runnerProfiles: FACTORY_TEST_RUNNER_PROFILES as never },
-  image: { reference: FACTORY_TEST_IMAGE, revision: "c".repeat(40) },
-  release: { directory: "/srv/release", bun: "/srv/bin/bun", path: "/usr/bin:/bin" },
-};
+const VALID: FactoryFleetSettings = makeFactoryTestFleetSettings();
 
 /** A copy of VALID with one dotted path replaced (or removed when `value` is `undefined` and `remove` is set). */
 function withField(path: string, value: unknown, remove = false): unknown {
@@ -112,6 +96,32 @@ describe("parseFactoryFleetSettings", () => {
     (value.temporal as Record<string, unknown>).port = 1;
     (value.image as Record<string, unknown>).revision = "short";
     expect(refusal(value).message).toBe("Fleet settings are invalid: fleetId, temporal, image.");
+  });
+
+  test("a release declaration is accepted exactly when the block the deployer writes from it passes the startup parser", () => {
+    const profile = { adapter: { package: "@ezcorp/s3-immutable-publish", manifestName: "s3-immutable-publish", version: "1.0.0", digest: `sha256:${"e".repeat(64)}`, export: "publish" }, action: "factory.release.publish", destination: "installation-s3", estimatedSpendMicros: 1_000 };
+    const github = { repository: "ezcorp-org/factory-platform-publication-tests", tokenPath: "/srv/operator/github-release-token" };
+    for (const release of [{ profiles: [profile] }, { github, profiles: [profile, { ...profile, adapter: { ...profile.adapter, package: "@ezcorp/github-release", export: "releasePullRequest" }, destination: "github" }] }]) {
+      expect(parseFactoryFleetSettings(withField("installations.release", release)).installations.release).toEqual(release as never);
+    }
+    for (const release of [
+      { profiles: [] }, { profiles: [{ ...profile, destination: "github" }] }, { profiles: [profile, profile] }, { profiles: [{ ...profile, estimatedSpendMicros: -1 }] },
+      { github: { ...github, tokenPath: "token" }, profiles: [profile] }, { github: { repository: "not a repository", tokenPath: github.tokenPath }, profiles: [profile] },
+      { github: { ...github, extra: 1 }, profiles: [profile] }, { profiles: [profile], extra: 1 }, { profiles: "all" }, null,
+    ]) {
+      const error = refusal(withField("installations.release", release));
+      expect(error.code).toBe("fleet_settings_invalid");
+      expect(error.message).toBe("Fleet settings are invalid: installations.release.");
+    }
+    expect(refusal(withField("installations.extra", 1)).message).toBe("Fleet settings are invalid: installations.");
+  });
+
+  test("an installation model pin is carried for the profiles that pin it, and judged by the startup parser (W4H-28)", () => {
+    const pin = { provider: "openai", model: "gpt-6-luna", credentialKind: "oauth" };
+    expect(parseFactoryFleetSettings(withField("installations.modelProvider", pin)).installations.modelProvider).toEqual(pin as never);
+    for (const broken of [{ provider: "openai" }, { ...pin, credentialKind: "password" }]) {
+      expect(refusal(withField("installations.modelProvider", broken)).message).toBe("Fleet settings are invalid: installations.runnerProfiles.");
+    }
   });
 
   test("runner profiles are judged by the startup document's parser", () => {

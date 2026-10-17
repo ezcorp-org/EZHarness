@@ -1,0 +1,32 @@
+
+ RUN  v5.0.3 /home/dev/work/EZCorp/EZHarness/.worktrees/w4h-33b/web
+
+ ❯ src/__tests__/stryker-sandbox-aliases.unit.test.ts (2 tests | 1 failed) 196ms
+   ❯ vitest.stryker.config.ts $server alias (2)
+     × points at the repository's src/ when Stryker loads it from its sandbox 186ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  src/__tests__/stryker-sandbox-aliases.unit.test.ts > vitest.stryker.config.ts $server alias > points at the repository's src/ when Stryker loads it from its sandbox
+AssertionError: expected '/home/dev/work/EZCorp/EZHarness/.work…' to be '/home/dev/work/EZCorp/EZHarness/.work…' // Object.is equality
+
+Expected: "/home/dev/work/EZCorp/EZHarness/.worktrees/w4h-33b/src"
+Received: "/home/dev/work/EZCorp/EZHarness/.worktrees/w4h-33b/web/.stryker-tmp/src"
+
+ ❯ src/__tests__/stryker-sandbox-aliases.unit.test.ts:52:17
+     50|  it("points at the repository's src/ when Stryker loads it from its sa…
+     51|   const alias = await serverAlias(join(strykerSandbox(), "vitest.stryk…
+     52|   expect(alias).toBe(REPOSITORY_SOURCE);
+       |                 ^
+     53|   expect(existsSync(join(alias ?? "", PROBE))).toBe(true);
+     54|  });
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  1 failed | 1 passed (2)
+   Start at  18:56:57
+   Duration  702ms (transform 51%, tests 31%, setup 17%, worker 1%)
+
+exit=1

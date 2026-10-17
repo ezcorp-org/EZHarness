@@ -1,0 +1,13 @@
+bun test v1.4.2 (744846f84)
+
+src/__tests__/seam-permission-disable-integration.test.ts:
+[ezcorp/fs] deprecated: extension "68e8b269-5024-4d0e-a32b-c15aeebcb561" called the path-check shim. Migrate to ezcorp/fs.read | write | list | stat | exists | mkdir | unlink (host-mediated; SDK helpers in @ezcorp/sdk/runtime). This shim is removed in milestone v2.
+[ezcorp/fs] deprecated: extension "39aeb71f-46af-47f6-b784-06dc98d35eaa" called the path-check shim. Migrate to ezcorp/fs.read | write | list | stat | exists | mkdir | unlink (host-mediated; SDK helpers in @ezcorp/sdk/runtime). This shim is removed in milestone v2.
+[ezcorp/fs] deprecated: extension "1ffa1c99-bf3d-49a5-ab3e-e6675fecf036" called the path-check shim. Migrate to ezcorp/fs.read | write | list | stat | exists | mkdir | unlink (host-mediated; SDK helpers in @ezcorp/sdk/runtime). This shim is removed in milestone v2.
+[ezcorp/fs] deprecated: extension "106d3fbc-2486-428b-985f-0a63979c19ea" called the path-check shim. Migrate to ezcorp/fs.read | write | list | stat | exists | mkdir | unlink (host-mediated; SDK helpers in @ezcorp/sdk/runtime). This shim is removed in milestone v2.
+[ezcorp/fs] deprecated: extension "b7d4b068-d0ee-480b-8615-0f462c0ca88a" called the path-check shim. Migrate to ezcorp/fs.read | write | list | stat | exists | mkdir | unlink (host-mediated; SDK helpers in @ezcorp/sdk/runtime). This shim is removed in milestone v2.
+
+ 5 pass
+ 0 fail
+ 30 expect() calls
+Ran 5 tests across 1 file. [1007.00ms]

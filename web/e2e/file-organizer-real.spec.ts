@@ -15,7 +15,7 @@
  * GATING — this suite is INERT in the default mock preview run. It only
  * executes when `DOCKER_TEST` is set, which is also what flips
  * `web/playwright.config.ts` to baseURL :3000 + the docker-auth-setup
- * global setup (login test@test.com / Test123! → `.docker-auth.json`
+ * global setup (login test@test.example / Test123! → `.docker-auth.json`
  * storageState reused here). Run it with:
  *
  *   cd web && DOCKER_TEST=1 bunx playwright test file-organizer-real.spec.ts \

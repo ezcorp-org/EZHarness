@@ -1,0 +1,7 @@
+bun test v1.4.2 (744846f84)
+{"ts":"2026-10-16T01:18:19.508Z","level":"error","msg":"reverse-RPC provenance unresolved — no valid host-issued ezCallId; failing fast","subsystem":"ext.tool-executor","method":"ezcorp/project.openPr","extensionId":"foreign","tokenActorExtensionId":"extension"}
+
+ 4 pass
+ 0 fail
+ 23 expect() calls
+Ran 4 tests across 1 file. [464.00ms]

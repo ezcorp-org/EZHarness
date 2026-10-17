@@ -1,0 +1,12 @@
+Checked 2 files in 4ms. No fixes applied.
+── Tests (staged) ─────────────────────────────────
+  vitest: src/__tests__/stryker-sandbox-aliases.unit.test.ts
+
+ RUN  v5.0.3 /home/dev/work/EZCorp/EZHarness/.worktrees/w4h-33b/web
+
+
+ Test Files  1 passed (1)
+      Tests  2 passed (2)
+   Start at  18:58:06
+   Duration  899ms (transform 61%, tests 25%, setup 14%)
+

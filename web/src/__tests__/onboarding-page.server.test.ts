@@ -74,12 +74,12 @@ describe("/(auth)/onboarding/+page.server load()", () => {
 		vi.mocked(hasAnyProvider).mockResolvedValue(false);
 
 		const event = makeEvent({
-			user: { id: "u-1", email: "u@test.com", name: "U", role: "member" },
+			user: { id: "u-1", email: "u@test.example", name: "U", role: "member" },
 			onboardedAt: null,
 		});
 		const data = (await load(event)) as { user: unknown; hasProvider: boolean };
 		expect(data).toEqual({
-			user: { id: "u-1", name: "U", email: "u@test.com", role: "member" },
+			user: { id: "u-1", name: "U", email: "u@test.example", role: "member" },
 			hasProvider: false,
 		});
 		// Critical: load must NOT re-query the user row — the hook stashed it on locals.
@@ -89,7 +89,7 @@ describe("/(auth)/onboarding/+page.server load()", () => {
 	test("authenticated, locals.onboardedAt=null, provider exists → hasProvider=true", async () => {
 		vi.mocked(hasAnyProvider).mockResolvedValue(true);
 		const event = makeEvent({
-			user: { id: "u-2", email: "u2@test.com", name: "U2", role: "member" },
+			user: { id: "u-2", email: "u2@test.example", name: "U2", role: "member" },
 			onboardedAt: null,
 		});
 		const data = (await load(event)) as { user: unknown; hasProvider: boolean };
@@ -98,7 +98,7 @@ describe("/(auth)/onboarding/+page.server load()", () => {
 
 	test("authenticated, locals.onboardedAt set → 302 /", async () => {
 		const event = makeEvent({
-			user: { id: "u-3", email: "u3@test.com", name: "U3", role: "member" },
+			user: { id: "u-3", email: "u3@test.example", name: "U3", role: "member" },
 			onboardedAt: new Date(),
 		});
 

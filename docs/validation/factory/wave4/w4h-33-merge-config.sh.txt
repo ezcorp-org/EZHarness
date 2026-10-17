@@ -1,0 +1,7 @@
+# W4H-33-test-hygiene-e50aedefd-on-b0b7bedf1 detached-merge config (integrator-3, prep.sh 2026-10-16T19:06:51Z). Base b0b7bedf1 (b0b7bedf1c0de65af84febe7811171021f573b1c when prepared); trial tree ba1726d73.
+D=/tmp/factory-platform-evidence/w00/w4h-merge/w4h-33-test-hygiene-e50aedefd-on-b0b7bedf1
+BRANCH=wp/w4h-33-test-hygiene HEADSHA=e50aedefd96576ea4e72abb5e73e555540b77193
+BASE=b0b7bedf1c0de65af84febe7811171021f573b1c TREE=ba1726d7348662d09d9ab48eb9acfdc3d68e2b94
+LIST=/tmp/factory-platform-evidence/w00/w4h-merge/w4h-33-test-hygiene-e50aedefd-on-b0b7bedf1/hook-mapped-e50aedefd.txt MSG=/tmp/factory-platform-evidence/w00/w4h-merge/w4h-33-test-hygiene-e50aedefd-on-b0b7bedf1/commit-msg.txt FOCUSED=/tmp/factory-platform-evidence/w00/w4h-merge/w4h-33-test-hygiene-e50aedefd-on-b0b7bedf1/focused.txt
+SKIP=0 GATE_APPROVED=0 PG_HOOK=0
+HEAVY_EXIT=/tmp/factory-platform-evidence/w00/w4h-merge/w4h-33-test-hygiene-e50aedefd-on-b0b7bedf1/heavy.exit REVIEW=

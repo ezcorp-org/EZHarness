@@ -1,0 +1,15 @@
+{
+  "rerun": "gh run rerun 38525604869 --failed, ONCE, at 07:36:45Z 2026-10-14 (the coordinator's word: a data point for the intermittency, not the fix; the PR does not merge on this green alone; W4H-30's root cause gates it)",
+  "result": "run attempt 2: 55 success, 1 failure (A: the runner readiness precheck), 3 skipped. Production proof (resources) success, 10/10 cycles; its two aggregators success. vs run attempt 1: fixed 3, same 55, still red 1.",
+  "classification": "the resources red of run attempt 1 stays C-candidate (W4H-30, owner w4h-26)",
+  "samples": {
+    "red (run attempt 1)": "sockets 3 in cycles 1-8, 4 at cycle 9; app descriptors 431 -> 432; TCP 1",
+    "green (run attempt 2)": "sockets 4 from cycle 1 on; app descriptors 432 in cycles 4-10, warm 432; TCP 1",
+    "reading": "one long-lived 4th socket opened at a varying time (before cycle 1 in the green attempt, after the warm sample in the red one), not a per-cycle leak; its owner is W4H-30's to name"
+  },
+  "files": {
+    "r4 samples (green)": "72fa4353041134e1"
+  },
+  "sentTo": "w4h-26: the r4 analysis of the red attempt (fd 276/278 reconnects, fd 313 added between them, no peers in the samples), 07:4xZ",
+  "receiptsBy": "integrator-5"
+}

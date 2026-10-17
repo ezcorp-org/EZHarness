@@ -1,0 +1,11 @@
+bun test v1.4.2 (744846f84)
+{"ts":"2026-10-16T00:55:33.742Z","level":"info","msg":"shell: dev server launched under preview uid","subsystem":"shell-tool","conversationId":"conv-1","uid":90001,"pid":4242,"command":"bun"}
+{"ts":"2026-10-16T00:55:33.748Z","level":"info","msg":"shell: preview launch refused, running command normally","subsystem":"shell-tool","conversationId":"conv-1","reason":"preview uid pool exhausted"}
+{"ts":"2026-10-16T00:55:33.750Z","level":"info","msg":"shell: preview launch refused, running command normally","subsystem":"shell-tool","conversationId":"conv-1","reason":"uid-mode previews unavailable (mode=static)"}
+{"ts":"2026-10-16T00:55:33.753Z","level":"info","msg":"shell: preview launch refused, running command normally","subsystem":"shell-tool","conversationId":"conv-1","reason":"preview uid pool exhausted"}
+{"ts":"2026-10-16T00:55:34.756Z","level":"info","msg":"shell: preview launch refused, running command normally","subsystem":"shell-tool","conversationId":"conv-1","reason":"preview uid pool exhausted"}
+
+ 8 pass
+ 0 fail
+ 20 expect() calls
+Ran 8 tests across 1 file. [1483.00ms]

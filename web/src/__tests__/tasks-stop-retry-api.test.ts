@@ -36,7 +36,7 @@ let mockAgentConfig: {
 let mockScopeResponse: Response | null = null;
 let mockUser = {
   id: "user-1",
-  email: "test@test.com",
+  email: "test@test.example",
   name: "Test",
   role: "member",
 };
@@ -250,7 +250,7 @@ function resetMocks() {
   mockScopeResponse = null;
   mockUser = {
     id: "user-1",
-    email: "test@test.com",
+    email: "test@test.example",
     name: "Test",
     role: "member",
   };

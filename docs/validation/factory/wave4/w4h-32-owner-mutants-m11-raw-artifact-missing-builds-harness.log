@@ -1,0 +1,37 @@
+# 2026-10-16T19:17:17.106991+00:00 mutant m11-raw-artifact-missing-builds-harness in src/factory/package-preparation.ts
+# cmd: bun test --timeout 30000 ./src/factory/guest-package-harness-install.test.ts
+bun test v1.4.2 (744846f84)
+
+src/factory/guest-package-harness-install.test.ts:
+115 |   const { release, reference, fresh, preparations, trusts } = await installedHarnessRelease();
+116 |   const raw = preparations(fresh);
+117 |   await raw.bind(admin, { projectId, reference, installationId: release.installationId, releaseId: release.id }, "harness-bind");
+118 |   await trusts.publish(admin, { projectId, reference, expectedRevision: 0 }, "harness-trust");
+119 |   const refusal = await raw.prepare(projectId, reference).catch((error: unknown) => error) as FactoryPackagePreparationError;
+120 |   expect(refusal).toBeInstanceOf(FactoryPackagePreparationError);
+                        ^
+error: expect(received).toBeInstanceOf(expected)
+
+Expected constructor: [class FactoryPackagePreparationError extends Error]
+Received value: 48 | };
+49 | 
+50 | /** A fresh preparation store; it never builds. */
+51 | class FreshStore extends PodmanRunner {
+52 |   builds = 0;
+53 |   override async build(): Promise<BuildResult> { this.builds++; throw new Error("the preparation must not build"); }
+                                                                               ^
+error: the preparation must not build
+      at build (/home/dev/work/EZCorp/EZHarness/.worktrees/w4h-32/src/factory/guest-package-harness-install.test.ts:53:75)
+      at hydrate (/home/dev/work/EZCorp/EZHarness/.worktrees/w4h-32/src/factory/package-preparation.ts:292:466)
+      at async prepare (/home/dev/work/EZCorp/EZHarness/.worktrees/w4h-32/src/factory/package-preparation.ts:276:384)
+
+
+      at <anonymous> (/home/dev/work/EZCorp/EZHarness/.worktrees/w4h-32/src/factory/guest-package-harness-install.test.ts:120:19)
+(fail) a raw runner is never a preparation builder: its fresh store's artifact_missing refuses by name and never builds (W4H-32) [1331.04ms]
+
+ 1 pass
+ 1 fail
+ 5 expect() calls
+Ran 2 tests across 1 file. [3.28s]
+
+# exit=1

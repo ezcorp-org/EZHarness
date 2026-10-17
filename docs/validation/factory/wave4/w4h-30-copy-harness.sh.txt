@@ -1,0 +1,15 @@
+#!/usr/bin/env bash
+# copy-harness.sh <source dir> <dest dir> <file>... (integrator-5, 2026-10-14; the W4H-18 lesson, recurred in the W4H-30 hold 1): copy
+# harness files with their modes (cp -p) and CHECK every copy's mode equals its source's. A bind-mounted script read by another user in
+# a container needs the source's 644/755; a plain cp under umask 077 gives 600/700 and the container user gets "Permission denied".
+# Exit 1 (naming each file) on a missing source or a mode that differs; 0 when all copies match.
+set -u
+S=${1:?source dir} T=${2:?dest dir}; shift 2; [ $# -gt 0 ] || { echo "no file named"; exit 2; }
+mkdir -p "$T"; st=0
+for f in "$@"; do
+  [ -e "$S/$f" ] || { echo "MISSING source $S/$f"; st=1; continue; }
+  mkdir -p "$(dirname "$T/$f")"; cp -p "$S/$f" "$T/$f" || { echo "COPY failed $f"; st=1; continue; }
+  a=$(stat -c %a "$S/$f"); b=$(stat -c %a "$T/$f")
+  if [ "$a" = "$b" ]; then echo "ok $b $f"; else echo "MODE differs $f: source $a copy $b"; st=1; fi
+done
+exit $st

@@ -43,6 +43,7 @@
  * entry.
  */
 
+import { registerBunOAuthFlows } from "@earendil-works/pi-ai/bun-oauth";
 import { builtinModels } from "@earendil-works/pi-ai/providers/all";
 import type {
   Credential,
@@ -54,6 +55,12 @@ import type {
 } from "@earendil-works/pi-ai";
 import { getSetting, upsertSetting, deleteSetting } from "../db/queries/settings";
 import { decrypt, encrypt } from "./encryption";
+
+// pi-ai loads each OAuth flow module through a dynamic import relative to its own file. A bundle (the
+// built web server) has no such file, so every stored OAuth credential failed to derive a key there
+// ("Cannot find module './openai-codex.js'") and the factory read a connected ChatGPT subscription as
+// not configured. Registering the flows statically puts them in the bundle. Idempotent; once per process.
+registerBunOAuthFlows();
 
 /**
  * EZCorp provider name → the pi-ai provider id that owns its OAuth flow.

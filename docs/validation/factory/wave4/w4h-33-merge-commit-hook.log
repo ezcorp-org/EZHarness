@@ -1,0 +1,1787 @@
+Checked 175 files in 56ms. No fixes applied.
+── Tests (staged) ─────────────────────────────────
+  bun: packages/@ezcorp/ai-kit/test/e2e/bundled.test.ts
+bun test v1.4.2 (744846f84)
+
+ 0 pass
+ 4 skip
+ 0 fail
+Ran 4 tests across 1 file. [354.00ms]
+  bun: packages/@ezcorp/ai-kit/test/e2e/fanout.test.ts
+bun test v1.4.2 (744846f84)
+
+ 0 pass
+ 5 skip
+ 0 fail
+Ran 5 tests across 1 file. [361.00ms]
+  bun: packages/@ezcorp/ai-kit/test/e2e/quickstart.test.ts
+bun test v1.4.2 (744846f84)
+
+ 0 pass
+ 3 skip
+ 0 fail
+Ran 3 tests across 1 file. [350.00ms]
+  bun: packages/@ezcorp/ai-kit/test/shape.test.ts
+bun test v1.4.2 (744846f84)
+
+ 5 pass
+ 0 fail
+ 12 expect() calls
+Ran 5 tests across 1 file. [360.00ms]
+  bun: packages/@ezcorp/ai-kit/test/unit/deployed-preconditions.test.ts
+bun test v1.4.2 (744846f84)
+
+ 6 pass
+ 0 fail
+ 24 expect() calls
+Ran 6 tests across 1 file. [489.00ms]
+  bun: packages/@ezcorp/ai-kit/test/unit/e2e-poll.test.ts
+bun test v1.4.2 (744846f84)
+
+ 3 pass
+ 0 fail
+ 6 expect() calls
+Ran 3 tests across 1 file. [393.00ms]
+  bun: scripts/check-factory-lanes.test.ts
+bun test v1.4.2 (744846f84)
+
+ 44 pass
+ 0 fail
+ 158 expect() calls
+Ran 44 tests across 1 file. [1243.00ms]
+  bun: scripts/ripgrep-registration.test.ts
+bun test v1.4.2 (744846f84)
+
+ 3 pass
+ 0 fail
+ 9 expect() calls
+Ran 3 tests across 1 file. [374.00ms]
+  bun: scripts/test-images-registration.test.ts
+bun test v1.4.2 (744846f84)
+
+ 3 pass
+ 0 fail
+ 6 expect() calls
+Ran 3 tests across 1 file. [356.00ms]
+  bun: scripts/test-skip-inventory.test.ts
+bun test v1.4.2 (744846f84)
+
+ 25 pass
+ 0 fail
+ 62 expect() calls
+Ran 25 tests across 1 file. [1384.00ms]
+  bun: src/db/queries/__tests__/query-core-conversations.test.ts
+bun test v1.4.2 (744846f84)
+
+ 7 pass
+ 0 fail
+ 20 expect() calls
+Ran 7 tests across 1 file. [2.47s]
+  bun: src/db/queries/__tests__/query-core-marketplace-ratings-atomic.test.ts
+bun test v1.4.2 (744846f84)
+
+ 5 pass
+ 0 fail
+ 9 expect() calls
+Ran 5 tests across 1 file. [1.95s]
+  bun: src/db/queries/__tests__/suggestion-feedback.test.ts
+bun test v1.4.2 (744846f84)
+
+ 2 pass
+ 0 fail
+ 5 expect() calls
+Ran 2 tests across 1 file. [1035.00ms]
+  bun: src/factory/provisioning/control-plane.test.ts
+bun test v1.4.2 (744846f84)
+
+ 22 pass
+ 0 fail
+ 259 expect() calls
+Ran 22 tests across 1 file. [453.00ms]
+  bun: src/factory/provisioning/fleet-cli.test.ts
+bun test v1.4.2 (744846f84)
+
+ 11 pass
+ 0 fail
+ 70 expect() calls
+Ran 11 tests across 1 file. [376.00ms]
+  bun: src/factory/provisioning/invitation.test.ts
+bun test v1.4.2 (744846f84)
+
+ 32 pass
+ 0 fail
+ 205 expect() calls
+Ran 32 tests across 1 file. [458.00ms]
+  bun: src/factory/runner/supervisor-services.test.ts
+bun test v1.4.2 (744846f84)
+
+src/factory/runner/supervisor-services.test.ts:
+[factory-host-launch] {"path":"/v1/host/launches","status":401,"error":"unauthorized","detail":"unauthorized"}
+[factory-host-launch] {"path":"/v1/host/unknown","status":401,"error":"unauthorized","detail":"unauthorized"}
+[factory-host-launch] {"path":"/v1/host/launches","status":400,"error":"invalid_intent","detail":"invalid_intent"}
+[factory-host-launch] {"path":"/v1/host/attachments","status":400,"error":"invalid_intent","detail":"invalid_intent"}
+[factory-host-launch] {"path":"/v1/host/results","status":400,"error":"invalid_intent","detail":"invalid_intent"}
+[factory-host-launch] {"path":"/v1/host/unknown","status":404,"error":"not_found","detail":"not_found"}
+[factory-host-launch] {"path":"/v1/host/launches","status":400,"error":"invalid_intent","detail":"invalid_intent"}
+[factory-host-launch] {"path":"/v1/host/launches","status":422,"error":"device_unavailable","detail":"Device /dev/dri/renderD200 granted to worker factory_3dafcfaa6218343276ff42263fe100bab5e2b0475a8d98b9 is not present on host host-services.","attemptId":"attempt-1","workerId":"factory_3dafcfaa6218343276ff42263fe100bab5e2b0475a8d98b9"}
+[factory-host-launch] {"path":"/v1/host/results","status":409,"error":"attempt_uncertain","detail":"This host is not running that attempt.","attemptId":"attempt-1","workerId":"factory_3dafcfaa6218343276ff42263fe100bab5e2b0475a8d98b9"}
+[factory-host-launch] {"path":"/v1/host/launches","status":403,"error":"forbidden_tenant","detail":"forbidden_tenant","attemptId":"attempt-1","workerId":"factory_3dafcfaa6218343276ff42263fe100bab5e2b0475a8d98b9"}
+[factory-host-launch] {"path":"/v1/host/launches","status":409,"error":"worker_stopped","detail":"Worker factory_3dafcfaa6218343276ff42263fe100bab5e2b0475a8d98b9 was stopped on host host-services before it ever ran; it is not started or attached.","attemptId":"attempt-1","workerId":"factory_3dafcfaa6218343276ff42263fe100bab5e2b0475a8d98b9"}
+[factory-host-launch] {"path":"/v1/host/attachments","status":409,"error":"worker_stopped","detail":"Worker factory_3dafcfaa6218343276ff42263fe100bab5e2b0475a8d98b9 was stopped on host host-services before it ever ran; it is not started or attached.","attemptId":"attempt-1","workerId":"factory_3dafcfaa6218343276ff42263fe100bab5e2b0475a8d98b9"}
+[factory-host-launch] {"path":"/v1/host/launches","status":409,"error":"worker_stopped","detail":"Worker factory_3dafcfaa6218343276ff42263fe100bab5e2b0475a8d98b9 was stopped on host host-services before it ever ran; it is not started or attached.","attemptId":"attempt-1","workerId":"factory_3dafcfaa6218343276ff42263fe100bab5e2b0475a8d98b9"}
+
+ 29 pass
+ 0 fail
+ 97 expect() calls
+Ran 29 tests across 1 file. [31.69s]
+  bun: src/__tests__/account-api.test.ts
+bun test v1.4.2 (744846f84)
+
+ 5 pass
+ 0 fail
+ 8 expect() calls
+Ran 5 tests across 1 file. [1436.00ms]
+  bun: src/__tests__/admin-analytics-api-routes.test.ts
+bun test v1.4.2 (744846f84)
+
+ 13 pass
+ 0 fail
+ 56 expect() calls
+Ran 13 tests across 1 file. [378.00ms]
+  bun: src/__tests__/agent-sandbox.test.ts
+bun test v1.4.2 (744846f84)
+
+ 6 pass
+ 0 fail
+ 19 expect() calls
+Ran 6 tests across 1 file. [838.00ms]
+  bun: src/__tests__/agent-sharing-integration.test.ts
+bun test v1.4.2 (744846f84)
+
+ 11 pass
+ 0 fail
+ 30 expect() calls
+Ran 11 tests across 1 file. [856.00ms]
+  bun: src/__tests__/agent-sharing-routes.test.ts
+bun test v1.4.2 (744846f84)
+
+ 18 pass
+ 0 fail
+ 35 expect() calls
+Ran 18 tests across 1 file. [844.00ms]
+  bun: src/__tests__/agent-sharing.test.ts
+bun test v1.4.2 (744846f84)
+
+ 16 pass
+ 0 fail
+ 31 expect() calls
+Ran 16 tests across 1 file. [818.00ms]
+  bun: src/__tests__/agent-sharing-users.test.ts
+bun test v1.4.2 (744846f84)
+
+ 9 pass
+ 0 fail
+ 20 expect() calls
+Ran 9 tests across 1 file. [792.00ms]
+  bun: src/__tests__/analytics.test.ts
+bun test v1.4.2 (744846f84)
+
+ 26 pass
+ 0 fail
+ 75 expect() calls
+Ran 26 tests across 1 file. [372.00ms]
+  bun: src/__tests__/auth-api.test.ts
+bun test v1.4.2 (744846f84)
+{"ts":"2026-10-16T19:35:06.642Z","level":"info","msg":"Bundled source staged; verified releases require human approval","subsystem":"ext.bundled.bootstrap","name":"scratchpad","installationId":"e48b28b7-c16f-4326-a464-090d77961e79","operationId":"75a474fe-d5a7-4b0e-b3c1-3e0a35b8c611","status":"queued"}
+{"ts":"2026-10-16T19:35:06.684Z","level":"info","msg":"Bundled source staged; verified releases require human approval","subsystem":"ext.bundled.bootstrap","name":"task-tracking","installationId":"5a981a18-5e3d-429b-a2bc-b56949c875a7","operationId":"52b92c21-16dd-468a-b26e-e7b15a87177f","status":"queued"}
+{"ts":"2026-10-16T19:35:06.724Z","level":"info","msg":"Bundled source staged; verified releases require human approval","subsystem":"ext.bundled.bootstrap","name":"orchestration","installationId":"5031df87-0e77-445f-ae84-89a6b3e23095","operationId":"7ab664f7-385e-4335-a1b5-a245c50b099d","status":"queued"}
+{"ts":"2026-10-16T19:35:06.772Z","level":"info","msg":"Bundled source staged; verified releases require human approval","subsystem":"ext.bundled.bootstrap","name":"ask-user","installationId":"b4552f4e-bd6b-4a9a-a73f-095412c3ad37","operationId":"f6b74ed4-2080-414a-9901-e58bbbc79a42","status":"queued"}
+{"ts":"2026-10-16T19:35:06.814Z","level":"info","msg":"Bundled source staged; verified releases require human approval","subsystem":"ext.bundled.bootstrap","name":"project-analyzer","installationId":"1f569e2c-6f09-438f-a14f-4b9fd4afe891","operationId":"659aa0d7-4db2-4a87-81da-015c3a1ac74f","status":"queued"}
+{"ts":"2026-10-16T19:35:06.867Z","level":"info","msg":"Bundled source staged; verified releases require human approval","subsystem":"ext.bundled.bootstrap","name":"markdown-utils","installationId":"e86f5c68-43f7-4491-a07b-a9785bc91d41","operationId":"0c645e32-8200-48f0-a7d5-00949a879e6f","status":"queued"}
+{"ts":"2026-10-16T19:35:06.914Z","level":"info","msg":"Bundled source staged; verified releases require human approval","subsystem":"ext.bundled.bootstrap","name":"code-review-delegator","installationId":"1258dcef-54df-4ba2-ad3c-eec14c77d44b","operationId":"d32d32ba-e55a-4881-a1ed-e12ae9dcdb7a","status":"queued"}
+{"ts":"2026-10-16T19:35:06.968Z","level":"info","msg":"Bundled source staged; verified releases require human approval","subsystem":"ext.bundled.bootstrap","name":"github-stats","installationId":"514c1ccb-a52a-4ed6-a4f7-7aabf4f0f60a","operationId":"94883944-ca96-47c8-8376-36743a89a604","status":"queued"}
+{"ts":"2026-10-16T19:35:07.024Z","level":"info","msg":"Bundled source staged; verified releases require human approval","subsystem":"ext.bundled.bootstrap","name":"multi-agent-orchestrator","installationId":"5633b27d-5be0-43f2-ab39-d6b43f658e86","operationId":"905a7f7d-0f1f-4423-8fbb-bffd5ac9fb3c","status":"queued"}
+{"ts":"2026-10-16T19:35:07.080Z","level":"info","msg":"Bundled source staged; verified releases require human approval","subsystem":"ext.bundled.bootstrap","name":"research-agent","installationId":"ac29bb70-b799-46e0-a75b-e31ebd490ee4","operationId":"eb58d49a-87ec-4ea9-8944-77de1a5cacfa","status":"queued"}
+{"ts":"2026-10-16T19:35:07.143Z","level":"info","msg":"Bundled source staged; verified releases require human approval","subsystem":"ext.bundled.bootstrap","name":"file-refactor","installationId":"eaa151bd-1ed0-4065-a98b-ceb2f24e6b80","operationId":"2c6219db-6810-41fa-bf58-b46437818bcc","status":"queued"}
+{"ts":"2026-10-16T19:35:07.214Z","level":"info","msg":"Bundled source staged; verified releases require human approval","subsystem":"ext.bundled.bootstrap","name":"log-analyzer","installationId":"1237106b-3854-4c9c-aa52-81c9ff55ff53","operationId":"5acd6ddb-1c68-460b-bc15-6b6afb00c2b4","status":"queued"}
+{"ts":"2026-10-16T19:35:07.285Z","level":"info","msg":"Bundled source staged; verified releases require human approval","subsystem":"ext.bundled.bootstrap","name":"todo-tracker","installationId":"7d769700-4899-4a15-a630-28164a8805e5","operationId":"f0471762-c22c-471e-be49-296f749c0175","status":"queued"}
+{"ts":"2026-10-16T19:35:07.374Z","level":"info","msg":"Bundled source staged; verified releases require human approval","subsystem":"ext.bundled.bootstrap","name":"ai-kit","installationId":"acd14233-2135-486e-a298-15117d9d24b0","operationId":"220b9af2-124c-4feb-a373-a79bd3986e93","status":"queued"}
+{"ts":"2026-10-16T19:35:07.449Z","level":"info","msg":"Bundled source staged; verified releases require human approval","subsystem":"ext.bundled.bootstrap","name":"web-search","installationId":"9316857b-86b0-470f-a640-62fed76d735f","operationId":"88f3352d-1ddc-460c-a94c-ae37502c020c","status":"queued"}
+{"ts":"2026-10-16T19:35:07.532Z","level":"info","msg":"Bundled source staged; verified releases require human approval","subsystem":"ext.bundled.bootstrap","name":"openai-image-gen-2","installationId":"93ba9ca5-11ca-42c0-a28f-bcd51d130bf8","operationId":"4b86574d-e952-4307-ac08-a903e5d77297","status":"queued"}
+{"ts":"2026-10-16T19:35:07.623Z","level":"info","msg":"Bundled source staged; verified releases require human approval","subsystem":"ext.bundled.bootstrap","name":"claude-design","installationId":"46b9981a-273a-47e0-a82d-dc7f38428960","operationId":"4944e5e6-f917-400a-bcbf-717ffe28b820","status":"queued"}
+{"ts":"2026-10-16T19:35:07.714Z","level":"info","msg":"Bundled source staged; verified releases require human approval","subsystem":"ext.bundled.bootstrap","name":"price-chart","installationId":"62aba5a2-7fe0-4a0b-a512-ad2c5d4364ad","operationId":"0cc5b5c5-3dfa-4c1b-9b2a-41fbea01c573","status":"queued"}
+{"ts":"2026-10-16T19:35:07.803Z","level":"info","msg":"Bundled source staged; verified releases require human approval","subsystem":"ext.bundled.bootstrap","name":"city-conditions","installationId":"60002142-1cd1-468b-ad65-e4963f662643","operationId":"a5c40eda-9ca6-4901-b07e-fa0d19ff9a6e","status":"queued"}
+{"ts":"2026-10-16T19:35:07.890Z","level":"info","msg":"Bundled source staged; verified releases require human approval","subsystem":"ext.bundled.bootstrap","name":"kokoro-tts","installationId":"3f53ff8c-3a6e-42e8-a320-124b495adb46","operationId":"74da9a75-25f7-4e2c-936e-a5a0eceefbdb","status":"queued"}
+{"ts":"2026-10-16T19:35:07.988Z","level":"info","msg":"Bundled source staged; verified releases require human approval","subsystem":"ext.bundled.bootstrap","name":"lessons-distiller","installationId":"ab782f1b-b483-4084-af2d-da4d57bf3fad","operationId":"2d2c0867-0887-4f3e-b4e4-3a2cea2d5b11","status":"queued"}
+{"ts":"2026-10-16T19:35:08.083Z","level":"info","msg":"Bundled source staged; verified releases require human approval","subsystem":"ext.bundled.bootstrap","name":"extension-author","installationId":"90ff4c6c-0969-493f-a0a5-cf2ff7027865","operationId":"d196f734-8c21-4610-b37c-411a40e6c783","status":"queued"}
+{"ts":"2026-10-16T19:35:08.189Z","level":"info","msg":"Bundled source staged; verified releases require human approval","subsystem":"ext.bundled.bootstrap","name":"memory-extractor","installationId":"3627c60b-a1fa-417d-ab79-cc7ba39b2c42","operationId":"16bb359b-4a2c-4f00-93fa-14572f50f3f5","status":"queued"}
+{"ts":"2026-10-16T19:35:08.290Z","level":"info","msg":"Bundled source staged; verified releases require human approval","subsystem":"ext.bundled.bootstrap","name":"ez-code","installationId":"bf3fe48b-27cf-4fdc-ab38-9016f787e199","operationId":"de8286c7-9230-4135-b6a8-8b4cd7cb5e7a","status":"queued"}
+{"ts":"2026-10-16T19:35:08.400Z","level":"info","msg":"Bundled source staged; verified releases require human approval","subsystem":"ext.bundled.bootstrap","name":"file-organizer","installationId":"2ec94e2e-d284-4e96-a0e7-b45854c03857","operationId":"4c2ee69d-cc70-4604-ab08-ae74185c1415","status":"queued"}
+{"ts":"2026-10-16T19:35:08.517Z","level":"info","msg":"Bundled source staged; verified releases require human approval","subsystem":"ext.bundled.bootstrap","name":"ping-loop","installationId":"b0bd3d5d-7e2d-441d-a9ab-394ffc137afe","operationId":"3299b592-77b8-487c-beb3-d415aaec9752","status":"queued"}
+{"ts":"2026-10-16T19:35:08.638Z","level":"info","msg":"Bundled source staged; verified releases require human approval","subsystem":"ext.bundled.bootstrap","name":"github-projects","installationId":"3ab35572-c66d-4523-a550-142f77d8f025","operationId":"6c3f6871-c417-4849-9e18-0900c629fd6b","status":"queued"}
+{"ts":"2026-10-16T19:35:08.761Z","level":"info","msg":"Bundled source staged; verified releases require human approval","subsystem":"ext.bundled.bootstrap","name":"ez-factory","installationId":"3952acdf-45d1-429a-aead-53266ad62993","operationId":"d3f0ed7e-92de-4c07-978e-4892fb0facd6","status":"queued"}
+{"ts":"2026-10-16T19:35:08.791Z","level":"error","msg":"Bundled isolated build failed","subsystem":"ext.bundled.bootstrap","name":"ez-factory","installationId":"3952acdf-45d1-429a-aead-53266ad62993","error":"LifecycleError: An active user is required."}
+{"ts":"2026-10-16T19:35:08.793Z","level":"error","msg":"Extension recovery requires attention","subsystem":"ext.author.lifecycle","installationId":"1237106b-3854-4c9c-aa52-81c9ff55ff53","code":"unauthorized"}
+{"ts":"2026-10-16T19:35:08.794Z","level":"error","msg":"Extension recovery requires attention","subsystem":"ext.author.lifecycle","installationId":"1258dcef-54df-4ba2-ad3c-eec14c77d44b","code":"unauthorized"}
+{"ts":"2026-10-16T19:35:08.795Z","level":"error","msg":"Extension recovery requires attention","subsystem":"ext.author.lifecycle","installationId":"1f569e2c-6f09-438f-a14f-4b9fd4afe891","code":"unauthorized"}
+{"ts":"2026-10-16T19:35:08.796Z","level":"error","msg":"Extension recovery requires attention","subsystem":"ext.author.lifecycle","installationId":"2ec94e2e-d284-4e96-a0e7-b45854c03857","code":"unauthorized"}
+{"ts":"2026-10-16T19:35:08.798Z","level":"error","msg":"Extension recovery requires attention","subsystem":"ext.author.lifecycle","installationId":"3627c60b-a1fa-417d-ab79-cc7ba39b2c42","code":"unauthorized"}
+{"ts":"2026-10-16T19:35:08.799Z","level":"error","msg":"Extension recovery requires attention","subsystem":"ext.author.lifecycle","installationId":"3952acdf-45d1-429a-aead-53266ad62993","code":"unauthorized"}
+{"ts":"2026-10-16T19:35:08.800Z","level":"error","msg":"Extension recovery requires attention","subsystem":"ext.author.lifecycle","installationId":"3ab35572-c66d-4523-a550-142f77d8f025","code":"unauthorized"}
+{"ts":"2026-10-16T19:35:08.801Z","level":"error","msg":"Extension recovery requires attention","subsystem":"ext.author.lifecycle","installationId":"3f53ff8c-3a6e-42e8-a320-124b495adb46","code":"unauthorized"}
+{"ts":"2026-10-16T19:35:08.802Z","level":"error","msg":"Extension recovery requires attention","subsystem":"ext.author.lifecycle","installationId":"46b9981a-273a-47e0-a82d-dc7f38428960","code":"unauthorized"}
+{"ts":"2026-10-16T19:35:08.803Z","level":"error","msg":"Extension recovery requires attention","subsystem":"ext.author.lifecycle","installationId":"5031df87-0e77-445f-ae84-89a6b3e23095","code":"unauthorized"}
+{"ts":"2026-10-16T19:35:08.804Z","level":"error","msg":"Extension recovery requires attention","subsystem":"ext.author.lifecycle","installationId":"514c1ccb-a52a-4ed6-a4f7-7aabf4f0f60a","code":"unauthorized"}
+{"ts":"2026-10-16T19:35:08.805Z","level":"error","msg":"Extension recovery requires attention","subsystem":"ext.author.lifecycle","installationId":"5633b27d-5be0-43f2-ab39-d6b43f658e86","code":"unauthorized"}
+{"ts":"2026-10-16T19:35:08.806Z","level":"error","msg":"Extension recovery requires attention","subsystem":"ext.author.lifecycle","installationId":"5a981a18-5e3d-429b-a2bc-b56949c875a7","code":"unauthorized"}
+{"ts":"2026-10-16T19:35:08.807Z","level":"error","msg":"Extension recovery requires attention","subsystem":"ext.author.lifecycle","installationId":"60002142-1cd1-468b-ad65-e4963f662643","code":"unauthorized"}
+{"ts":"2026-10-16T19:35:08.808Z","level":"error","msg":"Extension recovery requires attention","subsystem":"ext.author.lifecycle","installationId":"62aba5a2-7fe0-4a0b-a512-ad2c5d4364ad","code":"unauthorized"}
+{"ts":"2026-10-16T19:35:08.809Z","level":"error","msg":"Extension recovery requires attention","subsystem":"ext.author.lifecycle","installationId":"7d769700-4899-4a15-a630-28164a8805e5","code":"unauthorized"}
+{"ts":"2026-10-16T19:35:08.810Z","level":"error","msg":"Extension recovery requires attention","subsystem":"ext.author.lifecycle","installationId":"90ff4c6c-0969-493f-a0a5-cf2ff7027865","code":"unauthorized"}
+{"ts":"2026-10-16T19:35:08.812Z","level":"error","msg":"Extension recovery requires attention","subsystem":"ext.author.lifecycle","installationId":"9316857b-86b0-470f-a640-62fed76d735f","code":"unauthorized"}
+{"ts":"2026-10-16T19:35:08.813Z","level":"error","msg":"Extension recovery requires attention","subsystem":"ext.author.lifecycle","installationId":"93ba9ca5-11ca-42c0-a28f-bcd51d130bf8","code":"unauthorized"}
+{"ts":"2026-10-16T19:35:08.814Z","level":"error","msg":"Extension recovery requires attention","subsystem":"ext.author.lifecycle","installationId":"ab782f1b-b483-4084-af2d-da4d57bf3fad","code":"unauthorized"}
+{"ts":"2026-10-16T19:35:08.815Z","level":"error","msg":"Extension recovery requires attention","subsystem":"ext.author.lifecycle","installationId":"ac29bb70-b799-46e0-a75b-e31ebd490ee4","code":"unauthorized"}
+{"ts":"2026-10-16T19:35:08.816Z","level":"error","msg":"Extension recovery requires attention","subsystem":"ext.author.lifecycle","installationId":"acd14233-2135-486e-a298-15117d9d24b0","code":"unauthorized"}
+{"ts":"2026-10-16T19:35:08.817Z","level":"error","msg":"Extension recovery requires attention","subsystem":"ext.author.lifecycle","installationId":"b0bd3d5d-7e2d-441d-a9ab-394ffc137afe","code":"unauthorized"}
+{"ts":"2026-10-16T19:35:08.818Z","level":"error","msg":"Extension recovery requires attention","subsystem":"ext.author.lifecycle","installationId":"b4552f4e-bd6b-4a9a-a73f-095412c3ad37","code":"unauthorized"}
+{"ts":"2026-10-16T19:35:08.819Z","level":"error","msg":"Extension recovery requires attention","subsystem":"ext.author.lifecycle","installationId":"bf3fe48b-27cf-4fdc-ab38-9016f787e199","code":"unauthorized"}
+{"ts":"2026-10-16T19:35:08.820Z","level":"error","msg":"Extension recovery requires attention","subsystem":"ext.author.lifecycle","installationId":"e48b28b7-c16f-4326-a464-090d77961e79","code":"unauthorized"}
+{"ts":"2026-10-16T19:35:08.821Z","level":"error","msg":"Extension recovery requires attention","subsystem":"ext.author.lifecycle","installationId":"e86f5c68-43f7-4491-a07b-a9785bc91d41","code":"unauthorized"}
+{"ts":"2026-10-16T19:35:08.822Z","level":"error","msg":"Extension recovery requires attention","subsystem":"ext.author.lifecycle","installationId":"eaa151bd-1ed0-4065-a98b-ceb2f24e6b80","code":"unauthorized"}
+{"ts":"2026-10-16T19:35:08.877Z","level":"warn","msg":"Bundled installation owner is inactive; manual ownership review required","subsystem":"ext.bundled.bootstrap","name":"scratchpad"}
+{"ts":"2026-10-16T19:35:08.878Z","level":"warn","msg":"Bundled installation owner is inactive; manual ownership review required","subsystem":"ext.bundled.bootstrap","name":"task-tracking"}
+{"ts":"2026-10-16T19:35:08.879Z","level":"warn","msg":"Bundled installation owner is inactive; manual ownership review required","subsystem":"ext.bundled.bootstrap","name":"orchestration"}
+{"ts":"2026-10-16T19:35:08.880Z","level":"warn","msg":"Bundled installation owner is inactive; manual ownership review required","subsystem":"ext.bundled.bootstrap","name":"ask-user"}
+{"ts":"2026-10-16T19:35:08.880Z","level":"warn","msg":"Bundled installation owner is inactive; manual ownership review required","subsystem":"ext.bundled.bootstrap","name":"project-analyzer"}
+{"ts":"2026-10-16T19:35:08.881Z","level":"warn","msg":"Bundled installation owner is inactive; manual ownership review required","subsystem":"ext.bundled.bootstrap","name":"markdown-utils"}
+{"ts":"2026-10-16T19:35:08.882Z","level":"warn","msg":"Bundled installation owner is inactive; manual ownership review required","subsystem":"ext.bundled.bootstrap","name":"code-review-delegator"}
+{"ts":"2026-10-16T19:35:08.883Z","level":"warn","msg":"Bundled installation owner is inactive; manual ownership review required","subsystem":"ext.bundled.bootstrap","name":"github-stats"}
+{"ts":"2026-10-16T19:35:08.884Z","level":"warn","msg":"Bundled installation owner is inactive; manual ownership review required","subsystem":"ext.bundled.bootstrap","name":"multi-agent-orchestrator"}
+{"ts":"2026-10-16T19:35:08.885Z","level":"warn","msg":"Bundled installation owner is inactive; manual ownership review required","subsystem":"ext.bundled.bootstrap","name":"research-agent"}
+{"ts":"2026-10-16T19:35:08.886Z","level":"warn","msg":"Bundled installation owner is inactive; manual ownership review required","subsystem":"ext.bundled.bootstrap","name":"file-refactor"}
+{"ts":"2026-10-16T19:35:08.887Z","level":"warn","msg":"Bundled installation owner is inactive; manual ownership review required","subsystem":"ext.bundled.bootstrap","name":"log-analyzer"}
+{"ts":"2026-10-16T19:35:08.887Z","level":"warn","msg":"Bundled installation owner is inactive; manual ownership review required","subsystem":"ext.bundled.bootstrap","name":"todo-tracker"}
+{"ts":"2026-10-16T19:35:08.888Z","level":"warn","msg":"Bundled installation owner is inactive; manual ownership review required","subsystem":"ext.bundled.bootstrap","name":"ai-kit"}
+{"ts":"2026-10-16T19:35:08.889Z","level":"warn","msg":"Bundled installation owner is inactive; manual ownership review required","subsystem":"ext.bundled.bootstrap","name":"web-search"}
+{"ts":"2026-10-16T19:35:08.890Z","level":"warn","msg":"Bundled installation owner is inactive; manual ownership review required","subsystem":"ext.bundled.bootstrap","name":"openai-image-gen-2"}
+{"ts":"2026-10-16T19:35:08.891Z","level":"warn","msg":"Bundled installation owner is inactive; manual ownership review required","subsystem":"ext.bundled.bootstrap","name":"claude-design"}
+{"ts":"2026-10-16T19:35:08.892Z","level":"warn","msg":"Bundled installation owner is inactive; manual ownership review required","subsystem":"ext.bundled.bootstrap","name":"price-chart"}
+{"ts":"2026-10-16T19:35:08.893Z","level":"warn","msg":"Bundled installation owner is inactive; manual ownership review required","subsystem":"ext.bundled.bootstrap","name":"city-conditions"}
+{"ts":"2026-10-16T19:35:08.894Z","level":"warn","msg":"Bundled installation owner is inactive; manual ownership review required","subsystem":"ext.bundled.bootstrap","name":"kokoro-tts"}
+{"ts":"2026-10-16T19:35:08.894Z","level":"warn","msg":"Bundled installation owner is inactive; manual ownership review required","subsystem":"ext.bundled.bootstrap","name":"lessons-distiller"}
+{"ts":"2026-10-16T19:35:08.895Z","level":"warn","msg":"Bundled installation owner is inactive; manual ownership review required","subsystem":"ext.bundled.bootstrap","name":"extension-author"}
+{"ts":"2026-10-16T19:35:08.896Z","level":"warn","msg":"Bundled installation owner is inactive; manual ownership review required","subsystem":"ext.bundled.bootstrap","name":"memory-extractor"}
+{"ts":"2026-10-16T19:35:08.897Z","level":"warn","msg":"Bundled installation owner is inactive; manual ownership review required","subsystem":"ext.bundled.bootstrap","name":"ez-code"}
+{"ts":"2026-10-16T19:35:08.898Z","level":"warn","msg":"Bundled installation owner is inactive; manual ownership review required","subsystem":"ext.bundled.bootstrap","name":"file-organizer"}
+{"ts":"2026-10-16T19:35:08.899Z","level":"warn","msg":"Bundled installation owner is inactive; manual ownership review required","subsystem":"ext.bundled.bootstrap","name":"ping-loop"}
+{"ts":"2026-10-16T19:35:08.900Z","level":"warn","msg":"Bundled installation owner is inactive; manual ownership review required","subsystem":"ext.bundled.bootstrap","name":"github-projects"}
+{"ts":"2026-10-16T19:35:08.900Z","level":"warn","msg":"Bundled installation owner is inactive; manual ownership review required","subsystem":"ext.bundled.bootstrap","name":"ez-factory"}
+{"ts":"2026-10-16T19:35:08.997Z","level":"warn","msg":"Bundled installation owner is inactive; manual ownership review required","subsystem":"ext.bundled.bootstrap","name":"scratchpad"}
+{"ts":"2026-10-16T19:35:08.998Z","level":"warn","msg":"Bundled installation owner is inactive; manual ownership review required","subsystem":"ext.bundled.bootstrap","name":"task-tracking"}
+{"ts":"2026-10-16T19:35:08.998Z","level":"warn","msg":"Bundled installation owner is inactive; manual ownership review required","subsystem":"ext.bundled.bootstrap","name":"orchestration"}
+{"ts":"2026-10-16T19:35:08.999Z","level":"warn","msg":"Bundled installation owner is inactive; manual ownership review required","subsystem":"ext.bundled.bootstrap","name":"ask-user"}
+{"ts":"2026-10-16T19:35:09.000Z","level":"warn","msg":"Bundled installation owner is inactive; manual ownership review required","subsystem":"ext.bundled.bootstrap","name":"project-analyzer"}
+{"ts":"2026-10-16T19:35:09.001Z","level":"warn","msg":"Bundled installation owner is inactive; manual ownership review required","subsystem":"ext.bundled.bootstrap","name":"markdown-utils"}
+{"ts":"2026-10-16T19:35:09.002Z","level":"warn","msg":"Bundled installation owner is inactive; manual ownership review required","subsystem":"ext.bundled.bootstrap","name":"code-review-delegator"}
+{"ts":"2026-10-16T19:35:09.003Z","level":"warn","msg":"Bundled installation owner is inactive; manual ownership review required","subsystem":"ext.bundled.bootstrap","name":"github-stats"}
+{"ts":"2026-10-16T19:35:09.004Z","level":"warn","msg":"Bundled installation owner is inactive; manual ownership review required","subsystem":"ext.bundled.bootstrap","name":"multi-agent-orchestrator"}
+{"ts":"2026-10-16T19:35:09.005Z","level":"warn","msg":"Bundled installation owner is inactive; manual ownership review required","subsystem":"ext.bundled.bootstrap","name":"research-agent"}
+{"ts":"2026-10-16T19:35:09.006Z","level":"warn","msg":"Bundled installation owner is inactive; manual ownership review required","subsystem":"ext.bundled.bootstrap","name":"file-refactor"}
+{"ts":"2026-10-16T19:35:09.007Z","level":"warn","msg":"Bundled installation owner is inactive; manual ownership review required","subsystem":"ext.bundled.bootstrap","name":"log-analyzer"}
+{"ts":"2026-10-16T19:35:09.008Z","level":"warn","msg":"Bundled installation owner is inactive; manual ownership review required","subsystem":"ext.bundled.bootstrap","name":"todo-tracker"}
+{"ts":"2026-10-16T19:35:09.009Z","level":"warn","msg":"Bundled installation owner is inactive; manual ownership review required","subsystem":"ext.bundled.bootstrap","name":"ai-kit"}
+{"ts":"2026-10-16T19:35:09.009Z","level":"warn","msg":"Bundled installation owner is inactive; manual ownership review required","subsystem":"ext.bundled.bootstrap","name":"web-search"}
+{"ts":"2026-10-16T19:35:09.010Z","level":"warn","msg":"Bundled installation owner is inactive; manual ownership review required","subsystem":"ext.bundled.bootstrap","name":"openai-image-gen-2"}
+{"ts":"2026-10-16T19:35:09.011Z","level":"warn","msg":"Bundled installation owner is inactive; manual ownership review required","subsystem":"ext.bundled.bootstrap","name":"claude-design"}
+{"ts":"2026-10-16T19:35:09.012Z","level":"warn","msg":"Bundled installation owner is inactive; manual ownership review required","subsystem":"ext.bundled.bootstrap","name":"price-chart"}
+{"ts":"2026-10-16T19:35:09.013Z","level":"warn","msg":"Bundled installation owner is inactive; manual ownership review required","subsystem":"ext.bundled.bootstrap","name":"city-conditions"}
+{"ts":"2026-10-16T19:35:09.014Z","level":"warn","msg":"Bundled installation owner is inactive; manual ownership review required","subsystem":"ext.bundled.bootstrap","name":"kokoro-tts"}
+{"ts":"2026-10-16T19:35:09.015Z","level":"warn","msg":"Bundled installation owner is inactive; manual ownership review required","subsystem":"ext.bundled.bootstrap","name":"lessons-distiller"}
+{"ts":"2026-10-16T19:35:09.016Z","level":"warn","msg":"Bundled installation owner is inactive; manual ownership review required","subsystem":"ext.bundled.bootstrap","name":"extension-author"}
+{"ts":"2026-10-16T19:35:09.016Z","level":"warn","msg":"Bundled installation owner is inactive; manual ownership review required","subsystem":"ext.bundled.bootstrap","name":"memory-extractor"}
+{"ts":"2026-10-16T19:35:09.017Z","level":"warn","msg":"Bundled installation owner is inactive; manual ownership review required","subsystem":"ext.bundled.bootstrap","name":"ez-code"}
+{"ts":"2026-10-16T19:35:09.018Z","level":"warn","msg":"Bundled installation owner is inactive; manual ownership review required","subsystem":"ext.bundled.bootstrap","name":"file-organizer"}
+{"ts":"2026-10-16T19:35:09.019Z","level":"warn","msg":"Bundled installation owner is inactive; manual ownership review required","subsystem":"ext.bundled.bootstrap","name":"ping-loop"}
+{"ts":"2026-10-16T19:35:09.020Z","level":"warn","msg":"Bundled installation owner is inactive; manual ownership review required","subsystem":"ext.bundled.bootstrap","name":"github-projects"}
+{"ts":"2026-10-16T19:35:09.021Z","level":"warn","msg":"Bundled installation owner is inactive; manual ownership review required","subsystem":"ext.bundled.bootstrap","name":"ez-factory"}
+{"ts":"2026-10-16T19:35:09.116Z","level":"warn","msg":"Bundled installation owner is inactive; manual ownership review required","subsystem":"ext.bundled.bootstrap","name":"scratchpad"}
+{"ts":"2026-10-16T19:35:09.117Z","level":"warn","msg":"Bundled installation owner is inactive; manual ownership review required","subsystem":"ext.bundled.bootstrap","name":"task-tracking"}
+{"ts":"2026-10-16T19:35:09.118Z","level":"warn","msg":"Bundled installation owner is inactive; manual ownership review required","subsystem":"ext.bundled.bootstrap","name":"orchestration"}
+{"ts":"2026-10-16T19:35:09.119Z","level":"warn","msg":"Bundled installation owner is inactive; manual ownership review required","subsystem":"ext.bundled.bootstrap","name":"ask-user"}
+{"ts":"2026-10-16T19:35:09.120Z","level":"warn","msg":"Bundled installation owner is inactive; manual ownership review required","subsystem":"ext.bundled.bootstrap","name":"project-analyzer"}
+{"ts":"2026-10-16T19:35:09.121Z","level":"warn","msg":"Bundled installation owner is inactive; manual ownership review required","subsystem":"ext.bundled.bootstrap","name":"markdown-utils"}
+{"ts":"2026-10-16T19:35:09.122Z","level":"warn","msg":"Bundled installation owner is inactive; manual ownership review required","subsystem":"ext.bundled.bootstrap","name":"code-review-delegator"}
+{"ts":"2026-10-16T19:35:09.122Z","level":"warn","msg":"Bundled installation owner is inactive; manual ownership review required","subsystem":"ext.bundled.bootstrap","name":"github-stats"}
+{"ts":"2026-10-16T19:35:09.123Z","level":"warn","msg":"Bundled installation owner is inactive; manual ownership review required","subsystem":"ext.bundled.bootstrap","name":"multi-agent-orchestrator"}
+{"ts":"2026-10-16T19:35:09.124Z","level":"warn","msg":"Bundled installation owner is inactive; manual ownership review required","subsystem":"ext.bundled.bootstrap","name":"research-agent"}
+{"ts":"2026-10-16T19:35:09.125Z","level":"warn","msg":"Bundled installation owner is inactive; manual ownership review required","subsystem":"ext.bundled.bootstrap","name":"file-refactor"}
+{"ts":"2026-10-16T19:35:09.126Z","level":"warn","msg":"Bundled installation owner is inactive; manual ownership review required","subsystem":"ext.bundled.bootstrap","name":"log-analyzer"}
+{"ts":"2026-10-16T19:35:09.127Z","level":"warn","msg":"Bundled installation owner is inactive; manual ownership review required","subsystem":"ext.bundled.bootstrap","name":"todo-tracker"}
+{"ts":"2026-10-16T19:35:09.128Z","level":"warn","msg":"Bundled installation owner is inactive; manual ownership review required","subsystem":"ext.bundled.bootstrap","name":"ai-kit"}
+{"ts":"2026-10-16T19:35:09.129Z","level":"warn","msg":"Bundled installation owner is inactive; manual ownership review required","subsystem":"ext.bundled.bootstrap","name":"web-search"}
+{"ts":"2026-10-16T19:35:09.129Z","level":"warn","msg":"Bundled installation owner is inactive; manual ownership review required","subsystem":"ext.bundled.bootstrap","name":"openai-image-gen-2"}
+{"ts":"2026-10-16T19:35:09.130Z","level":"warn","msg":"Bundled installation owner is inactive; manual ownership review required","subsystem":"ext.bundled.bootstrap","name":"claude-design"}
+{"ts":"2026-10-16T19:35:09.131Z","level":"warn","msg":"Bundled installation owner is inactive; manual ownership review required","subsystem":"ext.bundled.bootstrap","name":"price-chart"}
+{"ts":"2026-10-16T19:35:09.132Z","level":"warn","msg":"Bundled installation owner is inactive; manual ownership review required","subsystem":"ext.bundled.bootstrap","name":"city-conditions"}
+{"ts":"2026-10-16T19:35:09.133Z","level":"warn","msg":"Bundled installation owner is inactive; manual ownership review required","subsystem":"ext.bundled.bootstrap","name":"kokoro-tts"}
+{"ts":"2026-10-16T19:35:09.134Z","level":"warn","msg":"Bundled installation owner is inactive; manual ownership review required","subsystem":"ext.bundled.bootstrap","name":"lessons-distiller"}
+{"ts":"2026-10-16T19:35:09.134Z","level":"warn","msg":"Bundled installation owner is inactive; manual ownership review required","subsystem":"ext.bundled.bootstrap","name":"extension-author"}
+{"ts":"2026-10-16T19:35:09.135Z","level":"warn","msg":"Bundled installation owner is inactive; manual ownership review required","subsystem":"ext.bundled.bootstrap","name":"memory-extractor"}
+{"ts":"2026-10-16T19:35:09.136Z","level":"warn","msg":"Bundled installation owner is inactive; manual ownership review required","subsystem":"ext.bundled.bootstrap","name":"ez-code"}
+{"ts":"2026-10-16T19:35:09.137Z","level":"warn","msg":"Bundled installation owner is inactive; manual ownership review required","subsystem":"ext.bundled.bootstrap","name":"file-organizer"}
+{"ts":"2026-10-16T19:35:09.138Z","level":"warn","msg":"Bundled installation owner is inactive; manual ownership review required","subsystem":"ext.bundled.bootstrap","name":"ping-loop"}
+{"ts":"2026-10-16T19:35:09.139Z","level":"warn","msg":"Bundled installation owner is inactive; manual ownership review required","subsystem":"ext.bundled.bootstrap","name":"github-projects"}
+{"ts":"2026-10-16T19:35:09.140Z","level":"warn","msg":"Bundled installation owner is inactive; manual ownership review required","subsystem":"ext.bundled.bootstrap","name":"ez-factory"}
+{"ts":"2026-10-16T19:35:09.241Z","level":"warn","msg":"Bundled installation owner is inactive; manual ownership review required","subsystem":"ext.bundled.bootstrap","name":"scratchpad"}
+{"ts":"2026-10-16T19:35:09.242Z","level":"warn","msg":"Bundled installation owner is inactive; manual ownership review required","subsystem":"ext.bundled.bootstrap","name":"task-tracking"}
+{"ts":"2026-10-16T19:35:09.243Z","level":"warn","msg":"Bundled installation owner is inactive; manual ownership review required","subsystem":"ext.bundled.bootstrap","name":"orchestration"}
+{"ts":"2026-10-16T19:35:09.244Z","level":"warn","msg":"Bundled installation owner is inactive; manual ownership review required","subsystem":"ext.bundled.bootstrap","name":"ask-user"}
+{"ts":"2026-10-16T19:35:09.245Z","level":"warn","msg":"Bundled installation owner is inactive; manual ownership review required","subsystem":"ext.bundled.bootstrap","name":"project-analyzer"}
+{"ts":"2026-10-16T19:35:09.246Z","level":"warn","msg":"Bundled installation owner is inactive; manual ownership review required","subsystem":"ext.bundled.bootstrap","name":"markdown-utils"}
+{"ts":"2026-10-16T19:35:09.247Z","level":"warn","msg":"Bundled installation owner is inactive; manual ownership review required","subsystem":"ext.bundled.bootstrap","name":"code-review-delegator"}
+{"ts":"2026-10-16T19:35:09.248Z","level":"warn","msg":"Bundled installation owner is inactive; manual ownership review required","subsystem":"ext.bundled.bootstrap","name":"github-stats"}
+{"ts":"2026-10-16T19:35:09.248Z","level":"warn","msg":"Bundled installation owner is inactive; manual ownership review required","subsystem":"ext.bundled.bootstrap","name":"multi-agent-orchestrator"}
+{"ts":"2026-10-16T19:35:09.250Z","level":"warn","msg":"Bundled installation owner is inactive; manual ownership review required","subsystem":"ext.bundled.bootstrap","name":"research-agent"}
+{"ts":"2026-10-16T19:35:09.250Z","level":"warn","msg":"Bundled installation owner is inactive; manual ownership review required","subsystem":"ext.bundled.bootstrap","name":"file-refactor"}
+{"ts":"2026-10-16T19:35:09.251Z","level":"warn","msg":"Bundled installation owner is inactive; manual ownership review required","subsystem":"ext.bundled.bootstrap","name":"log-analyzer"}
+{"ts":"2026-10-16T19:35:09.252Z","level":"warn","msg":"Bundled installation owner is inactive; manual ownership review required","subsystem":"ext.bundled.bootstrap","name":"todo-tracker"}
+{"ts":"2026-10-16T19:35:09.253Z","level":"warn","msg":"Bundled installation owner is inactive; manual ownership review required","subsystem":"ext.bundled.bootstrap","name":"ai-kit"}
+{"ts":"2026-10-16T19:35:09.254Z","level":"warn","msg":"Bundled installation owner is inactive; manual ownership review required","subsystem":"ext.bundled.bootstrap","name":"web-search"}
+{"ts":"2026-10-16T19:35:09.255Z","level":"warn","msg":"Bundled installation owner is inactive; manual ownership review required","subsystem":"ext.bundled.bootstrap","name":"openai-image-gen-2"}
+{"ts":"2026-10-16T19:35:09.256Z","level":"warn","msg":"Bundled installation owner is inactive; manual ownership review required","subsystem":"ext.bundled.bootstrap","name":"claude-design"}
+{"ts":"2026-10-16T19:35:09.257Z","level":"warn","msg":"Bundled installation owner is inactive; manual ownership review required","subsystem":"ext.bundled.bootstrap","name":"price-chart"}
+{"ts":"2026-10-16T19:35:09.257Z","level":"warn","msg":"Bundled installation owner is inactive; manual ownership review required","subsystem":"ext.bundled.bootstrap","name":"city-conditions"}
+{"ts":"2026-10-16T19:35:09.258Z","level":"warn","msg":"Bundled installation owner is inactive; manual ownership review required","subsystem":"ext.bundled.bootstrap","name":"kokoro-tts"}
+{"ts":"2026-10-16T19:35:09.259Z","level":"warn","msg":"Bundled installation owner is inactive; manual ownership review required","subsystem":"ext.bundled.bootstrap","name":"lessons-distiller"}
+{"ts":"2026-10-16T19:35:09.260Z","level":"warn","msg":"Bundled installation owner is inactive; manual ownership review required","subsystem":"ext.bundled.bootstrap","name":"extension-author"}
+{"ts":"2026-10-16T19:35:09.261Z","level":"warn","msg":"Bundled installation owner is inactive; manual ownership review required","subsystem":"ext.bundled.bootstrap","name":"memory-extractor"}
+{"ts":"2026-10-16T19:35:09.262Z","level":"warn","msg":"Bundled installation owner is inactive; manual ownership review required","subsystem":"ext.bundled.bootstrap","name":"ez-code"}
+{"ts":"2026-10-16T19:35:09.263Z","level":"warn","msg":"Bundled installation owner is inactive; manual ownership review required","subsystem":"ext.bundled.bootstrap","name":"file-organizer"}
+{"ts":"2026-10-16T19:35:09.264Z","level":"warn","msg":"Bundled installation owner is inactive; manual ownership review required","subsystem":"ext.bundled.bootstrap","name":"ping-loop"}
+{"ts":"2026-10-16T19:35:09.265Z","level":"warn","msg":"Bundled installation owner is inactive; manual ownership review required","subsystem":"ext.bundled.bootstrap","name":"github-projects"}
+{"ts":"2026-10-16T19:35:09.266Z","level":"warn","msg":"Bundled installation owner is inactive; manual ownership review required","subsystem":"ext.bundled.bootstrap","name":"ez-factory"}
+
+ 27 pass
+ 0 fail
+ 83 expect() calls
+Ran 27 tests across 1 file. [4.30s]
+  bun: src/__tests__/auth-jwt-password.test.ts
+bun test v1.4.2 (744846f84)
+
+ 21 pass
+ 0 fail
+ 53 expect() calls
+Ran 21 tests across 1 file. [994.00ms]
+  bun: src/__tests__/auth-layout-e2e.test.ts
+bun test v1.4.2 (744846f84)
+{"ts":"2026-10-16T19:35:12.035Z","level":"info","msg":"Bundled source staged; verified releases require human approval","subsystem":"ext.bundled.bootstrap","name":"scratchpad","installationId":"e48b28b7-c16f-4326-a464-090d77961e79","operationId":"4bd22e04-bb23-4529-8650-898039b16d7f","status":"queued"}
+{"ts":"2026-10-16T19:35:12.072Z","level":"info","msg":"Bundled source staged; verified releases require human approval","subsystem":"ext.bundled.bootstrap","name":"task-tracking","installationId":"5a981a18-5e3d-429b-a2bc-b56949c875a7","operationId":"81694ea3-8232-4a0d-b22d-5b7e3fa28e5d","status":"queued"}
+{"ts":"2026-10-16T19:35:12.117Z","level":"info","msg":"Bundled source staged; verified releases require human approval","subsystem":"ext.bundled.bootstrap","name":"orchestration","installationId":"5031df87-0e77-445f-ae84-89a6b3e23095","operationId":"eb5f7abe-d7c2-43f2-82e9-f77d78665b1c","status":"queued"}
+{"ts":"2026-10-16T19:35:12.156Z","level":"info","msg":"Bundled source staged; verified releases require human approval","subsystem":"ext.bundled.bootstrap","name":"ask-user","installationId":"b4552f4e-bd6b-4a9a-a73f-095412c3ad37","operationId":"11fafc98-6b03-44f1-a991-107c250ee432","status":"queued"}
+{"ts":"2026-10-16T19:35:12.198Z","level":"info","msg":"Bundled source staged; verified releases require human approval","subsystem":"ext.bundled.bootstrap","name":"project-analyzer","installationId":"1f569e2c-6f09-438f-a14f-4b9fd4afe891","operationId":"d28c111c-2084-42fa-a04e-0e84213ac00c","status":"queued"}
+{"ts":"2026-10-16T19:35:12.244Z","level":"info","msg":"Bundled source staged; verified releases require human approval","subsystem":"ext.bundled.bootstrap","name":"markdown-utils","installationId":"e86f5c68-43f7-4491-a07b-a9785bc91d41","operationId":"22859b45-2328-4bea-8af4-99e3d0e498ed","status":"queued"}
+{"ts":"2026-10-16T19:35:12.288Z","level":"info","msg":"Bundled source staged; verified releases require human approval","subsystem":"ext.bundled.bootstrap","name":"code-review-delegator","installationId":"1258dcef-54df-4ba2-ad3c-eec14c77d44b","operationId":"88890287-a4ee-442a-bba3-9766e5c94ad8","status":"queued"}
+{"ts":"2026-10-16T19:35:12.336Z","level":"info","msg":"Bundled source staged; verified releases require human approval","subsystem":"ext.bundled.bootstrap","name":"github-stats","installationId":"514c1ccb-a52a-4ed6-a4f7-7aabf4f0f60a","operationId":"7a75f93a-20c3-4d8c-8a17-394d4ccef7a4","status":"queued"}
+{"ts":"2026-10-16T19:35:12.388Z","level":"info","msg":"Bundled source staged; verified releases require human approval","subsystem":"ext.bundled.bootstrap","name":"multi-agent-orchestrator","installationId":"5633b27d-5be0-43f2-ab39-d6b43f658e86","operationId":"33c30eb5-10e1-4346-a384-ad332b58a635","status":"queued"}
+{"ts":"2026-10-16T19:35:12.443Z","level":"info","msg":"Bundled source staged; verified releases require human approval","subsystem":"ext.bundled.bootstrap","name":"research-agent","installationId":"ac29bb70-b799-46e0-a75b-e31ebd490ee4","operationId":"36c6ec39-f547-4cec-a5f5-4e737b4a7c61","status":"queued"}
+{"ts":"2026-10-16T19:35:12.504Z","level":"info","msg":"Bundled source staged; verified releases require human approval","subsystem":"ext.bundled.bootstrap","name":"file-refactor","installationId":"eaa151bd-1ed0-4065-a98b-ceb2f24e6b80","operationId":"105ad687-efc6-4771-9ace-9e5d530bf126","status":"queued"}
+{"ts":"2026-10-16T19:35:12.567Z","level":"info","msg":"Bundled source staged; verified releases require human approval","subsystem":"ext.bundled.bootstrap","name":"log-analyzer","installationId":"1237106b-3854-4c9c-aa52-81c9ff55ff53","operationId":"58debdfd-55ad-4fa9-aae1-cee30644aa65","status":"queued"}
+{"ts":"2026-10-16T19:35:12.639Z","level":"info","msg":"Bundled source staged; verified releases require human approval","subsystem":"ext.bundled.bootstrap","name":"todo-tracker","installationId":"7d769700-4899-4a15-a630-28164a8805e5","operationId":"26532a27-1661-4a28-a9a1-3c7872606052","status":"queued"}
+{"ts":"2026-10-16T19:35:12.719Z","level":"info","msg":"Bundled source staged; verified releases require human approval","subsystem":"ext.bundled.bootstrap","name":"ai-kit","installationId":"acd14233-2135-486e-a298-15117d9d24b0","operationId":"667c558d-41db-4653-bbb4-f94a9cf631c1","status":"queued"}
+{"ts":"2026-10-16T19:35:12.795Z","level":"info","msg":"Bundled source staged; verified releases require human approval","subsystem":"ext.bundled.bootstrap","name":"web-search","installationId":"9316857b-86b0-470f-a640-62fed76d735f","operationId":"72715d30-765e-43c3-a02b-b8352cc4cc99","status":"queued"}
+{"ts":"2026-10-16T19:35:12.872Z","level":"info","msg":"Bundled source staged; verified releases require human approval","subsystem":"ext.bundled.bootstrap","name":"openai-image-gen-2","installationId":"93ba9ca5-11ca-42c0-a28f-bcd51d130bf8","operationId":"aac04eef-4a50-4a6a-86be-77c9a4d5ad48","status":"queued"}
+{"ts":"2026-10-16T19:35:12.964Z","level":"info","msg":"Bundled source staged; verified releases require human approval","subsystem":"ext.bundled.bootstrap","name":"claude-design","installationId":"46b9981a-273a-47e0-a82d-dc7f38428960","operationId":"2eaf48c1-6a09-45e9-ac77-10ca59767ab2","status":"queued"}
+{"ts":"2026-10-16T19:35:13.059Z","level":"info","msg":"Bundled source staged; verified releases require human approval","subsystem":"ext.bundled.bootstrap","name":"price-chart","installationId":"62aba5a2-7fe0-4a0b-a512-ad2c5d4364ad","operationId":"af17f142-ce93-432a-9dc3-306075c2a394","status":"queued"}
+{"ts":"2026-10-16T19:35:13.142Z","level":"info","msg":"Bundled source staged; verified releases require human approval","subsystem":"ext.bundled.bootstrap","name":"city-conditions","installationId":"60002142-1cd1-468b-ad65-e4963f662643","operationId":"c1e47a74-2e4f-481f-97d9-e8b8a5641308","status":"queued"}
+{"ts":"2026-10-16T19:35:13.224Z","level":"info","msg":"Bundled source staged; verified releases require human approval","subsystem":"ext.bundled.bootstrap","name":"kokoro-tts","installationId":"3f53ff8c-3a6e-42e8-a320-124b495adb46","operationId":"7c58cddd-831f-400d-b546-768d8655d246","status":"queued"}
+{"ts":"2026-10-16T19:35:13.329Z","level":"info","msg":"Bundled source staged; verified releases require human approval","subsystem":"ext.bundled.bootstrap","name":"lessons-distiller","installationId":"ab782f1b-b483-4084-af2d-da4d57bf3fad","operationId":"f53d75c4-d8a5-489f-987d-44664ded6ffc","status":"queued"}
+{"ts":"2026-10-16T19:35:13.426Z","level":"info","msg":"Bundled source staged; verified releases require human approval","subsystem":"ext.bundled.bootstrap","name":"extension-author","installationId":"90ff4c6c-0969-493f-a0a5-cf2ff7027865","operationId":"cad6ca23-ad3a-4112-a70f-9d56d0e36807","status":"queued"}
+{"ts":"2026-10-16T19:35:13.528Z","level":"info","msg":"Bundled source staged; verified releases require human approval","subsystem":"ext.bundled.bootstrap","name":"memory-extractor","installationId":"3627c60b-a1fa-417d-ab79-cc7ba39b2c42","operationId":"ed4e0a39-a703-4128-88c4-6095030a8143","status":"queued"}
+{"ts":"2026-10-16T19:35:13.628Z","level":"info","msg":"Bundled source staged; verified releases require human approval","subsystem":"ext.bundled.bootstrap","name":"ez-code","installationId":"bf3fe48b-27cf-4fdc-ab38-9016f787e199","operationId":"7ec6cac5-4445-4b30-b539-2f9791f174b5","status":"queued"}
+{"ts":"2026-10-16T19:35:13.746Z","level":"info","msg":"Bundled source staged; verified releases require human approval","subsystem":"ext.bundled.bootstrap","name":"file-organizer","installationId":"2ec94e2e-d284-4e96-a0e7-b45854c03857","operationId":"c5f2f49f-d9ee-4169-aa48-cae31618f70c","status":"queued"}
+{"ts":"2026-10-16T19:35:13.850Z","level":"info","msg":"Bundled source staged; verified releases require human approval","subsystem":"ext.bundled.bootstrap","name":"ping-loop","installationId":"b0bd3d5d-7e2d-441d-a9ab-394ffc137afe","operationId":"7392c2a5-9d3e-40af-bb0f-79119cad02ab","status":"queued"}
+{"ts":"2026-10-16T19:35:13.959Z","level":"info","msg":"Bundled source staged; verified releases require human approval","subsystem":"ext.bundled.bootstrap","name":"github-projects","installationId":"3ab35572-c66d-4523-a550-142f77d8f025","operationId":"22c7704a-74be-4f3e-be9a-b7a1a0193bfd","status":"queued"}
+{"ts":"2026-10-16T19:35:14.083Z","level":"info","msg":"Bundled source staged; verified releases require human approval","subsystem":"ext.bundled.bootstrap","name":"ez-factory","installationId":"3952acdf-45d1-429a-aead-53266ad62993","operationId":"f85c3ca8-dd7b-412d-8860-266cd3d4a751","status":"queued"}
+{"ts":"2026-10-16T19:35:14.472Z","level":"warn","msg":"Bundled installation owner is inactive; manual ownership review required","subsystem":"ext.bundled.bootstrap","name":"scratchpad"}
+{"ts":"2026-10-16T19:35:14.473Z","level":"warn","msg":"Bundled installation owner is inactive; manual ownership review required","subsystem":"ext.bundled.bootstrap","name":"task-tracking"}
+{"ts":"2026-10-16T19:35:14.474Z","level":"warn","msg":"Bundled installation owner is inactive; manual ownership review required","subsystem":"ext.bundled.bootstrap","name":"orchestration"}
+{"ts":"2026-10-16T19:35:14.475Z","level":"warn","msg":"Bundled installation owner is inactive; manual ownership review required","subsystem":"ext.bundled.bootstrap","name":"ask-user"}
+{"ts":"2026-10-16T19:35:14.476Z","level":"warn","msg":"Bundled installation owner is inactive; manual ownership review required","subsystem":"ext.bundled.bootstrap","name":"project-analyzer"}
+{"ts":"2026-10-16T19:35:14.477Z","level":"warn","msg":"Bundled installation owner is inactive; manual ownership review required","subsystem":"ext.bundled.bootstrap","name":"markdown-utils"}
+{"ts":"2026-10-16T19:35:14.478Z","level":"warn","msg":"Bundled installation owner is inactive; manual ownership review required","subsystem":"ext.bundled.bootstrap","name":"code-review-delegator"}
+{"ts":"2026-10-16T19:35:14.479Z","level":"warn","msg":"Bundled installation owner is inactive; manual ownership review required","subsystem":"ext.bundled.bootstrap","name":"github-stats"}
+{"ts":"2026-10-16T19:35:14.480Z","level":"warn","msg":"Bundled installation owner is inactive; manual ownership review required","subsystem":"ext.bundled.bootstrap","name":"multi-agent-orchestrator"}
+{"ts":"2026-10-16T19:35:14.481Z","level":"warn","msg":"Bundled installation owner is inactive; manual ownership review required","subsystem":"ext.bundled.bootstrap","name":"research-agent"}
+{"ts":"2026-10-16T19:35:14.482Z","level":"warn","msg":"Bundled installation owner is inactive; manual ownership review required","subsystem":"ext.bundled.bootstrap","name":"file-refactor"}
+{"ts":"2026-10-16T19:35:14.483Z","level":"warn","msg":"Bundled installation owner is inactive; manual ownership review required","subsystem":"ext.bundled.bootstrap","name":"log-analyzer"}
+{"ts":"2026-10-16T19:35:14.483Z","level":"warn","msg":"Bundled installation owner is inactive; manual ownership review required","subsystem":"ext.bundled.bootstrap","name":"todo-tracker"}
+{"ts":"2026-10-16T19:35:14.484Z","level":"warn","msg":"Bundled installation owner is inactive; manual ownership review required","subsystem":"ext.bundled.bootstrap","name":"ai-kit"}
+{"ts":"2026-10-16T19:35:14.485Z","level":"warn","msg":"Bundled installation owner is inactive; manual ownership review required","subsystem":"ext.bundled.bootstrap","name":"web-search"}
+{"ts":"2026-10-16T19:35:14.486Z","level":"warn","msg":"Bundled installation owner is inactive; manual ownership review required","subsystem":"ext.bundled.bootstrap","name":"openai-image-gen-2"}
+{"ts":"2026-10-16T19:35:14.487Z","level":"warn","msg":"Bundled installation owner is inactive; manual ownership review required","subsystem":"ext.bundled.bootstrap","name":"claude-design"}
+{"ts":"2026-10-16T19:35:14.488Z","level":"warn","msg":"Bundled installation owner is inactive; manual ownership review required","subsystem":"ext.bundled.bootstrap","name":"price-chart"}
+{"ts":"2026-10-16T19:35:14.489Z","level":"warn","msg":"Bundled installation owner is inactive; manual ownership review required","subsystem":"ext.bundled.bootstrap","name":"city-conditions"}
+{"ts":"2026-10-16T19:35:14.490Z","level":"warn","msg":"Bundled installation owner is inactive; manual ownership review required","subsystem":"ext.bundled.bootstrap","name":"kokoro-tts"}
+{"ts":"2026-10-16T19:35:14.491Z","level":"warn","msg":"Bundled installation owner is inactive; manual ownership review required","subsystem":"ext.bundled.bootstrap","name":"lessons-distiller"}
+{"ts":"2026-10-16T19:35:14.492Z","level":"warn","msg":"Bundled installation owner is inactive; manual ownership review required","subsystem":"ext.bundled.bootstrap","name":"extension-author"}
+{"ts":"2026-10-16T19:35:14.493Z","level":"warn","msg":"Bundled installation owner is inactive; manual ownership review required","subsystem":"ext.bundled.bootstrap","name":"memory-extractor"}
+{"ts":"2026-10-16T19:35:14.493Z","level":"warn","msg":"Bundled installation owner is inactive; manual ownership review required","subsystem":"ext.bundled.bootstrap","name":"ez-code"}
+{"ts":"2026-10-16T19:35:14.494Z","level":"warn","msg":"Bundled installation owner is inactive; manual ownership review required","subsystem":"ext.bundled.bootstrap","name":"file-organizer"}
+{"ts":"2026-10-16T19:35:14.495Z","level":"warn","msg":"Bundled installation owner is inactive; manual ownership review required","subsystem":"ext.bundled.bootstrap","name":"ping-loop"}
+{"ts":"2026-10-16T19:35:14.496Z","level":"warn","msg":"Bundled installation owner is inactive; manual ownership review required","subsystem":"ext.bundled.bootstrap","name":"github-projects"}
+{"ts":"2026-10-16T19:35:14.497Z","level":"warn","msg":"Bundled installation owner is inactive; manual ownership review required","subsystem":"ext.bundled.bootstrap","name":"ez-factory"}
+{"ts":"2026-10-16T19:35:14.906Z","level":"warn","msg":"Bundled installation owner is inactive; manual ownership review required","subsystem":"ext.bundled.bootstrap","name":"scratchpad"}
+{"ts":"2026-10-16T19:35:14.907Z","level":"warn","msg":"Bundled installation owner is inactive; manual ownership review required","subsystem":"ext.bundled.bootstrap","name":"task-tracking"}
+{"ts":"2026-10-16T19:35:14.908Z","level":"warn","msg":"Bundled installation owner is inactive; manual ownership review required","subsystem":"ext.bundled.bootstrap","name":"orchestration"}
+{"ts":"2026-10-16T19:35:14.909Z","level":"warn","msg":"Bundled installation owner is inactive; manual ownership review required","subsystem":"ext.bundled.bootstrap","name":"ask-user"}
+{"ts":"2026-10-16T19:35:14.910Z","level":"warn","msg":"Bundled installation owner is inactive; manual ownership review required","subsystem":"ext.bundled.bootstrap","name":"project-analyzer"}
+{"ts":"2026-10-16T19:35:14.911Z","level":"warn","msg":"Bundled installation owner is inactive; manual ownership review required","subsystem":"ext.bundled.bootstrap","name":"markdown-utils"}
+{"ts":"2026-10-16T19:35:14.912Z","level":"warn","msg":"Bundled installation owner is inactive; manual ownership review required","subsystem":"ext.bundled.bootstrap","name":"code-review-delegator"}
+{"ts":"2026-10-16T19:35:14.913Z","level":"warn","msg":"Bundled installation owner is inactive; manual ownership review required","subsystem":"ext.bundled.bootstrap","name":"github-stats"}
+{"ts":"2026-10-16T19:35:14.914Z","level":"warn","msg":"Bundled installation owner is inactive; manual ownership review required","subsystem":"ext.bundled.bootstrap","name":"multi-agent-orchestrator"}
+{"ts":"2026-10-16T19:35:14.914Z","level":"warn","msg":"Bundled installation owner is inactive; manual ownership review required","subsystem":"ext.bundled.bootstrap","name":"research-agent"}
+{"ts":"2026-10-16T19:35:14.915Z","level":"warn","msg":"Bundled installation owner is inactive; manual ownership review required","subsystem":"ext.bundled.bootstrap","name":"file-refactor"}
+{"ts":"2026-10-16T19:35:14.916Z","level":"warn","msg":"Bundled installation owner is inactive; manual ownership review required","subsystem":"ext.bundled.bootstrap","name":"log-analyzer"}
+{"ts":"2026-10-16T19:35:14.917Z","level":"warn","msg":"Bundled installation owner is inactive; manual ownership review required","subsystem":"ext.bundled.bootstrap","name":"todo-tracker"}
+{"ts":"2026-10-16T19:35:14.918Z","level":"warn","msg":"Bundled installation owner is inactive; manual ownership review required","subsystem":"ext.bundled.bootstrap","name":"ai-kit"}
+{"ts":"2026-10-16T19:35:14.919Z","level":"warn","msg":"Bundled installation owner is inactive; manual ownership review required","subsystem":"ext.bundled.bootstrap","name":"web-search"}
+{"ts":"2026-10-16T19:35:14.920Z","level":"warn","msg":"Bundled installation owner is inactive; manual ownership review required","subsystem":"ext.bundled.bootstrap","name":"openai-image-gen-2"}
+{"ts":"2026-10-16T19:35:14.921Z","level":"warn","msg":"Bundled installation owner is inactive; manual ownership review required","subsystem":"ext.bundled.bootstrap","name":"claude-design"}
+{"ts":"2026-10-16T19:35:14.921Z","level":"warn","msg":"Bundled installation owner is inactive; manual ownership review required","subsystem":"ext.bundled.bootstrap","name":"price-chart"}
+{"ts":"2026-10-16T19:35:14.922Z","level":"warn","msg":"Bundled installation owner is inactive; manual ownership review required","subsystem":"ext.bundled.bootstrap","name":"city-conditions"}
+{"ts":"2026-10-16T19:35:14.923Z","level":"warn","msg":"Bundled installation owner is inactive; manual ownership review required","subsystem":"ext.bundled.bootstrap","name":"kokoro-tts"}
+{"ts":"2026-10-16T19:35:14.924Z","level":"warn","msg":"Bundled installation owner is inactive; manual ownership review required","subsystem":"ext.bundled.bootstrap","name":"lessons-distiller"}
+{"ts":"2026-10-16T19:35:14.925Z","level":"warn","msg":"Bundled installation owner is inactive; manual ownership review required","subsystem":"ext.bundled.bootstrap","name":"extension-author"}
+{"ts":"2026-10-16T19:35:14.926Z","level":"warn","msg":"Bundled installation owner is inactive; manual ownership review required","subsystem":"ext.bundled.bootstrap","name":"memory-extractor"}
+{"ts":"2026-10-16T19:35:14.927Z","level":"warn","msg":"Bundled installation owner is inactive; manual ownership review required","subsystem":"ext.bundled.bootstrap","name":"ez-code"}
+{"ts":"2026-10-16T19:35:14.928Z","level":"warn","msg":"Bundled installation owner is inactive; manual ownership review required","subsystem":"ext.bundled.bootstrap","name":"file-organizer"}
+{"ts":"2026-10-16T19:35:14.929Z","level":"warn","msg":"Bundled installation owner is inactive; manual ownership review required","subsystem":"ext.bundled.bootstrap","name":"ping-loop"}
+{"ts":"2026-10-16T19:35:14.930Z","level":"warn","msg":"Bundled installation owner is inactive; manual ownership review required","subsystem":"ext.bundled.bootstrap","name":"github-projects"}
+{"ts":"2026-10-16T19:35:14.930Z","level":"warn","msg":"Bundled installation owner is inactive; manual ownership review required","subsystem":"ext.bundled.bootstrap","name":"ez-factory"}
+{"ts":"2026-10-16T19:35:15.094Z","level":"warn","msg":"Bundled installation owner is inactive; manual ownership review required","subsystem":"ext.bundled.bootstrap","name":"scratchpad"}
+{"ts":"2026-10-16T19:35:15.095Z","level":"warn","msg":"Bundled installation owner is inactive; manual ownership review required","subsystem":"ext.bundled.bootstrap","name":"task-tracking"}
+{"ts":"2026-10-16T19:35:15.096Z","level":"warn","msg":"Bundled installation owner is inactive; manual ownership review required","subsystem":"ext.bundled.bootstrap","name":"orchestration"}
+{"ts":"2026-10-16T19:35:15.097Z","level":"warn","msg":"Bundled installation owner is inactive; manual ownership review required","subsystem":"ext.bundled.bootstrap","name":"ask-user"}
+{"ts":"2026-10-16T19:35:15.098Z","level":"warn","msg":"Bundled installation owner is inactive; manual ownership review required","subsystem":"ext.bundled.bootstrap","name":"project-analyzer"}
+{"ts":"2026-10-16T19:35:15.099Z","level":"warn","msg":"Bundled installation owner is inactive; manual ownership review required","subsystem":"ext.bundled.bootstrap","name":"markdown-utils"}
+{"ts":"2026-10-16T19:35:15.100Z","level":"warn","msg":"Bundled installation owner is inactive; manual ownership review required","subsystem":"ext.bundled.bootstrap","name":"code-review-delegator"}
+{"ts":"2026-10-16T19:35:15.100Z","level":"warn","msg":"Bundled installation owner is inactive; manual ownership review required","subsystem":"ext.bundled.bootstrap","name":"github-stats"}
+{"ts":"2026-10-16T19:35:15.101Z","level":"warn","msg":"Bundled installation owner is inactive; manual ownership review required","subsystem":"ext.bundled.bootstrap","name":"multi-agent-orchestrator"}
+{"ts":"2026-10-16T19:35:15.102Z","level":"warn","msg":"Bundled installation owner is inactive; manual ownership review required","subsystem":"ext.bundled.bootstrap","name":"research-agent"}
+{"ts":"2026-10-16T19:35:15.103Z","level":"warn","msg":"Bundled installation owner is inactive; manual ownership review required","subsystem":"ext.bundled.bootstrap","name":"file-refactor"}
+{"ts":"2026-10-16T19:35:15.104Z","level":"warn","msg":"Bundled installation owner is inactive; manual ownership review required","subsystem":"ext.bundled.bootstrap","name":"log-analyzer"}
+{"ts":"2026-10-16T19:35:15.105Z","level":"warn","msg":"Bundled installation owner is inactive; manual ownership review required","subsystem":"ext.bundled.bootstrap","name":"todo-tracker"}
+{"ts":"2026-10-16T19:35:15.106Z","level":"warn","msg":"Bundled installation owner is inactive; manual ownership review required","subsystem":"ext.bundled.bootstrap","name":"ai-kit"}
+{"ts":"2026-10-16T19:35:15.107Z","level":"warn","msg":"Bundled installation owner is inactive; manual ownership review required","subsystem":"ext.bundled.bootstrap","name":"web-search"}
+{"ts":"2026-10-16T19:35:15.107Z","level":"warn","msg":"Bundled installation owner is inactive; manual ownership review required","subsystem":"ext.bundled.bootstrap","name":"openai-image-gen-2"}
+{"ts":"2026-10-16T19:35:15.108Z","level":"warn","msg":"Bundled installation owner is inactive; manual ownership review required","subsystem":"ext.bundled.bootstrap","name":"claude-design"}
+{"ts":"2026-10-16T19:35:15.109Z","level":"warn","msg":"Bundled installation owner is inactive; manual ownership review required","subsystem":"ext.bundled.bootstrap","name":"price-chart"}
+{"ts":"2026-10-16T19:35:15.110Z","level":"warn","msg":"Bundled installation owner is inactive; manual ownership review required","subsystem":"ext.bundled.bootstrap","name":"city-conditions"}
+{"ts":"2026-10-16T19:35:15.111Z","level":"warn","msg":"Bundled installation owner is inactive; manual ownership review required","subsystem":"ext.bundled.bootstrap","name":"kokoro-tts"}
+{"ts":"2026-10-16T19:35:15.112Z","level":"warn","msg":"Bundled installation owner is inactive; manual ownership review required","subsystem":"ext.bundled.bootstrap","name":"lessons-distiller"}
+{"ts":"2026-10-16T19:35:15.113Z","level":"warn","msg":"Bundled installation owner is inactive; manual ownership review required","subsystem":"ext.bundled.bootstrap","name":"extension-author"}
+{"ts":"2026-10-16T19:35:15.114Z","level":"warn","msg":"Bundled installation owner is inactive; manual ownership review required","subsystem":"ext.bundled.bootstrap","name":"memory-extractor"}
+{"ts":"2026-10-16T19:35:15.115Z","level":"warn","msg":"Bundled installation owner is inactive; manual ownership review required","subsystem":"ext.bundled.bootstrap","name":"ez-code"}
+{"ts":"2026-10-16T19:35:15.115Z","level":"warn","msg":"Bundled installation owner is inactive; manual ownership review required","subsystem":"ext.bundled.bootstrap","name":"file-organizer"}
+{"ts":"2026-10-16T19:35:15.116Z","level":"warn","msg":"Bundled installation owner is inactive; manual ownership review required","subsystem":"ext.bundled.bootstrap","name":"ping-loop"}
+{"ts":"2026-10-16T19:35:15.117Z","level":"warn","msg":"Bundled installation owner is inactive; manual ownership review required","subsystem":"ext.bundled.bootstrap","name":"github-projects"}
+{"ts":"2026-10-16T19:35:15.118Z","level":"warn","msg":"Bundled installation owner is inactive; manual ownership review required","subsystem":"ext.bundled.bootstrap","name":"ez-factory"}
+{"ts":"2026-10-16T19:35:15.217Z","level":"warn","msg":"Bundled installation owner is inactive; manual ownership review required","subsystem":"ext.bundled.bootstrap","name":"scratchpad"}
+{"ts":"2026-10-16T19:35:15.218Z","level":"warn","msg":"Bundled installation owner is inactive; manual ownership review required","subsystem":"ext.bundled.bootstrap","name":"task-tracking"}
+{"ts":"2026-10-16T19:35:15.218Z","level":"warn","msg":"Bundled installation owner is inactive; manual ownership review required","subsystem":"ext.bundled.bootstrap","name":"orchestration"}
+{"ts":"2026-10-16T19:35:15.219Z","level":"warn","msg":"Bundled installation owner is inactive; manual ownership review required","subsystem":"ext.bundled.bootstrap","name":"ask-user"}
+{"ts":"2026-10-16T19:35:15.220Z","level":"warn","msg":"Bundled installation owner is inactive; manual ownership review required","subsystem":"ext.bundled.bootstrap","name":"project-analyzer"}
+{"ts":"2026-10-16T19:35:15.221Z","level":"warn","msg":"Bundled installation owner is inactive; manual ownership review required","subsystem":"ext.bundled.bootstrap","name":"markdown-utils"}
+{"ts":"2026-10-16T19:35:15.222Z","level":"warn","msg":"Bundled installation owner is inactive; manual ownership review required","subsystem":"ext.bundled.bootstrap","name":"code-review-delegator"}
+{"ts":"2026-10-16T19:35:15.222Z","level":"warn","msg":"Bundled installation owner is inactive; manual ownership review required","subsystem":"ext.bundled.bootstrap","name":"github-stats"}
+{"ts":"2026-10-16T19:35:15.223Z","level":"warn","msg":"Bundled installation owner is inactive; manual ownership review required","subsystem":"ext.bundled.bootstrap","name":"multi-agent-orchestrator"}
+{"ts":"2026-10-16T19:35:15.224Z","level":"warn","msg":"Bundled installation owner is inactive; manual ownership review required","subsystem":"ext.bundled.bootstrap","name":"research-agent"}
+{"ts":"2026-10-16T19:35:15.225Z","level":"warn","msg":"Bundled installation owner is inactive; manual ownership review required","subsystem":"ext.bundled.bootstrap","name":"file-refactor"}
+{"ts":"2026-10-16T19:35:15.226Z","level":"warn","msg":"Bundled installation owner is inactive; manual ownership review required","subsystem":"ext.bundled.bootstrap","name":"log-analyzer"}
+{"ts":"2026-10-16T19:35:15.226Z","level":"warn","msg":"Bundled installation owner is inactive; manual ownership review required","subsystem":"ext.bundled.bootstrap","name":"todo-tracker"}
+{"ts":"2026-10-16T19:35:15.227Z","level":"warn","msg":"Bundled installation owner is inactive; manual ownership review required","subsystem":"ext.bundled.bootstrap","name":"ai-kit"}
+{"ts":"2026-10-16T19:35:15.228Z","level":"warn","msg":"Bundled installation owner is inactive; manual ownership review required","subsystem":"ext.bundled.bootstrap","name":"web-search"}
+{"ts":"2026-10-16T19:35:15.229Z","level":"warn","msg":"Bundled installation owner is inactive; manual ownership review required","subsystem":"ext.bundled.bootstrap","name":"openai-image-gen-2"}
+{"ts":"2026-10-16T19:35:15.230Z","level":"warn","msg":"Bundled installation owner is inactive; manual ownership review required","subsystem":"ext.bundled.bootstrap","name":"claude-design"}
+{"ts":"2026-10-16T19:35:15.230Z","level":"warn","msg":"Bundled installation owner is inactive; manual ownership review required","subsystem":"ext.bundled.bootstrap","name":"price-chart"}
+{"ts":"2026-10-16T19:35:15.231Z","level":"warn","msg":"Bundled installation owner is inactive; manual ownership review required","subsystem":"ext.bundled.bootstrap","name":"city-conditions"}
+{"ts":"2026-10-16T19:35:15.232Z","level":"warn","msg":"Bundled installation owner is inactive; manual ownership review required","subsystem":"ext.bundled.bootstrap","name":"kokoro-tts"}
+{"ts":"2026-10-16T19:35:15.233Z","level":"warn","msg":"Bundled installation owner is inactive; manual ownership review required","subsystem":"ext.bundled.bootstrap","name":"lessons-distiller"}
+{"ts":"2026-10-16T19:35:15.234Z","level":"warn","msg":"Bundled installation owner is inactive; manual ownership review required","subsystem":"ext.bundled.bootstrap","name":"extension-author"}
+{"ts":"2026-10-16T19:35:15.235Z","level":"warn","msg":"Bundled installation owner is inactive; manual ownership review required","subsystem":"ext.bundled.bootstrap","name":"memory-extractor"}
+{"ts":"2026-10-16T19:35:15.235Z","level":"warn","msg":"Bundled installation owner is inactive; manual ownership review required","subsystem":"ext.bundled.bootstrap","name":"ez-code"}
+{"ts":"2026-10-16T19:35:15.236Z","level":"warn","msg":"Bundled installation owner is inactive; manual ownership review required","subsystem":"ext.bundled.bootstrap","name":"file-organizer"}
+{"ts":"2026-10-16T19:35:15.237Z","level":"warn","msg":"Bundled installation owner is inactive; manual ownership review required","subsystem":"ext.bundled.bootstrap","name":"ping-loop"}
+{"ts":"2026-10-16T19:35:15.238Z","level":"warn","msg":"Bundled installation owner is inactive; manual ownership review required","subsystem":"ext.bundled.bootstrap","name":"github-projects"}
+{"ts":"2026-10-16T19:35:15.239Z","level":"warn","msg":"Bundled installation owner is inactive; manual ownership review required","subsystem":"ext.bundled.bootstrap","name":"ez-factory"}
+
+ 19 pass
+ 0 fail
+ 51 expect() calls
+Ran 19 tests across 1 file. [4.23s]
+  bun: src/__tests__/auth-layout.test.ts
+bun test v1.4.2 (744846f84)
+
+ 21 pass
+ 0 fail
+ 43 expect() calls
+Ran 21 tests across 1 file. [919.00ms]
+  bun: src/__tests__/auth-middleware.test.ts
+bun test v1.4.2 (744846f84)
+
+ 48 pass
+ 0 fail
+ 83 expect() calls
+Ran 48 tests across 1 file. [863.00ms]
+  bun: src/__tests__/auth-migration.test.ts
+bun test v1.4.2 (744846f84)
+
+ 5 pass
+ 0 fail
+ 5 expect() calls
+Ran 5 tests across 1 file. [1.92s]
+  bun: src/__tests__/auth-rbac.test.ts
+bun test v1.4.2 (744846f84)
+
+ 14 pass
+ 0 fail
+ 20 expect() calls
+Ran 14 tests across 1 file. [800.00ms]
+  bun: src/__tests__/briefing-messages-bare-get-thread.test.ts
+bun test v1.4.2 (744846f84)
+
+ 3 pass
+ 0 fail
+ 17 expect() calls
+Ran 3 tests across 1 file. [840.00ms]
+  bun: src/__tests__/bundled-bootstrap-policy-change.test.ts
+bun test v1.4.2 (744846f84)
+{"ts":"2026-10-16T19:35:21.925Z","level":"info","msg":"Bundled source staged; verified releases require human approval","subsystem":"ext.bundled.bootstrap","name":"candidate","installationId":"e870e779-805c-40e8-a139-ffbf2e07f17e","operationId":"cef794d3-6449-49a7-9bc9-3c108fed72b4","status":"queued"}
+{"ts":"2026-10-16T19:35:21.935Z","level":"info","msg":"Bundled source staged; verified releases require human approval","subsystem":"ext.bundled.bootstrap","name":"candidate","installationId":"e870e779-805c-40e8-a139-ffbf2e07f17e","operationId":"3c915e1a-4b90-412e-ab51-6752761d5885","status":"queued"}
+{"ts":"2026-10-16T19:35:22.218Z","level":"info","msg":"Bundled source staged; verified releases require human approval","subsystem":"ext.bundled.bootstrap","name":"candidate","installationId":"e870e779-805c-40e8-a139-ffbf2e07f17e","operationId":"b2f7094b-a703-4fdf-8f38-2ade440c3773","status":"queued"}
+{"ts":"2026-10-16T19:35:22.222Z","level":"info","msg":"Bundled source staged; verified releases require human approval","subsystem":"ext.bundled.bootstrap","name":"candidate","installationId":"e870e779-805c-40e8-a139-ffbf2e07f17e","operationId":"b2f7094b-a703-4fdf-8f38-2ade440c3773","status":"queued"}
+{"ts":"2026-10-16T19:35:22.226Z","level":"info","msg":"Bundled source staged; verified releases require human approval","subsystem":"ext.bundled.bootstrap","name":"candidate","installationId":"e870e779-805c-40e8-a139-ffbf2e07f17e","operationId":"f68ba8e6-82b2-4c6a-b5e6-bfe38f5e06fc","status":"queued"}
+{"ts":"2026-10-16T19:35:22.229Z","level":"info","msg":"Bundled source staged; verified releases require human approval","subsystem":"ext.bundled.bootstrap","name":"candidate","installationId":"e870e779-805c-40e8-a139-ffbf2e07f17e","operationId":"f68ba8e6-82b2-4c6a-b5e6-bfe38f5e06fc","status":"queued"}
+{"ts":"2026-10-16T19:35:22.232Z","level":"error","msg":"Bundled isolated build failed","subsystem":"ext.bundled.bootstrap","name":"candidate","installationId":"e870e779-805c-40e8-a139-ffbf2e07f17e","error":"Error: PGlite is closed"}
+{"ts":"2026-10-16T19:35:22.233Z","level":"error","msg":"Bundled isolated build failed","subsystem":"ext.bundled.bootstrap","name":"candidate","installationId":"e870e779-805c-40e8-a139-ffbf2e07f17e","error":"Error: PGlite is closed"}
+{"ts":"2026-10-16T19:35:22.233Z","level":"error","msg":"Bundled isolated build failed","subsystem":"ext.bundled.bootstrap","name":"candidate","installationId":"e870e779-805c-40e8-a139-ffbf2e07f17e","error":"Error: PGlite is closed"}
+{"ts":"2026-10-16T19:35:22.233Z","level":"error","msg":"Bundled isolated build failed","subsystem":"ext.bundled.bootstrap","name":"candidate","installationId":"e870e779-805c-40e8-a139-ffbf2e07f17e","error":"Error: PGlite is closed"}
+{"ts":"2026-10-16T19:35:22.233Z","level":"error","msg":"Bundled isolated build failed","subsystem":"ext.bundled.bootstrap","name":"candidate","installationId":"e870e779-805c-40e8-a139-ffbf2e07f17e","error":"Error: PGlite is closed"}
+{"ts":"2026-10-16T19:35:22.233Z","level":"error","msg":"Bundled isolated build failed","subsystem":"ext.bundled.bootstrap","name":"candidate","installationId":"e870e779-805c-40e8-a139-ffbf2e07f17e","error":"Error: PGlite is closed"}
+
+ 2 pass
+ 0 fail
+ 5 expect() calls
+Ran 2 tests across 1 file. [1147.00ms]
+  bun: src/__tests__/capability-event-root-sibling-contract.test.ts
+bun test v1.4.2 (744846f84)
+
+ 1 pass
+ 0 fail
+ 6 expect() calls
+Ran 1 test across 1 file. [781.00ms]
+  bun: src/__tests__/cli-key-mint.test.ts
+bun test v1.4.2 (744846f84)
+
+src/__tests__/cli-key-mint.test.ts:
+Error: invalid scope(s) frobnicate. Valid scopes: read, write, chat, extensions, admin
+Error: invalid role "superuser". Valid roles: member, admin
+Error: no user matches "nope" (tried email then id)
+Error: no users exist yet. Complete first-run setup before minting a key.
+Error: unknown route bundle "nope". Known bundles: desktop-companion
+Error: --caller-tools was given but names no tools.
+Error: --max-caller-tools must be an integer (got "lots").
+
+ 38 pass
+ 0 fail
+ 63 expect() calls
+Ran 38 tests across 1 file. [352.00ms]
+  bun: src/__tests__/commands-registry-invalidation.test.ts
+bun test v1.4.2 (744846f84)
+
+ 8 pass
+ 0 fail
+ 16 expect() calls
+Ran 8 tests across 1 file. [2.65s]
+  bun: src/__tests__/contexts-queries.test.ts
+bun test v1.4.2 (744846f84)
+
+ 35 pass
+ 0 fail
+ 96 expect() calls
+Ran 35 tests across 1 file. [10.48s]
+  bun: src/__tests__/conversations-clone-turns.test.ts
+bun test v1.4.2 (744846f84)
+
+ 13 pass
+ 0 fail
+ 49 expect() calls
+Ran 13 tests across 1 file. [4.13s]
+  bun: src/__tests__/conversations-ez-mode-lock.test.ts
+bun test v1.4.2 (744846f84)
+
+ 5 pass
+ 0 fail
+ 13 expect() calls
+Ran 5 tests across 1 file. [828.00ms]
+  bun: src/__tests__/conversations-fork-link-integration.test.ts
+bun test v1.4.2 (744846f84)
+
+ 6 pass
+ 0 fail
+ 29 expect() calls
+Ran 6 tests across 1 file. [2.45s]
+  bun: src/__tests__/db-queries-agent-configs.test.ts
+bun test v1.4.2 (744846f84)
+
+ 15 pass
+ 0 fail
+ 46 expect() calls
+Ran 15 tests across 1 file. [4.65s]
+  bun: src/__tests__/db-queries-agent-shares.test.ts
+bun test v1.4.2 (744846f84)
+
+ 10 pass
+ 0 fail
+ 31 expect() calls
+Ran 10 tests across 1 file. [3.42s]
+  bun: src/__tests__/db-queries-marketplace-ratings.test.ts
+bun test v1.4.2 (744846f84)
+
+ 9 pass
+ 0 fail
+ 26 expect() calls
+Ran 9 tests across 1 file. [2.97s]
+  bun: src/__tests__/db-queries-marketplace-trgm.test.ts
+bun test v1.4.2 (744846f84)
+
+ 6 pass
+ 0 fail
+ 9 expect() calls
+Ran 6 tests across 1 file. [817.00ms]
+  bun: src/__tests__/db-queries-password-resets.test.ts
+bun test v1.4.2 (744846f84)
+
+ 5 pass
+ 0 fail
+ 14 expect() calls
+Ran 5 tests across 1 file. [1.86s]
+  bun: src/__tests__/db-queries-quickstart.test.ts
+bun test v1.4.2 (744846f84)
+
+ 9 pass
+ 0 fail
+ 23 expect() calls
+Ran 9 tests across 1 file. [3.63s]
+  bun: src/__tests__/db-queries-runs.test.ts
+bun test v1.4.2 (744846f84)
+
+ 19 pass
+ 0 fail
+ 50 expect() calls
+Ran 19 tests across 1 file. [5.72s]
+  bun: src/__tests__/db-queries-teams.test.ts
+bun test v1.4.2 (744846f84)
+
+ 14 pass
+ 0 fail
+ 34 expect() calls
+Ran 14 tests across 1 file. [4.26s]
+  bun: src/__tests__/db-queries-user-commands-race.test.ts
+bun test v1.4.2 (744846f84)
+
+ 2 pass
+ 0 fail
+ 8 expect() calls
+Ran 2 tests across 1 file. [1050.00ms]
+  bun: src/__tests__/db-queries-user-commands.test.ts
+bun test v1.4.2 (744846f84)
+
+ 12 pass
+ 0 fail
+ 37 expect() calls
+Ran 12 tests across 1 file. [3.73s]
+  bun: src/__tests__/db-queries-users.test.ts
+bun test v1.4.2 (744846f84)
+
+ 27 pass
+ 0 fail
+ 61 expect() calls
+Ran 27 tests across 1 file. [7.61s]
+  bun: src/__tests__/distiller-settings-migration.test.ts
+bun test v1.4.2 (744846f84)
+{"ts":"2026-10-16T19:36:25.868Z","level":"info","msg":"Skipping migration write — legacy setting never set; defaults preserved","subsystem":"distiller-settings-migration","extensionId":"a58b5558-cbac-4e5c-ab82-a3ac52439b5a"}
+{"ts":"2026-10-16T19:36:25.877Z","level":"info","msg":"Migrated lessonDistillerEnabled=false to per-user extension settings","subsystem":"distiller-settings-migration","userCount":2,"migratedCount":2,"failureCount":0,"extensionId":"a58b5558-cbac-4e5c-ab82-a3ac52439b5a"}
+{"ts":"2026-10-16T19:36:25.882Z","level":"info","msg":"Skipping migration write — legacy enabled=true matches manifest default","subsystem":"distiller-settings-migration","extensionId":"a58b5558-cbac-4e5c-ab82-a3ac52439b5a"}
+{"ts":"2026-10-16T19:36:25.889Z","level":"info","msg":"Migrated lessonDistillerEnabled=false to per-user extension settings","subsystem":"distiller-settings-migration","userCount":2,"migratedCount":2,"failureCount":0,"extensionId":"a58b5558-cbac-4e5c-ab82-a3ac52439b5a"}
+
+ 4 pass
+ 0 fail
+ 11 expect() calls
+Ran 4 tests across 1 file. [807.00ms]
+  bun: src/__tests__/extension-event-end-to-end.test.ts
+bun test v1.4.2 (744846f84)
+
+ 12 pass
+ 0 fail
+ 42 expect() calls
+Ran 12 tests across 1 file. [400.00ms]
+  bun: src/__tests__/extension-events-hub-branch.test.ts
+bun test v1.4.2 (744846f84)
+{"ts":"2026-10-16T19:36:26.736Z","level":"warn","msg":"hub action subprocess dispatch failed","subsystem":"ext-events","extensionId":"ext-cron","name":"cron-dashboard","event":"clear-log","error":"Worker rejected action"}
+{"ts":"2026-10-16T19:36:26.736Z","level":"warn","msg":"hub action subprocess dispatch failed","subsystem":"ext-events","extensionId":"ext-cron","name":"cron-dashboard","event":"clear-log","error":"Worker rejected action"}
+{"ts":"2026-10-16T19:36:26.737Z","level":"warn","msg":"hub action subprocess dispatch failed","subsystem":"ext-events","extensionId":"ext-cron","name":"cron-dashboard","event":"clear-log","error":"db down"}
+{"ts":"2026-10-16T19:36:26.738Z","level":"warn","msg":"hub action subprocess dispatch failed","subsystem":"ext-events","extensionId":"ext-cron","name":"cron-dashboard","event":"clear-log","error":"spawn exploded"}
+
+ 19 pass
+ 0 fail
+ 69 expect() calls
+Ran 19 tests across 1 file. [359.00ms]
+  bun: src/__tests__/ez-clear-leaks-context.test.ts
+bun test v1.4.2 (744846f84)
+{"ts":"2026-10-16T19:36:27.579Z","level":"info","msg":"skipped: model lacks image input capability","subsystem":"executor.loadHistory.rehydrate","branchLen":2}
+{"ts":"2026-10-16T19:36:27.589Z","level":"info","msg":"skipped: model lacks image input capability","subsystem":"executor.loadHistory.rehydrate","branchLen":0}
+
+ 3 pass
+ 0 fail
+ 7 expect() calls
+Ran 3 tests across 1 file. [849.00ms]
+  bun: src/__tests__/ez-conversation-lookup.test.ts
+bun test v1.4.2 (744846f84)
+
+ 6 pass
+ 0 fail
+ 15 expect() calls
+Ran 6 tests across 1 file. [797.00ms]
+  bun: src/__tests__/ez-drafts-queries.test.ts
+bun test v1.4.2 (744846f84)
+
+ 14 pass
+ 0 fail
+ 40 expect() calls
+Ran 14 tests across 1 file. [818.00ms]
+  bun: src/__tests__/ez-search-conversation-tool.test.ts
+bun test v1.4.2 (744846f84)
+
+ 11 pass
+ 0 fail
+ 33 expect() calls
+Ran 11 tests across 1 file. [804.00ms]
+  bun: src/__tests__/ez-tools-create-agent.test.ts
+bun test v1.4.2 (744846f84)
+
+ 7 pass
+ 0 fail
+ 12 expect() calls
+Ran 7 tests across 1 file. [803.00ms]
+  bun: src/__tests__/ez-tools-create-project.test.ts
+bun test v1.4.2 (744846f84)
+
+ 8 pass
+ 0 fail
+ 17 expect() calls
+Ran 8 tests across 1 file. [810.00ms]
+  bun: src/__tests__/ez-tools-find-agents.test.ts
+bun test v1.4.2 (744846f84)
+
+ 6 pass
+ 0 fail
+ 9 expect() calls
+Ran 6 tests across 1 file. [822.00ms]
+  bun: src/__tests__/ez-tools-install-extension.test.ts
+bun test v1.4.2 (744846f84)
+
+ 6 pass
+ 0 fail
+ 11 expect() calls
+Ran 6 tests across 1 file. [830.00ms]
+  bun: src/__tests__/ez-tools-summarize.test.ts
+bun test v1.4.2 (744846f84)
+
+ 16 pass
+ 0 fail
+ 44 expect() calls
+Ran 16 tests across 1 file. [835.00ms]
+  bun: src/__tests__/get-latest-leaf-capability-event.test.ts
+bun test v1.4.2 (744846f84)
+
+ 5 pass
+ 0 fail
+ 7 expect() calls
+Ran 5 tests across 1 file. [837.00ms]
+  bun: src/__tests__/load-history-capability-event-filter.test.ts
+bun test v1.4.2 (744846f84)
+{"ts":"2026-10-16T19:36:36.438Z","level":"info","msg":"skipped: model lacks image input capability","subsystem":"executor.loadHistory.rehydrate","branchLen":4}
+{"ts":"2026-10-16T19:36:36.452Z","level":"info","msg":"skipped: model lacks image input capability","subsystem":"executor.loadHistory.rehydrate","branchLen":3}
+{"ts":"2026-10-16T19:36:36.464Z","level":"info","msg":"skipped: model lacks image input capability","subsystem":"executor.loadHistory.rehydrate","branchLen":3}
+{"ts":"2026-10-16T19:36:36.477Z","level":"info","msg":"skipped: model lacks image input capability","subsystem":"executor.loadHistory.rehydrate","branchLen":4}
+
+ 4 pass
+ 0 fail
+ 19 expect() calls
+Ran 4 tests across 1 file. [887.00ms]
+  bun: src/__tests__/load-history-excluded-filter.test.ts
+bun test v1.4.2 (744846f84)
+{"ts":"2026-10-16T19:36:37.374Z","level":"info","msg":"skipped: model lacks image input capability","subsystem":"executor.loadHistory.rehydrate","branchLen":3}
+{"ts":"2026-10-16T19:36:37.392Z","level":"info","msg":"skipped: model lacks image input capability","subsystem":"executor.loadHistory.rehydrate","branchLen":0}
+{"ts":"2026-10-16T19:36:37.406Z","level":"info","msg":"skipped: model lacks image input capability","subsystem":"executor.loadHistory.rehydrate","branchLen":3}
+{"ts":"2026-10-16T19:36:37.411Z","level":"info","msg":"skipped: model lacks image input capability","subsystem":"executor.loadHistory.rehydrate","branchLen":4}
+
+ 3 pass
+ 0 fail
+ 9 expect() calls
+Ran 3 tests across 1 file. [870.00ms]
+  bun: src/__tests__/load-history-ez-action-filter.test.ts
+bun test v1.4.2 (744846f84)
+{"ts":"2026-10-16T19:36:38.347Z","level":"info","msg":"skipped: model lacks image input capability","subsystem":"executor.loadHistory.rehydrate","branchLen":4}
+{"ts":"2026-10-16T19:36:38.362Z","level":"info","msg":"skipped: model lacks image input capability","subsystem":"executor.loadHistory.rehydrate","branchLen":3}
+{"ts":"2026-10-16T19:36:38.376Z","level":"info","msg":"skipped: model lacks image input capability","subsystem":"executor.loadHistory.rehydrate","branchLen":3}
+
+ 3 pass
+ 0 fail
+ 15 expect() calls
+Ran 3 tests across 1 file. [904.00ms]
+  bun: src/__tests__/load-history-preprocess-filter.test.ts
+bun test v1.4.2 (744846f84)
+{"ts":"2026-10-16T19:36:39.543Z","level":"info","msg":"skipped: model lacks image input capability","subsystem":"executor.loadHistory.rehydrate","branchLen":4}
+{"ts":"2026-10-16T19:36:39.567Z","level":"info","msg":"skipped: model lacks image input capability","subsystem":"executor.loadHistory.rehydrate","branchLen":3}
+{"ts":"2026-10-16T19:36:39.584Z","level":"info","msg":"skipped: model lacks image input capability","subsystem":"executor.loadHistory.rehydrate","branchLen":3}
+
+ 3 pass
+ 0 fail
+ 15 expect() calls
+Ran 3 tests across 1 file. [1122.00ms]
+  bun: src/__tests__/marketplace-e2e.test.ts
+bun test v1.4.2 (744846f84)
+
+ 47 pass
+ 0 fail
+ 109 expect() calls
+Ran 47 tests across 1 file. [1072.00ms]
+  bun: src/__tests__/marketplace-queries-deep.test.ts
+bun test v1.4.2 (744846f84)
+
+ 50 pass
+ 0 fail
+ 128 expect() calls
+Ran 50 tests across 1 file. [991.00ms]
+  bun: src/__tests__/marketplace-search-perf.test.ts
+bun test v1.4.2 (744846f84)
+
+ 2 pass
+ 0 fail
+ 4 expect() calls
+Ran 2 tests across 1 file. [1.88s]
+  bun: src/__tests__/marketplace-tag-counts.test.ts
+bun test v1.4.2 (744846f84)
+
+ 4 pass
+ 0 fail
+ 5 expect() calls
+Ran 4 tests across 1 file. [914.00ms]
+  bun: src/__tests__/marketplace-v2-migration.test.ts
+bun test v1.4.2 (744846f84)
+
+ 36 pass
+ 0 fail
+ 92 expect() calls
+Ran 36 tests across 1 file. [914.00ms]
+  bun: src/__tests__/memories-api-create.test.ts
+bun test v1.4.2 (744846f84)
+
+ 11 pass
+ 0 fail
+ 23 expect() calls
+Ran 11 tests across 1 file. [905.00ms]
+  bun: src/__tests__/memory-extractor-settings-migration.test.ts
+bun test v1.4.2 (744846f84)
+{"ts":"2026-10-16T19:36:47.697Z","level":"info","msg":"Skipping migration write — legacy setting never set; defaults preserved","subsystem":"memory-extractor-settings-migration","extensionId":"1687de21-e586-4c67-9e28-396b8af52c20"}
+{"ts":"2026-10-16T19:36:47.707Z","level":"info","msg":"Migrated memoryEnabled=false to per-user extension settings","subsystem":"memory-extractor-settings-migration","userCount":2,"migratedCount":2,"failureCount":0,"extensionId":"1687de21-e586-4c67-9e28-396b8af52c20"}
+{"ts":"2026-10-16T19:36:47.714Z","level":"info","msg":"Skipping migration write — legacy enabled=true matches manifest default","subsystem":"memory-extractor-settings-migration","extensionId":"1687de21-e586-4c67-9e28-396b8af52c20"}
+{"ts":"2026-10-16T19:36:47.721Z","level":"info","msg":"Migrated memoryEnabled=false to per-user extension settings","subsystem":"memory-extractor-settings-migration","userCount":2,"migratedCount":2,"failureCount":0,"extensionId":"1687de21-e586-4c67-9e28-396b8af52c20"}
+{"ts":"2026-10-16T19:36:47.728Z","level":"info","msg":"Skipping migration write — legacy setting never set; defaults preserved","subsystem":"memory-extractor-settings-migration","extensionId":"1687de21-e586-4c67-9e28-396b8af52c20"}
+{"ts":"2026-10-16T19:36:47.731Z","level":"info","msg":"Migrated compaction_interval_hours to per-user extension settings","subsystem":"memory-extractor-settings-migration","legacyValue":12,"resolvedTo":12,"userCount":2,"migratedCount":2,"failureCount":0,"extensionId":"1687de21-e586-4c67-9e28-396b8af52c20"}
+{"ts":"2026-10-16T19:36:47.739Z","level":"info","msg":"Skipping migration write — legacy enabled=true matches manifest default","subsystem":"memory-extractor-settings-migration","extensionId":"1687de21-e586-4c67-9e28-396b8af52c20"}
+{"ts":"2026-10-16T19:36:47.739Z","level":"info","msg":"Legacy compaction_interval_hours matches default (6h) — no per-user write","subsystem":"memory-extractor-settings-migration","legacyValue":6,"extensionId":"1687de21-e586-4c67-9e28-396b8af52c20"}
+{"ts":"2026-10-16T19:36:47.744Z","level":"info","msg":"Skipping migration write — legacy setting never set; defaults preserved","subsystem":"memory-extractor-settings-migration","extensionId":"1687de21-e586-4c67-9e28-396b8af52c20"}
+{"ts":"2026-10-16T19:36:47.747Z","level":"info","msg":"Migrated compaction_interval_hours to per-user extension settings","subsystem":"memory-extractor-settings-migration","legacyValue":4,"resolvedTo":3,"userCount":2,"migratedCount":2,"failureCount":0,"extensionId":"1687de21-e586-4c67-9e28-396b8af52c20"}
+{"ts":"2026-10-16T19:36:47.751Z","level":"info","msg":"Skipping migration write — legacy setting never set; defaults preserved","subsystem":"memory-extractor-settings-migration","extensionId":"1687de21-e586-4c67-9e28-396b8af52c20"}
+{"ts":"2026-10-16T19:36:47.753Z","level":"info","msg":"Migrated compaction_interval_hours to per-user extension settings","subsystem":"memory-extractor-settings-migration","legacyValue":48,"resolvedTo":24,"userCount":2,"migratedCount":2,"failureCount":0,"extensionId":"1687de21-e586-4c67-9e28-396b8af52c20"}
+{"ts":"2026-10-16T19:36:47.757Z","level":"info","msg":"Skipping migration write — legacy setting never set; defaults preserved","subsystem":"memory-extractor-settings-migration","extensionId":"1687de21-e586-4c67-9e28-396b8af52c20"}
+{"ts":"2026-10-16T19:36:47.757Z","level":"warn","msg":"Legacy compaction_interval_hours not a finite positive number — skipping migration","subsystem":"memory-extractor-settings-migration","legacyValue":"garbage","extensionId":"1687de21-e586-4c67-9e28-396b8af52c20"}
+{"ts":"2026-10-16T19:36:47.762Z","level":"info","msg":"Skipping migration write — legacy setting never set; defaults preserved","subsystem":"memory-extractor-settings-migration","extensionId":"1687de21-e586-4c67-9e28-396b8af52c20"}
+{"ts":"2026-10-16T19:36:47.764Z","level":"info","msg":"Migrated compaction_interval_hours to per-user extension settings","subsystem":"memory-extractor-settings-migration","legacyValue":12,"resolvedTo":12,"userCount":2,"migratedCount":2,"failureCount":0,"extensionId":"1687de21-e586-4c67-9e28-396b8af52c20"}
+{"ts":"2026-10-16T19:36:47.769Z","level":"info","msg":"Skipping migration write — legacy setting never set; defaults preserved","subsystem":"memory-extractor-settings-migration","extensionId":"1687de21-e586-4c67-9e28-396b8af52c20"}
+{"ts":"2026-10-16T19:36:47.770Z","level":"info","msg":"Migrated compaction_interval_hours to per-user extension settings","subsystem":"memory-extractor-settings-migration","legacyValue":12,"resolvedTo":12,"userCount":2,"migratedCount":1,"failureCount":0,"extensionId":"1687de21-e586-4c67-9e28-396b8af52c20"}
+
+ 13 pass
+ 0 fail
+ 35 expect() calls
+Ran 13 tests across 1 file. [968.00ms]
+  bun: src/__tests__/message-search-explain.test.ts
+bun test v1.4.2 (744846f84)
+
+ 5 pass
+ 0 fail
+ 286 expect() calls
+Ran 5 tests across 1 file. [3.18s]
+  bun: src/__tests__/message-search.test.ts
+bun test v1.4.2 (744846f84)
+
+ 21 pass
+ 0 fail
+ 112 expect() calls
+Ran 21 tests across 1 file. [6.67s]
+  bun: src/__tests__/messages-set-excluded.test.ts
+bun test v1.4.2 (744846f84)
+
+ 6 pass
+ 0 fail
+ 13 expect() calls
+Ran 6 tests across 1 file. [835.00ms]
+  bun: src/__tests__/migrate-backfill-populated.test.ts
+bun test v1.4.2 (744846f84)
+
+ 13 pass
+ 0 fail
+ 26 expect() calls
+Ran 13 tests across 1 file. [3.49s]
+  bun: src/__tests__/moderation-sharing-e2e.test.ts
+bun test v1.4.2 (744846f84)
+
+ 28 pass
+ 0 fail
+ 40 expect() calls
+Ran 28 tests across 1 file. [2.23s]
+  bun: src/__tests__/onboarding-skip-flow.integration.test.ts
+bun test v1.4.2 (744846f84)
+
+ 3 pass
+ 0 fail
+ 8 expect() calls
+Ran 3 tests across 1 file. [1310.00ms]
+  bun: src/__tests__/preview-consent.test.ts
+bun test v1.4.2 (744846f84)
+{"ts":"2026-10-16T19:37:06.880Z","level":"info","msg":"preview consent card surfaced","subsystem":"preview.consent","conversationId":"00804c93-6412-4247-82b1-b98a4501dc17","port":5173}
+{"ts":"2026-10-16T19:37:06.883Z","level":"info","msg":"preview auto-exposed (always-expose preference)","subsystem":"preview.consent","conversationId":"00804c93-6412-4247-82b1-b98a4501dc17","port":5173,"previewId":"2cc8n8pr129z6hdq44ae8arx0p"}
+{"ts":"2026-10-16T19:37:06.885Z","level":"info","msg":"preview consent card surfaced","subsystem":"preview.consent","conversationId":"00804c93-6412-4247-82b1-b98a4501dc17","port":5173}
+
+ 11 pass
+ 0 fail
+ 37 expect() calls
+Ran 11 tests across 1 file. [811.00ms]
+  bun: src/__tests__/preview-dynamic-e2e.docker.test.ts
+bun test v1.4.2 (744846f84)
+
+ 0 pass
+ 3 skip
+ 0 fail
+Ran 3 tests across 1 file. [368.00ms]
+  bun: src/__tests__/preview-sessions-queries.test.ts
+bun test v1.4.2 (744846f84)
+
+ 30 pass
+ 0 fail
+ 675 expect() calls
+Ran 30 tests across 1 file. [902.00ms]
+  bun: src/__tests__/preview-uid-keystone.docker.test.ts
+bun test v1.4.2 (744846f84)
+
+ 0 pass
+ 4 skip
+ 0 fail
+Ran 4 tests across 1 file. [360.00ms]
+  bun: src/__tests__/price-chart.e2e.test.ts
+bun test v1.4.2 (744846f84)
+
+ 8 pass
+ 0 fail
+ 40 expect() calls
+Ran 8 tests across 1 file. [25.47s]
+  bun: src/__tests__/price-chart-market-stub.test.ts
+bun test v1.4.2 (744846f84)
+
+ 2 pass
+ 0 fail
+ 10 expect() calls
+Ran 2 tests across 1 file. [372.00ms]
+  bun: src/__tests__/production-proof-plan.test.ts
+bun test v1.4.2 (744846f84)
+
+ 4 pass
+ 0 fail
+ 11 expect() calls
+Ran 4 tests across 1 file. [352.00ms]
+  bun: src/__tests__/production-proof-results.test.ts
+bun test v1.4.2 (744846f84)
+
+ 6 pass
+ 0 fail
+ 49 expect() calls
+Ran 6 tests across 1 file. [1426.00ms]
+  bun: src/__tests__/queries-lessons.test.ts
+bun test v1.4.2 (744846f84)
+
+ 59 pass
+ 0 fail
+ 115 expect() calls
+Ran 59 tests across 1 file. [16.37s]
+  bun: src/__tests__/routing-analytics.test.ts
+bun test v1.4.2 (744846f84)
+
+ 20 pass
+ 0 fail
+ 83 expect() calls
+Ran 20 tests across 1 file. [905.00ms]
+  bun: src/__tests__/routing-export-script.test.ts
+bun test v1.4.2 (744846f84)
+
+ 19 pass
+ 0 fail
+ 53 expect() calls
+Ran 19 tests across 1 file. [827.00ms]
+  bun: src/__tests__/routing-spend-truncation.test.ts
+bun test v1.4.2 (744846f84)
+
+ 6 pass
+ 0 fail
+ 51 expect() calls
+Ran 6 tests across 1 file. [938.00ms]
+  bun: src/__tests__/routing-sweep-script.test.ts
+bun test v1.4.2 (744846f84)
+
+ 28 pass
+ 0 fail
+ 88 expect() calls
+Ran 28 tests across 1 file. [780.00ms]
+  bun: src/__tests__/runs-user-id-backfill-migration.test.ts
+bun test v1.4.2 (744846f84)
+
+ 7 pass
+ 0 fail
+ 7 expect() calls
+Ran 7 tests across 1 file. [1473.00ms]
+  bun: src/__tests__/runtime-tools-grep.test.ts
+bun test v1.4.2 (744846f84)
+
+ 18 pass
+ 0 fail
+ 48 expect() calls
+Ran 18 tests across 1 file. [1500.00ms]
+  bun: src/__tests__/sandbox-api.test.ts
+bun test v1.4.2 (744846f84)
+
+ 6 pass
+ 0 fail
+ 14 expect() calls
+Ran 6 tests across 1 file. [816.00ms]
+  bun: src/__tests__/sandbox-observability-comprehensive.test.ts
+bun test v1.4.2 (744846f84)
+
+ 34 pass
+ 0 fail
+ 128 expect() calls
+Ran 34 tests across 1 file. [2.32s]
+  bun: src/__tests__/save-memory-integration.test.ts
+bun test v1.4.2 (744846f84)
+
+ 10 pass
+ 0 fail
+ 19 expect() calls
+Ran 10 tests across 1 file. [855.00ms]
+  bun: src/__tests__/schema-migrations-first-boot-backfill.test.ts
+bun test v1.4.2 (744846f84)
+{"ts":"2026-10-16T19:38:06.885Z","level":"warn","msg":"runs.user_id ownership backfill failed (non-fatal, retried next boot)","subsystem":"db-migrate","error":"injected backfill failure"}
+
+ 6 pass
+ 0 fail
+ 12 expect() calls
+Ran 6 tests across 1 file. [3.20s]
+  bun: src/__tests__/schema-migrations-indexes-audit.test.ts
+bun test v1.4.2 (744846f84)
+
+ 9 pass
+ 0 fail
+ 31 expect() calls
+Ran 9 tests across 1 file. [1031.00ms]
+  bun: src/__tests__/security/l1-login-timing-constant-time.test.ts
+bun test v1.4.2 (744846f84)
+
+ 5 pass
+ 0 fail
+ 19 expect() calls
+Ran 5 tests across 1 file. [719.00ms]
+  bun: src/__tests__/shipping-preview-isolation.test.ts
+bun test v1.4.2 (744846f84)
+
+ 3 pass
+ 0 fail
+ 26 expect() calls
+Ran 3 tests across 1 file. [456.00ms]
+  bun: src/__tests__/shipping-production-suite-wiring.test.ts
+bun test v1.4.2 (744846f84)
+
+ 4 pass
+ 0 fail
+ 60 expect() calls
+Ran 4 tests across 1 file. [770.00ms]
+  bun: src/__tests__/source-parser-git-coverage.test.ts
+bun test v1.4.2 (744846f84)
+
+ 25 pass
+ 0 fail
+ 64 expect() calls
+Ran 25 tests across 1 file. [580.00ms]
+  bun: src/__tests__/source-parser.test.ts
+bun test v1.4.2 (744846f84)
+
+ 28 pass
+ 0 fail
+ 43 expect() calls
+Ran 28 tests across 1 file. [582.00ms]
+  bun: src/__tests__/start-assignment-plumbing.test.ts
+bun test v1.4.2 (744846f84)
+{"ts":"2026-10-16T19:38:11.816Z","level":"info","msg":"assignment_update emit","subsystem":"start-assignment","conversationId":"conv-parent","taskId":"task-1","assignmentId":"assign-1","status":"running","hasStructured":false}
+{"ts":"2026-10-16T19:38:11.816Z","level":"info","msg":"Started assignment","subsystem":"start-assignment","conversationId":"conv-parent","taskId":"task-1","assignmentId":"assign-1","agentConfigId":"cfg-test","agentName":"alice","subConversationId":"sub-existing","agentRunId":"70486899-432f-4e68-980b-613d8de0599d"}
+{"ts":"2026-10-16T19:38:11.817Z","level":"info","msg":"assignment_update emit","subsystem":"start-assignment","conversationId":"conv-parent","taskId":"task-1","assignmentId":"assign-1","status":"running","hasStructured":false}
+{"ts":"2026-10-16T19:38:11.817Z","level":"info","msg":"Started assignment","subsystem":"start-assignment","conversationId":"conv-parent","taskId":"task-1","assignmentId":"assign-1","agentConfigId":"cfg-test","agentName":"alice","subConversationId":"sub-fresh-created","agentRunId":"20c54133-f681-47c9-b352-4cff22cf3288"}
+{"ts":"2026-10-16T19:38:11.817Z","level":"info","msg":"assignment_update emit","subsystem":"start-assignment","conversationId":"conv-parent","taskId":"task-1","assignmentId":"assign-1","status":"running","hasStructured":false}
+{"ts":"2026-10-16T19:38:11.817Z","level":"info","msg":"Started assignment","subsystem":"start-assignment","conversationId":"conv-parent","taskId":"task-1","assignmentId":"assign-1","agentConfigId":"cfg-test","agentName":"alice","subConversationId":"sub-preresolved","agentRunId":"8b6c5904-e5d5-4326-997a-187ef933ebfc"}
+{"ts":"2026-10-16T19:38:11.817Z","level":"info","msg":"assignment_update emit","subsystem":"start-assignment","conversationId":"conv-parent","taskId":"task-1","assignmentId":"assign-1","status":"running","hasStructured":false}
+{"ts":"2026-10-16T19:38:11.817Z","level":"info","msg":"Started assignment","subsystem":"start-assignment","conversationId":"conv-parent","taskId":"task-1","assignmentId":"assign-1","agentConfigId":"cfg-test","agentName":"alice","subConversationId":"sub-existing","agentRunId":"41fb892e-b0f2-48e6-91df-6882d0599ac8"}
+{"ts":"2026-10-16T19:38:11.817Z","level":"info","msg":"assignment_update emit","subsystem":"start-assignment","conversationId":"conv-parent","taskId":"task-1","assignmentId":"assign-1","status":"running","hasStructured":false}
+{"ts":"2026-10-16T19:38:11.817Z","level":"info","msg":"Started assignment","subsystem":"start-assignment","conversationId":"conv-parent","taskId":"task-1","assignmentId":"assign-1","agentConfigId":"cfg-test","agentName":"alice","subConversationId":"sub-new","agentRunId":"71a3bfdd-a49d-45c5-91ce-0b6bd112438a"}
+{"ts":"2026-10-16T19:38:11.817Z","level":"info","msg":"assignment_update emit","subsystem":"start-assignment","conversationId":"conv-parent","taskId":"task-1","assignmentId":"assign-1","status":"running","hasStructured":false}
+{"ts":"2026-10-16T19:38:11.817Z","level":"info","msg":"Started assignment","subsystem":"start-assignment","conversationId":"conv-parent","taskId":"task-1","assignmentId":"assign-1","agentConfigId":"cfg-test","agentName":"alice","subConversationId":"sub-new-2","agentRunId":"cea3323e-ae2e-4ab4-9e6d-f2207f8b14e5"}
+{"ts":"2026-10-16T19:38:11.817Z","level":"info","msg":"assignment_update emit","subsystem":"start-assignment","conversationId":"conv-parent","taskId":"task-1","assignmentId":"assign-1","status":"running","hasStructured":false}
+{"ts":"2026-10-16T19:38:11.817Z","level":"info","msg":"Started assignment","subsystem":"start-assignment","conversationId":"conv-parent","taskId":"task-1","assignmentId":"assign-1","agentConfigId":"cfg-test","agentName":"alice","subConversationId":"sub-owned","agentRunId":"6ab047c2-2ae9-4308-a514-a309f7df4910"}
+{"ts":"2026-10-16T19:38:11.817Z","level":"info","msg":"assignment_update emit","subsystem":"start-assignment","conversationId":"conv-parent","taskId":"task-1","assignmentId":"assign-1","status":"running","hasStructured":false}
+{"ts":"2026-10-16T19:38:11.817Z","level":"info","msg":"Started assignment","subsystem":"start-assignment","conversationId":"conv-parent","taskId":"task-1","assignmentId":"assign-1","agentConfigId":"cfg-test","agentName":"alice","subConversationId":"sub-ownerless","agentRunId":"2510b962-7339-49e4-ba69-7cdfa4bb388a"}
+{"ts":"2026-10-16T19:38:11.817Z","level":"info","msg":"assignment_update emit","subsystem":"start-assignment","conversationId":"conv-parent","taskId":"task-1","assignmentId":"assign-1","status":"running","hasStructured":false}
+{"ts":"2026-10-16T19:38:11.817Z","level":"info","msg":"Started assignment","subsystem":"start-assignment","conversationId":"conv-parent","taskId":"task-1","assignmentId":"assign-1","agentConfigId":"cfg-test","agentName":"alice","subConversationId":"sub-fresh-created","agentRunId":"5d0e3ce9-1d31-4993-8b8e-eceb486adfd9"}
+{"ts":"2026-10-16T19:38:11.818Z","level":"info","msg":"assignment_update emit","subsystem":"start-assignment","conversationId":"conv-parent","taskId":"task-1","assignmentId":"assign-1","status":"running","hasStructured":false}
+{"ts":"2026-10-16T19:38:11.818Z","level":"info","msg":"Started assignment","subsystem":"start-assignment","conversationId":"conv-parent","taskId":"task-1","assignmentId":"assign-1","agentConfigId":"cfg-test","agentName":"alice","subConversationId":"sub-fresh-created","agentRunId":"673185ee-00f3-4288-9b65-0daa5bb4a9b1"}
+{"ts":"2026-10-16T19:38:11.818Z","level":"info","msg":"assignment_update emit","subsystem":"start-assignment","conversationId":"conv-parent","taskId":"task-1","assignmentId":"assign-1","status":"running","hasStructured":false}
+{"ts":"2026-10-16T19:38:11.818Z","level":"info","msg":"Started assignment","subsystem":"start-assignment","conversationId":"conv-parent","taskId":"task-1","assignmentId":"assign-1","agentConfigId":"cfg-test","agentName":"alice","subConversationId":"sub-fresh-created","agentRunId":"3f99d743-175c-4101-b846-586c6a90f7bc"}
+{"ts":"2026-10-16T19:38:11.818Z","level":"info","msg":"assignment_update emit","subsystem":"start-assignment","conversationId":"conv-parent","taskId":"task-1","assignmentId":"assign-1","status":"running","hasStructured":false}
+{"ts":"2026-10-16T19:38:11.818Z","level":"info","msg":"Started assignment","subsystem":"start-assignment","conversationId":"conv-parent","taskId":"task-1","assignmentId":"assign-1","agentConfigId":"cfg-test","agentName":"alice","subConversationId":"sub-fresh-created","agentRunId":"e4a2b113-dbce-4e32-8dcb-f6c2207cf250"}
+{"ts":"2026-10-16T19:38:11.818Z","level":"info","msg":"assignment_update emit","subsystem":"start-assignment","conversationId":"conv-parent","taskId":"task-1","assignmentId":"assign-1","status":"running","hasStructured":false}
+{"ts":"2026-10-16T19:38:11.818Z","level":"info","msg":"Started assignment","subsystem":"start-assignment","conversationId":"conv-parent","taskId":"task-1","assignmentId":"assign-1","agentConfigId":"cfg-test","agentName":"alice","subConversationId":"sub-fresh-created","agentRunId":"323b259c-8727-4f62-ab7c-3a0e9633835b"}
+{"ts":"2026-10-16T19:38:11.818Z","level":"info","msg":"assignment_update emit","subsystem":"start-assignment","conversationId":"conv-parent","taskId":"task-1","assignmentId":"assign-1","status":"running","hasStructured":false}
+{"ts":"2026-10-16T19:38:11.818Z","level":"info","msg":"Started assignment","subsystem":"start-assignment","conversationId":"conv-parent","taskId":"task-1","assignmentId":"assign-1","agentConfigId":"cfg-test","agentName":"alice","subConversationId":"sub-fresh-created","agentRunId":"f4a9138d-8d80-40d8-a027-c2aa28e73c82"}
+{"ts":"2026-10-16T19:38:11.818Z","level":"info","msg":"assignment_update emit","subsystem":"start-assignment","conversationId":"conv-parent","taskId":"task-1","assignmentId":"assign-1","status":"running","hasStructured":false}
+{"ts":"2026-10-16T19:38:11.818Z","level":"info","msg":"Started assignment","subsystem":"start-assignment","conversationId":"conv-parent","taskId":"task-1","assignmentId":"assign-1","agentConfigId":"cfg-test","agentName":"alice","subConversationId":"sub-fresh-created","agentRunId":"311e0d5e-b1b7-40af-8c0e-132c15bdaff0"}
+{"ts":"2026-10-16T19:38:11.818Z","level":"info","msg":"assignment_update emit","subsystem":"start-assignment","conversationId":"conv-parent","taskId":"task-1","assignmentId":"assign-1","status":"running","hasStructured":false}
+{"ts":"2026-10-16T19:38:11.818Z","level":"info","msg":"Auto-continue with pending message","subsystem":"start-assignment","conversationId":"conv-parent","taskId":"task-1","newRunId":"60ce191f-cf26-4381-8c9e-eff5f260f312"}
+{"ts":"2026-10-16T19:38:11.820Z","level":"info","msg":"assignment_update emit","subsystem":"start-assignment","conversationId":"conv-parent","taskId":"task-1","assignmentId":"assign-1","status":"running","hasStructured":false}
+{"ts":"2026-10-16T19:38:11.820Z","level":"info","msg":"Started assignment","subsystem":"start-assignment","conversationId":"conv-parent","taskId":"task-1","assignmentId":"assign-1","agentConfigId":"cfg-test","agentName":"alice","subConversationId":"sub-fresh-created","agentRunId":"5809c6b9-fb6d-4f71-af2f-48a6c0057a2c"}
+{"ts":"2026-10-16T19:38:11.820Z","level":"info","msg":"assignment_update emit","subsystem":"start-assignment","conversationId":"conv-parent","taskId":"task-1","assignmentId":"assign-1","status":"running","hasStructured":false}
+{"ts":"2026-10-16T19:38:11.820Z","level":"info","msg":"Started assignment","subsystem":"start-assignment","conversationId":"conv-parent","taskId":"task-1","assignmentId":"assign-1","agentConfigId":"cfg-test","agentName":"alice","subConversationId":"sub-fresh-created","agentRunId":"41738fbc-aee6-49bf-82d6-7bb93479a0fe"}
+{"ts":"2026-10-16T19:38:11.820Z","level":"info","msg":"assignment_update emit","subsystem":"start-assignment","conversationId":"conv-parent","taskId":"task-1","assignmentId":"assign-1","status":"running","hasStructured":false}
+{"ts":"2026-10-16T19:38:11.820Z","level":"info","msg":"Started assignment","subsystem":"start-assignment","conversationId":"conv-parent","taskId":"task-1","assignmentId":"assign-1","agentConfigId":"cfg-test","agentName":"alice","subConversationId":"sub-fresh-created","agentRunId":"b01b8d30-7f92-43b9-b434-661bc051dd2c"}
+{"ts":"2026-10-16T19:38:11.820Z","level":"info","msg":"assignment_update emit","subsystem":"start-assignment","conversationId":"conv-parent","taskId":"task-1","assignmentId":"assign-1","status":"running","hasStructured":false}
+{"ts":"2026-10-16T19:38:11.820Z","level":"info","msg":"Started assignment","subsystem":"start-assignment","conversationId":"conv-parent","taskId":"task-1","assignmentId":"assign-1","agentConfigId":"cfg-test","agentName":"alice","subConversationId":"sub-fresh-created","agentRunId":"f668fa19-b52d-494a-bf8d-32ad9ff09b52"}
+{"ts":"2026-10-16T19:38:11.820Z","level":"info","msg":"assignment_update emit","subsystem":"start-assignment","conversationId":"conv-parent","taskId":"task-1","assignmentId":"assign-1","status":"running","hasStructured":false}
+{"ts":"2026-10-16T19:38:11.820Z","level":"info","msg":"Started assignment","subsystem":"start-assignment","conversationId":"conv-parent","taskId":"task-1","assignmentId":"assign-1","agentConfigId":"cfg-test","agentName":"alice","subConversationId":"sub-fresh-created","agentRunId":"bc056938-a74e-4f0d-83da-0027f379cdaa"}
+{"ts":"2026-10-16T19:38:11.820Z","level":"info","msg":"assignment_update emit","subsystem":"start-assignment","conversationId":"conv-parent","taskId":"task-1","assignmentId":"assign-1","status":"running","hasStructured":false}
+{"ts":"2026-10-16T19:38:11.820Z","level":"info","msg":"Started assignment","subsystem":"start-assignment","conversationId":"conv-parent","taskId":"task-1","assignmentId":"assign-1","agentConfigId":"cfg-test","agentName":"alice","subConversationId":"sub-fresh-created","agentRunId":"754942f3-85d9-4d2a-be09-6a64ffa6ac18"}
+{"ts":"2026-10-16T19:38:11.820Z","level":"info","msg":"assignment_update emit","subsystem":"start-assignment","conversationId":"conv-parent","taskId":"task-1","assignmentId":"assign-1","status":"running","hasStructured":false}
+{"ts":"2026-10-16T19:38:11.820Z","level":"info","msg":"Started assignment","subsystem":"start-assignment","conversationId":"conv-parent","taskId":"task-1","assignmentId":"assign-1","agentConfigId":"cfg-test","agentName":"alice","subConversationId":"sub-fresh-created","agentRunId":"98c5f397-7c72-4886-ad34-42abeb3529fa"}
+{"ts":"2026-10-16T19:38:11.820Z","level":"info","msg":"assignment_update emit","subsystem":"start-assignment","conversationId":"conv-parent","taskId":"task-1","assignmentId":"assign-1","status":"running","hasStructured":false}
+{"ts":"2026-10-16T19:38:11.820Z","level":"info","msg":"Started assignment","subsystem":"start-assignment","conversationId":"conv-parent","taskId":"task-1","assignmentId":"assign-1","agentConfigId":"cfg-test","agentName":"alice","subConversationId":"sub-fresh-created","agentRunId":"fffbac17-276c-4dc1-b6b0-a306829913f2"}
+{"ts":"2026-10-16T19:38:11.820Z","level":"info","msg":"assignment_update emit","subsystem":"start-assignment","conversationId":"conv-parent","taskId":"task-1","assignmentId":"assign-1","status":"failed","hasStructured":false}
+{"ts":"2026-10-16T19:38:11.822Z","level":"info","msg":"assignment_update emit","subsystem":"start-assignment","conversationId":"conv-parent","taskId":"task-1","assignmentId":"assign-1","status":"running","hasStructured":false}
+{"ts":"2026-10-16T19:38:11.822Z","level":"info","msg":"Started assignment","subsystem":"start-assignment","conversationId":"conv-parent","taskId":"task-1","assignmentId":"assign-1","agentConfigId":"cfg-test","agentName":"alice","subConversationId":"sub-fresh-created","agentRunId":"7e343ca2-ef59-406e-9405-34e91311242c"}
+{"ts":"2026-10-16T19:38:11.823Z","level":"info","msg":"assignment_update emit","subsystem":"start-assignment","conversationId":"conv-parent","taskId":"task-1","assignmentId":"assign-1","status":"failed","hasStructured":false}
+{"ts":"2026-10-16T19:38:11.824Z","level":"info","msg":"assignment_update emit","subsystem":"start-assignment","conversationId":"conv-parent","taskId":"task-1","assignmentId":"assign-1","status":"running","hasStructured":false}
+{"ts":"2026-10-16T19:38:11.824Z","level":"info","msg":"Started assignment","subsystem":"start-assignment","conversationId":"conv-parent","taskId":"task-1","assignmentId":"assign-1","agentConfigId":"cfg-test","agentName":"alice","subConversationId":"sub-fresh-created","agentRunId":"d339127b-0a2c-40d3-a429-31024402a210"}
+{"ts":"2026-10-16T19:38:11.824Z","level":"info","msg":"assignment_update emit","subsystem":"start-assignment","conversationId":"conv-parent","taskId":"task-1","assignmentId":"assign-1","status":"failed","hasStructured":false}
+{"ts":"2026-10-16T19:38:11.825Z","level":"info","msg":"assignment_update emit","subsystem":"start-assignment","conversationId":"conv-parent","taskId":"task-1","assignmentId":"assign-1","status":"running","hasStructured":false}
+{"ts":"2026-10-16T19:38:11.825Z","level":"info","msg":"Started assignment","subsystem":"start-assignment","conversationId":"conv-parent","taskId":"task-1","assignmentId":"assign-1","agentConfigId":"cfg-test","agentName":"alice","subConversationId":"sub-fresh-created","agentRunId":"673eb284-7143-4d52-a0c2-b6ac7d9bec3b"}
+{"ts":"2026-10-16T19:38:11.827Z","level":"info","msg":"assignment_update emit","subsystem":"start-assignment","conversationId":"conv-parent","taskId":"task-1","assignmentId":"assign-1","status":"running","hasStructured":false}
+{"ts":"2026-10-16T19:38:11.827Z","level":"info","msg":"Started assignment","subsystem":"start-assignment","conversationId":"conv-parent","taskId":"task-1","assignmentId":"assign-1","agentConfigId":"cfg-test","agentName":"alice","subConversationId":"sub-fresh-created","agentRunId":"037dc8c1-0db0-4ea2-bb8f-1496ce280df6"}
+{"ts":"2026-10-16T19:38:11.828Z","level":"info","msg":"assignment_update emit","subsystem":"start-assignment","conversationId":"conv-parent","taskId":"task-1","assignmentId":"assign-1","status":"running","hasStructured":false}
+{"ts":"2026-10-16T19:38:11.828Z","level":"info","msg":"Started assignment","subsystem":"start-assignment","conversationId":"conv-parent","taskId":"task-1","assignmentId":"assign-1","agentConfigId":"cfg-test","agentName":"alice","subConversationId":"sub-fresh-created","agentRunId":"bf0721f8-b468-4c8b-8cf5-8b6460b01a74"}
+{"ts":"2026-10-16T19:38:11.828Z","level":"info","msg":"assignment_update emit","subsystem":"start-assignment","conversationId":"conv-parent","taskId":"task-1","assignmentId":"assign-1","status":"failed","hasStructured":false}
+{"ts":"2026-10-16T19:38:11.830Z","level":"info","msg":"assignment_update emit","subsystem":"start-assignment","conversationId":"conv-parent","taskId":"task-1","assignmentId":"assign-1","status":"running","hasStructured":false}
+{"ts":"2026-10-16T19:38:11.830Z","level":"error","msg":"streamChat error","subsystem":"start-assignment","error":"stream boom"}
+{"ts":"2026-10-16T19:38:11.830Z","level":"info","msg":"assignment_update emit","subsystem":"start-assignment","conversationId":"conv-parent","taskId":"task-1","assignmentId":"assign-1","status":"failed","hasStructured":false}
+{"ts":"2026-10-16T19:38:11.830Z","level":"info","msg":"Started assignment","subsystem":"start-assignment","conversationId":"conv-parent","taskId":"task-1","assignmentId":"assign-1","agentConfigId":"cfg-test","agentName":"alice","subConversationId":"sub-fresh-created","agentRunId":"70148fff-0bea-4367-b293-944c294520ac"}
+{"ts":"2026-10-16T19:38:11.831Z","level":"info","msg":"assignment_update emit","subsystem":"start-assignment","conversationId":"conv-parent","taskId":"task-1","assignmentId":"assign-1","status":"running","hasStructured":false}
+{"ts":"2026-10-16T19:38:11.831Z","level":"info","msg":"Started assignment","subsystem":"start-assignment","conversationId":"conv-parent","taskId":"task-1","assignmentId":"assign-1","agentConfigId":"cfg-test","agentName":"alice","subConversationId":"sub-reg","agentRunId":"d154c8b9-b66b-4568-8ff1-9716345edcf0"}
+{"ts":"2026-10-16T19:38:11.831Z","level":"info","msg":"assignment_update emit","subsystem":"start-assignment","conversationId":"conv-parent","taskId":"task-1","assignmentId":"assign-1","status":"running","hasStructured":false}
+{"ts":"2026-10-16T19:38:11.831Z","level":"info","msg":"Started assignment","subsystem":"start-assignment","conversationId":"conv-parent","taskId":"task-1","assignmentId":"assign-1","agentConfigId":"cfg-test","agentName":"alice","subConversationId":"sub-reg-cycle","agentRunId":"0b2bb747-204a-4c7d-8be8-c33e1ccd8617"}
+{"ts":"2026-10-16T19:38:11.831Z","level":"info","msg":"assignment_update emit","subsystem":"start-assignment","conversationId":"conv-parent","taskId":"task-1","assignmentId":"assign-1","status":"running","hasStructured":false}
+{"ts":"2026-10-16T19:38:11.831Z","level":"info","msg":"Auto-continue with pending message","subsystem":"start-assignment","conversationId":"conv-parent","taskId":"task-1","newRunId":"9faf9369-5e53-4b61-9802-2666c1c76dde"}
+{"ts":"2026-10-16T19:38:11.832Z","level":"info","msg":"assignment_update emit","subsystem":"start-assignment","conversationId":"conv-parent","taskId":"task-1","assignmentId":"assign-1","status":"running","hasStructured":false}
+{"ts":"2026-10-16T19:38:11.832Z","level":"info","msg":"Started assignment","subsystem":"start-assignment","conversationId":"conv-parent","taskId":"task-1","assignmentId":"assign-1","agentConfigId":"cfg-test","agentName":"alice","subConversationId":"sub-noreg","agentRunId":"bf56f00f-cc6f-49a0-914e-f86f91b604f0"}
+{"ts":"2026-10-16T19:38:11.832Z","level":"info","msg":"assignment_update emit","subsystem":"start-assignment","conversationId":"conv-parent","taskId":"task-1","assignmentId":"assign-1","status":"running","hasStructured":false}
+{"ts":"2026-10-16T19:38:11.832Z","level":"info","msg":"assignment_update emit","subsystem":"start-assignment","conversationId":"conv-parent","taskId":"task-1","assignmentId":"assign-1","status":"failed","hasStructured":false}
+{"ts":"2026-10-16T19:38:11.832Z","level":"info","msg":"Refused to start child of terminal parent run","subsystem":"start-assignment","conversationId":"conv-parent","taskId":"task-1","parentRunId":"run-dead-parent","runId":"acf1839a-164d-4c00-9502-5b2dcb946548"}
+{"ts":"2026-10-16T19:38:11.832Z","level":"info","msg":"Started assignment","subsystem":"start-assignment","conversationId":"conv-parent","taskId":"task-1","assignmentId":"assign-1","agentConfigId":"cfg-test","agentName":"alice","subConversationId":"sub-dead-parent","agentRunId":"acf1839a-164d-4c00-9502-5b2dcb946548"}
+{"ts":"2026-10-16T19:38:11.832Z","level":"info","msg":"assignment_update emit","subsystem":"start-assignment","conversationId":"conv-parent","taskId":"task-1","assignmentId":"assign-1","status":"running","hasStructured":false}
+{"ts":"2026-10-16T19:38:11.832Z","level":"info","msg":"Started assignment","subsystem":"start-assignment","conversationId":"conv-parent","taskId":"task-1","assignmentId":"assign-1","agentConfigId":"cfg-test","agentName":"alice","subConversationId":"sub-rm-plain","agentRunId":"5b7addda-31b0-4b27-97ed-797523795172"}
+{"ts":"2026-10-16T19:38:11.832Z","level":"info","msg":"assignment_update emit","subsystem":"start-assignment","conversationId":"conv-parent","taskId":"task-1","assignmentId":"assign-1","status":"running","hasStructured":false}
+{"ts":"2026-10-16T19:38:11.832Z","level":"info","msg":"Started assignment","subsystem":"start-assignment","conversationId":"conv-parent","taskId":"task-1","assignmentId":"assign-1","agentConfigId":"cfg-test","agentName":"alice","subConversationId":"sub-rm-auto","agentRunId":"6b3004f8-9dc7-4761-bb2b-60573c71cbf1"}
+{"ts":"2026-10-16T19:38:11.832Z","level":"info","msg":"assignment_update emit","subsystem":"start-assignment","conversationId":"conv-parent","taskId":"task-1","assignmentId":"assign-1","status":"running","hasStructured":false}
+{"ts":"2026-10-16T19:38:11.832Z","level":"info","msg":"Autonomous continuation","subsystem":"start-assignment","conversationId":"conv-parent","taskId":"task-1","newRunId":"808d407b-fbfd-40b7-94ce-08a2fc94efd9","cycle":1,"maxCycles":3}
+{"ts":"2026-10-16T19:38:11.834Z","level":"info","msg":"assignment_update emit","subsystem":"start-assignment","conversationId":"conv-parent","taskId":"task-1","assignmentId":"assign-1","status":"running","hasStructured":false}
+{"ts":"2026-10-16T19:38:11.834Z","level":"info","msg":"Started assignment","subsystem":"start-assignment","conversationId":"conv-parent","taskId":"task-1","assignmentId":"assign-1","agentConfigId":"cfg-test","agentName":"alice","subConversationId":"sub-rm-schema","agentRunId":"ea319113-0fcc-4479-9fd2-e86f8fc1a258"}
+{"ts":"2026-10-16T19:38:11.834Z","level":"info","msg":"assignment_update emit","subsystem":"start-assignment","conversationId":"conv-parent","taskId":"task-1","assignmentId":"assign-1","status":"running","hasStructured":false}
+{"ts":"2026-10-16T19:38:11.834Z","level":"info","msg":"Started assignment","subsystem":"start-assignment","conversationId":"conv-detached-cont","taskId":"task-1","assignmentId":"assign-1","agentConfigId":"cfg-test","agentName":"alice","subConversationId":"sub-detached-cont","agentRunId":"97f7d986-f535-4c83-a50d-ab0085488177"}
+{"ts":"2026-10-16T19:38:11.834Z","level":"info","msg":"assignment_update emit","subsystem":"start-assignment","conversationId":"conv-parent","taskId":"task-1","assignmentId":"assign-1","status":"running","hasStructured":false}
+{"ts":"2026-10-16T19:38:11.834Z","level":"info","msg":"Detached child outlived terminal parent — streaming unparented","subsystem":"start-assignment","conversationId":"conv-detached-cont","taskId":"task-1","parentRunId":"parent-detached","runId":"ee8f4208-027d-4817-8068-e490da0500f9"}
+{"ts":"2026-10-16T19:38:11.834Z","level":"info","msg":"Autonomous continuation","subsystem":"start-assignment","conversationId":"conv-detached-cont","taskId":"task-1","newRunId":"ee8f4208-027d-4817-8068-e490da0500f9","cycle":1,"maxCycles":3}
+{"ts":"2026-10-16T19:38:11.835Z","level":"info","msg":"assignment_update emit","subsystem":"start-assignment","conversationId":"conv-parent","taskId":"task-1","assignmentId":"assign-1","status":"running","hasStructured":false}
+{"ts":"2026-10-16T19:38:11.835Z","level":"info","msg":"Started assignment","subsystem":"start-assignment","conversationId":"conv-parent","taskId":"task-1","assignmentId":"assign-1","agentConfigId":"cfg-test","agentName":"alice","subConversationId":"sub-detached-initial","agentRunId":"8503c8f7-d57f-4df9-a723-193fe936accc"}
+{"ts":"2026-10-16T19:38:11.835Z","level":"info","msg":"assignment_update emit","subsystem":"start-assignment","conversationId":"conv-parent","taskId":"task-1","assignmentId":"assign-1","status":"running","hasStructured":false}
+{"ts":"2026-10-16T19:38:11.835Z","level":"info","msg":"Started assignment","subsystem":"start-assignment","conversationId":"conv-sync-cont","taskId":"task-1","assignmentId":"assign-1","agentConfigId":"cfg-test","agentName":"alice","subConversationId":"sub-sync-cont","agentRunId":"4fedf338-759c-4210-9f14-1adda5e347d7"}
+{"ts":"2026-10-16T19:38:11.835Z","level":"info","msg":"assignment_update emit","subsystem":"start-assignment","conversationId":"conv-parent","taskId":"task-1","assignmentId":"assign-1","status":"running","hasStructured":false}
+{"ts":"2026-10-16T19:38:11.835Z","level":"info","msg":"assignment_update emit","subsystem":"start-assignment","conversationId":"conv-parent","taskId":"task-1","assignmentId":"assign-1","status":"failed","hasStructured":false}
+{"ts":"2026-10-16T19:38:11.835Z","level":"info","msg":"Refused to start child of terminal parent run","subsystem":"start-assignment","conversationId":"conv-sync-cont","taskId":"task-1","parentRunId":"parent-sync","runId":"893f1dce-261b-4a44-bbb1-b96a009ed13c"}
+{"ts":"2026-10-16T19:38:11.835Z","level":"info","msg":"Autonomous continuation","subsystem":"start-assignment","conversationId":"conv-sync-cont","taskId":"task-1","newRunId":"893f1dce-261b-4a44-bbb1-b96a009ed13c","cycle":1,"maxCycles":3}
+{"ts":"2026-10-16T19:38:11.836Z","level":"info","msg":"assignment_update emit","subsystem":"start-assignment","conversationId":"conv-parent","taskId":"task-1","assignmentId":"assign-1","status":"running","hasStructured":false}
+{"ts":"2026-10-16T19:38:11.836Z","level":"info","msg":"Started assignment","subsystem":"start-assignment","conversationId":"conv-double","taskId":"task-1","assignmentId":"assign-1","agentConfigId":"cfg-test","agentName":"alice","subConversationId":"sub-double","agentRunId":"146a79b3-4064-42ce-aa10-71c77d3cd68f"}
+{"ts":"2026-10-16T19:38:11.836Z","level":"info","msg":"assignment_update emit","subsystem":"start-assignment","conversationId":"conv-parent","taskId":"task-1","assignmentId":"assign-1","status":"completed","hasStructured":false}
+{"ts":"2026-10-16T19:38:11.838Z","level":"error","msg":"streamChat error","subsystem":"start-assignment","error":"late stream boom"}
+{"ts":"2026-10-16T19:38:11.838Z","level":"info","msg":"assignment_update emit","subsystem":"start-assignment","conversationId":"conv-parent","taskId":"task-1","assignmentId":"assign-1","status":"failed","hasStructured":false}
+{"ts":"2026-10-16T19:38:11.838Z","level":"info","msg":"assignment_update emit","subsystem":"start-assignment","conversationId":"conv-parent","taskId":"task-1","assignmentId":"assign-1","status":"running","hasStructured":false}
+{"ts":"2026-10-16T19:38:11.838Z","level":"info","msg":"Started assignment","subsystem":"start-assignment","conversationId":"conv-parent","taskId":"task-1","assignmentId":"assign-1","agentConfigId":"cfg-test","agentName":"alice","subConversationId":"sub-quota","agentRunId":"36f28d45-241a-4858-8fd9-9b378913e2c4"}
+{"ts":"2026-10-16T19:38:11.838Z","level":"info","msg":"assignment_update emit","subsystem":"start-assignment","conversationId":"conv-parent","taskId":"task-1","assignmentId":"assign-1","status":"running","hasStructured":false}
+{"ts":"2026-10-16T19:38:11.838Z","level":"info","msg":"Autonomous continuation","subsystem":"start-assignment","conversationId":"conv-parent","taskId":"task-1","newRunId":"1e263ac8-968c-4126-af65-cb9332867769","cycle":1,"maxCycles":1}
+{"ts":"2026-10-16T19:38:11.840Z","level":"info","msg":"assignment_update emit","subsystem":"start-assignment","conversationId":"conv-parent","taskId":"task-1","assignmentId":"assign-1","status":"completed","hasStructured":false}
+{"ts":"2026-10-16T19:38:11.841Z","level":"info","msg":"assignment_update emit","subsystem":"start-assignment","conversationId":"conv-parent","taskId":"task-1","assignmentId":"assign-1","status":"running","hasStructured":false}
+{"ts":"2026-10-16T19:38:11.841Z","level":"info","msg":"Started assignment","subsystem":"start-assignment","conversationId":"conv-parent","taskId":"task-1","assignmentId":"assign-1","agentConfigId":"cfg-test","agentName":"alice","subConversationId":"sub-nocb","agentRunId":"985f0056-7e93-4d88-8c6b-f6101d519a21"}
+{"ts":"2026-10-16T19:38:11.841Z","level":"info","msg":"assignment_update emit","subsystem":"start-assignment","conversationId":"conv-parent","taskId":"task-1","assignmentId":"assign-1","status":"running","hasStructured":false}
+{"ts":"2026-10-16T19:38:11.842Z","level":"info","msg":"Started assignment","subsystem":"start-assignment","conversationId":"conv-parent","taskId":"task-1","assignmentId":"assign-1","agentConfigId":"cfg-test","agentName":"alice","subConversationId":"sub-reuse-combined","agentRunId":"549a35ca-92f3-4133-bb81-8ff05f11060d"}
+{"ts":"2026-10-16T19:38:11.842Z","level":"info","msg":"assignment_update emit","subsystem":"start-assignment","conversationId":"conv-parent","taskId":"task-1","assignmentId":"assign-1","status":"running","hasStructured":false}
+{"ts":"2026-10-16T19:38:11.842Z","level":"info","msg":"Started assignment","subsystem":"start-assignment","conversationId":"conv-parent","taskId":"task-1","assignmentId":"assign-1","agentConfigId":"cfg-test","agentName":"alice","subConversationId":"sub-pin","agentRunId":"3dad75ac-5569-4831-9e63-d7a603ad4fb3"}
+{"ts":"2026-10-16T19:38:11.842Z","level":"info","msg":"assignment_update emit","subsystem":"start-assignment","conversationId":"conv-parent","taskId":"task-1","assignmentId":"assign-1","status":"running","hasStructured":false}
+{"ts":"2026-10-16T19:38:11.842Z","level":"info","msg":"Auto-continue with pending message","subsystem":"start-assignment","conversationId":"conv-parent","taskId":"task-1","newRunId":"c4e3f76c-450b-4c2a-8042-90f1a0980e5d"}
+{"ts":"2026-10-16T19:38:11.843Z","level":"info","msg":"assignment_update emit","subsystem":"start-assignment","conversationId":"conv-parent","taskId":"task-1","assignmentId":"assign-1","status":"running","hasStructured":false}
+{"ts":"2026-10-16T19:38:11.843Z","level":"info","msg":"Started assignment","subsystem":"start-assignment","conversationId":"conv-parent","taskId":"task-1","assignmentId":"assign-1","agentConfigId":"cfg-test","agentName":"alice","subConversationId":"sub-full","agentRunId":"c67cd688-32f1-4186-87d4-0e87d6d09e8c"}
+{"ts":"2026-10-16T19:38:11.843Z","level":"info","msg":"assignment_update emit","subsystem":"start-assignment","conversationId":"conv-parent","taskId":"task-1","assignmentId":"assign-1","status":"completed","hasStructured":false}
+{"ts":"2026-10-16T19:38:11.844Z","level":"info","msg":"assignment_update emit","subsystem":"start-assignment","conversationId":"conv-parent","taskId":"task-1","assignmentId":"assign-1","status":"running","hasStructured":false}
+{"ts":"2026-10-16T19:38:11.844Z","level":"info","msg":"Started assignment","subsystem":"start-assignment","conversationId":"conv-parent","taskId":"task-1","assignmentId":"assign-1","agentConfigId":"cfg-test","agentName":"alice","subConversationId":"sub-err","agentRunId":"2c6a60f3-b304-4caa-bb6a-d9f998794b97"}
+{"ts":"2026-10-16T19:38:11.844Z","level":"info","msg":"assignment_update emit","subsystem":"start-assignment","conversationId":"conv-parent","taskId":"task-1","assignmentId":"assign-1","status":"failed","hasStructured":false}
+{"ts":"2026-10-16T19:38:11.846Z","level":"info","msg":"assignment_update emit","subsystem":"start-assignment","conversationId":"conv-parent","taskId":"task-1","assignmentId":"assign-1","status":"running","hasStructured":false}
+{"ts":"2026-10-16T19:38:11.846Z","level":"info","msg":"Started assignment","subsystem":"start-assignment","conversationId":"conv-parent","taskId":"task-1","assignmentId":"assign-1","agentConfigId":"cfg-test","agentName":"alice","subConversationId":"sub-empty","agentRunId":"fcd56451-3605-4a8e-88e7-fbea0b5e1343"}
+{"ts":"2026-10-16T19:38:11.846Z","level":"info","msg":"assignment_update emit","subsystem":"start-assignment","conversationId":"conv-parent","taskId":"task-1","assignmentId":"assign-1","status":"completed","hasStructured":false}
+{"ts":"2026-10-16T19:38:11.847Z","level":"info","msg":"assignment_update emit","subsystem":"start-assignment","conversationId":"conv-parent","taskId":"task-1","assignmentId":"assign-1","status":"running","hasStructured":false}
+{"ts":"2026-10-16T19:38:11.847Z","level":"info","msg":"Started assignment","subsystem":"start-assignment","conversationId":"conv-parent","taskId":"task-1","assignmentId":"assign-1","agentConfigId":"cfg-test","agentName":"alice","subConversationId":"sub-a","agentRunId":"fddab191-22ae-4c54-8d36-35abf4eadd68"}
+{"ts":"2026-10-16T19:38:11.847Z","level":"info","msg":"assignment_update emit","subsystem":"start-assignment","conversationId":"conv-parent","taskId":"task-1","assignmentId":"assign-1","status":"completed","hasStructured":false}
+{"ts":"2026-10-16T19:38:11.848Z","level":"info","msg":"assignment_update emit","subsystem":"start-assignment","conversationId":"conv-parent","taskId":"task-1","assignmentId":"assign-1","status":"running","hasStructured":false}
+{"ts":"2026-10-16T19:38:11.848Z","level":"info","msg":"Started assignment","subsystem":"start-assignment","conversationId":"conv-parent","taskId":"task-1","assignmentId":"assign-1","agentConfigId":"cfg-test","agentName":"alice","subConversationId":"sub-b","agentRunId":"8b687d08-66d1-4c96-8634-65502eff6dba"}
+{"ts":"2026-10-16T19:38:11.848Z","level":"info","msg":"assignment_update emit","subsystem":"start-assignment","conversationId":"conv-parent","taskId":"task-1","assignmentId":"assign-1","status":"running","hasStructured":false}
+{"ts":"2026-10-16T19:38:11.848Z","level":"info","msg":"Autonomous continuation","subsystem":"start-assignment","conversationId":"conv-parent","taskId":"task-1","newRunId":"aaf31645-47f3-4ac3-b3f5-d385dcbc23c5","cycle":1,"maxCycles":3}
+{"ts":"2026-10-16T19:38:11.849Z","level":"info","msg":"assignment_update emit","subsystem":"start-assignment","conversationId":"conv-parent","taskId":"task-1","assignmentId":"assign-1","status":"running","hasStructured":false}
+{"ts":"2026-10-16T19:38:11.849Z","level":"info","msg":"Started assignment","subsystem":"start-assignment","conversationId":"conv-parent","taskId":"task-1","assignmentId":"assign-1","agentConfigId":"cfg-test","agentName":"alice","subConversationId":"sub-c","agentRunId":"b7912dd7-e613-40c7-bba1-e0e2d0461d53"}
+{"ts":"2026-10-16T19:38:11.849Z","level":"info","msg":"assignment_update emit","subsystem":"start-assignment","conversationId":"conv-parent","taskId":"task-1","assignmentId":"assign-1","status":"completed","hasStructured":false}
+{"ts":"2026-10-16T19:38:11.850Z","level":"info","msg":"assignment_update emit","subsystem":"start-assignment","conversationId":"conv-parent","taskId":"task-1","assignmentId":"assign-1","status":"running","hasStructured":false}
+{"ts":"2026-10-16T19:38:11.850Z","level":"info","msg":"Started assignment","subsystem":"start-assignment","conversationId":"conv-parent","taskId":"task-1","assignmentId":"assign-1","agentConfigId":"cfg-test","agentName":"alice","subConversationId":"sub-d","agentRunId":"9b2745a4-7b3a-493a-8919-331ff4609a36"}
+{"ts":"2026-10-16T19:38:11.850Z","level":"info","msg":"assignment_update emit","subsystem":"start-assignment","conversationId":"conv-parent","taskId":"task-1","assignmentId":"assign-1","status":"completed","hasStructured":false}
+{"ts":"2026-10-16T19:38:11.852Z","level":"info","msg":"assignment_update emit","subsystem":"start-assignment","conversationId":"conv-parent","taskId":"task-1","assignmentId":"assign-1","status":"running","hasStructured":false}
+{"ts":"2026-10-16T19:38:11.852Z","level":"info","msg":"Started assignment","subsystem":"start-assignment","conversationId":"conv-parent","taskId":"task-1","assignmentId":"assign-1","agentConfigId":"cfg-test","agentName":"alice","subConversationId":"sub-e","agentRunId":"56a9d31b-501d-41cf-a758-813a63f17f8e"}
+{"ts":"2026-10-16T19:38:11.852Z","level":"info","msg":"assignment_update emit","subsystem":"start-assignment","conversationId":"conv-parent","taskId":"task-1","assignmentId":"assign-1","status":"running","hasStructured":false}
+{"ts":"2026-10-16T19:38:11.852Z","level":"info","msg":"Autonomous continuation","subsystem":"start-assignment","conversationId":"conv-parent","taskId":"task-1","newRunId":"6770a917-ff74-4a72-9c65-886d26c66153","cycle":1,"maxCycles":1}
+{"ts":"2026-10-16T19:38:11.853Z","level":"info","msg":"assignment_update emit","subsystem":"start-assignment","conversationId":"conv-parent","taskId":"task-1","assignmentId":"assign-1","status":"completed","hasStructured":false}
+{"ts":"2026-10-16T19:38:11.854Z","level":"info","msg":"assignment_update emit","subsystem":"start-assignment","conversationId":"conv-parent","taskId":"task-1","assignmentId":"assign-1","status":"running","hasStructured":false}
+{"ts":"2026-10-16T19:38:11.854Z","level":"info","msg":"Started assignment","subsystem":"start-assignment","conversationId":"conv-parent","taskId":"task-1","assignmentId":"assign-1","agentConfigId":"cfg-test","agentName":"alice","subConversationId":"sub-f","agentRunId":"6cec1145-75f1-4b91-bdb7-ad9cc81f23e2"}
+{"ts":"2026-10-16T19:38:11.854Z","level":"info","msg":"assignment_update emit","subsystem":"start-assignment","conversationId":"conv-parent","taskId":"task-1","assignmentId":"assign-1","status":"running","hasStructured":false}
+{"ts":"2026-10-16T19:38:11.854Z","level":"info","msg":"Auto-continue with pending message","subsystem":"start-assignment","conversationId":"conv-parent","taskId":"task-1","newRunId":"fb9180b6-c850-4b06-8d5f-b38f9012c3a2"}
+{"ts":"2026-10-16T19:38:11.855Z","level":"info","msg":"assignment_update emit","subsystem":"start-assignment","conversationId":"conv-parent","taskId":"task-1","assignmentId":"assign-1","status":"running","hasStructured":false}
+{"ts":"2026-10-16T19:38:11.855Z","level":"info","msg":"Started assignment","subsystem":"start-assignment","conversationId":"conv-parent","taskId":"task-1","assignmentId":"assign-1","agentConfigId":"cfg-test","agentName":"alice","subConversationId":"sub-g","agentRunId":"6b058498-b9cb-4aaa-bffd-06040dadb986"}
+{"ts":"2026-10-16T19:38:11.857Z","level":"info","msg":"assignment_update emit","subsystem":"start-assignment","conversationId":"conv-parent","taskId":"task-1","assignmentId":"assign-1","status":"running","hasStructured":false}
+{"ts":"2026-10-16T19:38:11.857Z","level":"info","msg":"Started assignment","subsystem":"start-assignment","conversationId":"conv-parent","taskId":"task-1","assignmentId":"assign-1","agentConfigId":"cfg-test","agentName":"alice","subConversationId":"sub-ks1","agentRunId":"4e75afb9-5f8a-43dd-9967-82968f6c9460"}
+{"ts":"2026-10-16T19:38:11.857Z","level":"info","msg":"assignment_update emit","subsystem":"start-assignment","conversationId":"conv-parent","taskId":"task-1","assignmentId":"assign-1","status":"running","hasStructured":false}
+{"ts":"2026-10-16T19:38:11.857Z","level":"info","msg":"Started assignment","subsystem":"start-assignment","conversationId":"conv-parent","taskId":"task-1","assignmentId":"assign-1","agentConfigId":"cfg-test","agentName":"alice","subConversationId":"sub-ks2","agentRunId":"b604ac06-be9c-4693-8204-c094455a7a2f"}
+{"ts":"2026-10-16T19:38:11.857Z","level":"info","msg":"assignment_update emit","subsystem":"start-assignment","conversationId":"conv-parent","taskId":"task-1","assignmentId":"assign-1","status":"running","hasStructured":false}
+{"ts":"2026-10-16T19:38:11.857Z","level":"info","msg":"Auto-continue with pending message","subsystem":"start-assignment","conversationId":"conv-parent","taskId":"task-1","newRunId":"7ce5b8e3-c2e6-4997-91f8-caeea7eb8672"}
+{"ts":"2026-10-16T19:38:11.859Z","level":"info","msg":"assignment_update emit","subsystem":"start-assignment","conversationId":"conv-parent","taskId":"task-1","assignmentId":"assign-1","status":"running","hasStructured":false}
+{"ts":"2026-10-16T19:38:11.859Z","level":"info","msg":"Started assignment","subsystem":"start-assignment","conversationId":"conv-parent","taskId":"task-1","assignmentId":"assign-1","agentConfigId":"cfg-test","agentName":"alice","subConversationId":"sub-ks3","agentRunId":"2feb8682-7a9c-48c6-87e4-49ff430af61e"}
+{"ts":"2026-10-16T19:38:11.859Z","level":"info","msg":"assignment_update emit","subsystem":"start-assignment","conversationId":"conv-parent","taskId":"task-1","assignmentId":"assign-1","status":"completed","hasStructured":false}
+{"ts":"2026-10-16T19:38:11.860Z","level":"info","msg":"assignment_update emit","subsystem":"start-assignment","conversationId":"conv-parent","taskId":"task-1","assignmentId":"assign-1","status":"running","hasStructured":false}
+{"ts":"2026-10-16T19:38:11.860Z","level":"info","msg":"Started assignment","subsystem":"start-assignment","conversationId":"conv-parent","taskId":"task-1","assignmentId":"assign-1","agentConfigId":"cfg-test","agentName":"alice","subConversationId":"sub-ks4","agentRunId":"70a7b3cd-6fd3-41da-a35c-9c6198791834"}
+{"ts":"2026-10-16T19:38:11.860Z","level":"info","msg":"assignment_update emit","subsystem":"start-assignment","conversationId":"conv-parent","taskId":"task-1","assignmentId":"assign-1","status":"running","hasStructured":false}
+{"ts":"2026-10-16T19:38:11.860Z","level":"info","msg":"Started assignment","subsystem":"start-assignment","conversationId":"conv-parent","taskId":"task-1","assignmentId":"assign-1","agentConfigId":"cfg-test","agentName":"alice","subConversationId":"sub-so-none","agentRunId":"6fb5a7b4-6ea4-4e74-a84a-a591b22e2d8a"}
+{"ts":"2026-10-16T19:38:11.860Z","level":"info","msg":"assignment_update emit","subsystem":"start-assignment","conversationId":"conv-parent","taskId":"task-1","assignmentId":"assign-1","status":"running","hasStructured":false}
+{"ts":"2026-10-16T19:38:11.860Z","level":"info","msg":"Started assignment","subsystem":"start-assignment","conversationId":"conv-parent","taskId":"task-1","assignmentId":"assign-1","agentConfigId":"cfg-test","agentName":"alice","subConversationId":"sub-so-with","agentRunId":"df18308a-7993-4cea-b3cc-994ecd123841"}
+{"ts":"2026-10-16T19:38:11.860Z","level":"info","msg":"assignment_update emit","subsystem":"start-assignment","conversationId":"conv-parent","taskId":"task-1","assignmentId":"assign-1","status":"running","hasStructured":false}
+{"ts":"2026-10-16T19:38:11.860Z","level":"info","msg":"Started assignment","subsystem":"start-assignment","conversationId":"conv-parent","taskId":"task-1","assignmentId":"assign-1","agentConfigId":"cfg-test","agentName":"alice","subConversationId":"sub-so-1","agentRunId":"65147119-f1e4-4541-9e8a-9fef65a5725d"}
+{"ts":"2026-10-16T19:38:11.860Z","level":"info","msg":"assignment_update emit","subsystem":"start-assignment","conversationId":"conv-parent","taskId":"task-1","assignmentId":"assign-1","status":"completed","hasStructured":true}
+{"ts":"2026-10-16T19:38:11.862Z","level":"info","msg":"assignment_update emit","subsystem":"start-assignment","conversationId":"conv-parent","taskId":"task-1","assignmentId":"assign-1","status":"running","hasStructured":false}
+{"ts":"2026-10-16T19:38:11.862Z","level":"info","msg":"Started assignment","subsystem":"start-assignment","conversationId":"conv-parent","taskId":"task-1","assignmentId":"assign-1","agentConfigId":"cfg-test","agentName":"alice","subConversationId":"sub-so-var-raw","agentRunId":"3de3c3bb-1b20-4875-829b-41d76159d85b"}
+{"ts":"2026-10-16T19:38:11.862Z","level":"info","msg":"assignment_update emit","subsystem":"start-assignment","conversationId":"conv-parent","taskId":"task-1","assignmentId":"assign-1","status":"completed","hasStructured":true}
+{"ts":"2026-10-16T19:38:11.863Z","level":"info","msg":"assignment_update emit","subsystem":"start-assignment","conversationId":"conv-parent","taskId":"task-1","assignmentId":"assign-1","status":"running","hasStructured":false}
+{"ts":"2026-10-16T19:38:11.863Z","level":"info","msg":"Started assignment","subsystem":"start-assignment","conversationId":"conv-parent","taskId":"task-1","assignmentId":"assign-1","agentConfigId":"cfg-test","agentName":"alice","subConversationId":"sub-so-var-fenced","agentRunId":"1bbcf551-424e-4792-b679-56b754fe341d"}
+{"ts":"2026-10-16T19:38:11.863Z","level":"info","msg":"assignment_update emit","subsystem":"start-assignment","conversationId":"conv-parent","taskId":"task-1","assignmentId":"assign-1","status":"completed","hasStructured":true}
+{"ts":"2026-10-16T19:38:11.864Z","level":"info","msg":"assignment_update emit","subsystem":"start-assignment","conversationId":"conv-parent","taskId":"task-1","assignmentId":"assign-1","status":"running","hasStructured":false}
+{"ts":"2026-10-16T19:38:11.864Z","level":"info","msg":"Started assignment","subsystem":"start-assignment","conversationId":"conv-parent","taskId":"task-1","assignmentId":"assign-1","agentConfigId":"cfg-test","agentName":"alice","subConversationId":"sub-so-var-trailingprose","agentRunId":"1ebb8a1f-ef49-4bab-935e-4df445dfba5e"}
+{"ts":"2026-10-16T19:38:11.864Z","level":"info","msg":"assignment_update emit","subsystem":"start-assignment","conversationId":"conv-parent","taskId":"task-1","assignmentId":"assign-1","status":"completed","hasStructured":true}
+{"ts":"2026-10-16T19:38:11.865Z","level":"info","msg":"assignment_update emit","subsystem":"start-assignment","conversationId":"conv-parent","taskId":"task-1","assignmentId":"assign-1","status":"running","hasStructured":false}
+{"ts":"2026-10-16T19:38:11.865Z","level":"info","msg":"Started assignment","subsystem":"start-assignment","conversationId":"conv-parent","taskId":"task-1","assignmentId":"assign-1","agentConfigId":"cfg-test","agentName":"alice","subConversationId":"sub-so-2","agentRunId":"46a00c04-cddd-46fe-9977-01dad1593685"}
+{"ts":"2026-10-16T19:38:11.865Z","level":"info","msg":"assignment_update emit","subsystem":"start-assignment","conversationId":"conv-parent","taskId":"task-1","assignmentId":"assign-1","status":"running","hasStructured":false}
+{"ts":"2026-10-16T19:38:11.865Z","level":"info","msg":"Structured-output re-prompt","subsystem":"start-assignment","conversationId":"conv-parent","taskId":"task-1","newRunId":"9034164e-25cb-46af-ac14-7094866a93d6","retry":1,"maxRetries":2}
+{"ts":"2026-10-16T19:38:11.866Z","level":"info","msg":"assignment_update emit","subsystem":"start-assignment","conversationId":"conv-parent","taskId":"task-1","assignmentId":"assign-1","status":"completed","hasStructured":true}
+{"ts":"2026-10-16T19:38:11.868Z","level":"info","msg":"assignment_update emit","subsystem":"start-assignment","conversationId":"conv-parent","taskId":"task-1","assignmentId":"assign-1","status":"running","hasStructured":false}
+{"ts":"2026-10-16T19:38:11.868Z","level":"info","msg":"Started assignment","subsystem":"start-assignment","conversationId":"conv-parent","taskId":"task-1","assignmentId":"assign-1","agentConfigId":"cfg-test","agentName":"alice","subConversationId":"sub-so-3","agentRunId":"b9fae7dc-d712-4a4e-af37-4da7b3d723f0"}
+{"ts":"2026-10-16T19:38:11.868Z","level":"info","msg":"assignment_update emit","subsystem":"start-assignment","conversationId":"conv-parent","taskId":"task-1","assignmentId":"assign-1","status":"running","hasStructured":false}
+{"ts":"2026-10-16T19:38:11.868Z","level":"info","msg":"Structured-output re-prompt","subsystem":"start-assignment","conversationId":"conv-parent","taskId":"task-1","newRunId":"f00de367-b423-444e-baf8-9dbd379f1bb2","retry":1,"maxRetries":2}
+{"ts":"2026-10-16T19:38:11.869Z","level":"info","msg":"assignment_update emit","subsystem":"start-assignment","conversationId":"conv-parent","taskId":"task-1","assignmentId":"assign-1","status":"running","hasStructured":false}
+{"ts":"2026-10-16T19:38:11.869Z","level":"info","msg":"Structured-output re-prompt","subsystem":"start-assignment","conversationId":"conv-parent","taskId":"task-1","newRunId":"6048cf31-e584-4788-85b7-84eebd039e17","retry":2,"maxRetries":2}
+{"ts":"2026-10-16T19:38:11.870Z","level":"info","msg":"assignment_update emit","subsystem":"start-assignment","conversationId":"conv-parent","taskId":"task-1","assignmentId":"assign-1","status":"completed","hasStructured":false}
+{"ts":"2026-10-16T19:38:11.871Z","level":"info","msg":"assignment_update emit","subsystem":"start-assignment","conversationId":"conv-parent","taskId":"task-1","assignmentId":"assign-1","status":"running","hasStructured":false}
+{"ts":"2026-10-16T19:38:11.871Z","level":"info","msg":"Started assignment","subsystem":"start-assignment","conversationId":"conv-parent","taskId":"task-1","assignmentId":"assign-1","agentConfigId":"cfg-test","agentName":"alice","subConversationId":"sub-so-nojson","agentRunId":"5d4fdf13-5bad-4481-a2a3-cf565aa82708"}
+{"ts":"2026-10-16T19:38:11.871Z","level":"info","msg":"assignment_update emit","subsystem":"start-assignment","conversationId":"conv-parent","taskId":"task-1","assignmentId":"assign-1","status":"running","hasStructured":false}
+{"ts":"2026-10-16T19:38:11.871Z","level":"info","msg":"Structured-output re-prompt","subsystem":"start-assignment","conversationId":"conv-parent","taskId":"task-1","newRunId":"bb31cae4-2f2d-4c77-9eab-3d6b43c8f6c9","retry":1,"maxRetries":2}
+{"ts":"2026-10-16T19:38:11.872Z","level":"info","msg":"assignment_update emit","subsystem":"start-assignment","conversationId":"conv-parent","taskId":"task-1","assignmentId":"assign-1","status":"running","hasStructured":false}
+{"ts":"2026-10-16T19:38:11.872Z","level":"info","msg":"Started assignment","subsystem":"start-assignment","conversationId":"conv-parent","taskId":"task-1","assignmentId":"assign-1","agentConfigId":"cfg-test","agentName":"alice","subConversationId":"sub-so-auto","agentRunId":"4b8959d5-f613-4ca1-9b82-cbb82bb81a48"}
+{"ts":"2026-10-16T19:38:11.872Z","level":"info","msg":"assignment_update emit","subsystem":"start-assignment","conversationId":"conv-parent","taskId":"task-1","assignmentId":"assign-1","status":"running","hasStructured":false}
+{"ts":"2026-10-16T19:38:11.872Z","level":"info","msg":"Autonomous continuation","subsystem":"start-assignment","conversationId":"conv-parent","taskId":"task-1","newRunId":"12f442a3-d1d7-4a19-88c2-79fe37f9ecad","cycle":1,"maxCycles":3}
+{"ts":"2026-10-16T19:38:11.873Z","level":"info","msg":"assignment_update emit","subsystem":"start-assignment","conversationId":"conv-parent","taskId":"task-1","assignmentId":"assign-1","status":"completed","hasStructured":true}
+{"ts":"2026-10-16T19:38:11.875Z","level":"info","msg":"assignment_update emit","subsystem":"start-assignment","conversationId":"conv-parent","taskId":"task-1","assignmentId":"assign-1","status":"running","hasStructured":false}
+{"ts":"2026-10-16T19:38:11.875Z","level":"info","msg":"Started assignment","subsystem":"start-assignment","conversationId":"conv-parent","taskId":"task-1","assignmentId":"assign-1","agentConfigId":"cfg-test","agentName":"alice","subConversationId":"sub-so-swallow","agentRunId":"7f9b5eed-c7be-42e5-bce8-57f700e5bec2"}
+{"ts":"2026-10-16T19:38:11.875Z","level":"info","msg":"assignment_update emit","subsystem":"start-assignment","conversationId":"conv-parent","taskId":"task-1","assignmentId":"assign-1","status":"running","hasStructured":false}
+{"ts":"2026-10-16T19:38:11.875Z","level":"info","msg":"Structured-output re-prompt","subsystem":"start-assignment","conversationId":"conv-parent","taskId":"task-1","newRunId":"72f2ab69-fb66-4043-a818-912a613b03b8","retry":1,"maxRetries":2}
+{"ts":"2026-10-16T19:38:11.876Z","level":"info","msg":"assignment_update emit","subsystem":"start-assignment","conversationId":"conv-parent","taskId":"task-1","assignmentId":"assign-1","status":"completed","hasStructured":true}
+{"ts":"2026-10-16T19:38:11.877Z","level":"info","msg":"assignment_update emit","subsystem":"start-assignment","conversationId":"conv-parent","taskId":"task-1","assignmentId":"assign-1","status":"running","hasStructured":false}
+{"ts":"2026-10-16T19:38:11.877Z","level":"info","msg":"Started assignment","subsystem":"start-assignment","conversationId":"conv-parent","taskId":"task-1","assignmentId":"assign-1","agentConfigId":"cfg-test","agentName":"alice","subConversationId":"sub-so-cap","agentRunId":"50b0663c-ffd4-4d52-a729-e0deac9a5d76"}
+{"ts":"2026-10-16T19:38:11.877Z","level":"info","msg":"assignment_update emit","subsystem":"start-assignment","conversationId":"conv-parent","taskId":"task-1","assignmentId":"assign-1","status":"completed","hasStructured":false}
+{"ts":"2026-10-16T19:38:11.878Z","level":"info","msg":"assignment_update emit","subsystem":"start-assignment","conversationId":"conv-parent","taskId":"task-1","assignmentId":"assign-1","status":"running","hasStructured":false}
+{"ts":"2026-10-16T19:38:11.878Z","level":"info","msg":"Started assignment","subsystem":"start-assignment","conversationId":"conv-parent","taskId":"task-1","assignmentId":"assign-1","agentConfigId":"cfg-test","agentName":"alice","subConversationId":"sub-so-nocap","agentRunId":"ab85c145-0b9a-43e6-9c0b-6833aa13ffcf"}
+{"ts":"2026-10-16T19:38:11.878Z","level":"info","msg":"assignment_update emit","subsystem":"start-assignment","conversationId":"conv-parent","taskId":"task-1","assignmentId":"assign-1","status":"running","hasStructured":false}
+{"ts":"2026-10-16T19:38:11.878Z","level":"info","msg":"Structured-output re-prompt","subsystem":"start-assignment","conversationId":"conv-parent","taskId":"task-1","newRunId":"71bbcc60-047a-4378-bb4d-79767776aedd","retry":1,"maxRetries":2}
+{"ts":"2026-10-16T19:38:11.879Z","level":"info","msg":"assignment_update emit","subsystem":"start-assignment","conversationId":"conv-parent","taskId":"task-1","assignmentId":"assign-1","status":"running","hasStructured":false}
+{"ts":"2026-10-16T19:38:11.879Z","level":"info","msg":"Structured-output re-prompt","subsystem":"start-assignment","conversationId":"conv-parent","taskId":"task-1","newRunId":"1b91d31d-1e9a-449b-82bd-2bbbd1177bd0","retry":2,"maxRetries":2}
+{"ts":"2026-10-16T19:38:11.880Z","level":"info","msg":"assignment_update emit","subsystem":"start-assignment","conversationId":"conv-parent","taskId":"task-1","assignmentId":"assign-1","status":"completed","hasStructured":false}
+{"ts":"2026-10-16T19:38:11.882Z","level":"info","msg":"assignment_update emit","subsystem":"start-assignment","conversationId":"conv-parent","taskId":"task-1","assignmentId":"assign-1","status":"running","hasStructured":false}
+{"ts":"2026-10-16T19:38:11.882Z","level":"info","msg":"Started assignment","subsystem":"start-assignment","conversationId":"conv-parent","taskId":"task-1","assignmentId":"assign-1","agentConfigId":"cfg-test","agentName":"alice","subConversationId":"sub-so-steer","agentRunId":"2502de85-683d-46da-b008-8c647cdbb839"}
+{"ts":"2026-10-16T19:38:11.882Z","level":"info","msg":"assignment_update emit","subsystem":"start-assignment","conversationId":"conv-parent","taskId":"task-1","assignmentId":"assign-1","status":"running","hasStructured":false}
+{"ts":"2026-10-16T19:38:11.882Z","level":"info","msg":"Structured-output re-prompt","subsystem":"start-assignment","conversationId":"conv-parent","taskId":"task-1","newRunId":"de5bbf80-6d84-4584-bb66-cfe6a79a0ba9","retry":1,"maxRetries":2}
+{"ts":"2026-10-16T19:38:11.883Z","level":"info","msg":"assignment_update emit","subsystem":"start-assignment","conversationId":"conv-parent","taskId":"task-1","assignmentId":"assign-1","status":"running","hasStructured":false}
+{"ts":"2026-10-16T19:38:11.883Z","level":"info","msg":"Auto-continue with pending message","subsystem":"start-assignment","conversationId":"conv-parent","taskId":"task-1","newRunId":"65e8c910-af70-4b7a-a593-519f896d7537"}
+{"ts":"2026-10-16T19:38:11.884Z","level":"info","msg":"assignment_update emit","subsystem":"start-assignment","conversationId":"conv-parent","taskId":"task-1","assignmentId":"assign-1","status":"running","hasStructured":false}
+{"ts":"2026-10-16T19:38:11.884Z","level":"info","msg":"Autonomous continuation","subsystem":"start-assignment","conversationId":"conv-parent","taskId":"task-1","newRunId":"15911ac1-e1ff-47d2-be1d-af877d294c88","cycle":1,"maxCycles":3}
+{"ts":"2026-10-16T19:38:11.885Z","level":"info","msg":"assignment_update emit","subsystem":"start-assignment","conversationId":"conv-parent","taskId":"task-1","assignmentId":"assign-1","status":"running","hasStructured":false}
+{"ts":"2026-10-16T19:38:11.885Z","level":"info","msg":"Started assignment","subsystem":"start-assignment","conversationId":"conv-parent","taskId":"task-1","assignmentId":"assign-1","agentConfigId":"cfg-test","agentName":"alice","subConversationId":"sub-fresh-created","agentRunId":"82267971-2141-4165-824d-a37ed5c03c35"}
+{"ts":"2026-10-16T19:38:11.885Z","level":"info","msg":"assignment_update emit","subsystem":"start-assignment","conversationId":"conv-parent","taskId":"task-1","assignmentId":"assign-1","status":"completed","hasStructured":false}
+{"ts":"2026-10-16T19:38:11.886Z","level":"info","msg":"assignment_update emit","subsystem":"start-assignment","conversationId":"conv-parent","taskId":"task-1","assignmentId":"assign-1","status":"running","hasStructured":false}
+{"ts":"2026-10-16T19:38:11.886Z","level":"info","msg":"Started assignment","subsystem":"start-assignment","conversationId":"conv-parent","taskId":"task-1","assignmentId":"assign-1","agentConfigId":"cfg-test","agentName":"alice","subConversationId":"sub-fresh-created","agentRunId":"bbaaeb5a-9771-4de9-86c5-be74ca2da340"}
+{"ts":"2026-10-16T19:38:11.886Z","level":"info","msg":"assignment_update emit","subsystem":"start-assignment","conversationId":"conv-parent","taskId":"task-1","assignmentId":"assign-1","status":"completed","hasStructured":false}
+{"ts":"2026-10-16T19:38:11.887Z","level":"info","msg":"assignment_update emit","subsystem":"start-assignment","conversationId":"conv-parent","taskId":"task-1","assignmentId":"assign-1","status":"running","hasStructured":false}
+{"ts":"2026-10-16T19:38:11.887Z","level":"info","msg":"Started assignment","subsystem":"start-assignment","conversationId":"conv-parent","taskId":"task-1","assignmentId":"assign-1","agentConfigId":"cfg-test","agentName":"alice","subConversationId":"sub-ac1","agentRunId":"64b695e1-2a2e-44d4-b475-00fa6ba34c6f"}
+{"ts":"2026-10-16T19:38:11.887Z","level":"info","msg":"assignment_update emit","subsystem":"start-assignment","conversationId":"conv-parent","taskId":"task-1","assignmentId":"assign-1","status":"completed","hasStructured":false}
+{"ts":"2026-10-16T19:38:11.889Z","level":"info","msg":"assignment_update emit","subsystem":"start-assignment","conversationId":"conv-parent","taskId":"task-1","assignmentId":"assign-1","status":"running","hasStructured":false}
+{"ts":"2026-10-16T19:38:11.889Z","level":"info","msg":"Started assignment","subsystem":"start-assignment","conversationId":"conv-parent","taskId":"task-1","assignmentId":"assign-1","agentConfigId":"cfg-test","agentName":"alice","subConversationId":"sub-ac2","agentRunId":"424b8253-893a-43e7-8934-0c5bdf12c116"}
+{"ts":"2026-10-16T19:38:11.889Z","level":"info","msg":"assignment_update emit","subsystem":"start-assignment","conversationId":"conv-parent","taskId":"task-1","assignmentId":"assign-1","status":"failed","hasStructured":false}
+{"ts":"2026-10-16T19:38:11.892Z","level":"info","msg":"assignment_update emit","subsystem":"start-assignment","conversationId":"conv-parent","taskId":"task-1","assignmentId":"assign-1","status":"running","hasStructured":false}
+{"ts":"2026-10-16T19:38:11.892Z","level":"info","msg":"Started assignment","subsystem":"start-assignment","conversationId":"conv-parent","taskId":"task-1","assignmentId":"assign-1","agentConfigId":"cfg-test","agentName":"alice","subConversationId":"sub-ac3","agentRunId":"f6bd9e52-642b-4b84-be2c-caab4bf1d28d"}
+{"ts":"2026-10-16T19:38:11.892Z","level":"info","msg":"assignment_update emit","subsystem":"start-assignment","conversationId":"conv-parent","taskId":"task-1","assignmentId":"assign-1","status":"failed","hasStructured":false}
+{"ts":"2026-10-16T19:38:11.893Z","level":"info","msg":"assignment_update emit","subsystem":"start-assignment","conversationId":"conv-parent","taskId":"task-1","assignmentId":"assign-1","status":"running","hasStructured":false}
+{"ts":"2026-10-16T19:38:11.893Z","level":"info","msg":"Started assignment","subsystem":"start-assignment","conversationId":"conv-parent","taskId":"task-1","assignmentId":"assign-1","agentConfigId":"cfg-test","agentName":"alice","subConversationId":"sub-ac4","agentRunId":"a1532522-d2c0-48b0-90c5-86c26165d8d5"}
+{"ts":"2026-10-16T19:38:11.895Z","level":"info","msg":"assignment_update emit","subsystem":"start-assignment","conversationId":"conv-parent","taskId":"task-1","assignmentId":"assign-1","status":"running","hasStructured":false}
+{"ts":"2026-10-16T19:38:11.895Z","level":"info","msg":"Started assignment","subsystem":"start-assignment","conversationId":"conv-parent","taskId":"task-1","assignmentId":"assign-1","agentConfigId":"cfg-test","agentName":"alice","subConversationId":"sub-ac5","agentRunId":"216eca6c-b75c-4e49-a48d-98d219af2d65"}
+{"ts":"2026-10-16T19:38:11.895Z","level":"info","msg":"assignment_update emit","subsystem":"start-assignment","conversationId":"conv-parent","taskId":"task-1","assignmentId":"assign-1","status":"running","hasStructured":false}
+{"ts":"2026-10-16T19:38:11.895Z","level":"info","msg":"Autonomous continuation","subsystem":"start-assignment","conversationId":"conv-parent","taskId":"task-1","newRunId":"1ade16d0-c141-424b-a1cb-8e1e2a483015","cycle":1,"maxCycles":1}
+{"ts":"2026-10-16T19:38:11.896Z","level":"info","msg":"assignment_update emit","subsystem":"start-assignment","conversationId":"conv-parent","taskId":"task-1","assignmentId":"assign-1","status":"completed","hasStructured":false}
+{"ts":"2026-10-16T19:38:11.897Z","level":"info","msg":"assignment_update emit","subsystem":"start-assignment","conversationId":"conv-parent","taskId":"task-1","assignmentId":"assign-1","status":"running","hasStructured":false}
+{"ts":"2026-10-16T19:38:11.897Z","level":"info","msg":"assignment_update emit","subsystem":"start-assignment","conversationId":"conv-parent","taskId":"task-1","assignmentId":"assign-1","status":"failed","hasStructured":false}
+{"ts":"2026-10-16T19:38:11.897Z","level":"info","msg":"Refused to start child of terminal parent run","subsystem":"start-assignment","conversationId":"conv-parent","taskId":"task-1","parentRunId":"run-dead","runId":"b737d894-6976-48b0-8ad4-b568605b6a56"}
+{"ts":"2026-10-16T19:38:11.897Z","level":"info","msg":"Started assignment","subsystem":"start-assignment","conversationId":"conv-parent","taskId":"task-1","assignmentId":"assign-1","agentConfigId":"cfg-test","agentName":"alice","subConversationId":"sub-ac6","agentRunId":"b737d894-6976-48b0-8ad4-b568605b6a56"}
+{"ts":"2026-10-16T19:38:11.897Z","level":"info","msg":"assignment_update emit","subsystem":"start-assignment","conversationId":"conv-parent","taskId":"task-1","assignmentId":"assign-1","status":"running","hasStructured":false}
+{"ts":"2026-10-16T19:38:11.897Z","level":"info","msg":"Started assignment","subsystem":"start-assignment","conversationId":"conv-parent","taskId":"task-1","assignmentId":"assign-1","agentConfigId":"cfg-test","agentName":"alice","subConversationId":"sub-nfy1","agentRunId":"4fc67571-8c31-4416-9bdb-c3be52afb684"}
+{"ts":"2026-10-16T19:38:11.897Z","level":"info","msg":"assignment_update emit","subsystem":"start-assignment","conversationId":"conv-parent","taskId":"task-1","assignmentId":"assign-1","status":"completed","hasStructured":false}
+{"ts":"2026-10-16T19:38:11.898Z","level":"info","msg":"assignment_update emit","subsystem":"start-assignment","conversationId":"conv-parent","taskId":"task-1","assignmentId":"assign-1","status":"running","hasStructured":false}
+{"ts":"2026-10-16T19:38:11.898Z","level":"info","msg":"Started assignment","subsystem":"start-assignment","conversationId":"conv-parent","taskId":"task-1","assignmentId":"assign-1","agentConfigId":"cfg-test","agentName":"alice","subConversationId":"sub-nfy2","agentRunId":"a15ad140-b7ce-4f4a-bbc0-16611542038d"}
+{"ts":"2026-10-16T19:38:11.898Z","level":"info","msg":"assignment_update emit","subsystem":"start-assignment","conversationId":"conv-parent","taskId":"task-1","assignmentId":"assign-1","status":"failed","hasStructured":false}
+{"ts":"2026-10-16T19:38:11.899Z","level":"info","msg":"assignment_update emit","subsystem":"start-assignment","conversationId":"conv-parent","taskId":"task-1","assignmentId":"assign-1","status":"running","hasStructured":false}
+{"ts":"2026-10-16T19:38:11.899Z","level":"info","msg":"Started assignment","subsystem":"start-assignment","conversationId":"conv-parent","taskId":"task-1","assignmentId":"assign-1","agentConfigId":"cfg-test","agentName":"alice","subConversationId":"sub-nfy3","agentRunId":"c9ad6d8a-b953-4abf-9852-1c83c83e5931"}
+{"ts":"2026-10-16T19:38:11.899Z","level":"info","msg":"assignment_update emit","subsystem":"start-assignment","conversationId":"conv-parent","taskId":"task-1","assignmentId":"assign-1","status":"completed","hasStructured":false}
+{"ts":"2026-10-16T19:38:11.901Z","level":"info","msg":"assignment_update emit","subsystem":"start-assignment","conversationId":"conv-parent","taskId":"task-1","assignmentId":"assign-1","status":"running","hasStructured":false}
+{"ts":"2026-10-16T19:38:11.901Z","level":"info","msg":"Started assignment","subsystem":"start-assignment","conversationId":"conv-parent","taskId":"task-1","assignmentId":"assign-1","agentConfigId":"cfg-test","agentName":"alice","subConversationId":"sub-nfy5","agentRunId":"70167d0d-aa1b-449f-872a-4df4c6c57227"}
+{"ts":"2026-10-16T19:38:11.901Z","level":"info","msg":"assignment_update emit","subsystem":"start-assignment","conversationId":"conv-parent","taskId":"task-1","assignmentId":"assign-1","status":"completed","hasStructured":false}
+{"ts":"2026-10-16T19:38:11.902Z","level":"info","msg":"assignment_update emit","subsystem":"start-assignment","conversationId":"conv-parent","taskId":"task-1","assignmentId":"assign-1","status":"running","hasStructured":false}
+{"ts":"2026-10-16T19:38:11.902Z","level":"info","msg":"Started assignment","subsystem":"start-assignment","conversationId":"conv-parent","taskId":"task-1","assignmentId":"assign-1","agentConfigId":"cfg-test","agentName":"alice","subConversationId":"sub-nfy4","agentRunId":"94b65b30-1963-44e0-8583-5929aab00f55"}
+{"ts":"2026-10-16T19:38:11.902Z","level":"info","msg":"assignment_update emit","subsystem":"start-assignment","conversationId":"conv-parent","taskId":"task-1","assignmentId":"assign-1","status":"completed","hasStructured":false}
+
+ 97 pass
+ 0 fail
+ 341 expect() calls
+Ran 97 tests across 1 file. [455.00ms]
+  bun: src/__tests__/sub-conversation-integration.test.ts
+bun test v1.4.2 (744846f84)
+
+ 24 pass
+ 0 fail
+ 63 expect() calls
+Ran 24 tests across 1 file. [934.00ms]
+  bun: src/__tests__/tool-calls-backfill-migration.test.ts
+bun test v1.4.2 (744846f84)
+
+ 5 pass
+ 0 fail
+ 17 expect() calls
+Ran 5 tests across 1 file. [1201.00ms]
+  bun: src/__tests__/tool-call-telemetry-write.test.ts
+bun test v1.4.2 (744846f84)
+
+ 7 pass
+ 0 fail
+ 34 expect() calls
+Ran 7 tests across 1 file. [831.00ms]
+  bun: src/__tests__/user-search-sharing-edge.test.ts
+bun test v1.4.2 (744846f84)
+
+ 12 pass
+ 0 fail
+ 24 expect() calls
+Ran 12 tests across 1 file. [805.00ms]
+  bun: web/src/__tests__/agent-chat-api.test.ts
+bun test v1.4.2 (744846f84)
+{"ts":"2026-10-16T19:38:16.352Z","level":"error","msg":"streamChat error","subsystem":"api.agent-chat","error":"model timeout"}
+{"ts":"2026-10-16T19:38:16.354Z","level":"error","msg":"streamChat error","subsystem":"api.agent-chat","error":"No credentials available for anthropic. Connect via OAuth or add an API key."}
+
+ 39 pass
+ 0 fail
+ 101 expect() calls
+Ran 39 tests across 1 file. [381.00ms]
+  bun: web/src/__tests__/ask-user-answer-route.test.ts
+bun test v1.4.2 (744846f84)
+
+ 13 pass
+ 0 fail
+ 37 expect() calls
+Ran 13 tests across 1 file. [365.00ms]
+  bun: web/src/__tests__/extensions-api.test.ts
+bun test v1.4.2 (744846f84)
+
+ 55 pass
+ 0 fail
+ 277 expect() calls
+Ran 55 tests across 1 file. [357.00ms]
+  bun: web/src/__tests__/extensions-data-route.test.ts
+bun test v1.4.2 (744846f84)
+
+ 21 pass
+ 0 fail
+ 282 expect() calls
+Ran 21 tests across 1 file. [381.00ms]
+  bun: web/src/__tests__/extension-settings-api.test.ts
+bun test v1.4.2 (744846f84)
+
+ 42 pass
+ 0 fail
+ 140 expect() calls
+Ran 42 tests across 1 file. [373.00ms]
+  bun: web/src/__tests__/extensions-events-route.test.ts
+bun test v1.4.2 (744846f84)
+
+ 44 pass
+ 0 fail
+ 141 expect() calls
+Ran 44 tests across 1 file. [391.00ms]
+  bun: web/src/__tests__/memories-api-post.test.ts
+bun test v1.4.2 (744846f84)
+
+ 20 pass
+ 0 fail
+ 28 expect() calls
+Ran 20 tests across 1 file. [358.00ms]
+  bun: web/src/__tests__/price-chart-stream-bridge.test.ts
+bun test v1.4.2 (744846f84)
+
+ 6 pass
+ 0 fail
+ 30 expect() calls
+Ran 6 tests across 1 file. [11.43s]
+  bun: web/src/__tests__/security/schema-coverage.test.ts
+bun test v1.4.2 (744846f84)
+
+ 50 pass
+ 0 fail
+ 57 expect() calls
+Ran 50 tests across 1 file. [378.00ms]
+  bun: web/src/__tests__/security/validation-routes.test.ts
+bun test v1.4.2 (744846f84)
+
+ 28 pass
+ 0 fail
+ 38 expect() calls
+Ran 28 tests across 1 file. [371.00ms]
+  bun: web/src/__tests__/sub-conversation.test.ts
+bun test v1.4.2 (744846f84)
+
+ 7 pass
+ 0 fail
+ 17 expect() calls
+Ran 7 tests across 1 file. [360.00ms]
+  bun: web/src/__tests__/tasks-api.test.ts
+bun test v1.4.2 (744846f84)
+
+ 10 pass
+ 0 fail
+ 22 expect() calls
+Ran 10 tests across 1 file. [366.00ms]
+  bun: web/src/__tests__/tasks-assignment-api.test.ts
+bun test v1.4.2 (744846f84)
+{"ts":"2026-10-16T19:38:32.102Z","level":"info","msg":"assignment_update emit","subsystem":"start-assignment","conversationId":"conv-1","taskId":"task-1","assignmentId":"assign-1","status":"running","hasStructured":false}
+{"ts":"2026-10-16T19:38:32.103Z","level":"info","msg":"Started assignment","subsystem":"start-assignment","conversationId":"conv-1","taskId":"task-1","assignmentId":"assign-1","agentConfigId":"agent-cfg-1","agentName":"TestAgent","subConversationId":"sub-conv-new","agentRunId":"ed2db23e-4093-4b5e-b394-4b8aa0a93006"}
+
+web/src/__tests__/tasks-assignment-api.test.ts:
+[task-assignment-start] Started {
+  conversationId: "conv-1",
+  taskId: "task-1",
+  assignmentId: "assign-1",
+  agentConfigId: "agent-cfg-1",
+  agentName: "TestAgent",
+  subConversationId: "sub-conv-new",
+  agentRunId: "ed2db23e-4093-4b5e-b394-4b8aa0a93006",
+}
+{"ts":"2026-10-16T19:38:32.103Z","level":"info","msg":"assignment_update emit","subsystem":"start-assignment","conversationId":"conv-1","taskId":"task-1","assignmentId":"assign-1","status":"running","hasStructured":false}
+{"ts":"2026-10-16T19:38:32.103Z","level":"info","msg":"Started assignment","subsystem":"start-assignment","conversationId":"conv-1","taskId":"task-1","assignmentId":"assign-1","agentConfigId":"agent-cfg-1","agentName":"TestAgent","subConversationId":"sub-conv-new","agentRunId":"42061ca1-25e0-4743-b243-90b0adad159c"}
+[task-assignment-start] Started {
+  conversationId: "conv-1",
+  taskId: "task-1",
+  assignmentId: "assign-1",
+  agentConfigId: "agent-cfg-1",
+  agentName: "TestAgent",
+  subConversationId: "sub-conv-new",
+  agentRunId: "42061ca1-25e0-4743-b243-90b0adad159c",
+}
+{"ts":"2026-10-16T19:38:32.103Z","level":"info","msg":"assignment_update emit","subsystem":"start-assignment","conversationId":"conv-1","taskId":"task-1","assignmentId":"assign-1","status":"running","hasStructured":false}
+{"ts":"2026-10-16T19:38:32.103Z","level":"info","msg":"Started assignment","subsystem":"start-assignment","conversationId":"conv-1","taskId":"task-1","assignmentId":"assign-1","agentConfigId":"agent-cfg-1","agentName":"TestAgent","subConversationId":"sub-conv-new","agentRunId":"04ee6cfb-a01e-40d6-ac37-d313bed8e670"}
+[task-assignment-start] Started {
+  conversationId: "conv-1",
+  taskId: "task-1",
+  assignmentId: "assign-1",
+  agentConfigId: "agent-cfg-1",
+  agentName: "TestAgent",
+  subConversationId: "sub-conv-new",
+  agentRunId: "04ee6cfb-a01e-40d6-ac37-d313bed8e670",
+}
+{"ts":"2026-10-16T19:38:32.103Z","level":"info","msg":"assignment_update emit","subsystem":"start-assignment","conversationId":"conv-1","taskId":"task-1","assignmentId":"assign-1","status":"running","hasStructured":false}
+{"ts":"2026-10-16T19:38:32.103Z","level":"info","msg":"Started assignment","subsystem":"start-assignment","conversationId":"conv-1","taskId":"task-1","assignmentId":"assign-1","agentConfigId":"agent-cfg-1","agentName":"TestAgent","subConversationId":"sub-conv-new","agentRunId":"5bd38ed0-2250-456b-b8de-e311a19fbc8e"}
+[task-assignment-start] Started {
+  conversationId: "conv-1",
+  taskId: "task-1",
+  assignmentId: "assign-1",
+  agentConfigId: "agent-cfg-1",
+  agentName: "TestAgent",
+  subConversationId: "sub-conv-new",
+  agentRunId: "5bd38ed0-2250-456b-b8de-e311a19fbc8e",
+}
+{"ts":"2026-10-16T19:38:32.103Z","level":"info","msg":"assignment_update emit","subsystem":"start-assignment","conversationId":"conv-1","taskId":"task-1","assignmentId":"assign-1","status":"running","hasStructured":false}
+{"ts":"2026-10-16T19:38:32.103Z","level":"info","msg":"Started assignment","subsystem":"start-assignment","conversationId":"conv-1","taskId":"task-1","assignmentId":"assign-1","agentConfigId":"agent-cfg-1","agentName":"TestAgent","subConversationId":"sub-conv-new","agentRunId":"1e64d047-7cf6-4d44-b3a4-c4bbe624ddd7"}
+[task-assignment-start] Started {
+  conversationId: "conv-1",
+  taskId: "task-1",
+  assignmentId: "assign-1",
+  agentConfigId: "agent-cfg-1",
+  agentName: "TestAgent",
+  subConversationId: "sub-conv-new",
+  agentRunId: "1e64d047-7cf6-4d44-b3a4-c4bbe624ddd7",
+}
+[task-assignment-start] Task not found {
+  taskId: "nonexistent-task",
+  conversationId: "conv-1",
+  storeTaskCount: 1,
+  taskIds: [ "task-1" ],
+}
+{"ts":"2026-10-16T19:38:32.104Z","level":"info","msg":"assignment_update emit","subsystem":"start-assignment","conversationId":"conv-1","taskId":"task-1","assignmentId":"assign-1","status":"running","hasStructured":false}
+{"ts":"2026-10-16T19:38:32.104Z","level":"info","msg":"Started assignment","subsystem":"start-assignment","conversationId":"conv-1","taskId":"task-1","assignmentId":"assign-1","agentConfigId":"agent-cfg-1","agentName":"TestAgent","subConversationId":"sub-conv-new","agentRunId":"c6979b46-6473-4fd9-90ca-eb0dab84e90b"}
+[task-assignment-start] Started {
+  conversationId: "conv-1",
+  taskId: "task-1",
+  assignmentId: "assign-1",
+  agentConfigId: "agent-cfg-1",
+  agentName: "TestAgent",
+  subConversationId: "sub-conv-new",
+  agentRunId: "c6979b46-6473-4fd9-90ca-eb0dab84e90b",
+}
+{"ts":"2026-10-16T19:38:32.104Z","level":"info","msg":"assignment_update emit","subsystem":"start-assignment","conversationId":"conv-1","taskId":"task-1","assignmentId":"assign-1","status":"running","hasStructured":false}
+{"ts":"2026-10-16T19:38:32.104Z","level":"info","msg":"Started assignment","subsystem":"start-assignment","conversationId":"conv-1","taskId":"task-1","assignmentId":"assign-1","agentConfigId":"agent-cfg-1","agentName":"TestAgent","subConversationId":"existing-sub-conv","agentRunId":"6e2e187b-91aa-4618-9318-f869a4184c4f"}
+[task-assignment-start] Started {
+  conversationId: "conv-1",
+  taskId: "task-1",
+  assignmentId: "assign-1",
+  agentConfigId: "agent-cfg-1",
+  agentName: "TestAgent",
+  subConversationId: "existing-sub-conv",
+  agentRunId: "6e2e187b-91aa-4618-9318-f869a4184c4f",
+}
+{"ts":"2026-10-16T19:38:32.104Z","level":"info","msg":"assignment_update emit","subsystem":"start-assignment","conversationId":"conv-1","taskId":"task-1","assignmentId":"assign-1","status":"running","hasStructured":false}
+{"ts":"2026-10-16T19:38:32.104Z","level":"info","msg":"Started assignment","subsystem":"start-assignment","conversationId":"conv-1","taskId":"task-1","assignmentId":"assign-1","agentConfigId":"agent-cfg-1","agentName":"TestAgent","subConversationId":"sub-conv-new","agentRunId":"70bbdd5b-7ae7-4485-827d-a9914c37ec36"}
+[task-assignment-start] Started {
+  conversationId: "conv-1",
+  taskId: "task-1",
+  assignmentId: "assign-1",
+  agentConfigId: "agent-cfg-1",
+  agentName: "TestAgent",
+  subConversationId: "sub-conv-new",
+  agentRunId: "70bbdd5b-7ae7-4485-827d-a9914c37ec36",
+}
+{"ts":"2026-10-16T19:38:32.105Z","level":"info","msg":"assignment_update emit","subsystem":"start-assignment","conversationId":"conv-1","taskId":"task-1","assignmentId":"assign-1","status":"running","hasStructured":false}
+{"ts":"2026-10-16T19:38:32.105Z","level":"info","msg":"Started assignment","subsystem":"start-assignment","conversationId":"conv-1","taskId":"task-1","assignmentId":"assign-1","agentConfigId":"agent-cfg-1","agentName":"TestAgent","subConversationId":"sub-conv-new","agentRunId":"73e3b7c7-2c33-4386-846d-5b7c36064c0a"}
+[task-assignment-start] Started {
+  conversationId: "conv-1",
+  taskId: "task-1",
+  assignmentId: "assign-1",
+  agentConfigId: "agent-cfg-1",
+  agentName: "TestAgent",
+  subConversationId: "sub-conv-new",
+  agentRunId: "73e3b7c7-2c33-4386-846d-5b7c36064c0a",
+}
+{"ts":"2026-10-16T19:38:32.106Z","level":"info","msg":"assignment_update emit","subsystem":"start-assignment","conversationId":"conv-1","taskId":"task-1","assignmentId":"assign-1","status":"running","hasStructured":false}
+{"ts":"2026-10-16T19:38:32.106Z","level":"info","msg":"Started assignment","subsystem":"start-assignment","conversationId":"conv-1","taskId":"task-1","assignmentId":"assign-1","agentConfigId":"agent-cfg-1","agentName":"TestAgent","subConversationId":"sub-conv-new","agentRunId":"6674dcdf-d4a6-49f6-942e-119930a99d02"}
+[task-assignment-start] Started {
+  conversationId: "conv-1",
+  taskId: "task-1",
+  assignmentId: "assign-1",
+  agentConfigId: "agent-cfg-1",
+  agentName: "TestAgent",
+  subConversationId: "sub-conv-new",
+  agentRunId: "6674dcdf-d4a6-49f6-942e-119930a99d02",
+}
+{"ts":"2026-10-16T19:38:32.106Z","level":"info","msg":"assignment_update emit","subsystem":"start-assignment","conversationId":"conv-1","taskId":"task-1","assignmentId":"assign-1","status":"running","hasStructured":false}
+{"ts":"2026-10-16T19:38:32.106Z","level":"info","msg":"Started assignment","subsystem":"start-assignment","conversationId":"conv-1","taskId":"task-1","assignmentId":"assign-1","agentConfigId":"agent-cfg-1","agentName":"TestAgent","subConversationId":"sub-conv-new","agentRunId":"7ee06304-cf5c-4f5c-9b91-33599978c793"}
+[task-assignment-start] Started {
+  conversationId: "conv-1",
+  taskId: "task-1",
+  assignmentId: "assign-1",
+  agentConfigId: "agent-cfg-1",
+  agentName: "TestAgent",
+  subConversationId: "sub-conv-new",
+  agentRunId: "7ee06304-cf5c-4f5c-9b91-33599978c793",
+}
+{"ts":"2026-10-16T19:38:32.106Z","level":"info","msg":"assignment_update emit","subsystem":"start-assignment","conversationId":"conv-1","taskId":"task-1","assignmentId":"assign-1","status":"running","hasStructured":false}
+{"ts":"2026-10-16T19:38:32.106Z","level":"info","msg":"Started assignment","subsystem":"start-assignment","conversationId":"conv-1","taskId":"task-1","assignmentId":"assign-1","agentConfigId":"agent-cfg-1","agentName":"TestAgent","subConversationId":"sub-conv-new","agentRunId":"795893e1-b00b-4836-a5f3-7b302812719e"}
+[task-assignment-start] Started {
+  conversationId: "conv-1",
+  taskId: "task-1",
+  assignmentId: "assign-1",
+  agentConfigId: "agent-cfg-1",
+  agentName: "TestAgent",
+  subConversationId: "sub-conv-new",
+  agentRunId: "795893e1-b00b-4836-a5f3-7b302812719e",
+}
+{"ts":"2026-10-16T19:38:32.106Z","level":"info","msg":"assignment_update emit","subsystem":"start-assignment","conversationId":"conv-1","taskId":"task-1","assignmentId":"assign-1","status":"running","hasStructured":false}
+{"ts":"2026-10-16T19:38:32.106Z","level":"info","msg":"Started assignment","subsystem":"start-assignment","conversationId":"conv-1","taskId":"task-1","assignmentId":"assign-1","agentConfigId":"agent-cfg-1","agentName":"TestAgent","subConversationId":"sub-conv-new","agentRunId":"f8bfc512-181a-477e-9b18-3bd931677f84"}
+[task-assignment-start] Started {
+  conversationId: "conv-1",
+  taskId: "task-1",
+  assignmentId: "assign-1",
+  agentConfigId: "agent-cfg-1",
+  agentName: "TestAgent",
+  subConversationId: "sub-conv-new",
+  agentRunId: "f8bfc512-181a-477e-9b18-3bd931677f84",
+}
+{"ts":"2026-10-16T19:38:32.106Z","level":"info","msg":"assignment_update emit","subsystem":"start-assignment","conversationId":"conv-1","taskId":"task-1","assignmentId":"assign-1","status":"running","hasStructured":false}
+{"ts":"2026-10-16T19:38:32.106Z","level":"info","msg":"Started assignment","subsystem":"start-assignment","conversationId":"conv-1","taskId":"task-1","assignmentId":"assign-1","agentConfigId":"agent-cfg-1","agentName":"TestAgent","subConversationId":"sub-conv-new","agentRunId":"4455c981-9ef2-42c3-9648-f4604847b01a"}
+[task-assignment-start] Started {
+  conversationId: "conv-1",
+  taskId: "task-1",
+  assignmentId: "assign-1",
+  agentConfigId: "agent-cfg-1",
+  agentName: "TestAgent",
+  subConversationId: "sub-conv-new",
+  agentRunId: "4455c981-9ef2-42c3-9648-f4604847b01a",
+}
+{"ts":"2026-10-16T19:38:32.106Z","level":"info","msg":"assignment_update emit","subsystem":"start-assignment","conversationId":"conv-1","taskId":"task-1","assignmentId":"assign-1","status":"running","hasStructured":false}
+{"ts":"2026-10-16T19:38:32.106Z","level":"info","msg":"Started assignment","subsystem":"start-assignment","conversationId":"conv-1","taskId":"task-1","assignmentId":"assign-1","agentConfigId":"agent-cfg-1","agentName":"TestAgent","subConversationId":"sub-conv-new","agentRunId":"b723adbf-95c0-4aab-8b03-6431c847e1de"}
+[task-assignment-start] Started {
+  conversationId: "conv-1",
+  taskId: "task-1",
+  assignmentId: "assign-1",
+  agentConfigId: "agent-cfg-1",
+  agentName: "TestAgent",
+  subConversationId: "sub-conv-new",
+  agentRunId: "b723adbf-95c0-4aab-8b03-6431c847e1de",
+}
+{"ts":"2026-10-16T19:38:32.106Z","level":"info","msg":"assignment_update emit","subsystem":"start-assignment","conversationId":"conv-1","taskId":"task-1","assignmentId":"assign-1","status":"running","hasStructured":false}
+{"ts":"2026-10-16T19:38:32.106Z","level":"info","msg":"Started assignment","subsystem":"start-assignment","conversationId":"conv-1","taskId":"task-1","assignmentId":"assign-1","agentConfigId":"agent-cfg-1","agentName":"TestAgent","subConversationId":"sub-conv-new","agentRunId":"5272541c-fc78-4010-a175-c320d9117f74"}
+[task-assignment-start] Started {
+  conversationId: "conv-1",
+  taskId: "task-1",
+  assignmentId: "assign-1",
+  agentConfigId: "agent-cfg-1",
+  agentName: "TestAgent",
+  subConversationId: "sub-conv-new",
+  agentRunId: "5272541c-fc78-4010-a175-c320d9117f74",
+}
+{"ts":"2026-10-16T19:38:32.107Z","level":"info","msg":"assignment_update emit","subsystem":"start-assignment","conversationId":"conv-1","taskId":"task-1","assignmentId":"assign-1","status":"completed","hasStructured":false}
+{"ts":"2026-10-16T19:38:32.108Z","level":"info","msg":"assignment_update emit","subsystem":"start-assignment","conversationId":"conv-1","taskId":"task-1","assignmentId":"assign-1","status":"running","hasStructured":false}
+{"ts":"2026-10-16T19:38:32.108Z","level":"info","msg":"Started assignment","subsystem":"start-assignment","conversationId":"conv-1","taskId":"task-1","assignmentId":"assign-1","agentConfigId":"agent-cfg-1","agentName":"TestAgent","subConversationId":"sub-conv-new","agentRunId":"9448e30d-573c-48a9-9561-2e742b439a31"}
+[task-assignment-start] Started {
+  conversationId: "conv-1",
+  taskId: "task-1",
+  assignmentId: "assign-1",
+  agentConfigId: "agent-cfg-1",
+  agentName: "TestAgent",
+  subConversationId: "sub-conv-new",
+  agentRunId: "9448e30d-573c-48a9-9561-2e742b439a31",
+}
+{"ts":"2026-10-16T19:38:32.108Z","level":"info","msg":"assignment_update emit","subsystem":"start-assignment","conversationId":"conv-1","taskId":"task-1","assignmentId":"assign-1","status":"running","hasStructured":false}
+{"ts":"2026-10-16T19:38:32.108Z","level":"info","msg":"Auto-continue with pending message","subsystem":"start-assignment","conversationId":"conv-1","taskId":"task-1","newRunId":"3c3d0588-d590-43a8-9892-21cf6010eb5b"}
+{"ts":"2026-10-16T19:38:32.109Z","level":"info","msg":"assignment_update emit","subsystem":"start-assignment","conversationId":"conv-1","taskId":"task-1","assignmentId":"assign-1","status":"running","hasStructured":false}
+{"ts":"2026-10-16T19:38:32.109Z","level":"info","msg":"Started assignment","subsystem":"start-assignment","conversationId":"conv-1","taskId":"task-1","assignmentId":"assign-1","agentConfigId":"agent-cfg-1","agentName":"TestAgent","subConversationId":"sub-conv-new","agentRunId":"c62cb2ea-2c24-4c7c-8381-de4c6e078b88"}
+[task-assignment-start] Started {
+  conversationId: "conv-1",
+  taskId: "task-1",
+  assignmentId: "assign-1",
+  agentConfigId: "agent-cfg-1",
+  agentName: "TestAgent",
+  subConversationId: "sub-conv-new",
+  agentRunId: "c62cb2ea-2c24-4c7c-8381-de4c6e078b88",
+}
+{"ts":"2026-10-16T19:38:32.109Z","level":"info","msg":"assignment_update emit","subsystem":"start-assignment","conversationId":"conv-1","taskId":"task-1","assignmentId":"assign-1","status":"running","hasStructured":false}
+{"ts":"2026-10-16T19:38:32.109Z","level":"info","msg":"Auto-continue with pending message","subsystem":"start-assignment","conversationId":"conv-1","taskId":"task-1","newRunId":"417d2c67-c255-4a1f-a107-2848289ed770"}
+
+ 40 pass
+ 0 fail
+ 152 expect() calls
+Ran 40 tests across 1 file. [363.00ms]
+  bun: web/src/__tests__/tasks-stop-retry-api.test.ts
+bun test v1.4.2 (744846f84)
+
+ 17 pass
+ 0 fail
+ 88 expect() calls
+Ran 17 tests across 1 file. [365.00ms]
+  bun: web/src/__tests__/team-panel-refresh-flow.test.ts
+bun test v1.4.2 (744846f84)
+{"ts":"2026-10-16T19:38:32.872Z","level":"error","msg":"streamChat error","subsystem":"api.agent-chat","error":"model exploded"}
+
+ 4 pass
+ 0 fail
+ 21 expect() calls
+Ran 4 tests across 1 file. [359.00ms]
+  vitest: src/lib/admin-guard.unit.test.ts src/lib/chat/page-handlers/__tests__/send-message.test.ts src/lib/components/ChatThread.component.test.ts src/lib/components/ChatThread.coverage.component.test.ts src/lib/components/__tests__/UsersSection.component.test.ts src/__tests__/api-account.server.test.ts src/__tests__/api-admin-analytics.server.test.ts src/__tests__/api-admin-embed-progress.server.test.ts src/__tests__/api-admin-errors.server.test.ts src/__tests__/api-admin-system.server.test.ts src/__tests__/api-auth-invite.server.test.ts src/__tests__/api-auth-invite-token.server.test.ts src/__tests__/api-auth-login.server.test.ts src/__tests__/api-projects.server.test.ts src/__tests__/api-users-id.server.test.ts src/__tests__/file-organizer-events-route.server.test.ts src/__tests__/hooks-server-dev-indicator.server.test.ts src/__tests__/hooks-server-gate-initiator.server.test.ts src/__tests__/hooks-server-onboarding-redirect.server.test.ts src/__tests__/hooks-server-return-to.server.test.ts src/__tests__/hooks-server-session-refresh-e2e.server.test.ts src/__tests__/hooks-server-session-refresh.server.test.ts src/__tests__/login-page.server.test.ts src/__tests__/mention-logic.unit.test.ts src/__tests__/onboarding-page.server.test.ts src/__tests__/onboarding-wizard.integration.component.test.ts src/__tests__/setup-page.component.test.ts
+
+ RUN  v5.0.3 /home/dev/work/EZCorp/EZHarness-worktrees/composable-factory-platform/.worktrees/w00-integration/web
+
+{"ts":"2026-10-16T19:38:40.058Z","level":"warn","msg":"session refresh failed","subsystem":"hooks.server","error":"Error: [vitest] No \"signJWT\" export is defined on the \"$server/auth/jwt\" mock. Did you forget to return it from \"vi.mock\"?\nIf you need to partially mock a module, you can use \"importOriginal\" helper inside:\n"}
+{"ts":"2026-10-16T19:38:40.060Z","level":"warn","msg":"session refresh failed","subsystem":"hooks.server","error":"Error: [vitest] No \"signJWT\" export is defined on the \"$server/auth/jwt\" mock. Did you forget to return it from \"vi.mock\"?\nIf you need to partially mock a module, you can use \"importOriginal\" helper inside:\n"}
+{"ts":"2026-10-16T19:38:40.061Z","level":"warn","msg":"session refresh failed","subsystem":"hooks.server","error":"Error: [vitest] No \"signJWT\" export is defined on the \"$server/auth/jwt\" mock. Did you forget to return it from \"vi.mock\"?\nIf you need to partially mock a module, you can use \"importOriginal\" helper inside:\n"}
+{"ts":"2026-10-16T19:38:40.061Z","level":"warn","msg":"session refresh failed","subsystem":"hooks.server","error":"Error: [vitest] No \"signJWT\" export is defined on the \"$server/auth/jwt\" mock. Did you forget to return it from \"vi.mock\"?\nIf you need to partially mock a module, you can use \"importOriginal\" helper inside:\n"}
+{"ts":"2026-10-16T19:38:40.062Z","level":"warn","msg":"session refresh failed","subsystem":"hooks.server","error":"Error: [vitest] No \"signJWT\" export is defined on the \"$server/auth/jwt\" mock. Did you forget to return it from \"vi.mock\"?\nIf you need to partially mock a module, you can use \"importOriginal\" helper inside:\n"}
+{"ts":"2026-10-16T19:38:40.063Z","level":"warn","msg":"session refresh failed","subsystem":"hooks.server","error":"Error: [vitest] No \"signJWT\" export is defined on the \"$server/auth/jwt\" mock. Did you forget to return it from \"vi.mock\"?\nIf you need to partially mock a module, you can use \"importOriginal\" helper inside:\n"}
+{"ts":"2026-10-16T19:38:40.064Z","level":"warn","msg":"session refresh failed","subsystem":"hooks.server","error":"Error: [vitest] No \"signJWT\" export is defined on the \"$server/auth/jwt\" mock. Did you forget to return it from \"vi.mock\"?\nIf you need to partially mock a module, you can use \"importOriginal\" helper inside:\n"}
+{"ts":"2026-10-16T19:38:40.065Z","level":"warn","msg":"session refresh failed","subsystem":"hooks.server","error":"Error: [vitest] No \"signJWT\" export is defined on the \"$server/auth/jwt\" mock. Did you forget to return it from \"vi.mock\"?\nIf you need to partially mock a module, you can use \"importOriginal\" helper inside:\n"}
+{"ts":"2026-10-16T19:38:40.065Z","level":"warn","msg":"session refresh failed","subsystem":"hooks.server","error":"Error: [vitest] No \"signJWT\" export is defined on the \"$server/auth/jwt\" mock. Did you forget to return it from \"vi.mock\"?\nIf you need to partially mock a module, you can use \"importOriginal\" helper inside:\n"}
+{"ts":"2026-10-16T19:38:40.065Z","level":"warn","msg":"session refresh failed","subsystem":"hooks.server","error":"Error: DB blew up"}
+{"ts":"2026-10-16T19:38:40.066Z","level":"warn","msg":"session refresh failed","subsystem":"hooks.server","error":"Error: [vitest] No \"signJWT\" export is defined on the \"$server/auth/jwt\" mock. Did you forget to return it from \"vi.mock\"?\nIf you need to partially mock a module, you can use \"importOriginal\" helper inside:\n"}
+{"ts":"2026-10-16T19:38:40.067Z","level":"warn","msg":"session refresh failed","subsystem":"hooks.server","error":"Error: [vitest] No \"signJWT\" export is defined on the \"$server/auth/jwt\" mock. Did you forget to return it from \"vi.mock\"?\nIf you need to partially mock a module, you can use \"importOriginal\" helper inside:\n"}
+{"ts":"2026-10-16T19:38:40.069Z","level":"warn","msg":"session refresh failed","subsystem":"hooks.server","error":"Error: [vitest] No \"signJWT\" export is defined on the \"$server/auth/jwt\" mock. Did you forget to return it from \"vi.mock\"?\nIf you need to partially mock a module, you can use \"importOriginal\" helper inside:\n"}
+{"ts":"2026-10-16T19:38:40.074Z","level":"warn","msg":"session refresh failed","subsystem":"hooks.server","error":"Error: [vitest] No \"signJWT\" export is defined on the \"$server/auth/jwt\" mock. Did you forget to return it from \"vi.mock\"?\nIf you need to partially mock a module, you can use \"importOriginal\" helper inside:\n"}
+
+ Test Files  27 passed (27)
+      Tests  540 passed (540)
+   Start at  15:38:33
+   Duration  8.53s (transform 66%, environment 14%, setup 8%, import 7%, tests 5%)
+
+  Transform  transforming modules took 87.82s · 66% of tracked time, re-done on every run
+             persist transforms across runs with fsModuleCache: true
+             learn more: https://vitest.dev/guide/improving-performance#caching-between-reruns
+
+[detached HEAD b6414ec0b] merge: wp/w4h-33-test-hygiene e50aedefd into integ/w00 (test hygiene on main: never-running tests run or carry a tracked reason, Docker-only tests get a Podman lane, fixtures move to reserved domains, measured timeouts are declared (W4H-33))

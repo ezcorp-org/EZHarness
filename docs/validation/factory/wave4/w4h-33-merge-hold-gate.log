@@ -1,0 +1,19 @@
+gated-flock w4h-33-hold: start gate mem>=12GiB+3GiB margin 2026-10-16T19:50:13Z
+resource-gate 2026-10-16T19:50:13Z w4h-33-hold outside-lock disk=188G memAvailable=14GiB swapFreeKiB=4845540/17173956 floors disk>=104G mem>=15GiB mem+swap>=18350080KiB (swap component 2621440KiB)
+resource-gate 2026-10-16T19:51:13Z w4h-33-hold outside-lock disk=188G memAvailable=16GiB swapFreeKiB=4934500/17173956 floors disk>=104G mem>=15GiB mem+swap>=18350080KiB (swap component 2621440KiB)
+gated-flock w4h-33-hold: gate green outside the lock, queue for the lock (try 1) 2026-10-16T19:51:13Z
+own-pg: w4h-33-hold-pg (docker.io/pgvector/pgvector@sha256:9a169499888c9d75ad14d0401be64839d2c325f32e399098261589faff93d65c 4b4956e2ab1f, server 15.19) on 127.0.0.1:42979
+gated-flock w4h-33-hold: bun pin repo=/home/dev/work/EZCorp/EZHarness-worktrees/composable-factory-platform/.worktrees/w00-integration ok bun 1.4.2 /tmp/factory-tools/bun-1.4.2/bun-linux-x64 node v24.14.1 /tmp/factory-tools/node-24.14.1/bin
+gated-flock w4h-33-hold: gate red inside the lock, lock released, re-queue 2026-10-16T20:05:33Z
+gated-flock w4h-33-hold: start gate mem>=12GiB+3GiB margin 2026-10-16T20:07:33Z
+resource-gate 2026-10-16T20:07:33Z w4h-33-hold outside-lock disk=180G memAvailable=17GiB swapFreeKiB=4348200/17173956 floors disk>=104G mem>=15GiB mem+swap>=18350080KiB (swap component 2621440KiB)
+gated-flock w4h-33-hold: gate green outside the lock, queue for the lock (try 2) 2026-10-16T20:07:33Z
+own-pg: w4h-33-hold-pg (docker.io/pgvector/pgvector@sha256:9a169499888c9d75ad14d0401be64839d2c325f32e399098261589faff93d65c 4b4956e2ab1f, server 15.19) on 127.0.0.1:39747
+gated-flock w4h-33-hold: bun pin repo=/home/dev/work/EZCorp/EZHarness-worktrees/composable-factory-platform/.worktrees/w00-integration ok bun 1.4.2 /tmp/factory-tools/bun-1.4.2/bun-linux-x64 node v24.14.1 /tmp/factory-tools/node-24.14.1/bin
+gated-flock w4h-33-hold: gate red inside the lock, lock released, re-queue 2026-10-16T20:08:55Z
+gated-flock w4h-33-hold: start gate mem>=12GiB+3GiB margin 2026-10-16T20:10:55Z
+resource-gate 2026-10-16T20:10:55Z w4h-33-hold outside-lock disk=180G memAvailable=17GiB swapFreeKiB=4099232/17173956 floors disk>=104G mem>=15GiB mem+swap>=18350080KiB (swap component 2621440KiB)
+gated-flock w4h-33-hold: gate green outside the lock, queue for the lock (try 3) 2026-10-16T20:10:55Z
+own-pg: w4h-33-hold-pg (docker.io/pgvector/pgvector@sha256:9a169499888c9d75ad14d0401be64839d2c325f32e399098261589faff93d65c 4b4956e2ab1f, server 15.19) on 127.0.0.1:37469
+gated-flock w4h-33-hold: bun pin repo=/home/dev/work/EZCorp/EZHarness-worktrees/composable-factory-platform/.worktrees/w00-integration ok bun 1.4.2 /tmp/factory-tools/bun-1.4.2/bun-linux-x64 node v24.14.1 /tmp/factory-tools/node-24.14.1/bin
+gated-flock w4h-33-hold: command exit 1 2026-10-16T20:39:39Z

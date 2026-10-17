@@ -7,7 +7,7 @@ import { ExtensionRegistry } from "../../../src/extensions/registry";
 // requireScope (undefined == cookie auth; arrays == API-key request).
 let authUser: { id: string; email: string; name: string; role: string } | null = {
 	id: "admin-1",
-	email: "admin@test.com",
+	email: "admin@test.example",
 	name: "Admin",
 	role: "admin",
 };
@@ -455,7 +455,7 @@ async function runThrowable<T extends { status: number }>(
 
 // ── Tests ────────────────────────────────────────────────────────────────
 beforeEach(() => {
-  authUser = { id: "admin-1", email: "admin@test.com", name: "Admin", role: "admin" };
+  authUser = { id: "admin-1", email: "admin@test.example", name: "Admin", role: "admin" };
   apiKeyScopes = undefined;
   extensionStore = { ...extensionFixture };
   listedExtensions = undefined;
@@ -501,7 +501,7 @@ describe("retired install and activation routes cannot grant authority", () => {
     test(label + " requires authentication and extensions scope", async () => {
       authUser = null;
       expect((await denied({})).status).toBe(401);
-      authUser = { id: "user", email: "user@test.com", name: "User", role: "member" };
+      authUser = { id: "user", email: "user@test.example", name: "User", role: "member" };
       apiKeyScopes = ["read", "write"];
       expect((await denied({})).status).toBe(403);
       apiKeyScopes = ["extensions"];
@@ -526,7 +526,7 @@ describe("retired install and activation routes cannot grant authority", () => {
 
 describe("PATCH /api/extensions/:id", () => {
 	beforeEach(() => {
-		authUser = { id: "admin-1", email: "admin@test.com", name: "Admin", role: "admin" };
+		authUser = { id: "admin-1", email: "admin@test.example", name: "Admin", role: "admin" };
 		apiKeyScopes = undefined;
 		extensionStore = { ...extensionFixture, enabled: true };
 		mockGetExtension.mockClear();
@@ -549,14 +549,14 @@ describe("PATCH /api/extensions/:id", () => {
 	});
 
 	test("API key lacking 'extensions' scope → 403", async () => {
-		authUser = { id: "api-user", email: "api@test.com", name: "API", role: "member" };
+		authUser = { id: "api-user", email: "api@test.example", name: "API", role: "member" };
 		apiKeyScopes = ["read"];
 		const res = await runThrowable(() => extPATCH(patchReq("ext-1", { enabled: false })) as any);
 		expect(res.status).toBe(403);
 	});
 
 	test("non-admin cookie user CANNOT disable an extension → 403 (was a back-door)", async () => {
-		authUser = { id: "u2", email: "u2@test.com", name: "U2", role: "member" };
+		authUser = { id: "u2", email: "u2@test.example", name: "U2", role: "member" };
 		apiKeyScopes = undefined;
 		const res = await runThrowable(() => extPATCH(patchReq("ext-1", { enabled: false })) as any);
 		expect(res.status).toBe(403);
@@ -602,7 +602,7 @@ describe("PATCH /api/extensions/:id", () => {
 
 describe("GET /api/extensions", () => {
 	beforeEach(() => {
-		authUser = { id: "admin-1", email: "admin@test.com", name: "Admin", role: "admin" };
+		authUser = { id: "admin-1", email: "admin@test.example", name: "Admin", role: "admin" };
 		apiKeyScopes = undefined;
 		extensionStore = { ...extensionFixture };
 		mockListExtensions.mockClear();
@@ -661,7 +661,7 @@ describe("GET /api/extensions", () => {
 		// Documents current behavior: GET /api/extensions is not admin-gated. If
 		// the audit recommends adding requireRole("admin"), update this test to
 		// expect 403.
-		authUser = { id: "u2", email: "u2@test.com", name: "U2", role: "member" };
+		authUser = { id: "u2", email: "u2@test.example", name: "U2", role: "member" };
 		const res = await runThrowable(() => listGET(listReq()) as any);
 		expect(res.status).toBe(200);
 	});
@@ -705,7 +705,7 @@ describe("GET /api/extensions", () => {
 	});
 
 	test("API key without 'read' scope → 403", async () => {
-		authUser = { id: "api-user", email: "api@test.com", name: "API", role: "member" };
+		authUser = { id: "api-user", email: "api@test.example", name: "API", role: "member" };
 		apiKeyScopes = ["extensions"];
 		const res = await runThrowable(() => listGET(listReq()) as any);
 		expect(res.status).toBe(403);
@@ -715,7 +715,7 @@ describe("GET /api/extensions", () => {
 
 describe("GET /api/extensions/:id", () => {
 	beforeEach(() => {
-		authUser = { id: "admin-1", email: "admin@test.com", name: "Admin", role: "admin" };
+		authUser = { id: "admin-1", email: "admin@test.example", name: "Admin", role: "admin" };
 		apiKeyScopes = undefined;
 		extensionStore = { ...extensionFixture };
 		mockGetExtension.mockClear();
@@ -748,7 +748,7 @@ describe("GET /api/extensions/:id", () => {
 	});
 
 	test("member with a read-scoped API key can read one current extension", async () => {
-		authUser = { id: "api-member", email: "api@test.com", name: "API", role: "member" };
+		authUser = { id: "api-member", email: "api@test.example", name: "API", role: "member" };
 		apiKeyScopes = ["read"];
 		const res = await extGET(detailReq("sample-ext"));
 		expect(res.status).toBe(200);
@@ -758,7 +758,7 @@ describe("GET /api/extensions/:id", () => {
 	});
 
 	test("detail redacts legacy MCP header values for a read-scoped member", async () => {
-		authUser = { id: "member", email: "member@test.com", name: "Member", role: "member" };
+		authUser = { id: "member", email: "member@test.example", name: "Member", role: "member" };
 		extensionStore = {
 			...extensionFixture,
 			manifest: { kind: "mcp", name: "sample-ext", tools: [], permissions: {}, mcpServers: [{ transport: "http", name: "remote", url: "https://mcp.test", headers: { Authorization: "Bearer secret" } }] },
@@ -771,7 +771,7 @@ describe("GET /api/extensions/:id", () => {
 	});
 
 	test("API key without 'read' scope → 403", async () => {
-		authUser = { id: "api-user", email: "api@test.com", name: "API", role: "member" };
+		authUser = { id: "api-user", email: "api@test.example", name: "API", role: "member" };
 		apiKeyScopes = ["extensions"];
 		const res = await runThrowable(() => extGET(detailReq("ext-1")) as any);
 		expect(res.status).toBe(403);
@@ -806,7 +806,7 @@ describe("DELETE /api/extensions/:id", () => {
   test("uninstall checks both role and API key scope", async () => {
     authUser = null;
     expect((await extDELETE(deleteReq("ext-1"))).status).toBe(401);
-    authUser = { id: "member", email: "member@test.com", name: "Member", role: "member" };
+    authUser = { id: "member", email: "member@test.example", name: "Member", role: "member" };
     expect((await extDELETE(deleteReq("ext-1"))).status).toBe(403);
     authUser.role = "admin"; apiKeyScopes = ["extensions"];
     expect((await extDELETE(deleteReq("ext-1"))).status).toBe(403);

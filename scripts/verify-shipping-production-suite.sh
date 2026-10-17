@@ -109,7 +109,7 @@ for proof in "${selected_proofs[@]}"; do
     file-organizer)
       run_proof file-organizer 30m env "EZ_RUNTIME_IMAGE=$candidate" "EZ_RUNTIME_APP_UID=$app_uid" "EZ_RUNTIME_APP_GID=$app_gid" "EZ_RUNTIME_RUNNER_APP_UID=$runner_uid" "EZ_RUNTIME_RECEIPT_DIR=$receipt_root/file-organizer/runtime" bash docs/validation/extension-v4-flows/runtime/replay-file-organizer-runtime.sh
       ;;
-    embeddings|runtime|delivery|revocation|runtime-resources)
+    embeddings|runtime|delivery|revocation|runtime-resources|preview-isolation)
       proof_timeout=15m
       [[ "$proof" == runtime-resources ]] && proof_timeout=25m
       run_proof "$proof" "$proof_timeout" "${common_runtime_env[@]}" "EZ_PRODUCTION_RECEIPT_DIR=$receipt_root/$proof/runtime" bash "scripts/verify-shipping-$proof.sh"

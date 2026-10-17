@@ -86,6 +86,8 @@ jobs:
       - uses: ./.github/actions/gate-integrity-deps
       # The backend suites spawn the pinned uv (uv-command.test.ts, python-runner.integration.test.ts); W4H-2.
       - uses: ./.github/actions/setup-python-toolchain
+      # The backend suites test the ripgrep backend of the grep tool (W4H-33).
+      - uses: ./.github/actions/ripgrep
       - name: Run factory schema, compiler, kernel, simulator, and reference fixtures
         env:
           FACTORY_ONLY: "1"
@@ -264,7 +266,7 @@ jobs:
     timeout-minutes: 90
     services:
       postgres:
-        image: pgvector/pgvector:pg15
+        image: docker.io/pgvector/pgvector@sha256:9a169499888c9d75ad14d0401be64839d2c325f32e399098261589faff93d65c
         env:
           POSTGRES_USER: postgres
           POSTGRES_PASSWORD: postgres
@@ -312,6 +314,26 @@ jobs:
         uses: ./.github/actions/factory-storage
         with:
           command: down
+
+  # W4H-27: the factory image's orchestrator, started under the isolation the
+  # Compose profile SHIPS (read-only root, noexec /tmp, the keep-id user, no
+  # capabilities, the deployer's HOME), must load its build-time workflow bundle
+  # and replay a committed history. The script reads those flags from
+  # deploy/factory/compose/installation.yml and the deployer, never from here.
+  # It is red on an image that bundles at run time: the 1.16.13 SWC addon needs
+  # an executable user cache those flags deny, and no proof had started the
+  # image under them since the W16 G7 pass on 1.16.2.
+  factory-image-shipped-isolation:
+    name: Factory image under shipped isolation
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: ./.github/actions/setup
+      - name: Build the factory image
+        run: podman build -f deploy/factory/Dockerfile --build-arg REVISION=${{ github.sha }} -t localhost/ezcorp-factory:shipped-isolation .
+      - name: Run the orchestrator's workflow path under the shipped isolation
+        run: bun scripts/check-factory-image-shipped-config.ts localhost/ezcorp-factory:shipped-isolation
 
   dev-image-provenance:
     name: Dev image provenance
@@ -1103,6 +1125,8 @@ jobs:
       - uses: ./.github/actions/gate-integrity-deps
       # The backend suites spawn the pinned uv (uv-command.test.ts, python-runner.integration.test.ts); W4H-2.
       - uses: ./.github/actions/setup-python-toolchain
+      # The backend suites test the ripgrep backend of the grep tool (W4H-33).
+      - uses: ./.github/actions/ripgrep
       - name: Run shard (tests + coverage)
         env:
           SHARD_INDEX: ${{ matrix.shard }}
@@ -1137,6 +1161,8 @@ jobs:
       - uses: ./.github/actions/gate-integrity-deps
       # The backend suites spawn the pinned uv (uv-command.test.ts, python-runner.integration.test.ts); W4H-2.
       - uses: ./.github/actions/setup-python-toolchain
+      # The backend suites test the ripgrep backend of the grep tool (W4H-33).
+      - uses: ./.github/actions/ripgrep
       - name: Run coverage legs
         env:
           EZCORP_RUN_PODMAN_TESTS: "1"
@@ -1199,6 +1225,8 @@ jobs:
       - uses: ./.github/actions/gate-integrity-deps
       # The backend suites spawn the pinned uv (uv-command.test.ts, python-runner.integration.test.ts); W4H-2.
       - uses: ./.github/actions/setup-python-toolchain
+      # The backend suites test the ripgrep backend of the grep tool (W4H-33).
+      - uses: ./.github/actions/ripgrep
       - name: Run curated critical set
         env:
           CRITICAL_ONLY: "1"
@@ -1261,6 +1289,8 @@ jobs:
       - uses: ./.github/actions/gate-integrity-deps
       # The backend suites spawn the pinned uv (uv-command.test.ts, python-runner.integration.test.ts); W4H-2.
       - uses: ./.github/actions/setup-python-toolchain
+      # The backend suites test the ripgrep backend of the grep tool (W4H-33).
+      - uses: ./.github/actions/ripgrep
       - name: Run residual pass/fail set
         env:
           EZCORP_RUN_PODMAN_TESTS: "1"
@@ -1365,11 +1395,16 @@ jobs:
           cp browser-route-coverage-artifact/lcov.info coverage-artifacts/lcov_browser_routes.info
       - name: Require V8 coverage for every executable shared web source
         run: bun scripts/check-web-vitest-coverage.ts coverage-artifacts/lcov_web_vitest_*.info
-      - name: Merge lcov + enforce thresholds
+      # The merge has its own step, so its outcome says whether coverage/lcov.info exists: the report
+      # producers below run on it even when a sibling gate failed (W4H-28, ci 38887660827: a failed floor
+      # skipped the CRAP gate and the summary found no crap.json).
+      - name: Merge lcov
+        id: merge-lcov
         run: |
           mkdir -p coverage
           bun scripts/merge-lcov.ts "coverage-artifacts/*.info" coverage/lcov.info
-          bun scripts/check-coverage.ts
+      - name: Enforce per-file thresholds
+        run: bun scripts/check-coverage.ts
       - name: New-file coverage gate
         env:
           BASE_REF: origin/main
@@ -1382,10 +1417,12 @@ jobs:
       # They live in THIS job because it is the one place the merged
       # coverage/lcov.info exists. Both read that artifact and re-run nothing.
       - name: Global coverage floor
+        if: ${{ !cancelled() && steps.merge-lcov.outcome == 'success' }}
         run: bun scripts/check-global-coverage.ts
       # Scored against the functions this PR TOUCHED, not the whole tree — the
       # full-repo CRAP ratchet is the main-push-only step right below.
       - name: CRAP gate (touched functions)
+        if: ${{ !cancelled() && steps.merge-lcov.outcome == 'success' }}
         env:
           BASE_REF: origin/main
         run: bun scripts/crap-score.ts --changed
@@ -1398,7 +1435,7 @@ jobs:
       # The violation count may fall, never rise — crap.maxFullRepoViolations
       # in scripts/quality-gates.json.
       - name: CRAP ratchet (full repo, main only)
-        if: github.event_name == 'push'
+        if: ${{ !cancelled() && steps.merge-lcov.outcome == 'success' && github.event_name == 'push' }}
         run: bun scripts/crap-score.ts
       # Runs even when a gate above FAILED — that is when the summary is most
       # useful. But it must not run when the job never got a bun: the

@@ -1,0 +1,43 @@
+ACCEPT wp/w4h-30-resources-sockets at 5ee55026a (the app keeps no idle connection between resource samples; fixed at the root; the check unchanged)
+
+validator-8, 2026-10-14. Plan plan-w4h-30.md 9be80d79284d4c85 (Addenda A and B). Owner report w4h-30/report.txt 1eb9a4ef84ab1cd6.
+Class (team-lead): E, pre-existing (the same check failed on 272e768aa and 6df16debf, before W4H-26); W4H-30 is the root-cause fix.
+
+- Identity: 3 commits over d2add3048, author and committer archy with the noreply address; the personal address 0 times in the
+  diff and the owner's evidence.
+- The change (4 files): RunnerClient sends each call with `agent: false` (one connection per call, closed at the response end);
+  fetchKiloCatalog uses `keepalive: false` (a one-shot read); two tests. scripts/verify-shipping-runtime-resources.ts is unchanged
+  against the base and against main (diff check): no threshold, sampling or skip change.
+- Red-first on the d2add3048 sources by assertion: tests/client-connections.test.ts (extension-runner) and kilo-provider.test.ts.
+  Mutants red: the pool restored (agent: false removed) -> client-connections red; the Kilo keep-alive restored -> kilo red.
+- Latency, my own (RunnerClient against the real runner service, 3 runs each, after a 50-call warm-up):
+  agent: false: sequential 0.185-0.190 ms median, 0.307-0.315 ms p95; batches of 10 concurrent 1.00-1.05 ms median, 1.42-1.66 p95.
+  pooled (mutant): sequential 0.099-0.106 ms median, 0.173-0.184 ms p95; batches of 10 0.46-0.53 ms median, 0.76-1.02 p95.
+  About +0.09 ms per call. Immaterial: runner calls are builds, launches and an events long poll that parks up to 20 s
+  (service.ts DEFAULT_EVENT_POLL_TIMEOUT_MS), so the extra connect happens at most once per event batch. The pooled mutant
+  also shows the transient itself: 24 sockets after the calls settle against 4 before; agent: false 4 and 4.
+- Two-arm reproduction, my own, in the runner-shaped container (the owner's harness copied to validator-8/w4h-30-harness with my
+  paths and names; the owner's image localhost/w4h-30-runner-ss:24.04; the snapshot-only socket-peer diagnostic), 6 resources
+  passes x 10 cycles per arm, every sample kept:
+  main 1981febd2 (no W4H-26): 6 of 6 passes green; a runner unix socket (an idle keep-alive) in all 66 samples, 1 or 2 by timing
+    (pass 2: [2, 1, 1, ...]); app sockets per sample [4, 5, 4, ...] or [4, 4, 3, ...].
+  head 5ee55026a: 6 of 6 green; 0 runner unix sockets in all 66 samples; the socket set constant in every pass: [1, 2, 2, ..., 2]
+    = the port-3000 listener, and from cycle 1 the proof's own inbound keep-alive.
+  The failure rule (a later cycle above cycle 1) did not trigger in either arm's 6 passes, as expected at about 1 in 10; the
+  judgment rests on the mechanism: before, the count depends on timing; after, it does not.
+- Suites: the extension-runner package 115 pass; runner-connection and ext-dev 11 pass; kilo-provider 35 pass; the invariant list
+  (w00/invariant-tests.txt) all green.
+- gate-integrity main (origin/main 1981febd2) exit 0, 0 findings (log sha256 b1a0297506aab4a1); lint 0 errors and 0 warnings;
+  typecheck exit 0 (lock-free after the heavy lock was released; lowest MemAvailable 14.2 GiB).
+- Everything of mine removed: containers 0, snapshots 0. The owner's image stays theirs to remove.
+
+## Addendum (2026-10-14): the owner's report-addendum.txt (cef8274267e1f4af) and the api.kilo.ai check
+- No new CI dependency on api.kilo.ai: the kilo.ts diff adds only `keepalive: false` (0 added fetch calls or URLs); the new
+  kilo-provider test replaces globalThis.fetch for its case (no network). The boot warm-up's existing call is unchanged in number.
+- The owner's latency benchmark agrees with mine: sequential p50 0.060 -> 0.168 ms, p99 0.301 -> 0.481 ms; pairs p50 0.081 -> 0.258 ms;
+  about +0.1 ms per call, every value under 1 ms; runner phase medians and the proof cycle phase unchanged within noise.
+- The owner's note on the mutant matches my run: the header test ("Connection: close") is the deterministic killer of the
+  pool-restored mutant; the end-to-end settle test waits out the 5 s idle timeout and stays green under it.
+- Run count: my plan said ~20 passes per arm; I ran 6 per arm (66 samples each) because the mechanism evidence is decisive
+  (main: runner keep-alive sockets in 66 of 66 samples; head: 0 of 66, a constant set) and each pass holds the shared lock
+  about 7.5 minutes. The ACCEPT above stands.

@@ -1,0 +1,10 @@
+bun test v1.4.2 (744846f84)
+{"ts":"2026-10-16T01:15:14.125Z","level":"info","msg":"skipped: model lacks image input capability","subsystem":"executor.loadHistory.rehydrate","provider":"anthropic","model":"missing","kinds":["text","pdf"],"branchLen":0}
+{"ts":"2026-10-16T01:15:14.470Z","level":"info","msg":"skipped: model lacks image input capability","subsystem":"executor.loadHistory.rehydrate","provider":"anthropic","model":"missing","kinds":["text","pdf"],"branchLen":0}
+{"ts":"2026-10-16T01:15:14.479Z","level":"error","msg":"Setup run finalization failed","subsystem":"executor.streamChat.finalize","error":"Error: Failed query: update \"runs\" set \"status\" = $1, \"finished_at\" = $2, \"result\" = $3 where (\"runs\".\"id\" = $4 and \"runs\".\"status\" = $5) returning \"id\", \"agent_name\", \"project_id\", \"conversation_id\", \"user_id\", \"status\", \"input\", \"started_at\", \"finished_at\", \"result\", \"created_at\"\nparams: error,2026-10-16T01:15:14.474Z,{\"success\":false,\"output\":null,\"error\":\"Provider credentials unavailable\"},413c9227-ae1e-4860-8eef-003c156ec127,running"}
+{"ts":"2026-10-16T01:15:14.480Z","level":"error","msg":"Setup run cleanup failed","subsystem":"executor.streamChat.finalize","error":"Error: Failed query: select \"status\", \"conversation_id\", \"result\" from \"runs\" where \"runs\".\"id\" = $1 for update\nparams: 413c9227-ae1e-4860-8eef-003c156ec127"}
+
+ 2 pass
+ 0 fail
+ 12 expect() calls
+Ran 2 tests across 1 file. [1320.00ms]

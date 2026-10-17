@@ -7,6 +7,7 @@ import { dispatchNext } from "./dispatcher.ts";
 import { createGatewayFactoryActivities, createGatewayTransport, type GatewayTransportOptions } from "./gateway-activities.ts";
 import { createGatewayFactoryCommandQueue } from "./queue-client.ts";
 import { createFactoryWorker } from "./worker.ts";
+import { FactoryWorkflowBundleError, loadFactoryWorkflowBundle, type FactoryWorkflowBundle } from "./workflow-bundle.ts";
 
 const TASK_QUEUE_KIND_NORMAL = 1;
 const TASK_QUEUE_TYPE_WORKFLOW = 1;
@@ -63,7 +64,9 @@ export interface FactoryTemporalConnection {
 
 export interface FactoryOrchestratorProcessDependencies {
   readonly connect: (options: FactoryTemporalProcessOptions, credentials: TemporalCredentials) => Promise<FactoryTemporalConnection>;
-  readonly createRuntime: (options: FactoryOrchestratorProcessOptions, connection: FactoryTemporalConnection, identity: string) => Promise<{
+  /** The image build's workflow bundle, verified against its digest record. Loaded once, before any connection. */
+  readonly loadWorkflowBundle: () => Promise<FactoryWorkflowBundle>;
+  readonly createRuntime: (options: FactoryOrchestratorProcessOptions, connection: FactoryTemporalConnection, identity: string, workflowBundle: FactoryWorkflowBundle) => Promise<{
     readonly worker: FactoryWorkerProcessHandle;
     readonly dispatch: () => Promise<"delivered" | "retry" | "outcome_unknown" | "empty">;
     readonly probeGateway: () => Promise<void>;
@@ -121,12 +124,12 @@ function wait(milliseconds: number, signal?: AbortSignal): Promise<void> {
   });
 }
 
-async function createRuntime(options: FactoryOrchestratorProcessOptions, connection: FactoryTemporalConnection, identity: string) {
+async function createRuntime(options: FactoryOrchestratorProcessOptions, connection: FactoryTemporalConnection, identity: string, workflowBundle: FactoryWorkflowBundle) {
   const dataConverter = { payloadCodecs: [options.payloadCodec] };
   const activities = await createGatewayFactoryActivities(options.gateway);
   const queue = await createGatewayFactoryCommandQueue(options.gateway);
   const client = new Client({ connection: connection as NativeConnection, namespace: options.temporal.namespace, dataConverter });
-  const worker = await createFactoryWorker({ connection: connection as NativeConnection, namespace: options.temporal.namespace, activities, identity, dataConverter });
+  const worker = await createFactoryWorker({ connection: connection as NativeConnection, namespace: options.temporal.namespace, activities, workflowBundle, identity, dataConverter });
   const gateway = await createGatewayTransport(options.gateway);
   return {
     worker,
@@ -143,6 +146,7 @@ async function createRuntime(options: FactoryOrchestratorProcessOptions, connect
 
 export const factoryOrchestratorProductionDependencies: FactoryOrchestratorProcessDependencies = {
   connect: connectTemporal,
+  loadWorkflowBundle: () => loadFactoryWorkflowBundle(),
   createRuntime,
   wait,
   now: Date.now,
@@ -194,6 +198,15 @@ export async function runFactoryOrchestratorProcess(options: FactoryOrchestrator
   const identity = `${options.installationId}:factory-orchestrator`;
   let credentialGeneration = 0;
   await options.readiness.write({ lifecycle: "starting", workerPolling: false, dispatcherLive: false, credentialGeneration });
+  let workflowBundle: FactoryWorkflowBundle;
+  try {
+    workflowBundle = await dependencies.loadWorkflowBundle();
+  } catch (error) {
+    // A bundle the image build did not make is refused by name, before any Temporal connection.
+    const errorCode = error instanceof FactoryWorkflowBundleError ? error.code : "factory_orchestrator_failed";
+    await options.readiness.write({ lifecycle: "failed", workerPolling: false, dispatcherLive: false, credentialGeneration, errorCode });
+    throw new Error("factory orchestrator process failed", { cause: error });
+  }
 
   while (!options.signal?.aborted) {
     const session = stopSignal(options.signal);
@@ -205,7 +218,7 @@ export async function runFactoryOrchestratorProcess(options: FactoryOrchestrator
       let credentials = await options.loadTemporalCredentials();
       connection = await dependencies.connect(options.temporal, credentials);
       credentialGeneration += 1;
-      const runtime = await dependencies.createRuntime(runtimeOptions, connection, identity);
+      const runtime = await dependencies.createRuntime(runtimeOptions, connection, identity, workflowBundle);
       worker = runtime.worker;
       let dispatcherLive = false;
       runPromise = worker.run();

@@ -1,0 +1,9 @@
+Checked 1 file in 3ms. No fixes applied.
+── Tests (staged) ─────────────────────────────────
+  bun: src/factory/host-preparation-client.test.ts
+bun test v1.4.2 (744846f84)
+
+ 1 pass
+ 0 fail
+ 9 expect() calls
+Ran 1 test across 1 file. [515.00ms]

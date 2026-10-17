@@ -13,22 +13,22 @@
  * self-hosted and hosted provisioner is the deployment target passed in.
  */
 import { resolve } from "node:path";
-import { parseFactoryStartupConfig, type FactoryStartupRunnerProfile } from "../startup-config";
+import { parseFactoryStartupConfig, type FactoryStartupConfig, type FactoryStartupRunnerProfile } from "../startup-config";
 import { openBunSql } from "../../db/bun-sql-pipelining";
 import { FactoryComposeHostTarget, FactoryComposeTarget, FactoryComposeUpgradeTarget, factorySpawnExecutor, type FactoryCommandExecutor, type FactoryComposeCommand } from "./compose-profile";
 import { FactoryFleetUpgrades, type FactoryBuild } from "./fleet-upgrade";
 import { FactoryDatabaseStep } from "./database";
-import { FactoryDeploymentStep, factoryInstallationPorts, type FactoryDeploymentSettings, type FactoryDeploymentTarget } from "./deployment";
+import { FactoryDeploymentStep, factoryDeploymentHandle, factoryInstallationPorts, factoryInstallationReleaseBlock, type FactoryDeploymentRelease, type FactoryDeploymentSettings, type FactoryDeploymentTarget } from "./deployment";
 import { FactoryFleetHost, type FactoryFleetHostRuntime } from "./host";
 import { FactoryIngressStep, factoryHttpsIngressProbe } from "./ingress";
 import type { FactoryInstallationContext } from "./installation";
 import { FactoryInvitationStep } from "./invitation";
 import { LocalFactoryProvisioner } from "./local";
-import { ensureFactoryPlatformMaterial, factoryPlatformPaths, factoryPodmanIngressReloader, type FactoryPlatformPaths } from "./platform";
+import { ensureFactoryPlatformMaterial, factoryPlatformPaths, factoryPodmanIngressReloader, stopFactoryPlatform, type FactoryPlatformPaths } from "./platform";
 import { readFactoryPrivatePath } from "./secret-files";
 import { FactorySecretsStep } from "./secrets";
 import { FactorySeededStorageIssuer, FactoryStorageStep, factoryDatabaseStorageClaims, factoryS3ScopeProbe, type FactoryStorageCredentialIssuer } from "./storage";
-import { FactoryProvisioningError } from "./steps";
+import { FactoryProvisioningError, type FactoryInstallationPhase } from "./steps";
 import { FactoryTemporalStep, factoryTemporalCertificateIssuer } from "./temporal";
 import { factoryTemporalAccessProbe, factoryTemporalNamespaceAdmin } from "./temporal-client";
 
@@ -56,6 +56,10 @@ export interface FactoryFleetSettings {
     readonly cpuCapacity: number;
     readonly interpreterCompatibility: string;
     readonly runnerProfiles: { readonly brokerAudience: string; readonly profiles: readonly FactoryStartupRunnerProfile[] };
+    /** Where every installation may release; the deployer writes it into each startup document. */
+    readonly release?: FactoryDeploymentRelease;
+    /** Every installation's pinned model (W4H-28); a pinned runner profile must name it. */
+    readonly modelProvider?: FactoryStartupConfig["modelProvider"];
   };
   readonly image: { readonly reference: string; readonly revision: string };
   readonly release: { readonly directory: string; readonly bun: string; readonly path: string };
@@ -83,11 +87,19 @@ const FLEET_FIELD_CHECKS: readonly (readonly [string, (settings: FactoryFleetSet
   ["storage", ({ storage }) => keys(storage, "archive,failureDomain,ordinary") && typeof storage.failureDomain === "string" && storage.failureDomain.length > 0],
   ["temporal", ({ temporal }) => keys(temporal, "httpPort,port,serverName") && port(temporal.port) && port(temporal.httpPort) && temporal.httpPort !== temporal.port && typeof temporal.serverName === "string"],
   ["ingress", ({ ingress }) => keys(ingress, "address,domain,port") && /^(?:\d{1,3}\.){3}\d{1,3}$/.test(ingress.address) && port(ingress.port) && /^[a-z0-9.-]{1,200}$/.test(ingress.domain)],
-  ["installations", ({ installations }) => keys(installations, "cpuCapacity,interpreterCompatibility,portBase,runnerProfiles") && port(installations.portBase)
+  ["installations", ({ installations }) => installationKeys(installations) && port(installations.portBase)
     && Number.isSafeInteger(installations.cpuCapacity) && installations.cpuCapacity > 0 && typeof installations.interpreterCompatibility === "string"],
   ["image", ({ image }) => keys(image, "reference,revision") && /^[^@\s]+@sha256:[a-f0-9]{64}$/.test(image.reference) && /^[a-f0-9]{40}$/.test(image.revision)],
   ["release", ({ release }) => keys(release, "bun,directory,path") && absolute(release.directory) && absolute(release.bun) && typeof release.path === "string"],
 ];
+
+/** The installation keys: the four every fleet declares, and the optional release block and model pin. */
+function installationKeys(installations: unknown): boolean {
+  if (!installations || typeof installations !== "object" || Array.isArray(installations)) return false;
+  const present = Object.keys(installations);
+  const required = ["cpuCapacity", "interpreterCompatibility", "portBase", "runnerProfiles"];
+  return required.every((key) => present.includes(key)) && present.every((key) => required.includes(key) || key === "release" || key === "modelProvider");
+}
 
 function fleetSettingsInvalid(invalid: readonly string[]): FactoryProvisioningError {
   return new FactoryProvisioningError("fleet_settings_invalid", `Fleet settings are invalid: ${invalid.join(", ")}.`);
@@ -102,14 +114,32 @@ export function parseFactoryFleetSettings(value: unknown): FactoryFleetSettings 
   if (!keys(value, "control,database,fleetId,image,ingress,installations,profile,release,roots,schemaVersion,storage,temporal") || settings.schemaVersion !== FACTORY_FLEET_SCHEMA) throw fleetSettingsInvalid(["document"]);
   const invalid = FLEET_FIELD_CHECKS.filter(([, valid]) => !valid(settings)).map(([field]) => field);
   if (invalid.length > 0) throw fleetSettingsInvalid(invalid);
-  // The runner profiles must be exactly what the startup document admits.
-  try { parseFactoryStartupConfig(runnerProbeDocument(settings.installations.runnerProfiles)); }
-  catch { throw new FactoryProvisioningError("fleet_settings_invalid", "Fleet settings are invalid: installations.runnerProfiles."); }
+  // The runner profiles, and the release block the deployer will write, must be exactly what the startup document admits.
+  parseFactoryFleetRunnerProfiles(settings.installations.runnerProfiles, settings.installations.modelProvider);
+  if (settings.installations.release !== undefined) {
+    const release = settings.installations.release;
+    const shaped = keys(release, "profiles") || (keys(release, "github,profiles") && keys(release.github, "repository,tokenPath") && absolute(release.github!.tokenPath));
+    try {
+      // A declaration with no profile, or of the wrong shape, declares nothing: refused rather than dropped.
+      const block = shaped ? factoryInstallationReleaseBlock(release, { tenantId: "probe", ordinaryEndpoint: settings.storage.ordinary.endpoint }) : undefined;
+      if (block === undefined) throw new Error("no release block");
+      parseFactoryStartupConfig({ ...startupProbeDocument(settings.installations.runnerProfiles, settings.installations.modelProvider) as object, release: block });
+    } catch { throw new FactoryProvisioningError("fleet_settings_invalid", "Fleet settings are invalid: installations.release."); }
+  }
   return Object.freeze(JSON.parse(JSON.stringify(settings)) as FactoryFleetSettings);
 }
 
-/** A minimal startup document carrying only the runner profiles, so the startup parser judges them. */
-function runnerProbeDocument(runnerProfiles: FactoryFleetSettings["installations"]["runnerProfiles"]): unknown {
+/**
+ * The runner profiles (and the model pin a pinned profile names) must be exactly what the startup
+ * document admits; refused by the one name otherwise.
+ */
+export function parseFactoryFleetRunnerProfiles(runnerProfiles: FactoryFleetSettings["installations"]["runnerProfiles"], modelProvider?: FactoryFleetSettings["installations"]["modelProvider"]): void {
+  try { parseFactoryStartupConfig(startupProbeDocument(runnerProfiles, modelProvider)); }
+  catch { throw new FactoryProvisioningError("fleet_settings_invalid", "Fleet settings are invalid: installations.runnerProfiles."); }
+}
+
+/** A minimal startup document carrying only the runner profiles and the model pin, so the startup parser judges them (and, beside them, a release block). */
+function startupProbeDocument(runnerProfiles: FactoryFleetSettings["installations"]["runnerProfiles"], modelProvider?: FactoryFleetSettings["installations"]["modelProvider"]): unknown {
   const tls = { caPath: "/probe/ca.crt", certificatePath: "/probe/c.crt", privateKeyPath: "/probe/c.key" };
   return {
     schemaVersion: "factory.startup.v1", installationId: "probe", tenantId: "probe", poolId: "probe", hostId: "probe", temporalNamespace: "probe",
@@ -119,6 +149,7 @@ function runnerProbeDocument(runnerProfiles: FactoryFleetSettings["installations
     storage: { ordinary: { endpoint: "http://127.0.0.1:1", bucket: "b", prefix: "p", credentialSet: "ordinary", credentialsPath: "/probe/o" }, archive: { endpoint: "http://127.0.0.1:2", bucket: "b", prefix: "p", credentialSet: "archive", credentialsPath: "/probe/a" } },
     keys: { masterKeyFilePath: "/probe/keys/m", masterKeyId: "m", wrappedKeyFilePath: "/probe/keys/w", grantableRoots: ["/probe/projects"] },
     runnerProfiles,
+    ...(modelProvider === undefined ? {} : { modelProvider }),
   };
 }
 
@@ -153,6 +184,26 @@ export function factoryFleetDefaultBuild(settings: FactoryFleetSettings): Factor
   return Object.freeze({ buildId: `rev-${settings.image.revision.slice(0, 12)}`, image: settings.image.reference, revision: settings.image.revision, releaseDirectory: settings.release.directory });
 }
 
+/**
+ * The fleet's running services, for the operator's `stop` and `up`: containers
+ * are stopped and kept, never removed, so `up` restarts exactly what ran.
+ */
+export interface FactoryFleetServices {
+  /** Every installation of this fleet not torn down, in tenant order: `stop` stops whatever of them runs. */
+  stoppable(): Promise<readonly string[]>;
+  /** Every installation of this fleet that reached `deployment_ready`, in tenant order: `up` starts and waits for these. */
+  startable(): Promise<readonly string[]>;
+  stopInstallation(tenantId: string): Promise<void>;
+  /** Start the installation's kept containers and wait until every service and the harness say ready. */
+  startInstallation(tenantId: string): Promise<void>;
+  stopHost(): Promise<void>;
+  startHost(): Promise<void>;
+  stopPlatform(): Promise<void>;
+}
+
+const FACTORY_GONE_PHASES: readonly FactoryInstallationPhase[] = ["torn_down", "purged"];
+const FACTORY_DEPLOYED_PHASES: readonly FactoryInstallationPhase[] = ["deployment_ready", "invitation_issued", "bootstrap_complete"];
+
 export interface FactoryComposedFleet {
   readonly provisioner: LocalFactoryProvisioner;
   readonly upgrades: FactoryFleetUpgrades;
@@ -164,6 +215,7 @@ export interface FactoryComposedFleet {
   readonly deploymentSettings: FactoryDeploymentSettings;
   /** The fleet host: the shared pool and supervisor every installation is admitted to. */
   readonly host: FactoryFleetHost;
+  readonly services: FactoryFleetServices;
   /** Whether Temporal serves through the gateway: the control identity can describe the system namespace. */
   platformServes(): Promise<boolean>;
   close(): Promise<void>;
@@ -231,6 +283,8 @@ export async function composeFactoryProvisioner(settings: FactoryFleetSettings, 
     image: settings.image,
     runtimeRoot: settings.roots.runtime,
     runnerProfiles: settings.installations.runnerProfiles,
+    ...(settings.installations.release === undefined ? {} : { release: settings.installations.release }),
+    ...(settings.installations.modelProvider === undefined ? {} : { modelProvider: settings.installations.modelProvider }),
     host: fleetHost.facts(),
     interpreterCompatibility: settings.installations.interpreterCompatibility,
     builds: (installation) => upgrades!.builds(installation.tenantId),
@@ -261,7 +315,17 @@ export async function composeFactoryProvisioner(settings: FactoryFleetSettings, 
   await upgrades.setup();
   await upgrades.register(factoryFleetDefaultBuild(settings));
   const fleetUpgrades = upgrades;
-  return Object.freeze({ provisioner: composed, upgrades: fleetUpgrades, platform, settings, database, deployment, ingress, deploymentSettings, host: fleetHost, platformServes: async () => (await temporalAdmin.owner("temporal-system")) !== undefined, close: async () => { await composed.close(); await database.close(); await hostDatabase.close(); await upgradeSql.close(); } });
+  const tenants = async (phases: (phase: FactoryInstallationPhase) => boolean) => (await composed.ledger.directory()).filter((entry) => entry.fleetId === settings.fleetId && phases(entry.phase)).map((entry) => entry.tenantId);
+  const services: FactoryFleetServices = Object.freeze({
+    stoppable: () => tenants((phase) => !FACTORY_GONE_PHASES.includes(phase)),
+    startable: () => tenants((phase) => FACTORY_DEPLOYED_PHASES.includes(phase)),
+    stopInstallation: async (tenantId: string) => composeTarget.stop(factoryDeploymentHandle(await composed.installation(tenantId), settings.roots.runtime)),
+    startInstallation: async (tenantId: string) => composeTarget.start(await deployment.bundle(await composed.installation(tenantId))),
+    stopHost: () => fleetHost.stop(),
+    startHost: () => fleetHost.start(),
+    stopPlatform: () => stopFactoryPlatform({ fleetId: settings.fleetId, repositoryRoot: settings.release.directory }, platform, runtime.compose, execute),
+  });
+  return Object.freeze({ provisioner: composed, upgrades: fleetUpgrades, services, platform, settings, database, deployment, ingress, deploymentSettings, host: fleetHost, platformServes: async () => (await temporalAdmin.owner("temporal-system")) !== undefined, close: async () => { await composed.close(); await database.close(); await hostDatabase.close(); await upgradeSql.close(); } });
 }
 
 export { factoryPlatformPaths };

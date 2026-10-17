@@ -38,8 +38,8 @@ let userIdB: string;
 
 beforeAll(async () => {
   await setupTestDb();
-  const a = await createUser({ email: "a@test.com", passwordHash: "h", name: "A" });
-  const b = await createUser({ email: "b@test.com", passwordHash: "h", name: "B" });
+  const a = await createUser({ email: "a@test.example", passwordHash: "h", name: "A" });
+  const b = await createUser({ email: "b@test.example", passwordHash: "h", name: "B" });
   userIdA = a.id;
   userIdB = b.id;
   // Seed a "lessons-distiller" extension row so per-user writes have a

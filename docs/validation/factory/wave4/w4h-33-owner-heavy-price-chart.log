@@ -1,0 +1,84 @@
+resource-gate 2026-10-16T00:20:40Z w4h33-price-chart outside-lock disk=129G memAvailable=13GiB swapFreeKiB=5383064/17173956 floors disk>=104G swap>=2621440KiB mem>=8GiB
+gated-flock w4h33-price-chart: gate green outside the lock, queue for the lock (try 1) 2026-10-16T00:20:40Z
+resource-gate 2026-10-16T03:16:55Z w4h33-price-chart outside-lock disk=110G memAvailable=15GiB swapFreeKiB=6431484/17173956 floors disk>=104G mem>=8GiB mem+swap>=11010048KiB (swap component 2621440KiB)
+gated-flock w4h33-price-chart: gate green outside the lock, queue for the lock (try 1) 2026-10-16T03:16:55Z
+resource-gate 2026-10-16T03:18:17Z price-chart disk=110G memAvailable=15GiB swapFreeKiB=6380336/17173956 floors disk>=100G mem>=8GiB mem+swap>=10485760KiB (swap component 2097152KiB)
+=== price-chart start 2026-10-16T03:18:17Z pin bun 1.4.2
+bun test v1.4.2 (744846f84)
+
+src/__tests__/price-chart.e2e.test.ts:
+(pass) price-chart e2e — non-network paths > rejects empty ticker with toolError [79.83ms]
+(pass) price-chart e2e — non-network paths > rejects whitespace ticker [63.36ms]
+(pass) price-chart e2e — non-network paths > unknown tool name returns JSON-RPC error [63.87ms]
+170 |       expect(payload.points!.length).toBeGreaterThan(100);
+171 |       expect(typeof payload.points![0]!.t).toBe("number");
+172 |       expect(typeof payload.points![0]!.v).toBe("number");
+173 |       expect(payload._assistant_note).toMatch(/do NOT call this tool again/);
+174 |       // The extension asked for the production Yahoo URL; the broker carried it.
+175 |       expect(market.requests.at(-1)).toStartWith("https://query1.finance.yahoo.com/v8/finance/chart/AAPL?");
+                                           ^
+error: expect(received).toStartWith(expected)
+
+Expected to start with: "https://query1.finance.yahoo.com/v8/finance/chart/AAPL?"
+Received: "https://1.1.1.1/v8/finance/chart/AAPL?range=1y&interval=1d&includePrePost=false&events=div%2Csplit"
+
+      at <anonymous> (/home/dev/work/EZCorp/EZHarness/.worktrees/w4h-33/src/__tests__/price-chart.e2e.test.ts:175:38)
+(fail) price-chart e2e — installed v4 release + network broker (loopback market stub) > get_stock_chart(AAPL) returns JSON with points + no iframeSrc [3487.99ms]
+189 |       expect(payload.name).toBe("Bitcoin");
+190 |       expect(Array.isArray(payload.points)).toBe(true);
+191 |       expect(payload.points!.length).toBeGreaterThan(100);
+192 |       expect(typeof payload.logoUrl).toBe("string");
+193 |       expect(payload.logoUrl!.length).toBeGreaterThan(0);
+194 |       expect(market.requests.slice(-2)).toEqual([
+                                              ^
+error: expect(received).toEqual(expected)
+
+  [
+-   "https://api.coingecko.com/api/v3/coins/bitcoin?localization=false&tickers=false&community_data=false&developer_data=false&sparkline=false",
+-   "https://api.coingecko.com/api/v3/coins/bitcoin/market_chart?vs_currency=usd&days=365&interval=daily",
++   "https://1.1.1.1/api/v3/coins/bitcoin?localization=false&tickers=false&community_data=false&developer_data=false&sparkline=false",
++   "https://1.1.1.1/api/v3/coins/bitcoin/market_chart?vs_currency=usd&days=365&interval=daily",
+  ]
+
+- Expected  - 2
++ Received  + 2
+
+      at <anonymous> (/home/dev/work/EZCorp/EZHarness/.worktrees/w4h-33/src/__tests__/price-chart.e2e.test.ts:194:41)
+(fail) price-chart e2e — installed v4 release + network broker (loopback market stub) > get_crypto_chart(BTC) returns JSON with points + Bitcoin name [3436.24ms]
+(pass) price-chart e2e — installed v4 release + network broker (loopback market stub) > an upstream HTTP error comes back as a tool error that names the status [3414.19ms]
+(pass) price-chart e2e — through ToolExecutor (stub PDP) > ToolExecutor.executeToolCall returns JSON payload [3554.11ms]
+(pass) price-chart e2e — chat-flow path (real PDP) > extensionToAgentTool.execute returns JSON payload (no sensitive-cap prompt) [3433.25ms]
+
+ 6 pass
+ 2 fail
+ 38 expect() calls
+Ran 8 tests across 1 file. [25.80s]
+bun test v1.4.2 (744846f84)
+
+src/__tests__/price-chart-stream-bridge.test.ts:
+(pass) price-chart stream-bridge — synthetic events > tool:start seeds a running entry with cardType='price-chart' [0.17ms]
+(pass) price-chart stream-bridge — synthetic events > tool:complete with MCP envelope unwraps to the JSON text [0.26ms]
+(pass) price-chart stream-bridge — synthetic events > tool:complete with success=false flips status to error and preserves output text [0.09ms]
+(pass) price-chart stream-bridge — synthetic events > cardLayout='inline' is the default; 'dock' propagates through reducer [0.03ms]
+(pass) price-chart stream-bridge — synthetic events > tool:complete with no matching running call is a no-op (no orphan entry) [0.02ms]
+384 | 				messageId,
+385 | 				{ metadata: { invocationId: "tc-bridge-1" } },
+386 | 			);
+387 | 
+388 | 			expect(result.isError).toBe(false);
+389 | 			expect(market.requests.at(-1)).toStartWith("https://query1.finance.yahoo.com/v8/finance/chart/AAPL?");
+                                        ^
+error: expect(received).toStartWith(expected)
+
+Expected to start with: "https://query1.finance.yahoo.com/v8/finance/chart/AAPL?"
+Received: undefined
+
+      at <anonymous> (/home/dev/work/EZCorp/EZHarness/.worktrees/w4h-33/web/src/__tests__/price-chart-stream-bridge.test.ts:389:35)
+(fail) price-chart stream-bridge — live executor → bus → reducer > executor emits bus events that drive the store to a renderable price-chart entry [3624.14ms]
+
+ 5 pass
+ 1 fail
+ 18 expect() calls
+Ran 6 tests across 1 file. [11.68s]
+=== price-chart end 2026-10-16T03:18:55Z exit=1
+gated-flock w4h33-price-chart: command exit 1 2026-10-16T03:18:55Z

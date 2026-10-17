@@ -1,0 +1,15 @@
+bun test v1.4.2 (744846f84)
+
+src/__tests__/cli-key-mint.test.ts:
+Error: invalid scope(s) frobnicate. Valid scopes: read, write, chat, extensions, admin
+Error: invalid role "superuser". Valid roles: member, admin
+Error: no user matches "nope" (tried email then id)
+Error: no users exist yet. Complete first-run setup before minting a key.
+Error: unknown route bundle "nope". Known bundles: desktop-companion
+Error: --caller-tools was given but names no tools.
+Error: --max-caller-tools must be an integer (got "lots").
+
+ 38 pass
+ 0 fail
+ 63 expect() calls
+Ran 38 tests across 1 file. [462.00ms]

@@ -1,0 +1,8 @@
+bun test v1.4.2 (744846f84)
+{"ts":"2026-10-16T01:02:20.974Z","level":"info","msg":"Caller tools wired for turn","subsystem":"caller-tools-host","conversationId":"conv-1","runId":"run-1","declared":1,"permitted":1,"wired":1}
+{"ts":"2026-10-16T01:02:20.974Z","level":"warn","msg":"Caller tools wire failed — declared caller tools unavailable this turn","subsystem":"executor.streamChat.setup","error":"TypeError: null is not an object (evaluating 'agentTools.map')"}
+
+ 6 pass
+ 0 fail
+ 10 expect() calls
+Ran 6 tests across 1 file. [474.00ms]

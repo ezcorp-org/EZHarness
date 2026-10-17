@@ -1,0 +1,15 @@
+packages/@ezcorp/extension-runner/tests/spawn-guard.test.ts
+src/__tests__/extension-lifecycle-service-trusted-local.test.ts
+src/__tests__/installer-core.test.ts
+src/__tests__/runner-worker-isolation.proof.test.ts
+src/extensions/__tests__/schedule-handler.test.ts
+scripts/start-extension-runner-e2e.sh
+scripts/start-real-extension-preview.sh
+scripts/verify-docker-upgrade.sh
+scripts/verify-extension-container.sh
+scripts/verify-factory-local-gpu.sh
+scripts/verify-shipping-runtime.sh
+src/__tests__/preview-dynamic-e2e.docker.test.ts
+src/__tests__/preview-uid-keystone.docker.test.ts
+src/__tests__/task-stack-sdk.integration.test.ts
+src/__tests__/todo-tracker-sdk.integration.test.ts

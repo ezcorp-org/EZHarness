@@ -1,0 +1,18 @@
+bun test v1.4.2 (744846f84)
+{"ts":"2026-10-16T00:55:12.736Z","level":"warn","msg":"file-organizer filesystem mutation denied by engine","subsystem":"ext.file-organizer-applier","value":"/tmp/fo-sec-eoTL26/watched/sub/a.txt","reason":"deny"}
+{"ts":"2026-10-16T00:55:12.740Z","level":"warn","msg":"file-organizer watch root unreachable — skipping (fail-closed)","subsystem":"ext.file-organizer-daemon","path":"/tmp/fo-sec-jii5lo/watched"}
+{"ts":"2026-10-16T00:55:12.741Z","level":"warn","msg":"file-organizer filesystem mutation denied by engine","subsystem":"ext.file-organizer-applier","value":"/tmp/fo-sec-sLt0DV/watched/junk.tmp","reason":"deny"}
+{"ts":"2026-10-16T00:55:12.772Z","level":"warn","msg":"file-organizer prune refused: invalid quarantine id","subsystem":"ext.file-organizer-applier","quarantineId":"../../../.."}
+{"ts":"2026-10-16T00:55:12.772Z","level":"warn","msg":"file-organizer prune refused: invalid quarantine id","subsystem":"ext.file-organizer-applier","quarantineId":"hop/victimdir"}
+{"ts":"2026-10-16T00:55:12.773Z","level":"warn","msg":"file-organizer prune refused: trash root unresolvable","subsystem":"ext.file-organizer-applier","trashRoot":"/tmp/fo-sec-YlYKiY/no-such-trash"}
+{"ts":"2026-10-16T00:55:12.777Z","level":"warn","msg":"journal replay entry refused (source outside every anchor)","subsystem":"ext.file-organizer-applier","src":"/tmp/fo-sec-gRlvzn/outside/victim.txt"}
+{"ts":"2026-10-16T00:55:12.778Z","level":"warn","msg":"journal replay entry refused (destination outside every anchor)","subsystem":"ext.file-organizer-applier","dst":"/tmp/fo-sec-6Vpln3/outside/victim.txt"}
+{"ts":"2026-10-16T00:55:12.778Z","level":"warn","msg":"journal replay entry refused (source outside every anchor)","subsystem":"ext.file-organizer-applier","src":"/tmp/fo-sec-f993YU/watched/a.txt"}
+{"ts":"2026-10-16T00:55:12.779Z","level":"warn","msg":"journal replay entry refused (source outside every anchor)","subsystem":"ext.file-organizer-applier","src":"/tmp/fo-sec-C2Rm8B/.ezcorp/data/ez-corp-db"}
+{"ts":"2026-10-16T00:55:12.782Z","level":"warn","msg":"file-organizer filesystem mutation denied by engine","subsystem":"ext.file-organizer-applier","value":"/tmp/fo-sec-UNVeHT/watched/completed.txt","reason":"deny"}
+{"ts":"2026-10-16T00:55:12.782Z","level":"warn","msg":"file-organizer filesystem mutation denied by engine","subsystem":"ext.file-organizer-applier","value":"/tmp/fo-sec-UNVeHT/watched/sub/partial.txt","reason":"deny"}
+
+ 38 pass
+ 0 fail
+ 104 expect() calls
+Ran 38 tests across 1 file. [513.00ms]

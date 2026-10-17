@@ -52,8 +52,9 @@ const NODE_V8_PRODUCER = NODE_V8_COVERAGE_PRODUCER;
  *    whether the remainder, when prefixed with `/`, is an absolute path
  *    that lives under the repo root.
  *  - Already-relative paths (`src/foo.ts`, `web/src/...`).
- *  - Paths outside the repo (kept as-is so they don't collide with repo
- *    files of the same suffix).
+ *  - Paths outside the repo: kept as an absolute key here (so they never
+ *    collide with a repo file of the same suffix), then dropped by
+ *    absorbInputBlock unless they lie under a declared --source-root.
  */
 function canonicaliseSF(sf: string): string {
   // Strip leading `../` segments — these come from chdir'd shards.
@@ -283,9 +284,22 @@ function enteredCatchClauses(src: string[] | null, da: ReadonlyArray<readonly [n
   return credits;
 }
 
-const [globPat, outPath] = Bun.argv.slice(2);
-if (!globPat || !outPath) {
-  console.error("usage: merge-lcov.ts <glob> <output>");
+// <glob> <output>, and `--source-root <dir>` (repeatable): a folder outside the
+// repository whose files count as sources too. Only the merge's own fixture tests
+// pass it (their sources live in a temporary folder); a real merge never does, so
+// everything outside the repository is dropped (see absorbInputBlock).
+const positional: string[] = [];
+const sourceRoots: string[] = [];
+let missingSourceRoot = false;
+for (let index = 2; index < Bun.argv.length; index++) {
+  const arg = Bun.argv[index]!;
+  if (arg !== "--source-root") positional.push(arg);
+  else if (Bun.argv[index + 1]) sourceRoots.push(resolve(Bun.argv[++index]!));
+  else missingSourceRoot = true;
+}
+const [globPat, outPath] = positional;
+if (!globPat || !outPath || positional.length !== 2 || missingSourceRoot) {
+  console.error("usage: merge-lcov.ts <glob> <output> [--source-root <dir>]...");
   process.exit(2);
 }
 
@@ -338,6 +352,17 @@ const absorbInputBlock = async (block: InputBlock | null): Promise<void> => {
   // the shard pre-merge, the local host merge, and the CI coverage job's
   // merge of the downloaded artifacts all run through here.
   if (isCompiledWorkspaceOutput(block.sf)) return;
+  // NOTHING OUTSIDE THE REPOSITORY enters the merge either (W4H-28 follow-up).
+  // canonicaliseSF keys a file under the repository root by its relative path
+  // and anything else by its absolute path, so an absolute key is a file no
+  // threshold names and no reviewer reads: a bundle a test wrote to a temporary
+  // folder and imported (ci 38887660827: /tmp/credential-store-bundle-*, 76,700
+  // lines at 11.2%, took the global floor from about 98.6% to 75.91%). Dropped
+  // at the funnel every producer passes through, it holds for every such test.
+  // (Bun's own coveragePathIgnorePatterns cannot do this: it matches the path
+  // relative to the working folder at flush time, so a test that leaves the
+  // process in another folder would lose every real record with it.)
+  if (isAbsolute(block.sf) && !sourceRoots.some(root => block.sf.startsWith(`${root}/`))) return;
   const trustedNodeV8 = block.producer === NODE_V8_PRODUCER;
   const canonicalProducer = canonicalCoverageProducer(block.sf);
   if (canonicalProducer && block.producer !== canonicalProducer) return;

@@ -47,7 +47,7 @@ describe("POST /auth/setup", () => {
     const event = createMockEvent({
       method: "POST",
       url: "http://localhost/api/auth/setup",
-      body: { name: "Admin", email: "admin@test.com", password: "Password123" },
+      body: { name: "Admin", email: "admin@test.example", password: "Password123" },
     });
 
     const res = await setupPost(event);
@@ -55,7 +55,7 @@ describe("POST /auth/setup", () => {
 
     const data = await jsonFromResponse(res);
     expect(data.user.role).toBe("admin");
-    expect(data.user.email).toBe("admin@test.com");
+    expect(data.user.email).toBe("admin@test.example");
     expect(data.user.name).toBe("Admin");
     expect(data.user.id).toBeDefined();
   });
@@ -63,7 +63,7 @@ describe("POST /auth/setup", () => {
   test("returns 403 when users already exist", async () => {
     const db = getTestDb();
     await db.insert(users).values({
-      email: "existing@test.com",
+      email: "existing@test.example",
       passwordHash: "hashed",
       name: "Existing",
       role: "admin",
@@ -72,7 +72,7 @@ describe("POST /auth/setup", () => {
     const event = createMockEvent({
       method: "POST",
       url: "http://localhost/api/auth/setup",
-      body: { name: "Admin2", email: "admin2@test.com", password: "Password123" },
+      body: { name: "Admin2", email: "admin2@test.example", password: "Password123" },
     });
 
     const res = await setupPost(event);
@@ -118,7 +118,7 @@ describe("POST /auth/setup", () => {
     const event = createMockEvent({
       method: "POST",
       url: "http://localhost/api/auth/setup",
-      body: { name: "Admin", email: "admin@test.com", password: "Password123" },
+      body: { name: "Admin", email: "admin@test.example", password: "Password123" },
     });
 
     await setupPost(event);
@@ -136,12 +136,12 @@ describe("POST /auth/setup", () => {
     const first = createMockEvent({
       method: "POST",
       url: "http://localhost/api/auth/setup",
-      body: { name: "Admin One", email: "first@test.com", password: "Password123" },
+      body: { name: "Admin One", email: "first@test.example", password: "Password123" },
     });
     const firstRes = await setupPost(first);
     expect(firstRes.status).toBe(201);
     const firstData = await jsonFromResponse(firstRes);
-    expect(firstData.user.email).toBe("first@test.com");
+    expect(firstData.user.email).toBe("first@test.example");
     expect(first.cookies.get("ezcorp_session")).toBeTruthy();
 
     // Different IP so the rate-limiter bucket is irrelevant — we want
@@ -150,7 +150,7 @@ describe("POST /auth/setup", () => {
     const second = createMockEvent({
       method: "POST",
       url: "http://localhost/api/auth/setup",
-      body: { name: "Admin Two", email: "second@test.com", password: "Password123" },
+      body: { name: "Admin Two", email: "second@test.example", password: "Password123" },
     });
     const secondRes = await setupPost(second);
     expect(secondRes.status).toBe(403);
@@ -162,7 +162,7 @@ describe("POST /auth/setup", () => {
     const db = getTestDb();
     const allUsers = await db.select().from(users);
     expect(allUsers).toBeArrayOfSize(1);
-    expect(allUsers[0]!.email).toBe("first@test.com");
+    expect(allUsers[0]!.email).toBe("first@test.example");
     expect(allUsers[0]!.role).toBe("admin");
   });
 
@@ -173,7 +173,7 @@ describe("POST /auth/setup", () => {
     const first = createMockEvent({
       method: "POST",
       url: "http://localhost/api/auth/setup",
-      body: { name: "Owner", email: "owner@test.com", password: "Password123" },
+      body: { name: "Owner", email: "owner@test.example", password: "Password123" },
     });
     expect((await setupPost(first)).status).toBe(201);
 
@@ -183,7 +183,7 @@ describe("POST /auth/setup", () => {
       const evt = createMockEvent({
         method: "POST",
         url: "http://localhost/api/auth/setup",
-        body: { name: `Intruder${i}`, email: `intruder${i}@test.com`, password: "Password123" },
+        body: { name: `Intruder${i}`, email: `intruder${i}@test.example`, password: "Password123" },
       });
       const res = await setupPost(evt);
       expect(res.status).toBe(403);
@@ -192,7 +192,7 @@ describe("POST /auth/setup", () => {
     const db = getTestDb();
     const allUsers = await db.select().from(users);
     expect(allUsers).toBeArrayOfSize(1);
-    expect(allUsers[0]!.email).toBe("owner@test.com");
+    expect(allUsers[0]!.email).toBe("owner@test.example");
   });
 
   test("403 fires even when only a non-admin (member) user exists", async () => {
@@ -202,7 +202,7 @@ describe("POST /auth/setup", () => {
     // the unauthenticated /api/auth/setup route.
     const db = getTestDb();
     await db.insert(users).values({
-      email: "regular@test.com",
+      email: "regular@test.example",
       passwordHash: "hashed",
       name: "Regular Member",
       role: "member",
@@ -211,7 +211,7 @@ describe("POST /auth/setup", () => {
     const event = createMockEvent({
       method: "POST",
       url: "http://localhost/api/auth/setup",
-      body: { name: "Sneaky Admin", email: "sneaky@test.com", password: "Password123" },
+      body: { name: "Sneaky Admin", email: "sneaky@test.example", password: "Password123" },
     });
     const res = await setupPost(event);
     expect(res.status).toBe(403);
@@ -228,7 +228,7 @@ describe("POST /auth/setup", () => {
     const first = createMockEvent({
       method: "POST",
       url: "http://localhost/api/auth/setup",
-      body: { name: "Real", email: "real@test.com", password: "Password123" },
+      body: { name: "Real", email: "real@test.example", password: "Password123" },
     });
     expect((await setupPost(first)).status).toBe(201);
 
@@ -239,7 +239,7 @@ describe("POST /auth/setup", () => {
     const second = createMockEvent({
       method: "POST",
       url: "http://localhost/api/auth/setup",
-      body: { name: "Fake", email: "fake@test.com", password: "Password123" },
+      body: { name: "Fake", email: "fake@test.example", password: "Password123" },
     });
     expect((await setupPost(second)).status).toBe(403);
 
@@ -257,7 +257,7 @@ describe("POST /auth/login", () => {
     const db = getTestDb();
     const hash = await hashPassword(TEST_PASSWORD);
     const rows = await db.insert(users).values({
-      email: overrides.email ?? "user@test.com",
+      email: overrides.email ?? "user@test.example",
       passwordHash: hash,
       name: "Test User",
       role: "member",
@@ -272,14 +272,14 @@ describe("POST /auth/login", () => {
     const event = createMockEvent({
       method: "POST",
       url: "http://localhost/api/auth/login",
-      body: { email: "user@test.com", password: TEST_PASSWORD },
+      body: { email: "user@test.example", password: TEST_PASSWORD },
     });
 
     const res = await loginPost(event);
     expect(res.status).toBe(200);
 
     const data = await jsonFromResponse(res);
-    expect(data.user.email).toBe("user@test.com");
+    expect(data.user.email).toBe("user@test.example");
 
     const cookie = event.cookies.get("ezcorp_session");
     expect(cookie).toBeTruthy();
@@ -289,7 +289,7 @@ describe("POST /auth/login", () => {
     const event = createMockEvent({
       method: "POST",
       url: "http://localhost/api/auth/login",
-      body: { email: "nobody@test.com", password: "Password123" },
+      body: { email: "nobody@test.example", password: "Password123" },
     });
 
     const res = await loginPost(event);
@@ -305,7 +305,7 @@ describe("POST /auth/login", () => {
     const event = createMockEvent({
       method: "POST",
       url: "http://localhost/api/auth/login",
-      body: { email: "user@test.com", password: "wrongpassword" },
+      body: { email: "user@test.example", password: "wrongpassword" },
     });
 
     const res = await loginPost(event);
@@ -321,7 +321,7 @@ describe("POST /auth/login", () => {
     const event = createMockEvent({
       method: "POST",
       url: "http://localhost/api/auth/login",
-      body: { email: "user@test.com", password: TEST_PASSWORD },
+      body: { email: "user@test.example", password: TEST_PASSWORD },
     });
 
     const res = await loginPost(event);
@@ -335,7 +335,7 @@ describe("POST /auth/login", () => {
     const event = createMockEvent({
       method: "POST",
       url: "http://localhost/api/auth/login",
-      body: { email: "user@test.com" },
+      body: { email: "user@test.example" },
     });
 
     const res = await loginPost(event);
@@ -422,7 +422,7 @@ describe("POST /auth/invite", () => {
     const event = createMockEvent({
       method: "POST",
       url: "http://localhost/api/auth/invite",
-      body: { email: "newuser@test.com", role: "member" },
+      body: { email: "newuser@test.example", role: "member" },
       user: ADMIN_USER,
     });
 
@@ -430,7 +430,7 @@ describe("POST /auth/invite", () => {
     expect(res.status).toBe(201);
 
     const data = await jsonFromResponse(res);
-    expect(data.invite.email).toBe("newuser@test.com");
+    expect(data.invite.email).toBe("newuser@test.example");
     expect(data.invite.role).toBe("member");
     expect(data.invite.token).toBeDefined();
   });
@@ -439,7 +439,7 @@ describe("POST /auth/invite", () => {
     const event = createMockEvent({
       method: "POST",
       url: "http://localhost/api/auth/invite",
-      body: { email: "newuser@test.com", role: "member" },
+      body: { email: "newuser@test.example", role: "member" },
       user: MEMBER_USER,
     });
 
@@ -462,7 +462,7 @@ describe("GET /auth/invite", () => {
     });
 
     // Create an invite via the query function
-    await createInvite({ email: "invited@test.com", role: "member", createdBy: ADMIN_USER.id });
+    await createInvite({ email: "invited@test.example", role: "member", createdBy: ADMIN_USER.id });
 
     const event = createMockEvent({
       method: "GET",
@@ -475,7 +475,7 @@ describe("GET /auth/invite", () => {
 
     const data = await jsonFromResponse(res);
     expect(data.invites).toBeArrayOfSize(1);
-    expect(data.invites[0].email).toBe("invited@test.com");
+    expect(data.invites[0].email).toBe("invited@test.example");
   });
 
   test("member gets 403", async () => {
@@ -503,7 +503,7 @@ describe("GET /auth/invite/[token]", () => {
       role: "admin",
     });
 
-    const invite = await createInvite({ email: "invited@test.com", role: "member", createdBy: ADMIN_USER.id });
+    const invite = await createInvite({ email: "invited@test.example", role: "member", createdBy: ADMIN_USER.id });
 
     const event = createMockEvent({
       method: "GET",
@@ -553,20 +553,20 @@ describe("POST /auth/invite/[token]", () => {
   }
 
   test("registers user with valid invite", async () => {
-    const invite = await seedInvite("new@test.com");
+    const invite = await seedInvite("new@test.example");
 
     const event = createMockEvent({
       method: "POST",
       url: `http://localhost/api/auth/invite/${invite.token}`,
       params: { token: invite.token },
-      body: { name: "New User", email: "new@test.com", password: "Password123" },
+      body: { name: "New User", email: "new@test.example", password: "Password123" },
     });
 
     const res = await inviteTokenPost(event);
     expect(res.status).toBe(201);
 
     const data = await jsonFromResponse(res);
-    expect(data.user.email).toBe("new@test.com");
+    expect(data.user.email).toBe("new@test.example");
     expect(data.user.name).toBe("New User");
     expect(data.user.role).toBe("member");
 
@@ -579,7 +579,7 @@ describe("POST /auth/invite/[token]", () => {
       method: "POST",
       url: "http://localhost/api/auth/invite/badtoken",
       params: { token: "badtoken" },
-      body: { name: "User", email: "u@test.com", password: "Password123" },
+      body: { name: "User", email: "u@test.example", password: "Password123" },
     });
 
     const res = await inviteTokenPost(event);
@@ -587,14 +587,14 @@ describe("POST /auth/invite/[token]", () => {
   });
 
   test("returns 404 for already-used invite", async () => {
-    const invite = await seedInvite("used@test.com");
+    const invite = await seedInvite("used@test.example");
 
     // Use the invite first
     const event1 = createMockEvent({
       method: "POST",
       url: `http://localhost/api/auth/invite/${invite.token}`,
       params: { token: invite.token },
-      body: { name: "First", email: "used@test.com", password: "Password123" },
+      body: { name: "First", email: "used@test.example", password: "Password123" },
     });
     const res1 = await inviteTokenPost(event1);
     expect(res1.status).toBe(201);
@@ -604,20 +604,20 @@ describe("POST /auth/invite/[token]", () => {
       method: "POST",
       url: `http://localhost/api/auth/invite/${invite.token}`,
       params: { token: invite.token },
-      body: { name: "Second", email: "used@test.com", password: "Password123" },
+      body: { name: "Second", email: "used@test.example", password: "Password123" },
     });
     const res2 = await inviteTokenPost(event2);
     expect(res2.status).toBe(404);
   });
 
   test("returns 400 when email does not match locked invite", async () => {
-    const invite = await seedInvite("locked@test.com");
+    const invite = await seedInvite("locked@test.example");
 
     const event = createMockEvent({
       method: "POST",
       url: `http://localhost/api/auth/invite/${invite.token}`,
       params: { token: invite.token },
-      body: { name: "User", email: "different@test.com", password: "Password123" },
+      body: { name: "User", email: "different@test.example", password: "Password123" },
     });
 
     const res = await inviteTokenPost(event);

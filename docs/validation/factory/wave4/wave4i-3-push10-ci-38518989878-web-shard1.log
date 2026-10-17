@@ -1,0 +1,243 @@
+excerpt of job-115704107128.log (1034 lines, 109872 bytes, sha256 46235486fff8ebd6b80d6d703ce9cb3c246dcbe2cb277e655ea56be49a064e76): the first 80 and the last 160 lines, ANSI and timestamps stripped; the full log stays in the evidence dir
+----- first 80 -----
+Current runner version: '2.337.0'
+##[group]Runner Image Provisioner
+Hosted Compute Agent
+Version: 20261002.596
+Commit: c3d12f3313a95f25162a1503be624f3b0617f8c0
+Build Date: 2026-10-02T22:28:27Z
+Worker ID: {66299699-b829-4d20-bdc5-24616ef03cf2}
+Region: eastus
+Cloud: Azure
+##[endgroup]
+##[group]Operating System
+Ubuntu
+24.04.5
+LTS
+##[endgroup]
+##[group]Runner Image
+Image: ubuntu-24.04
+Version: 20261004.327.1
+Included Software: https://github.com/actions/runner-images/blob/ubuntu24/20261004.327/images/ubuntu/Ubuntu2404-Readme.md
+Image Release: https://github.com/actions/runner-images/releases/tag/ubuntu24%2F20261004.327
+##[endgroup]
+##[group]GITHUB_TOKEN Permissions
+Contents: read
+Metadata: read
+##[endgroup]
+Secret source: Actions
+Cache mode: write
+Prepare workflow directory
+Prepare all required actions
+Getting action download info
+Download action repository 'actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1' (SHA:3d3c42e5aac5ba805825da76410c181273ba90b1)
+Download action repository 'actions/setup-node@820762786026740c76f36085b0efc47a31fe5020' (SHA:820762786026740c76f36085b0efc47a31fe5020)
+Download action repository 'actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a' (SHA:043fb46d1a93c77aae656e7c1c64a875d1fc6a0a)
+Complete job name: Web tests shard 1
+##[group]Run echo "WALL_TIME_START=$(date +%s)" >> "$GITHUB_ENV"
+echo "WALL_TIME_START=$(date +%s)" >> "$GITHUB_ENV"
+shell: /usr/bin/bash -e {0}
+env:
+  BUN_FEATURE_FLAG_DISABLE_SQL_AUTO_PIPELINING: 1
+  BUN_RUNTIME_TRANSPILER_CACHE_PATH: 0
+##[endgroup]
+##[group]Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+with:
+  repository: ezcorp-org/EZHarness
+  token: ***
+  ssh-strict: true
+  ssh-user: git
+  persist-credentials: true
+  clean: true
+  sparse-checkout-cone-mode: true
+  fetch-depth: 1
+  fetch-tags: false
+  show-progress: true
+  lfs: false
+  submodules: false
+  set-safe-directory: true
+  allow-unsafe-pr-checkout: false
+env:
+  BUN_FEATURE_FLAG_DISABLE_SQL_AUTO_PIPELINING: 1
+  BUN_RUNTIME_TRANSPILER_CACHE_PATH: 0
+  WALL_TIME_START: 1791957153
+##[endgroup]
+Syncing repository: ezcorp-org/EZHarness
+##[group]Getting Git version info
+Working directory is '/home/runner/work/EZHarness/EZHarness'
+[command]/usr/bin/git version
+git version 2.55.0
+##[endgroup]
+Temporarily overriding HOME='/home/runner/work/_temp/adaa6540-de62-4069-b66a-b91d3fc9213d' before making global git config changes
+Adding repository directory to the temporary git global config as a safe directory
+[command]/usr/bin/git config --global --add safe.directory /home/runner/work/EZHarness/EZHarness
+Deleting the contents of '/home/runner/work/EZHarness/EZHarness'
+##[group]Determining repository object format
+##[endgroup]
+##[group]Initializing the repository
+[command]/usr/bin/git init /home/runner/work/EZHarness/EZHarness
+hint: Using 'master' as the name for the initial branch. This default branch name
+hint: will change to "main" in Git 3.0. To configure the initial branch name
+hint: to use in all of your new repositories, which will suppress this warning,
+hint: call:
+----- last 160 -----
+ ✓ src/__tests__/api-agents-name-run.server.test.ts (5 tests) 28ms
+ ✓ src/lib/chat/page-handlers/__tests__/inherit-mode.unit.test.ts (8 tests) 9ms
+ ✓ src/lib/factory/layout.unit.test.ts (4 tests) 326ms
+ ✓ src/__tests__/api-search-messages.client.unit.test.ts (5 tests) 15ms
+ ✓ src/__tests__/admin-dashboard-source-decoupling.component.test.ts (2 tests) 171ms
+ ✓ src/__tests__/service-worker.shell.unit.test.ts (5 tests) 24ms
+ ✓ src/lib/components/UnsandboxedExtensionsBanner.component.test.ts (6 tests) 190ms
+ ✓ src/__tests__/api-extensions-name-tools.server.test.ts (4 tests) 24ms
+ ✓ src/lib/__tests__/use-breakpoint.unit.test.ts (4 tests) 19ms
+ ✓ src/__tests__/onboarding-page.server.test.ts (4 tests) 14ms
+ ✓ src/lib/settings-search.unit.test.ts (12 tests) 12ms
+ ✓ src/__tests__/api-admin-system.server.test.ts (5 tests) 22ms
+ ✓ src/__tests__/api-extensions-id-violations.server.test.ts (7 tests) 21ms
+ ✓ src/lib/components/__tests__/FileUpload.component.test.ts (4 tests) 305ms
+ ✓ src/__tests__/api-observability.server.test.ts (8 tests) 18ms
+ ✓ src/__tests__/task-helpers-find-assignment.server.test.ts (6 tests) 8ms
+ ✓ src/__tests__/api-composer-suggest-feedback.server.test.ts (9 tests) 24ms
+ ✓ src/lib/components/__tests__/unmount-teardown.component.test.ts (5 tests) 280ms
+ ✓ src/__tests__/api-mcp-servers-id-refresh.server.test.ts (10 tests) 25ms
+ ✓ src/__tests__/chat-index-select-deeplink.component.test.ts (2 tests) 71ms
+ ✓ src/__tests__/command-palette-ask-ez.component.test.ts (5 tests) 188ms
+ ✓ src/lib/components/tool-cards/WeatherCard.component.test.ts (6 tests) 335ms
+ ✓ src/lib/components/__tests__/ComposerSuggestSection.component.test.ts (5 tests) 104ms
+ ✓ src/__tests__/api-marketplace-id-rate.server.test.ts (5 tests) 19ms
+ ✓ src/__tests__/api-extensions-id-expired-grants.server.test.ts (5 tests) 17ms
+ ✓ src/__tests__/api-webhook-rotate.server.test.ts (4 tests) 14ms
+ ✓ src/lib/components/ChatInput.thumbnail.component.test.ts (4 tests) 68ms
+ ✓ src/__tests__/api-memories-id.server.test.ts (8 tests) 18ms
+ ✓ src/__tests__/format-map.test.ts (10 tests) 11ms
+ ✓ src/__tests__/api-knowledge-base.server.test.ts (7 tests) 24ms
+ ✓ src/__tests__/bounded-json.server.test.ts (3 tests) 29ms
+ ✓ src/routes/api/hub/pages/[id]/__tests__/request-timeout.server.test.ts (2 tests) 15ms
+ ✓ src/lib/components/__tests__/ExtensionSearchPicker-position.component.test.ts (3 tests) 297ms
+ ✓ src/lib/components/tool-cards/ez-draft-card-logic.unit.test.ts (7 tests) 9ms
+ ✓ src/__tests__/api-conversations-id-sub-conversations.server.test.ts (5 tests) 15ms
+ ✓ src/__tests__/agent-input-form.component.test.ts (3 tests) 141ms
+ ✓ src/lib/components/AttachmentCard.audio.component.test.ts (3 tests) 55ms
+ ✓ src/__tests__/api-audit-log.server.test.ts (6 tests) 18ms
+ ✓ src/lib/__tests__/extract-tool-output.unit.test.ts (5 tests) 8ms
+ ✓ src/lib/components/SelectedPill.component.test.ts (7 tests) 221ms
+ ✓ src/__tests__/api-conversations-sub-conversations.server.test.ts (3 tests) 14ms
+ ✓ src/lib/invoke-inline-tool.unit.test.ts (7 tests) 278ms
+ ✓ src/__tests__/project-proposal-review.component.test.ts (2 tests) 301ms
+ ✓ src/lib/stores/extension-toolbar.unit.test.ts (6 tests) 21ms
+ ✓ src/__tests__/api-favicon.server.test.ts (3 tests) 15ms
+ ✓ src/__tests__/api-marketplace-export-v4.server.test.ts (1 test) 379ms
+   ✓ exports an immutable source release without changing its digest 377ms
+ ✓ src/lib/components/MessageToolbar.rewind.component.test.ts (5 tests) 79ms
+ ✓ src/__tests__/api-projects-id.server.test.ts (6 tests) 15ms
+ ✓ src/__tests__/stores-tree-changed.integration.component.test.ts (1 test) 12ms
+ ✓ src/lib/save-flash.unit.test.ts (4 tests) 16ms
+ ✓ src/lib/components/__tests__/SettingsSection.component.test.ts (2 tests) 198ms
+ ✓ src/__tests__/version-endpoint.server.test.ts (2 tests) 23ms
+ ✓ src/lib/components/__tests__/ModelSearchPicker-keyboard.component.test.ts (2 tests) 313ms
+ ✓ src/__tests__/sandbox-ffi-bundles.unit.test.ts (2 tests) 11ms
+ ✓ src/__tests__/search-picker-position.unit.test.ts (4 tests) 11ms
+ ✓ src/__tests__/update-conversation-schema.unit.test.ts (5 tests) 12ms
+ ✓ src/lib/components/tool-cards/CopyButton.component.test.ts (2 tests) 206ms
+ ✓ src/__tests__/api-conversations-messages-mid.server.test.ts (1 test) 11ms
+ ✓ src/routes/(app)/factories/factories-page.server.test.ts (2 tests) 8ms
+ ✓ src/lib/components/DevBadge.component.test.ts (2 tests) 41ms
+ ✓ src/lib/server/db-connection-load.server.test.ts (1 test) 571ms
+   ✓ src/db/connection.ts loads under Vite, and the Bun SQL class is refused by name outside Bun 569ms
+ ✓ src/__tests__/api-account-login-history.server.test.ts (1 test) 10ms
+ ✓ src/__tests__/extension-legacy-cutover.server.test.ts (1 test) 11ms
+ ✓ src/__tests__/stores-project-refresh.component.test.ts (2 tests) 16ms
+ ✓ src/lib/components/tool-cards/DockOpenPill.component.test.ts (1 test) 37ms
+ ✓ src/lib/__tests__/project-icon.unit.test.ts (3 tests) 7ms
+ ✓ src/__tests__/pipelines-redirect.server.test.ts (1 test) 10ms
+ ✓ src/__tests__/mcp-staging-client.unit.test.ts (3 tests) 13ms
+ ✓ src/lib/extensions/list-response.unit.test.ts (2 tests) 7ms
+
+ Test Files  216 passed (216)
+      Tests  2714 passed (2714)
+   Start at  05:53:20
+   Duration  205.52s (environment 41%, import 21%, setup 14%, tests 12%, transform 10%, worker 2%)
+
+Environment  jsdom was created 216 times · 147.25s total, 41% of tracked time
+             create it once per worker with pool: 'vmThreads' (keeps per-file isolation) or isolate: false (shares it across files)
+             learn more: https://vitest.dev/guide/improving-performance#test-environments
+
+kept 621 configured Node/V8 product-source records → /home/runner/work/EZHarness/EZHarness/coverage-shard/web-vitest-1/lcov.info
+##[group]Run bash scripts/ci-wall-time.sh vitest 198
+bash scripts/ci-wall-time.sh vitest 198
+shell: /usr/bin/bash -e {0}
+env:
+  BUN_FEATURE_FLAG_DISABLE_SQL_AUTO_PIPELINING: 1
+  BUN_RUNTIME_TRANSPILER_CACHE_PATH: 0
+  WALL_TIME_START: 1791957199
+##[endgroup]
+vitest wall time: 208s (median 198s, 1.1x; warns above 2x = 396s)
+##[group]Run actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+with:
+  name: lcov-cov-web-vitest-1
+  path: coverage-shard
+  retention-days: 3
+  if-no-files-found: error
+  compression-level: 6
+  overwrite: false
+  include-hidden-files: false
+  archive: true
+env:
+  BUN_FEATURE_FLAG_DISABLE_SQL_AUTO_PIPELINING: 1
+  BUN_RUNTIME_TRANSPILER_CACHE_PATH: 0
+  WALL_TIME_START: 1791957407
+##[endgroup]
+With the provided path, there will be 2 files uploaded
+Artifact name is valid!
+Root directory input is valid!
+Uploading artifact: lcov-cov-web-vitest-1.zip
+Beginning upload of artifact content to blob storage
+Uploaded bytes 465990
+Finished uploading artifact content to blob storage!
+SHA256 digest of uploaded artifact is 2faabdfc6c14b26d7a24a8ce7c75c0db8497bf592dcee070f0374cf1b675b348
+Finalizing artifact upload
+Artifact lcov-cov-web-vitest-1 successfully finalized. Artifact ID 11872639043
+Artifact lcov-cov-web-vitest-1 has been successfully uploaded! Final size is 465990 bytes. Artifact ID is 11872639043
+Artifact download URL: https://github.com/ezcorp-org/EZHarness/actions/runs/38518989878/artifacts/11872639043
+Post job cleanup.
+Post job cleanup.
+##[start-action display=Cache bun global install cache;id=__3efaece9-784e-4c5e-a92d-0dcbd482dc2d.__actions_cache]
+Post job cleanup.
+Cache hit occurred on the primary key bun-Linux-1cb0b65f53718e04a897d6022305d459ca3163956ac9c65ff703d281bfc19c1c-1dac0a653fe0a5657494557972d43ceb2a90cc64b3a4f001424de9a6fbfafd47, not saving cache.
+##[end-action id=__3efaece9-784e-4c5e-a92d-0dcbd482dc2d.__actions_cache;outcome=success;conclusion=success;duration_ms=321]
+##[start-action display=Run oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6;id=__3efaece9-784e-4c5e-a92d-0dcbd482dc2d.__oven-sh_setup-bun]
+Post job cleanup.
+##[end-action id=__3efaece9-784e-4c5e-a92d-0dcbd482dc2d.__oven-sh_setup-bun;outcome=success;conclusion=success;duration_ms=181]
+Post job cleanup.
+[command]/usr/bin/git version
+git version 2.55.0
+Temporarily overriding HOME='/home/runner/work/_temp/4a97cfcc-a278-4da7-b396-11b67892df87' before making global git config changes
+Adding repository directory to the temporary git global config as a safe directory
+[command]/usr/bin/git config --global --add safe.directory /home/runner/work/EZHarness/EZHarness
+Removing SSH command configuration
+[command]/usr/bin/git config --local --name-only --get-regexp core\.sshCommand
+[command]/usr/bin/git submodule foreach --recursive sh -c "git config --local --name-only --get-regexp 'core\.sshCommand' && git config --local --unset-all 'core.sshCommand' || :"
+Removing HTTP extra header
+[command]/usr/bin/git config --local --name-only --get-regexp http\.https\:\/\/github\.com\/\.extraheader
+[command]/usr/bin/git submodule foreach --recursive sh -c "git config --local --name-only --get-regexp 'http\.https\:\/\/github\.com\/\.extraheader' && git config --local --unset-all 'http.https://github.com/.extraheader' || :"
+Removing includeIf entries pointing to credentials config files
+[command]/usr/bin/git config --local --name-only --get-regexp ^includeIf\.gitdir:
+includeif.gitdir:/home/runner/work/EZHarness/EZHarness/.git.path
+includeif.gitdir:/home/runner/work/EZHarness/EZHarness/.git/worktrees/*.path
+includeif.gitdir:/github/workspace/.git.path
+includeif.gitdir:/github/workspace/.git/worktrees/*.path
+[command]/usr/bin/git config --local --get-all includeif.gitdir:/home/runner/work/EZHarness/EZHarness/.git.path
+/home/runner/work/_temp/git-credentials-9fe135ea-2173-4616-a89f-f86993dd2d8a.config
+[command]/usr/bin/git config --local --unset includeif.gitdir:/home/runner/work/EZHarness/EZHarness/.git.path \/home\/runner\/work\/_temp\/git\-credentials\-9fe135ea\-2173\-4616\-a89f\-f86993dd2d8a\.config
+[command]/usr/bin/git config --local --get-all includeif.gitdir:/home/runner/work/EZHarness/EZHarness/.git/worktrees/*.path
+/home/runner/work/_temp/git-credentials-9fe135ea-2173-4616-a89f-f86993dd2d8a.config
+[command]/usr/bin/git config --local --unset includeif.gitdir:/home/runner/work/EZHarness/EZHarness/.git/worktrees/*.path \/home\/runner\/work\/_temp\/git\-credentials\-9fe135ea\-2173\-4616\-a89f\-f86993dd2d8a\.config
+[command]/usr/bin/git config --local --get-all includeif.gitdir:/github/workspace/.git.path
+/github/runner_temp/git-credentials-9fe135ea-2173-4616-a89f-f86993dd2d8a.config
+[command]/usr/bin/git config --local --unset includeif.gitdir:/github/workspace/.git.path \/github\/runner_temp\/git\-credentials\-9fe135ea\-2173\-4616\-a89f\-f86993dd2d8a\.config
+[command]/usr/bin/git config --local --get-all includeif.gitdir:/github/workspace/.git/worktrees/*.path
+/github/runner_temp/git-credentials-9fe135ea-2173-4616-a89f-f86993dd2d8a.config
+[command]/usr/bin/git config --local --unset includeif.gitdir:/github/workspace/.git/worktrees/*.path \/github\/runner_temp\/git\-credentials\-9fe135ea\-2173\-4616\-a89f\-f86993dd2d8a\.config
+[command]/usr/bin/git submodule foreach --recursive git config --local --show-origin --name-only --get-regexp remote.origin.url
+Removing credentials config '/home/runner/work/_temp/git-credentials-9fe135ea-2173-4616-a89f-f86993dd2d8a.config'
+Cleaning up orphan processes

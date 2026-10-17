@@ -159,7 +159,7 @@ describe("/(auth)/login/+page.server load() — returnTo handling", () => {
     beforeEach(() => {
       vi.mocked(verifyJWT).mockResolvedValue({
         id: "u-1",
-        email: "u@test.com",
+        email: "u@test.example",
         name: "U",
         role: "member",
         iat: 0,
@@ -215,7 +215,7 @@ describe("/(auth)/login/+page.server load() — returnTo handling", () => {
     test("valid JWT + missing session row → clears cookie and returns { returnTo }", async () => {
       vi.mocked(verifyJWT).mockResolvedValue({
         id: "u-1",
-        email: "u@test.com",
+        email: "u@test.example",
         name: "U",
         role: "member",
         iat: 0,

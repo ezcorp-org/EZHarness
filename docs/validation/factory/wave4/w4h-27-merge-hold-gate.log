@@ -1,0 +1,8 @@
+resource-gate 2026-10-14T03:18:41Z w4h-27-hold outside-lock disk=118G memAvailable=17GiB swapFreeKiB=7715708/17173956 floors disk>=104G swap>=2621440KiB mem>=12GiB
+gated-flock w4h-27-hold: gate green outside the lock, queue for the lock (try 1) 2026-10-14T03:18:41Z
+own-pg: w4h-27-hold-pg (docker.io/pgvector/pgvector:pg15 4b4956e2ab1f, server 15.19) on 127.0.0.1:42837
+gated-flock w4h-27-hold: command exit 1 2026-10-14T04:01:24Z
+resource-gate 2026-10-14T04:03:06Z w4h-27-red-first-rerun outside-lock disk=113G memAvailable=17GiB swapFreeKiB=8037572/17173956 floors disk>=104G swap>=2621440KiB mem>=12GiB
+gated-flock w4h-27-red-first-rerun: gate green outside the lock, queue for the lock (try 1) 2026-10-14T04:03:06Z
+gated-flock w4h-27-red-first-rerun: command exit 0 2026-10-14T04:03:18Z
+own-pg: w4h-27-hold-pg (docker.io/pgvector/pgvector:pg15 4b4956e2ab1f, server 15.19) on 127.0.0.1:43151

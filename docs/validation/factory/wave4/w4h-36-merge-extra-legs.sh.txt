@@ -1,0 +1,6 @@
+# W4H-36 (integrator-5; the coordinator's ruling 2026-10-16, landing plan accepted; validator-8 plan-w4h-36.md): the docs line v10 contract
+# rows; four docs-only commits (df92f4339 3099fc3af 425196fbe 7cac5837c) that change ONE file. A DOCS-ONLY merge: hold-w4f.sh runs the prune
+# scan, attestation, the guard set, the 51 invariant unit legs (hook 0, importers 0), the web server leg, CRAP (0 changed TS files) and the
+# merge gates. Beyond those, sourced by hold-w4f.sh (a leg or nothing; no secret in argv or in this file):
+# - the identity check on the changed contracts file (NOTEST; a missing listed file fails by name):
+NOTEST=1 file_leg identity-contracts docs/plans/2026-09-12-composable-factory-platform-contracts.md bash /tmp/factory-platform-evidence/w00/identity-check.sh files docs/plans/2026-09-12-composable-factory-platform-contracts.md

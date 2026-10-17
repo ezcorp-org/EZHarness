@@ -41,7 +41,7 @@ let userId = "";
 beforeAll(async () => {
   await setupTestDb();
   const u = await createUser({
-    email: "ez-clear-leaks@test.com",
+    email: "ez-clear-leaks@test.example",
     passwordHash: "h",
     name: "EzClear",
   });

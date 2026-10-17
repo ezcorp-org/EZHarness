@@ -1,0 +1,39 @@
+W4H-26 REPORT — R6 (FROZEN, fifth freeze)
+
+Branch wp/w4h-26-runner-wiring from origin/main 1981febd2. FROZEN head 89716018f (code head abee88765; 89716018f adds only the
+gate file tasks/factory/w4h-26-GATES.md fbe791e9b3965a82 and tasks/todo.md lines). Earlier reports kept, latest
+report-02fb9136c.txt (864b0f60c311651b). G1, N5, D1-D7 unchanged. Identity: every commit author and committer is
+281643943+EZArchy@users.noreply.github.com. No model call.
+
+R6 (abee88765, ruled), in src/factory/runner/host-launch-supervisor.ts:
+- N7: the in-process join entry is created synchronously before any await; two concurrent first requests build once.
+- N6: only a SUCCEEDED preparation is recorded durably; a failed build is joined in memory in its process and built again
+  after a restart (test: failed build, joined, not recorded; restart; rebuilt once and recorded).
+- T1: other source under a reused identity as the FIRST request after a restart is refused (invalid_request) against the
+  durable record, and the refused request leaves no entry, so the right source then reads the record.
+- Mutants (mutants/r6-mutants.txt): stored-source check dropped, refused entry kept, failed build recorded, join after an
+  await: 4 of 4 killed. Red first: the N6 case failed on 02fb9136c's logic (logs/r6-red.log); T1 and N7 cases are pinned by
+  their mutants.
+
+LEGS at abee88765 (legs/final.log): patch PASS (25 files); new-file PASS (5); CRAP none over 30; guard 42 files 524/0;
+typecheck 0 (in the lock, after build:packages); proof passed (proof/final-5.json: /api/ready staged both, failed none;
+snapshot executed in the pinned guest; content equal). Lint 0; gate-integrity 0 findings on both legs; red-first 17 of 17
+red on 1981febd2; D6 mutants 4 of 4 killed.
+
+Unchanged leftovers: generateCandidate fleet profile (placeholder pin); G7 Compose proof after W4H-27; G8d blocked; N1; N3.
+
+EVIDENCE (sha256, first 16; earlier entries in the earlier reports still hold)
+5fb3603cc20143ec proof/final-5.json
+4cab31a6e6680403 mutants/r6-mutants.txt
+e88088a197145d63 mutants/r6-mutants.py
+5046126ef141f5ea logs/r6-red.log
+cb083aac7fcb45a5 red/red-on-base.txt
+a5b764c6810f38e4 mutants/d6-mutants.txt
+5225228b7d6616c4 legs/final.log
+9d8b51b2e14f2c7c legs/final-focused-6.out
+2a6d2c4b4bf7856b legs/focused/patch.log
+e8d06bfdd6bdce17 legs/focused/crap.log
+5e3346e92b8bf440 legs/final-guard-5.out
+c40b5ce7d76dd048 legs/final-typecheck-8.out
+75c2d658798031f3 legs/final-lint-5.log
+b1a0297506aab4a1 legs/final-gi-main-5.log

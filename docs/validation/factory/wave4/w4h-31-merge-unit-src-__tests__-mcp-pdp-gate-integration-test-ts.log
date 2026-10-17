@@ -1,0 +1,8 @@
+bun test v1.4.2 (744846f84)
+{"ts":"2026-10-16T01:09:51.034Z","level":"error","msg":"MCP extension has no capability grant — every tool call will be denied","subsystem":"extensions/registry","extension":"pdp-legacy-closed","extensionId":"6e26a8f5-3f05-4677-b0b1-1339caf661a9","reason":"the one-shot MCP capability backfill has not run for this row (migrate skipped, or its row update failed)","remedy":"resolve the failed migration and restart, or re-save the server from the MCP edit form to re-issue the grant"}
+{"ts":"2026-10-16T01:09:51.049Z","level":"warn","msg":"legacy MCP manifest capabilities could not be derived","subsystem":"db.queries.extensions","extension":"pdp-backfill-boom","error":"Error: write failed"}
+
+ 16 pass
+ 0 fail
+ 55 expect() calls
+Ran 16 tests across 1 file. [1142.00ms]

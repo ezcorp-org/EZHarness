@@ -1,0 +1,12 @@
+#!/usr/bin/env bash
+# copy-harness.test.sh: copy-harness.sh keeps 644/755 under umask 077, refuses a missing source, and its check catches a changed mode.
+set -u
+C=/tmp/factory-platform-evidence/integrator-5/copy-harness.sh; X=$(mktemp -d); trap 'rm -rf "$X"' EXIT; fail=0
+mkdir -p $X/s/image; echo a > $X/s/job.sh; echo b > $X/s/shim.sh; echo c > $X/s/image/Containerfile; chmod 644 $X/s/job.sh $X/s/image/Containerfile; chmod 755 $X/s/shim.sh
+out=$( umask 077; bash $C $X/s $X/t job.sh shim.sh image/Containerfile ); rc=$?
+[ $rc = 0 ] || { echo "FAIL rc=$rc: $out"; fail=1; }
+[ "$(stat -c %a $X/t/job.sh) $(stat -c %a $X/t/shim.sh) $(stat -c %a $X/t/image/Containerfile)" = "644 755 644" ] || { echo "FAIL modes not kept"; fail=1; }
+bash $C $X/s $X/t2 gone.sh > $X/o 2>&1 && { echo "FAIL missing source accepted"; fail=1; }; grep -q 'MISSING' $X/o || { echo "FAIL no MISSING line"; fail=1; }
+# the check itself: a plain cp under umask 077 (the defect) is what the mode check must catch
+( umask 077; cp $X/s/shim.sh $X/plain.sh ); [ "$(stat -c %a $X/plain.sh)" != 755 ] || { echo "FAIL the defect did not reproduce"; fail=1; }
+[ $fail = 0 ] && echo "copy-harness.test.sh: PASS"; exit $fail

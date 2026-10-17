@@ -1,0 +1,12 @@
+bun test v1.4.2 (744846f84)
+
+src/__tests__/bundled-source-lock.test.ts:
+(pass) first-party source inventory is deterministic and covers all 51 candidates without config execution [329.10ms]
+(pass) checked-in lock matches every source snapshot, not just executable metadata [146.61ms]
+(pass) AI Kit frozen dependencies match its shipped source [8.32ms]
+
+ 3 pass
+ 0 fail
+ 9 expect() calls
+Ran 3 tests across 1 file. [828.00ms]
+exit=0

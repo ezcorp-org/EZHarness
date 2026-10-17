@@ -1,0 +1,102 @@
+Checked 28 files in 21ms. No fixes applied.
+── Tests (staged) ─────────────────────────────────
+  bun: packages/@ezcorp/extension-runner/tests/service.test.ts
+bun test v1.4.2 (744846f84)
+
+ 12 pass
+ 0 fail
+ 50 expect() calls
+Ran 12 tests across 1 file. [2.81s]
+  bun: packages/@ezcorp/extension-runner/tests/store-reuse.test.ts
+bun test v1.4.2 (744846f84)
+
+ 6 pass
+ 0 fail
+ 11 expect() calls
+Ran 6 tests across 1 file. [442.00ms]
+  bun: scripts/factory-graph-proof/guest-package.test.ts
+bun test v1.4.2 (744846f84)
+
+ 1 pass
+ 0 fail
+ 9 expect() calls
+Ran 1 test across 1 file. [378.00ms]
+  bun: src/extensions/extension-lifecycle-service.test.ts
+bun test v1.4.2 (744846f84)
+{"ts":"2026-10-17T04:14:09.070Z","level":"error","msg":"Extension recovery requires attention","subsystem":"ext.author.lifecycle","installationId":"installation","code":"recovery_failed"}
+{"ts":"2026-10-17T04:14:09.071Z","level":"error","msg":"Extension recovery requires attention","subsystem":"ext.author.lifecycle","installationId":"installation","code":"recovery_failed"}
+{"ts":"2026-10-17T04:14:09.071Z","level":"error","msg":"Deferred extension recovery requires attention","subsystem":"ext.author.lifecycle","installationId":"installation","code":"recovery_failed"}
+{"ts":"2026-10-17T04:14:09.071Z","level":"error","msg":"Extension recovery requires attention","subsystem":"ext.author.lifecycle","installationId":"a-blocked","code":"recovery_failed"}
+{"ts":"2026-10-17T04:14:09.072Z","level":"error","msg":"Extension recovery requires attention","subsystem":"ext.author.lifecycle","installationId":"a-recover-fails","code":"recovery_failed"}
+
+ 10 pass
+ 0 fail
+ 21 expect() calls
+Ran 10 tests across 1 file. [366.00ms]
+  bun: src/extensions/runner-connection.test.ts
+bun test v1.4.2 (744846f84)
+
+ 9 pass
+ 0 fail
+ 51 expect() calls
+Ran 9 tests across 1 file. [368.00ms]
+  bun: src/extensions/runner-rehydration.test.ts
+bun test v1.4.2 (744846f84)
+
+ 15 pass
+ 0 fail
+ 48 expect() calls
+Ran 15 tests across 1 file. [1.91s]
+  bun: src/factory/attempt-composition.test.ts
+bun test v1.4.2 (744846f84)
+
+ 15 pass
+ 0 fail
+ 37 expect() calls
+Ran 15 tests across 1 file. [3.46s]
+  bun: src/factory/guest-package-build.test.ts
+bun test v1.4.2 (744846f84)
+
+ 8 pass
+ 0 fail
+ 19 expect() calls
+Ran 8 tests across 1 file. [361.00ms]
+  bun: src/factory/guest-package-harness-install.test.ts
+bun test v1.4.2 (744846f84)
+
+ 3 pass
+ 0 fail
+ 10 expect() calls
+Ran 3 tests across 1 file. [4.57s]
+  bun: src/factory/host-preparation-client.test.ts
+bun test v1.4.2 (744846f84)
+
+ 1 pass
+ 0 fail
+ 9 expect() calls
+Ran 1 test across 1 file. [629.00ms]
+  bun: src/factory/package-preparation.podman.integration.test.ts
+bun test v1.4.2 (744846f84)
+
+ 1 pass
+ 0 fail
+ 12 expect() calls
+Ran 1 test across 1 file. [12.36s]
+  bun: src/__tests__/extension-lifecycle-service-trusted-local.test.ts
+bun test v1.4.2 (744846f84)
+{"ts":"2026-10-17T04:14:34.269Z","level":"error","msg":"Extension recovery requires attention","subsystem":"ext.author.lifecycle","installationId":"65bdfc77-7eec-4e05-a82f-8ef70ea5404d","code":"recovery_failed"}
+{"ts":"2026-10-17T04:14:34.270Z","level":"error","msg":"Extension recovery requires attention","subsystem":"ext.author.lifecycle","installationId":"8a99822b-6bd1-43d1-bdba-2d9c7d11eeb6","code":"recovery_failed"}
+{"ts":"2026-10-17T04:14:34.270Z","level":"error","msg":"Extension recovery requires attention","subsystem":"ext.author.lifecycle","code":"recovery_failed"}
+
+ 6 pass
+ 0 fail
+ 19 expect() calls
+Ran 6 tests across 1 file. [1155.00ms]
+  bun: src/__tests__/readiness.test.ts
+bun test v1.4.2 (744846f84)
+
+ 11 pass
+ 0 fail
+ 29 expect() calls
+Ran 11 tests across 1 file. [367.00ms]
+[detached HEAD ba9acd166] merge: wp/w4h-32-runner-rehydrate 13c439661 into integ/w00 (runner store resilience: a missing release artifact is rehydrated from the product's own copy (W4H-32))

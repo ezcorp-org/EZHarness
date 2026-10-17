@@ -1,0 +1,404 @@
+# 2026-10-15T23:38:26Z cwd=/home/dev/work/EZCorp/EZHarness/.worktrees/w4h-32 cmd: bun test --timeout 30000 ./src/extensions/runner-rehydration.test.ts ./src/__tests__/readiness.test.ts ./src/extensions/runner-connection.test.ts
+bun test v1.4.2 (744846f84)
+
+src/extensions/runner-rehydration.test.ts:
+27 | const files: WorkspaceFiles = { "extension.js": "export {};", ".runner/recipe.json": "{}" };
+28 | const artifact = filesDigest(files);
+29 | const bytes = new TextEncoder().encode(canonicalJson(files));
+30 | const execution = { workerId: "worker" } as unknown as RunnerExecution;
+31 | const noReverse: ReverseRpc = async () => { throw new Error("unused"); };
+32 | const missing = () => new RunnerError("artifact_missing", "The release's artifact is not in this runner's store", "runner", false, { errorClass: "Error", errorCode: "ENOENT" });
+                           ^
+RunnerError: The release's artifact is not in this runner's store
+     stage: "runner",
+ retryable: false,
+    detail: {
+  errorClass: "Error",
+  errorCode: "ENOENT",
+},
+      code: "artifact_missing"
+
+      at missing (/home/dev/work/EZCorp/EZHarness/.worktrees/w4h-32/src/extensions/runner-rehydration.test.ts:32:23)
+      at start (/home/dev/work/EZCorp/EZHarness/.worktrees/w4h-32/src/extensions/runner-rehydration.test.ts:41:109)
+      at <anonymous> (/home/dev/work/EZCorp/EZHarness/.worktrees/w4h-32/src/extensions/runner-rehydration.test.ts:77:26)
+(fail) rehydration of a missing runner artifact (W4H-32) > a start that misses its artifact restores it from the product's blob copy, retries once, and succeeds [0.33ms]
+27 | const files: WorkspaceFiles = { "extension.js": "export {};", ".runner/recipe.json": "{}" };
+28 | const artifact = filesDigest(files);
+29 | const bytes = new TextEncoder().encode(canonicalJson(files));
+30 | const execution = { workerId: "worker" } as unknown as RunnerExecution;
+31 | const noReverse: ReverseRpc = async () => { throw new Error("unused"); };
+32 | const missing = () => new RunnerError("artifact_missing", "The release's artifact is not in this runner's store", "runner", false, { errorClass: "Error", errorCode: "ENOENT" });
+                           ^
+RunnerError: The release's artifact is not in this runner's store
+     stage: "runner",
+ retryable: false,
+    detail: {
+  errorClass: "Error",
+  errorCode: "ENOENT",
+},
+      code: "artifact_missing"
+
+      at missing (/home/dev/work/EZCorp/EZHarness/.worktrees/w4h-32/src/extensions/runner-rehydration.test.ts:32:23)
+      at collectArtifacts (/home/dev/work/EZCorp/EZHarness/.worktrees/w4h-32/src/extensions/runner-rehydration.test.ts:44:109)
+      at <anonymous> (/home/dev/work/EZCorp/EZHarness/.worktrees/w4h-32/src/extensions/runner-rehydration.test.ts:89:63)
+(fail) rehydration of a missing runner artifact (W4H-32) > an artifact read that misses is restored the same way and answers the files [0.11ms]
+27 | const files: WorkspaceFiles = { "extension.js": "export {};", ".runner/recipe.json": "{}" };
+28 | const artifact = filesDigest(files);
+29 | const bytes = new TextEncoder().encode(canonicalJson(files));
+30 | const execution = { workerId: "worker" } as unknown as RunnerExecution;
+31 | const noReverse: ReverseRpc = async () => { throw new Error("unused"); };
+32 | const missing = () => new RunnerError("artifact_missing", "The release's artifact is not in this runner's store", "runner", false, { errorClass: "Error", errorCode: "ENOENT" });
+                           ^
+RunnerError: The release's artifact is not in this runner's store
+     stage: "runner",
+ retryable: false,
+    detail: {
+  errorClass: "Error",
+  errorCode: "ENOENT",
+},
+      code: "artifact_missing"
+
+      at missing (/home/dev/work/EZCorp/EZHarness/.worktrees/w4h-32/src/extensions/runner-rehydration.test.ts:32:23)
+      at collectArtifacts (/home/dev/work/EZCorp/EZHarness/.worktrees/w4h-32/src/extensions/runner-rehydration.test.ts:44:109)
+      at <anonymous> (/home/dev/work/EZCorp/EZHarness/.worktrees/w4h-32/src/extensions/runner-rehydration.test.ts:97:19)
+(fail) rehydration of a missing runner artifact (W4H-32) > by default a rehydration is a non-blocking readiness warning with its code, digest and count, never a message [0.10ms]
+105 |   test("a digest no release record names is refused release_unknown before the blob copy is read", async () => {
+106 |     const { runner, calls } = fakeRunner();
+107 |     const { blobs, reads } = fakeBlobs();
+108 |     const { source: rehydration, rehydrated } = source(blobs, false);
+109 |     const refusal = await createRehydratingRunner(runner, rehydration).start(request(), noReverse).catch((error: unknown) => error);
+110 |     expect(refusal).toBeInstanceOf(ArtifactUnrecoverableError);
+                          ^
+error: expect(received).toBeInstanceOf(expected)
+
+Expected constructor: [class ArtifactUnrecoverableError extends LifecycleError]
+Received value: 27 | const files: WorkspaceFiles = { "extension.js": "export {};", ".runner/recipe.json": "{}" };
+28 | const artifact = filesDigest(files);
+29 | const bytes = new TextEncoder().encode(canonicalJson(files));
+30 | const execution = { workerId: "worker" } as unknown as RunnerExecution;
+31 | const noReverse: ReverseRpc = async () => { throw new Error("unused"); };
+32 | const missing = () => new RunnerError("artifact_missing", "The release's artifact is not in this runner's store", "runner", false, { errorClass: "Error", errorCode: "ENOENT" });
+                           ^
+RunnerError: The release's artifact is not in this runner's store
+     stage: "runner",
+ retryable: false,
+    detail: {
+  errorClass: "Error",
+  errorCode: "ENOENT",
+},
+      code: "artifact_missing"
+
+      at missing (/home/dev/work/EZCorp/EZHarness/.worktrees/w4h-32/src/extensions/runner-rehydration.test.ts:32:23)
+      at start (/home/dev/work/EZCorp/EZHarness/.worktrees/w4h-32/src/extensions/runner-rehydration.test.ts:41:109)
+      at <anonymous> (/home/dev/work/EZCorp/EZHarness/.worktrees/w4h-32/src/extensions/runner-rehydration.test.ts:109:72)
+
+
+      at <anonymous> (/home/dev/work/EZCorp/EZHarness/.worktrees/w4h-32/src/extensions/runner-rehydration.test.ts:110:21)
+(fail) rehydration of a missing runner artifact (W4H-32) > a digest no release record names is refused release_unknown before the blob copy is read [0.14ms]
+113 |   });
+114 | 
+115 |   test("a missing blob copy is refused blob_missing, and nothing is restored or retried", async () => {
+116 |     const { runner, calls } = fakeRunner();
+117 |     const { source: rehydration } = source(fakeBlobs(async () => { throw new LifecycleError("artifact_missing", "One stored extension release blob is missing."); }).blobs);
+118 |     await expect(createRehydratingRunner(runner, rehydration).start(request(), noReverse)).rejects.toMatchObject({ code: "artifact_unrecoverable", expectedDigest: artifact, reason: "blob_missing" });
+                                                                                                         ^
+error: expect(received).toMatchObject(expected)
+
+- {
+-   "code": "artifact_unrecoverable",
+-   "expectedDigest": "2be18fa207bd1b3d3c2115183653329aa35d00f620b2c4a6b2b53812551de00c",
+-   "reason": "blob_missing",
+- }
++ [RunnerError: The release's artifact is not in this runner's store]
+
+- Expected  - 5
++ Received  + 1
+
+      at <anonymous> (/home/dev/work/EZCorp/EZHarness/.worktrees/w4h-32/src/extensions/runner-rehydration.test.ts:118:100)
+(fail) rehydration of a missing runner artifact (W4H-32) > a missing blob copy is refused blob_missing, and nothing is restored or retried [0.13ms]
+121 | 
+122 |   test("blob bytes that do not hash to the digest are refused digest_mismatch and never reach the runner", async () => {
+123 |     const { runner, calls } = fakeRunner();
+124 |     const tampered = new TextEncoder().encode(canonicalJson({ ...files, "extension.js": "export const changed = 1;" }));
+125 |     const { source: rehydration } = source(fakeBlobs(async () => tampered).blobs);
+126 |     await expect(createRehydratingRunner(runner, rehydration).collectArtifacts(artifact)).rejects.toMatchObject({ code: "artifact_unrecoverable", expectedDigest: artifact, reason: "digest_mismatch" });
+                                                                                                        ^
+error: expect(received).toMatchObject(expected)
+
+- {
+-   "code": "artifact_unrecoverable",
+-   "expectedDigest": "2be18fa207bd1b3d3c2115183653329aa35d00f620b2c4a6b2b53812551de00c",
+-   "reason": "digest_mismatch",
+- }
++ [RunnerError: The release's artifact is not in this runner's store]
+
+- Expected  - 5
++ Received  + 1
+
+      at <anonymous> (/home/dev/work/EZCorp/EZHarness/.worktrees/w4h-32/src/extensions/runner-rehydration.test.ts:126:99)
+(fail) rehydration of a missing runner artifact (W4H-32) > blob bytes that do not hash to the digest are refused digest_mismatch and never reach the runner [0.13ms]
+127 |     expect({ restores: calls.restore.length, collect: calls.collect }).toEqual({ restores: 0, collect: 1 });
+128 |   });
+129 | 
+130 |   test("a blob store that reports corrupt content, or a runner that refuses the files, is digest_mismatch", async () => {
+131 |     const corrupt = source(fakeBlobs(async () => { throw new LifecycleError("artifact_corrupt", "Stored content does not match its digest."); }).blobs).source;
+132 |     await expect(createRehydratingRunner(fakeRunner().runner, corrupt).collectArtifacts(artifact)).rejects.toMatchObject({ reason: "digest_mismatch" });
+                                                                                                                 ^
+error: expect(received).toMatchObject(expected)
+
+- {
+-   "reason": "digest_mismatch",
+- }
++ [RunnerError: The release's artifact is not in this runner's store]
+
+- Expected  - 3
++ Received  + 1
+
+      at <anonymous> (/home/dev/work/EZCorp/EZHarness/.worktrees/w4h-32/src/extensions/runner-rehydration.test.ts:132:108)
+(fail) rehydration of a missing runner artifact (W4H-32) > a blob store that reports corrupt content, or a runner that refuses the files, is digest_mismatch [0.10ms]
+134 |     await expect(createRehydratingRunner(refusing.runner, source(fakeBlobs().blobs).source).collectArtifacts(artifact)).rejects.toMatchObject({ reason: "digest_mismatch" });
+135 |   });
+136 | 
+137 |   test("a runner that cannot restore is refused runner_unsupported: one without the operation, and an older service that answers unknown_method", async () => {
+138 |     const without = fakeRunner({ restore: false });
+139 |     await expect(createRehydratingRunner(without.runner, source(fakeBlobs().blobs).source).start(request(), noReverse)).rejects.toMatchObject({ code: "artifact_unrecoverable", reason: "runner_unsupported" });
+                                                                                                                                      ^
+error: expect(received).toMatchObject(expected)
+
+- {
+-   "code": "artifact_unrecoverable",
+-   "reason": "runner_unsupported",
+- }
++ [RunnerError: The release's artifact is not in this runner's store]
+
+- Expected  - 4
++ Received  + 1
+
+      at <anonymous> (/home/dev/work/EZCorp/EZHarness/.worktrees/w4h-32/src/extensions/runner-rehydration.test.ts:139:129)
+(fail) rehydration of a missing runner artifact (W4H-32) > a runner that cannot restore is refused runner_unsupported: one without the operation, and an older service that answers unknown_method [0.09ms]
+142 |   });
+143 | 
+144 |   test("the retry is exactly one: a runner that still misses after the restore answers its own refusal, with two calls in all", async () => {
+145 |     const { runner, calls } = fakeRunner({ alwaysMissing: true });
+146 |     await expect(createRehydratingRunner(runner, source(fakeBlobs().blobs).source).start(request(), noReverse)).rejects.toMatchObject({ code: "artifact_missing" });
+147 |     expect({ starts: calls.start, restores: calls.restore.length }).toEqual({ starts: 2, restores: 1 });
+                                                                          ^
+error: expect(received).toEqual(expected)
+
+  {
+-   "restores": 1,
+-   "starts": 2,
++   "restores": 0,
++   "starts": 1,
+  }
+
+- Expected  - 2
++ Received  + 2
+
+      at <anonymous> (/home/dev/work/EZCorp/EZHarness/.worktrees/w4h-32/src/extensions/runner-rehydration.test.ts:147:69)
+(fail) rehydration of a missing runner artifact (W4H-32) > the retry is exactly one: a runner that still misses after the restore answers its own refusal, with two calls in all [0.09ms]
+27 | const files: WorkspaceFiles = { "extension.js": "export {};", ".runner/recipe.json": "{}" };
+28 | const artifact = filesDigest(files);
+29 | const bytes = new TextEncoder().encode(canonicalJson(files));
+30 | const execution = { workerId: "worker" } as unknown as RunnerExecution;
+31 | const noReverse: ReverseRpc = async () => { throw new Error("unused"); };
+32 | const missing = () => new RunnerError("artifact_missing", "The release's artifact is not in this runner's store", "runner", false, { errorClass: "Error", errorCode: "ENOENT" });
+                           ^
+RunnerError: The release's artifact is not in this runner's store
+     stage: "runner",
+ retryable: false,
+    detail: {
+  errorClass: "Error",
+  errorCode: "ENOENT",
+},
+      code: "artifact_missing"
+
+      at missing (/home/dev/work/EZCorp/EZHarness/.worktrees/w4h-32/src/extensions/runner-rehydration.test.ts:32:23)
+      at start (/home/dev/work/EZCorp/EZHarness/.worktrees/w4h-32/src/extensions/runner-rehydration.test.ts:41:109)
+      at from (1:11)
+      at <anonymous> (/home/dev/work/EZCorp/EZHarness/.worktrees/w4h-32/src/extensions/runner-rehydration.test.ts:157:26)
+(fail) rehydration of a missing runner artifact (W4H-32) > concurrent starts of one release join one rehydration [0.17ms]
+163 | 
+164 |   test("a failed rehydration is not remembered: the next miss tries again", async () => {
+165 |     let failures = 1;
+166 |     const { runner, calls } = fakeRunner({ restore: async () => { if (failures-- > 0) throw new RunnerError("runner_store_busy", "Another runner owns this artifact store"); } });
+167 |     const wrapped = createRehydratingRunner(runner, source(fakeBlobs().blobs).source);
+168 |     await expect(wrapped.collectArtifacts(artifact)).rejects.toMatchObject({ code: "runner_store_busy" });
+                                                                   ^
+error: expect(received).toMatchObject(expected)
+
+- {
+-   "code": "runner_store_busy",
+- }
++ [RunnerError: The release's artifact is not in this runner's store]
+
+- Expected  - 3
++ Received  + 1
+
+      at <anonymous> (/home/dev/work/EZCorp/EZHarness/.worktrees/w4h-32/src/extensions/runner-rehydration.test.ts:168:62)
+(fail) rehydration of a missing runner artifact (W4H-32) > a failed rehydration is not remembered: the next miss tries again [0.10ms]
+180 |       await expect(createRehydratingRunner(runner, rehydration).start(request(), noReverse)).rejects.toBe(error);
+181 |       expect({ starts: calls.start, lookups: lookups.length, restores: calls.restore.length }).toEqual({ starts: 1, lookups: 0, restores: 0 });
+182 |     }
+183 |     const { runner } = fakeRunner();
+184 |     const blobFailure = new Error("disk unreadable");
+185 |     await expect(createRehydratingRunner(runner, source(fakeBlobs(async () => { throw blobFailure; }).blobs).source).start(request(), noReverse)).rejects.toBe(blobFailure);
+                                                                                                                                                                ^
+error: expect(received).toBe(expected)
+
+Expected: 179 |       const { source: rehydration, lookups } = source(fakeBlobs().blobs);
+180 |       await expect(createRehydratingRunner(runner, rehydration).start(request(), noReverse)).rejects.toBe(error);
+181 |       expect({ starts: calls.start, lookups: lookups.length, restores: calls.restore.length }).toEqual({ starts: 1, lookups: 0, restores: 0 });
+182 |     }
+183 |     const { runner } = fakeRunner();
+184 |     const blobFailure = new Error("disk unreadable");
+                                  ^
+error: disk unreadable
+      at <anonymous> (/home/dev/work/EZCorp/EZHarness/.worktrees/w4h-32/src/extensions/runner-rehydration.test.ts:184:29)
+
+Received: 27 | const files: WorkspaceFiles = { "extension.js": "export {};", ".runner/recipe.json": "{}" };
+28 | const artifact = filesDigest(files);
+29 | const bytes = new TextEncoder().encode(canonicalJson(files));
+30 | const execution = { workerId: "worker" } as unknown as RunnerExecution;
+31 | const noReverse: ReverseRpc = async () => { throw new Error("unused"); };
+32 | const missing = () => new RunnerError("artifact_missing", "The release's artifact is not in this runner's store", "runner", false, { errorClass: "Error", errorCode: "ENOENT" });
+                           ^
+RunnerError: The release's artifact is not in this runner's store
+     stage: "runner",
+ retryable: false,
+    detail: {
+  errorClass: "Error",
+  errorCode: "ENOENT",
+},
+      code: "artifact_missing"
+
+      at missing (/home/dev/work/EZCorp/EZHarness/.worktrees/w4h-32/src/extensions/runner-rehydration.test.ts:32:23)
+      at start (/home/dev/work/EZCorp/EZHarness/.worktrees/w4h-32/src/extensions/runner-rehydration.test.ts:41:109)
+      at <anonymous> (/home/dev/work/EZCorp/EZHarness/.worktrees/w4h-32/src/extensions/runner-rehydration.test.ts:185:118)
+
+
+      at <anonymous> (/home/dev/work/EZCorp/EZHarness/.worktrees/w4h-32/src/extensions/runner-rehydration.test.ts:185:155)
+(fail) rehydration of a missing runner artifact (W4H-32) > any other error passes through unchanged and starts no rehydration, including the blob store's own artifact_missing [0.24ms]
+230 |     await new DatabaseLifecycleRepository(db).create({ installation: { id: "kept-installation", ownerId: "owner", scope: "global", generation: 1, enabled: true, uninstalled: false } as never, workspaces: {}, revisions: {}, operations: {}, releases: { [release.id]: release as never }, approvals: {} });
+231 |   });
+232 |   afterAll(async () => { await database.close(); for (const root of roots) await rm(root, { recursive: true, force: true }); });
+233 | 
+234 |   test("the release records name the artifact digests they hold, and no other", async () => {
+235 |     expect(await releaseNamesArtifact(db, artifact)).toBe(true);
+                                                           ^
+error: expect(received).toBe(expected)
+
+Expected: true
+Received: false
+
+      at <anonymous> (/home/dev/work/EZCorp/EZHarness/.worktrees/w4h-32/src/extensions/runner-rehydration.test.ts:235:54)
+(fail) two boots on a kept installation whose runner store is fresh (W4H-32) > the release records name the artifact digests they hold, and no other [0.17ms]
+255 |     try {
+256 |       const product = productExtensionRunner(blobs, db, second);
+257 |       const deadline = Date.now() + 60_000;
+258 |       const start = { workerId: "kept-worker", artifactDigest: artifact, context: { invocationId: "kept-call", workerId: "kept-worker", releaseId: "kept-release", principalId: "owner", scopeId: "scope", token: "token", deadline }, limits: executionLimits, processSpawn: "deny" as const };
+259 |       // The fixture's recipe names no image, so the retried start stops at the profile check: past the artifact.
+260 |       await expect(product.start(start, noReverse)).rejects.toMatchObject({ code: "runtime_profile_changed" });
+                                                                  ^
+error: expect(received).toMatchObject(expected)
+
+- {
+-   "code": "runtime_profile_changed",
+- }
++ [RunnerError: The release's artifact is not in this runner's store]
+
+- Expected  - 3
++ Received  + 1
+
+      at <anonymous> (/home/dev/work/EZCorp/EZHarness/.worktrees/w4h-32/src/extensions/runner-rehydration.test.ts:260:61)
+(fail) two boots on a kept installation whose runner store is fresh (W4H-32) > boot 1 builds into the store; the store is lost; boot 2 rehydrates lazily from the product's copy, warns once, and starts the worker [42.54ms]
+
+src/__tests__/readiness.test.ts:
+91 |     recordReadinessWarning({ code: "runner_artifact_rehydrated", artifactDigest: digest });
+92 |     recordReadinessWarning({ code: "runner_artifact_rehydrated", artifactDigest: digest });
+93 |     recordReadinessWarning({ code: "runner_artifact_rehydrated", artifactDigest: "b".repeat(64) });
+94 |     const readiness = getReadiness();
+95 |     expect(readiness.state).toBe("ready");
+96 |     expect(readiness.warnings).toEqual([
+                                    ^
+error: expect(received).toEqual(expected)
+
+- [
+-   {
+-     "artifactDigest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+-     "code": "runner_artifact_rehydrated",
+-     "count": 2,
+-   },
+-   {
+-     "artifactDigest": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+-     "code": "runner_artifact_rehydrated",
+-     "count": 1,
+-   },
+- ]
++ undefined
+
+- Expected  - 12
++ Received  + 1
+
+      at <anonymous> (/home/dev/work/EZCorp/EZHarness/.worktrees/w4h-32/src/__tests__/readiness.test.ts:96:32)
+(fail) readiness warnings (W4H-32) > a warning is non-blocking: readiness keeps its state, and one entry per code and digest counts its occurrences [0.12ms]
+102 | 
+103 |   test("warnings survive the next readiness write and ride beside the named diagnostics", () => {
+104 |     recordReadinessWarning({ code: "runner_artifact_rehydrated", artifactDigest: digest });
+105 |     setReadinessDiagnostic("builtinRunnerPackages", { state: "staged" });
+106 |     setReadiness({ state: "degraded", reason: "r" });
+107 |     expect(getReadiness()).toMatchObject({ state: "degraded", detail: { diagnostics: { builtinRunnerPackages: { state: "staged" } } }, warnings: [{ code: "runner_artifact_rehydrated", artifactDigest: digest, count: 1 }] });
+                                 ^
+error: expect(received).toMatchObject(expected)
+
+@@ -8,10 +8,5 @@
+    },
++   "reason": "r",
++   "since": "2026-10-15T23:38:28.446Z",
+    "state": "degraded",
+-   "warnings": [
+-     {
+-       "artifactDigest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+-       "code": "runner_artifact_rehydrated",
+-       "count": 1,
+-     },
+-   ],
+  }
+
+- Expected  - 7
++ Received  + 2
+
+      at <anonymous> (/home/dev/work/EZCorp/EZHarness/.worktrees/w4h-32/src/__tests__/readiness.test.ts:107:28)
+(fail) readiness warnings (W4H-32) > warnings survive the next readiness write and ride beside the named diagnostics [0.06ms]
+
+src/extensions/runner-connection.test.ts:
+169 | test("the lazy runner passes an artifact restore to the resolved runner, and a runner without restore answers unknown_method (W4H-32)", async () => {
+170 |   const files = { "extension.js": "export {};" };
+171 |   const restored: unknown[] = [];
+172 |   const base = { build: async () => { throw new Error("unused"); }, start: async () => { throw new Error("unused"); }, cancel: async () => {}, inspect: async (id: string) => ({ id, state: "unknown" as const, diagnostics: [] }), collectArtifacts: async () => ({}) } satisfies Runner;
+173 |   await createLazyExtensionRunner(() => ({ ...base, restoreArtifact: async (digest, given) => { restored.push([digest, given]); } })).restoreArtifact!("d".repeat(64), files);
+174 |   expect(restored).toEqual([["d".repeat(64), files]]);
+                         ^
+error: expect(received).toEqual(expected)
+
+- [
+-   [
+-     "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+-     {
+-       "extension.js": "export {};",
+-     },
+-   ],
+- ]
++ []
+
+- Expected  - 8
++ Received  + 1
+
+      at <anonymous> (/home/dev/work/EZCorp/EZHarness/.worktrees/w4h-32/src/extensions/runner-connection.test.ts:174:20)
+(fail) the lazy runner passes an artifact restore to the resolved runner, and a runner without restore answers unknown_method (W4H-32) [0.11ms]
+
+ 18 pass
+ 17 fail
+ 102 expect() calls
+Ran 35 tests across 3 files. [2.01s]
+# exit=1 end=2026-10-15T23:38:28Z

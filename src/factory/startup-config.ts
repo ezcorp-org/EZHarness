@@ -16,6 +16,7 @@
  * credential value, matching `parseFactoryOrchestratorProcessConfig`.
  */
 import { resolve } from "node:path";
+import { canonicalJson } from "@ezcorp/extension-contract";
 import type { FactoryModelPin } from "@ezcorp/factory-sdk";
 import { factoryModelSamplingOptions } from "./model-configuration";
 import { factoryModelPinMatchesRunner } from "./native-runner-policy";
@@ -212,6 +213,17 @@ export interface FactoryStartupConfig {
   readonly validators?: {
     readonly runtimes: readonly FactoryStartupValidatorRuntime[];
   };
+  /**
+   * The repositories a guest may read through the repository-read broker operation (W4H-28).
+   *
+   * A guest has no network and holds no credential; it names a source by this document's handle and
+   * one commit, and the host fetches it into `cachePath` with the source's token, by reference.
+   * Absent, every repository read is refused `repository_source_unknown`.
+   */
+  readonly repositories?: {
+    readonly cachePath: string;
+    readonly sources: readonly FactoryStartupRepositorySource[];
+  };
   readonly workers?: FactoryWorkerTuning;
   /**
    * The tenant namespace's Temporal HTTP API, for W15's checkpoint barrier.
@@ -230,6 +242,13 @@ export interface FactoryStartupConfig {
    * bounded reader reads at composition, never a value in this document.
    */
   readonly keyManagement?: FactoryStartupKeyManagement;
+}
+
+/** One repository source: a handle, an `https://` or `file://` URL, and optionally a token file by reference. */
+export interface FactoryStartupRepositorySource {
+  readonly name: string;
+  readonly url: string;
+  readonly tokenPath?: string;
 }
 
 /** The runtime kinds a declared validator may name. */
@@ -439,6 +458,7 @@ export const FACTORY_STARTUP_FIELDS: readonly FieldSpec[] = Object.freeze([
   { field: "workers.errorDelayMs", kind: "interval", optional: true },
   { field: "workers.maxErrorDelayMs", kind: "interval", optional: true },
   { field: "temporalHttp.endpoint", kind: "url", optional: true },
+  { field: "repositories.cachePath", kind: "path", optional: true },
   { field: "temporalHttp.tls.caPath", kind: "path", optional: true },
   { field: "temporalHttp.tls.certificatePath", kind: "path", optional: true },
   { field: "temporalHttp.tls.privateKeyPath", kind: "path", optional: true },
@@ -497,8 +517,12 @@ function wellFormedProfileModel(runner: Record<string, string>, model: unknown):
 function wellFormedRunnerProfile(value: unknown): boolean {
   const pinned = isPlainRecord(value) && Object.hasOwn(value, "model");
   if (!isPlainRecord(value) || !exactKeys(value, pinned ? ["runner", "resourceClass", "allocation", "allowedCapabilities", "model"] : ["runner", "resourceClass", "allocation", "allowedCapabilities"])) return false;
-  if (!wellFormedRunner(value.runner, pinned ? [...RUNNER_KEYS, "configurationDigest", "model"] : RUNNER_KEYS)) return false;
-  if (pinned && (!SHA256_DIGEST.test(value.runner.configurationDigest!) || !wellFormedProfileModel(value.runner, value.model))) return false;
+  // An unpinned runner may still name a configuration digest (reference.code.v1's snapshot and freeze
+  // runners do); the policy matches the node's runner field for field, so the profile must carry it too.
+  const configured = isPlainRecord(value.runner) && Object.hasOwn(value.runner, "configurationDigest");
+  if (!wellFormedRunner(value.runner, pinned ? [...RUNNER_KEYS, "configurationDigest", "model"] : configured ? [...RUNNER_KEYS, "configurationDigest"] : RUNNER_KEYS)) return false;
+  if ((pinned || configured) && !SHA256_DIGEST.test(value.runner.configurationDigest!)) return false;
+  if (pinned && !wellFormedProfileModel(value.runner, value.model)) return false;
   if (!wellFormed("identity", value.resourceClass)) return false;
   if (!Array.isArray(value.allowedCapabilities) || value.allowedCapabilities.length > 64
     || value.allowedCapabilities.some((capability) => !wellFormed("identity", capability))
@@ -639,7 +663,7 @@ function wellFormedValidatorRuntime(value: unknown): boolean {
 /** The set of leaf fields a valid document may carry, derived from the table. */
 const KNOWN_FIELDS: ReadonlySet<string> = new Set([
   "schemaVersion", "hostStopKeys", "privateService.tokens.publicKeyPaths", "runnerProfiles", "guestBroker.hosts", "guestBroker.tokens.publicKeyPaths",
-  "release.destinations", "release.profiles", "validators.runtimes", "keyManagement",
+  "release.destinations", "release.profiles", "validators.runtimes", "repositories.sources", "keyManagement",
   ...FACTORY_STARTUP_FIELDS.map((spec) => spec.field),
 ]);
 
@@ -662,7 +686,7 @@ function leaves(value: unknown, prefix = ""): string[] {
     // — so recursing into them would name a value as a field. Each is checked
     // by shape below instead.
     if (field === "hostStopKeys" || field === "runnerProfiles" || field === "privateService.tokens.publicKeyPaths" || field === "guestBroker.hosts" || field === "guestBroker.tokens.publicKeyPaths"
-      || field === "release.destinations" || field === "release.profiles" || field === "validators.runtimes" || field === "keyManagement") { found.push(field); continue; }
+      || field === "release.destinations" || field === "release.profiles" || field === "validators.runtimes" || field === "repositories.sources" || field === "keyManagement") { found.push(field); continue; }
     found.push(...(isPlainRecord(nested) ? leaves(nested, field) : [field]));
   }
   return found;
@@ -795,10 +819,20 @@ const checkRunnerProfiles: StartupCheck = (value, { invalid }) => {
     const pin = (profile as { model?: FactoryModelPin }).model;
     if (pin !== undefined && (installationPin?.provider !== pin.provider || installationPin?.model !== pin.model)) invalid.push(`runnerProfiles.profiles[${index}].model`);
   }
-  // A resource class named twice would make the admission profile map
-  // depend on declaration order, which is not a fact an operator states.
-  const classes = section.profiles.map((profile) => (profile as { resourceClass?: unknown }).resourceClass);
-  if (new Set(classes).size !== classes.length) invalid.push("runnerProfiles.profiles");
+  // A resource class named twice with different allocations would make the
+  // admission profile map depend on declaration order, which is not a fact an
+  // operator states. Runners that share a class with an equal allocation give
+  // the same map in any order (W4H-26: reference.code.v1's tasks name no class).
+  const allocations = new Map<unknown, string>();
+  const conflicting = (section.profiles as Array<{ resourceClass?: unknown; allocation?: unknown }>).some((profile) => {
+    const allocation = canonicalJson(profile.allocation ?? null);
+    const first = allocations.get(profile.resourceClass) ?? allocation;
+    allocations.set(profile.resourceClass, first);
+    return first !== allocation;
+  });
+  // A runner declared twice is refused here as FactoryNativeRunnerPolicy refuses it at composition.
+  const declared = section.profiles.map((profile) => canonicalJson((profile as { runner?: unknown }).runner ?? null));
+  if (conflicting || new Set(declared).size !== declared.length) invalid.push("runnerProfiles.profiles");
 };
 
 /** The declared release destinations; returns their names when the list itself is well formed. */
@@ -848,10 +882,30 @@ const checkValidatorRuntimes: StartupCheck = (value, { invalid }) => {
   invalid.push(...invalidValidatorRuntimes(value));
 };
 
+/** A repository URL a host may fetch from: a secure remote, or an operator's local repository. */
+const REPOSITORY_URL = /^(?:https:\/\/[^\s@]+|file:\/\/\/[^\s]+)$/;
+
+// The repository sources, when the section is present: a cache path, and one or more uniquely named sources.
+const checkRepositories: StartupCheck = (value, { missing, invalid }) => {
+  if (!read(value, "repositories").present) return;
+  if (!read(value, "repositories.cachePath").present) missing.push("repositories.cachePath");
+  const sources = read(value, "repositories.sources").value;
+  if (!Array.isArray(sources) || sources.length === 0 || sources.length > 64) { invalid.push("repositories.sources"); return; }
+  sources.forEach((entry, index) => {
+    const keys = isPlainRecord(entry) && Object.hasOwn(entry, "tokenPath") ? ["name", "url", "tokenPath"] : ["name", "url"];
+    const valid = isPlainRecord(entry) && exactKeys(entry, keys) && wellFormed("identity", entry.name)
+      && typeof entry.url === "string" && entry.url.length <= 2_048 && REPOSITORY_URL.test(entry.url)
+      && (entry.tokenPath === undefined || wellFormed("path", entry.tokenPath));
+    if (!valid) invalid.push(`repositories.sources[${index}]`);
+  });
+  const names = sources.map((entry) => (entry as { name?: unknown }).name);
+  if (new Set(names).size !== names.length) invalid.push("repositories.sources");
+};
+
 // Run in this order; the error lists keep the order the problems are found in.
 const STARTUP_CHECKS: readonly StartupCheck[] = [
   checkDeclaredFields, checkModelPin, checkHostLaunch, checkGuestBroker, checkHostStopKeys, checkReadinessRetry, checkRecoverySections,
-  checkPrivateServiceTokens, checkRunnerProfiles, checkRelease, checkValidatorRuntimes,
+  checkPrivateServiceTokens, checkRunnerProfiles, checkRelease, checkValidatorRuntimes, checkRepositories,
 ];
 
 /** Cross-field rules on a document whose every field is already well formed. */

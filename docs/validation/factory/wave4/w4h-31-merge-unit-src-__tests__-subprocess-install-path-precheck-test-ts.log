@@ -1,0 +1,8 @@
+bun test v1.4.2 (744846f84)
+{"ts":"2026-10-16T00:55:36.841Z","level":"error","msg":"Extension subprocess exited unexpectedly (crash)","subsystem":"extensions/subprocess","extensionId":"genuine-crash-loop","exitCode":1,"stderrTail":"MODULE_LOAD_FATAL: Cannot find module 'ghost-pkg-xyz'"}
+{"ts":"2026-10-16T00:55:36.841Z","level":"error","msg":"Extension auto-disabled after repeated crashes","subsystem":"extensions/subprocess","extensionId":"genuine-crash-loop","threshold":3,"consecutiveFailures":3,"stderrTail":"MODULE_LOAD_FATAL: Cannot find module 'ghost-pkg-xyz'","remedy":"Fix the crash cause (e.g. missing npm dependency), then re-enable from the Extensions page."}
+
+ 8 pass
+ 0 fail
+ 23 expect() calls
+Ran 8 tests across 1 file. [1304.00ms]

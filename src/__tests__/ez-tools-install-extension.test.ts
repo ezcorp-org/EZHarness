@@ -40,7 +40,7 @@ let userId: string;
 
 beforeAll(async () => {
   await setupTestDb();
-  const u = await createUser({ email: "ez-install-ext@test.com", passwordHash: "h", name: "EXT" });
+  const u = await createUser({ email: "ez-install-ext@test.example", passwordHash: "h", name: "EXT" });
   userId = u.id;
 
   // Seed a couple of marketplace listings so the lookup paths have data.

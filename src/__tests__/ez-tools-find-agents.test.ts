@@ -43,7 +43,7 @@ let userId: string;
 
 beforeAll(async () => {
   await setupTestDb();
-  const u = await createUser({ email: "ez-find@test.com", passwordHash: "h", name: "F" });
+  const u = await createUser({ email: "ez-find@test.example", passwordHash: "h", name: "F" });
   userId = u.id;
 
   // Seed a small library so the ranking has something to chew on.

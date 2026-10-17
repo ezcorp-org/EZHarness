@@ -1,0 +1,7 @@
+bun test v1.4.2 (744846f84)
+{"ts":"2026-10-16T01:08:13.000Z","level":"error","msg":"Operation failed with an unclassified error","subsystem":"ext.lifecycle.operations","installationId":"7d1ae2a2-ded3-4453-84a9-94b1d087b3ad","operationId":"8927e62e-b148-43e4-9dc2-9d901c52243b","kind":"build","error":"connect ENOENT /tmp/import-wired-nqhdIY/unavailable-runner.sock","stack":"Error: connect ENOENT /tmp/import-wired-nqhdIY/unavailable-runner.sock\n    at internalConnect (node:net:1729:39)\n    at connect (node:net:1137:58)\n    at createSocket (node:_http_agent:148:40)\n    at addRequest (node:_http_agent:125:22)\n    at new ClientRequest (node:_http_client:191:25)\n    at request (node:http:10:27)\n    at <anonymous> (/home/dev/work/EZCorp/EZHarness-worktrees/composable-factory-platform/.worktrees/w00-integration/packages/@ezcorp/extension-runner/src/client.ts:24:24)\n    at new Promise (native:1:11)\n    at call (/home/dev/work/EZCorp/EZHarness-worktrees/composable-factory-platform/.worktrees/w00-integration/packages/@ezcorp/extension-runner/src/client.ts:22:16)\n    at async runBuild (/home/dev/work/EZCorp/EZHarness-worktrees/composable-factory-platform/.worktrees/w00-integration/src/extensions/v4/lifecycle.ts:268:81)\n    at processTicksAndRejections (native:7:39)"}
+
+ 1 pass
+ 0 fail
+ 19 expect() calls
+Ran 1 test across 1 file. [1381.00ms]

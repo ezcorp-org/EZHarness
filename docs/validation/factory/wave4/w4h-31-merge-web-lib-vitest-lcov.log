@@ -1,0 +1,14 @@
+
+ RUN  v5.0.3 /home/dev/work/EZCorp/EZHarness-worktrees/composable-factory-platform/.worktrees/w00-integration/web
+      Coverage enabled with v8
+
+
+ Test Files  13 passed (13)
+      Tests  204 passed (204)
+   Start at  22:42:42
+   Duration  14.72s (tests 35%, transform 25%, environment 21%, import 12%, setup 7%, worker 1%)
+
+    Isolate  13 workers spawned · ~408ms startup each (spawn + environment, per file)
+             at least ~2.24s faster with isolate: false — reuses workers across files instead of one per file
+
+kept 620 configured Node/V8 product-source records → /home/dev/work/EZCorp/EZHarness-worktrees/composable-factory-platform/.worktrees/w00-integration/coverage/w4h-31-sync-main-934531e2e/weblib/lcov.info

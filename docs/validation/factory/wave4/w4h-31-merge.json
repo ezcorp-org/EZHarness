@@ -1,0 +1,62 @@
+{
+ "package": "w4h-31",
+ "kind": "W-SYNC-9: origin/main 934531e2e (PR 339: processSpawn and capabilities() on every runner.start caller; the extension-runner spawn guard) into integ/w00",
+ "branch": "wp/w4h-31-sync-main-934531e2e",
+ "head": "9cc6fed782d18d265d539fa52664a36fd157802b",
+ "base": "b80a00f4785628ec5f6017ae884aed32f225a2dd",
+ "main": "934531e2e9e8fd0c3c97e48527d545ca3476eb5e",
+ "mergeSha": "390c49a90e86f11282b30684d627ed250a67fbf0",
+ "treeEquality": {
+  "trialTree": "9da7bea9c3875a4d7b76d21749f9af9517674219",
+  "mergeTree": "9da7bea9c3875a4d7b76d21749f9af9517674219",
+  "equal": true
+ },
+ "validatorVerdict": "validator-8 ACCEPT at 9cc6fed78; OK to publish on the try-2 hold record (verdict-w4h-31.txt sha256 2ed52d08e6bfabbef136417ba87c423e9c8c636e3e523a76c60a8f2827db8749; copied as w4h-31-validation.txt): HEAVY DONE status=0; 906 legs started and ended; exactly 5 non-zero legs = the four list-bound exit-97 files (byte-identical at integ, main and the merge) + the informational CRAP leg; case-check 5 CASE PASS; sync-base-leg v3 41 files, 0 not main's own; main gate leg 0 against the EMPTY expected file",
+ "ownerReport": {
+  "w4h-31/report.txt": "25e282f5dbc856e0",
+  "w4h-31/pending-lesson.md": "e743067b4d1578fc"
+ },
+ "commit": {
+  "form": "the full-run hook form, EZ_PRECOMMIT_TEST_MAX=153, PG_HOOK=1, own pg15; try 1 (2026-10-14 22:46-23:14Z) exit 1 = host OOM storm 22:55-23:12Z and the user-manager kill 23:02:25Z (root cause recorded; no code change); try 2 exit 0 at 2026-10-15T14:59:15Z"
+ },
+ "hold": {
+  "run1": "2026-10-15 15:06-16:41Z, HEAVY DONE status=1: four zero-test legs (list-bound by ruling 1), case-check coverage of main's own lines (ruling 2) and a case-check tracer defect (PS4 unbound under set -u; fixed red first); judgment hold-judgment.txt kept as the record of the first run's analysis",
+  "caseCheckReruns": "rerun1 (v7 + fixed tracer) exit 1 only from the two coverage sub-checks; rerun2 (case-check v8, SYNC_BASE_MAIN) exit 0",
+  "run2": "try 1 2026-10-15 22:30-23:48Z released by the in-lock gate (exit 75, no leg failed); try 2 2026-10-16 00:39:09-02:45:15Z HEAVY DONE status=0 dirty=0; heavy.exit 0; no HOST-FAULT file",
+  "notRunnable": "not-runnable.txt: 4 paths with the ruled reasons (Docker-only x2; describe.skip in source x2)",
+  "wsyncBaseLeg": "merge-commit-gates.sh SYNC_BASE_MAIN=934531e2e judged by validator-8's sync-base-leg.py v3 (w00 copy d44bbd55bb717c2c): 41 files, 0 not main's own",
+  "coverage": "patch, new-file and CRAP INFORMATIONAL over main's content (W-SYNC); resolution-patch BINDING green"
+ },
+ "identity": "publish identity step (identity-check v3.2, SYNC_BASE_MAIN): commits b80a00f47..390c49a90 excluding main's, 3 checked, clean; MAIN-OWN web/e2e/reliability.spec.ts:355 (fixture on test.com, main's own; leftover for main)",
+ "published": "integ/w00 b80a00f47 -> 390c49a90 at 2026-10-16T02:51:51Z by publish-if-main.sh (remote main 934531e2e = expected); a first try stopped safely on a stalled ls-remote (nothing published)",
+ "leftoversHandedTo": {
+  "to": "W4H-36 (one writer for tasks/todo.md and tasks/lessons.md)",
+  "file": "w00/w4h-merge/w4h-31-sync-main-934531e2e/leftovers-pending.txt",
+  "sha256_16": "d40e1bd6321bf38a"
+ },
+ "tools": {
+  "sync-base-leg.py": "d44bbd55bb717c2c",
+  "case-check.sh": "79eb4acad3c2b062",
+  "leg-judge.sh": "16c38d52cc01c97f",
+  "heavy-lib.sh": "000cb68ac789d36e",
+  "bash-trace-env.sh": "5bd68174bcace71c",
+  "identity-check.sh": "ef09124c9d7360ed",
+  "merge-commit-gates.sh": "19291d33e3cf5a37"
+ },
+ "pushed": false,
+ "excludedFromReceipts": [
+  {
+   "file": "/tmp/factory-platform-evidence/w00/w4h-merge/w4h-31-sync-main-934531e2e/heavy-unit-src-extensions-__tests__-workflows-delegated-seam-test-ts.log",
+   "sha256": "daa30558a77b8d80a121b19562716008e8f63f72af9835eee0909e2c31a90952",
+   "receiptName": "w4h-31-merge-unit-src-extensions-__tests__-workflows-delegated-seam-test-ts.log",
+   "rule": "gitleaks generic-api-key (pinned gitleaks, the repo's .gitleaks.toml), line 6, columns 225-285",
+   "reason": "false positive: the JSON log field tokenActorExtensionId holds an id the test generates at random (the value differs between hold run 1 and run 2); the test file src/extensions/__tests__/workflows-delegated-seam.test.ts is main's own (byte-identical at 934531e2e and 390c49a90; last changed by main's 23a5c14ab); not a credential",
+   "ruling": "team-lead ruling (a) 2026-10-16: left out of the receipts, no edited evidence; its result line stays in w4h-31-merge-batch.log; the allowlist (by exact field regex, on main, through the gate-change route) is a leftover for main (W4H-36 ledger)"
+  }
+ ],
+ "deviations": [
+  "publish try 1 stopped safely on a stalled ls-remote (192 s; SSH to github.com stalled); nothing published; output kept as w4h-31-merge-publish-try1-ls-remote-stall.txt; the guard's remote reads are bounded since (w00/remote-read.sh)",
+  "hold run 1 red (judged in w4h-31-merge-hold-1-judgment.txt); full hold re-run status 0",
+  "one receipt left out by ruling (a): see excludedFromReceipts"
+ ]
+}

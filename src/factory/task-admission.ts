@@ -1,3 +1,4 @@
+import type { BudgetBounds } from "@ezcorp/factory-sdk";
 import type { MigrationDb, TransactionalDb } from "../db/migrations/types";
 import type { FactoryAdmissionOrigin } from "./admission-origin";
 import { digestObject } from "../extensions/v4/blobs";
@@ -15,6 +16,20 @@ export interface FactoryTaskResourceProfile {
   readonly resources: PoolResourceVector;
   readonly memoryBytes: number;
   readonly budget: FactoryBudgetAmount;
+}
+
+/**
+ * What one task attempt holds from the run's budget: the node's declared bounds, each capped at the
+ * allocation's. A bound the node does not declare defaults to the allocation's whole bound.
+ */
+export function factoryTaskReservationAmount(limits: BudgetBounds | undefined, budget: FactoryBudgetAmount): FactoryBudgetAmount {
+  const requestedCost = BigInt(limits?.maxCostMicros ?? budget.costMicros);
+  const costCeiling = BigInt(budget.costMicros);
+  return {
+    costMicros: String(requestedCost < costCeiling ? requestedCost : costCeiling),
+    tokens: Math.min(limits?.maxTokens ?? budget.tokens, budget.tokens),
+    computeMs: Math.min(limits?.maxComputeMs ?? budget.computeMs, budget.computeMs),
+  };
 }
 
 /** The pool receives only request; the remaining product facts stay in the tenant database. */
@@ -59,14 +74,7 @@ export class FactoryTaskAdmission {
       const resourceClass = context.node.resources?.resourceClass ?? "cpu";
       const profile = Object.hasOwn(this.profiles, resourceClass) ? this.profiles[resourceClass] : undefined;
       if (!profile || !Number.isSafeInteger(profile.memoryBytes) || profile.memoryBytes < 1 || (context.node.resources?.memoryBytes ?? 0) > profile.memoryBytes) throw new FactoryCommandAuthorityError("factory_command_forbidden");
-      const limits = context.node.resources;
-      const requestedCost = BigInt(limits?.maxCostMicros ?? profile.budget.costMicros);
-      const costCeiling = BigInt(profile.budget.costMicros);
-      const amount = {
-        costMicros: String(requestedCost < costCeiling ? requestedCost : costCeiling),
-        tokens: Math.min(limits?.maxTokens ?? profile.budget.tokens, profile.budget.tokens),
-        computeMs: Math.min(limits?.maxComputeMs ?? profile.budget.computeMs, profile.budget.computeMs),
-      };
+      const amount = factoryTaskReservationAmount(context.node.resources, profile.budget);
       const reservationId = factoryTaskReservationId(reference, context);
       const computeRequest: FactoryComputeAdmissionRequest = {
         schemaVersion: "factory.compute-admission.v1", reference, fence: factoryExecutionFence(context.fence), budget: amount, memoryBytes: profile.memoryBytes,

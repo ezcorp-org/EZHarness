@@ -1,0 +1,17 @@
+Checked 4 files in 10ms. No fixes applied.
+── Tests (staged) ─────────────────────────────────
+  bun: packages/@ezcorp/extension-runner/tests/client-connections.test.ts
+bun test v1.4.2 (744846f84)
+
+ 2 pass
+ 0 fail
+ 5 expect() calls
+Ran 2 tests across 1 file. [503.00ms]
+  bun: src/__tests__/kilo-provider.test.ts
+bun test v1.4.2 (744846f84)
+
+ 35 pass
+ 0 fail
+ 73 expect() calls
+Ran 35 tests across 1 file. [416.00ms]
+[detached HEAD 560dbe2a7] merge: wp/w4h-30-resources-sockets 5ee55026a into integ/w00 (the app keeps no idle connection open between resource samples)

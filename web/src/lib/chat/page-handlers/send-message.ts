@@ -239,6 +239,8 @@ export interface SendMessageHandlers {
 	// `handleSend` and the standalone Send / Return buttons share one
 	// module.
 	handleSubConvoSend(text: string): Promise<void>;
+	/** Routes a saved assistant turn of the ACTIVE sub-conversation into its store; returns whether it took the turn. */
+	handleSubConvoTurnSaved(turn: { conversationId: string; messageId: string; content: string; final?: boolean }): boolean;
 	handleSubConvoReturn(): Promise<void>;
 	startSubConvo(
 		agentMention: { name: string },
@@ -989,6 +991,33 @@ export function makeSendMessage(host: SendMessageHost): SendMessageHandlers {
 		}
 	}
 
+	/**
+	 * A saved assistant turn (`run:turn_saved`, re-dispatched as `ez:turn_saved`)
+	 * of the ACTIVE sub-conversation goes to the sub-conversation store, so the
+	 * block shows the reply and "Return to main" finds it. The main thread drops
+	 * a turn of any other conversation, so before W4H-33 nothing ever wrote an
+	 * assistant message here. One writer: this module. Returns whether the turn
+	 * belonged to the active sub-conversation.
+	 */
+	function handleSubConvoTurnSaved(turn: {
+		conversationId: string;
+		messageId: string;
+		content: string;
+		final?: boolean;
+	}): boolean {
+		if (turn.conversationId !== subConversationStore.activeSubConversation?.id) return false;
+		if (!subConversationStore.subConvoMessages.some((m) => m.id === turn.messageId)) {
+			subConversationStore.addMessage({
+				id: turn.messageId,
+				role: "assistant",
+				content: turn.content,
+				createdAt: new Date(),
+			});
+		}
+		if (turn.final) subConversationStore.setStreaming(false);
+		return true;
+	}
+
 	async function handleSubConvoReturn(): Promise<void> {
 		const msgs = subConversationStore.endSubConversation();
 		// Insert last agent message as summary in parent conversation.
@@ -1022,9 +1051,13 @@ export function makeSendMessage(host: SendMessageHost): SendMessageHandlers {
 		const projectId = host.projectId();
 
 		try {
+			// An interactive sub-conversation carries NO agent config id: that is
+			// how the thread tells it apart from an agent-run sub-conversation
+			// (ChatThread renders a block for records without one, a chip for
+			// records with one). POST /api/conversations never resolves a name,
+			// and it refuses "" as an invalid UUID, so the field is omitted.
 			const subConv = await createSubConversation(convId, {
 				parentMessageId,
-				agentConfigId: "", // resolved server-side by agent name
 				title: `Sub-conversation with ${agentMention.name}`,
 				projectId,
 			});
@@ -1062,6 +1095,7 @@ export function makeSendMessage(host: SendMessageHost): SendMessageHandlers {
 		handleRetry,
 		handleFallback,
 		handleSubConvoSend,
+		handleSubConvoTurnSaved,
 		handleSubConvoReturn,
 		startSubConvo,
 	};

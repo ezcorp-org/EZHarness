@@ -1,0 +1,9 @@
+
+ RUN  v5.0.3 /home/dev/work/EZCorp/EZHarness/.worktrees/w4h-33/web
+
+
+ Test Files  1 passed (1)
+      Tests  7 passed (7)
+   Start at  00:51:39
+   Duration  2.59s (transform 71%, environment 12%, import 12%, setup 4%, tests 1%)
+

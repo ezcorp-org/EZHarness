@@ -201,7 +201,7 @@ describe("detectMentionTrigger — @ sigil (file)", () => {
 	});
 
 	test("detects @ after newline", () => {
-		expect(detectMentionTrigger("line1\n@app.ts", 13)).toEqual({
+		expect(detectMentionTrigger("line1\n" + "@app.ts", 13)).toEqual({
 			active: true,
 			query: "app.ts",
 			type: "path",
@@ -210,7 +210,7 @@ describe("detectMentionTrigger — @ sigil (file)", () => {
 	});
 
 	test("detects @ after tab", () => {
-		expect(detectMentionTrigger("hello\t@bar.ts", 13)).toEqual({
+		expect(detectMentionTrigger("hello\t" + "@bar.ts", 13)).toEqual({
 			active: true,
 			query: "bar.ts",
 			type: "path",

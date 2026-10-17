@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import { join } from "node:path";
 import { canonicalJson, compileValueSchema, validateManifest, type CandidateVerificationReport, type InstallationRecord, type ReleaseRecord, type ReverseRpc, type Runner, type RunnerExecution, type WorkspaceFiles } from "@ezcorp/extension-contract";
 import { buildLimits, DEFAULT_IMAGE, executionLimits, resolveDependencies, trustedLocalImage } from "@ezcorp/extension-runner";
-import { createLazyExtensionRunner } from "./runner-connection";
+import { productExtensionRunner } from "./runner-rehydration";
 import { getExtensionRunnerMode, ISOLATED_PROFILE, TRUSTED_LOCAL_PROFILE, trustedLocalBunDigest } from "./runner-mode";
 import { and, eq, sql } from "drizzle-orm";
 import { DatabaseLifecycleRepository, releaseRows } from "../db/queries/extension-releases";
@@ -148,8 +148,11 @@ async function initialize(): Promise<LifecycleServices> {
     const { configureTrustedLocalRunner } = await import("./trusted-local-runner");
     configureTrustedLocalRunner(createTrustedLocalHooks());
   }
-  const runner = createLazyExtensionRunner();
   const { getDb } = await import("../db/connection");
+  const { getProjectRoot } = await import("./project-root");
+  const blobs = new FileBlobStore(process.env.EZCORP_EXTENSION_BLOB_ROOT ?? join(getProjectRoot(), ".ezcorp", "extension-releases"));
+  // One runner for every lifecycle path; a release artifact its store lost is restored from these blobs (W4H-32).
+  const runner = productExtensionRunner(blobs, getDb());
   const { getUserById } = await import("../db/queries/users");
   const { getExtension, getExtensionByName } = await import("../db/queries/extensions");
   const { getProjectMembership } = await import("../db/queries/project-members");
@@ -165,8 +168,6 @@ async function initialize(): Promise<LifecycleServices> {
     },
     resolve: (id, database) => resolveExtensionReleaseSnapshot(repository, migrations, id, database),
   });
-  const { getProjectRoot } = await import("./project-root");
-  const blobs = new FileBlobStore(process.env.EZCORP_EXTENSION_BLOB_ROOT ?? join(getProjectRoot(), ".ezcorp", "extension-releases"));
   const authorization = createLifecycleAuthorization({ user: getUserById, installation: async (id) => (await repository.read(id))?.installation ?? null, projectionById: getExtension, projectionByName: getExtensionByName, projectMember: async (userId, projectId) => Boolean(await getProjectMembership(userId, projectId)) });
   // Profile and image are stamped on every release and approval and
   // rechecked at activation (`checkApproval` → `stale_approval`,
@@ -225,6 +226,8 @@ export async function getExtensionLifecycle(): Promise<ExtensionLifecycle> { ret
 export async function getExtensionControl(): Promise<ExtensionControl> { return (await getServices()).control; }
 export async function getExtensionRunner(): Promise<Runner> { return (await getServices()).runner; }
 export async function getExtensionDeliveryQueue(): Promise<ExtensionDeliveryQueue> { return (await getServices()).deliveries; }
+/** The store the lifecycle writes release sources and artifacts to; a factory package preparation reads its source here (W4H-26). */
+export async function getExtensionReleaseBlobs(): Promise<FileBlobStore> { return (await getServices()).blobs; }
 export async function getExtensionInstallationState(installationId: string) { return (await getServices()).repository.read(installationId); }
 
 export async function getExtensionReleaseArtifacts(installationId: string, releaseId: string): Promise<WorkspaceFiles> {

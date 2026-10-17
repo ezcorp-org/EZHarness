@@ -1,0 +1,6 @@
+a: rerun.exit 0; HEAVY DONE status=0 dirty=0 2026-10-16T21:20:49Z
+b: original non-zero legs: 17 list-bound not-runnable record(s); re-run green: ['w4h33-red-first-cases']
+c: re-run END lines 2, all exit=0: ['w4h33-red-first-cases', 'web-bunleg-changed']
+d: diff-files byte-equal; merge b6414ec0b137272e413da5e0db9b4421bc7ac386
+e: verdict /tmp/factory-platform-evidence/validator-8/verdict-w4h-33.txt: == W4H-33 hold UNION on b6414ec0b137272e413da5e0db9b4421bc7ac386: OK (validator-8, 2026-10-16T21:25Z, clock read with date -u)
+HEAVY DONE status=0 dirty=0 2026-10-16T21:37:21Z

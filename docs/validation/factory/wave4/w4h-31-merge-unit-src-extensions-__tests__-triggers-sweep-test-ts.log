@@ -1,0 +1,16 @@
+bun test v1.4.2 (744846f84)
+{"ts":"2026-10-16T01:18:50.433Z","level":"info","msg":"orphaned dynamic triggers disabled","subsystem":"ext.triggers.sweep","extensionId":"999fe25d-a474-4278-8b1d-ef16dadeb923","disabled":1,"cron":1,"webhook":0}
+{"ts":"2026-10-16T01:18:50.446Z","level":"info","msg":"orphaned dynamic triggers disabled","subsystem":"ext.triggers.sweep","extensionId":"999fe25d-a474-4278-8b1d-ef16dadeb923","disabled":2,"cron":1,"webhook":1}
+{"ts":"2026-10-16T01:18:50.475Z","level":"info","msg":"orphaned dynamic triggers disabled","subsystem":"ext.triggers.sweep","extensionId":"999fe25d-a474-4278-8b1d-ef16dadeb923","disabled":2,"cron":1,"webhook":1}
+{"ts":"2026-10-16T01:18:50.484Z","level":"info","msg":"orphaned dynamic triggers disabled","subsystem":"ext.triggers.sweep","extensionId":"999fe25d-a474-4278-8b1d-ef16dadeb923","disabled":1,"cron":1,"webhook":0}
+{"ts":"2026-10-16T01:18:50.484Z","level":"info","msg":"host-wide dynamic-trigger sweep retired orphans","subsystem":"ext.triggers.sweep","scanned":1,"disabled":1,"skipped":0,"errored":0}
+{"ts":"2026-10-16T01:18:50.490Z","level":"warn","msg":"dynamic-trigger sweep failed for one extension — continuing","subsystem":"ext.triggers.sweep","extensionId":"boom","error":"Error: registry blew up"}
+{"ts":"2026-10-16T01:18:50.492Z","level":"info","msg":"orphaned dynamic triggers disabled","subsystem":"ext.triggers.sweep","extensionId":"999fe25d-a474-4278-8b1d-ef16dadeb923","disabled":1,"cron":1,"webhook":0}
+{"ts":"2026-10-16T01:18:50.492Z","level":"info","msg":"host-wide dynamic-trigger sweep retired orphans","subsystem":"ext.triggers.sweep","scanned":2,"disabled":1,"skipped":0,"errored":1}
+{"ts":"2026-10-16T01:18:50.500Z","level":"info","msg":"dynamic triggers revoked with the capability","subsystem":"ext.triggers.sweep","extensionId":"999fe25d-a474-4278-8b1d-ef16dadeb923","disabled":3}
+{"ts":"2026-10-16T01:18:50.505Z","level":"info","msg":"dynamic triggers revoked with the capability","subsystem":"ext.triggers.sweep","extensionId":"999fe25d-a474-4278-8b1d-ef16dadeb923","disabled":1}
+
+ 23 pass
+ 0 fail
+ 76 expect() calls
+Ran 23 tests across 1 file. [1018.00ms]

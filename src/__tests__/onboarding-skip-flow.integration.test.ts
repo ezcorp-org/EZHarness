@@ -24,7 +24,7 @@ describe("onboarding skip flow — markUserOnboarded + hasAnyProvider integratio
   afterAll(async () => await closeTestDb());
 
   test("user skips provider step → onboardedAt set, hasAnyProvider stays false", async () => {
-    const u = await createUser({ email: "skipper@test.com", passwordHash: "h", name: "Skipper" });
+    const u = await createUser({ email: "skipper@test.example", passwordHash: "h", name: "Skipper" });
     expect(u.onboardedAt).toBeNull();
     expect(await hasAnyProvider()).toBe(false);
 
@@ -37,7 +37,7 @@ describe("onboarding skip flow — markUserOnboarded + hasAnyProvider integratio
   });
 
   test("user finishes happy-path → onboardedAt set, hasAnyProvider true", async () => {
-    const u = await createUser({ email: "finisher@test.com", passwordHash: "h", name: "Finisher" });
+    const u = await createUser({ email: "finisher@test.example", passwordHash: "h", name: "Finisher" });
     await upsertSetting("provider:apiKey:anthropic", "sk-test");
     await markUserOnboarded(u.id);
 
@@ -49,7 +49,7 @@ describe("onboarding skip flow — markUserOnboarded + hasAnyProvider integratio
   test("re-marking onboarded user is first-write-wins — second POST is a safe no-op", async () => {
     // Two-tab race: both finish the wizard, both POST /api/onboarding/complete.
     // The endpoint must not 500, must not advance the original stamp.
-    const u = await createUser({ email: "idemp@test.com", passwordHash: "h", name: "Idemp" });
+    const u = await createUser({ email: "idemp@test.example", passwordHash: "h", name: "Idemp" });
     await markUserOnboarded(u.id);
     const first = (await getUserById(u.id))!.onboardedAt!;
     await new Promise((r) => setTimeout(r, 10));

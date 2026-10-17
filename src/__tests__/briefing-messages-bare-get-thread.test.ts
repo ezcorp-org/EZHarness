@@ -63,7 +63,7 @@ let projectId = "";
 beforeAll(async () => {
   await setupTestDb();
   const u = await createUser({
-    email: "briefing-bare-get@test.com",
+    email: "briefing-bare-get@test.example",
     passwordHash: "h",
     name: "Briefing Bare GET",
   });

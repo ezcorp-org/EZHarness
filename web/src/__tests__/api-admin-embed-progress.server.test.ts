@@ -35,7 +35,7 @@ function makeEvent(locals: Record<string, unknown> = {}) {
 }
 
 const adminLocals = {
-	user: { id: "u1", email: "u@test.com", name: "U", role: "admin" },
+	user: { id: "u1", email: "u@test.example", name: "U", role: "admin" },
 };
 
 describe("GET /api/admin/embed-progress", () => {
@@ -56,7 +56,7 @@ describe("GET /api/admin/embed-progress", () => {
 	});
 
 	test("rejects 403 when locals.user is non-admin", async () => {
-		const member = { id: "u1", email: "u@test.com", name: "U", role: "member" };
+		const member = { id: "u1", email: "u@test.example", name: "U", role: "member" };
 		const res = await expectThrownResponse(
 			() => GET(makeEvent({ user: member })),
 			403,

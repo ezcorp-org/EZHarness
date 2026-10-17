@@ -1,0 +1,11 @@
+bun test v1.4.2 (744846f84)
+{"ts":"2026-10-14T05:37:22.620Z","level":"info","msg":"Bundled extensions await an active administrator before source staging","subsystem":"ext.bundled.bootstrap"}
+{"ts":"2026-10-14T05:37:35.947Z","level":"info","msg":"Bundled extensions await an active administrator before source staging","subsystem":"ext.bundled.bootstrap"}
+{"ts":"2026-10-14T05:37:35.953Z","level":"info","msg":"Bundled extensions await an active administrator before source staging","subsystem":"ext.bundled.bootstrap"}
+{"ts":"2026-10-14T05:37:35.955Z","level":"info","msg":"Bundled extensions await an active administrator before source staging","subsystem":"ext.bundled.bootstrap"}
+{"ts":"2026-10-14T05:37:35.962Z","level":"info","msg":"Bundled extensions await an active administrator before source staging","subsystem":"ext.bundled.bootstrap"}
+
+ 5 pass
+ 0 fail
+ 19 expect() calls
+Ran 5 tests across 1 file. [14.82s]

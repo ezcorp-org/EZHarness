@@ -1,0 +1,162 @@
+bun test v1.4.2 (744846f84)
+{"ts":"2026-10-16T01:03:53.741Z","level":"info","msg":"skipped: model lacks image input capability","subsystem":"executor.loadHistory.rehydrate","branchLen":0}
+{"ts":"2026-10-16T01:03:53.744Z","level":"info","msg":"mode routing binding applied","subsystem":"executor.streamChat.setup","modeId":"bba28579-1df9-40cb-a379-fc63742eae8d","source":"classifier"}
+{"ts":"2026-10-16T01:03:53.754Z","level":"warn","msg":"run_workflow wire skipped — the conversation row has no owner, so a run could not be authorized","subsystem":"executor.streamChat.setup","conversationId":"b06fea7c-6372-41a8-85a8-47e8add42e86"}
+{"ts":"2026-10-16T01:03:53.756Z","level":"info","msg":"mode-extensions wire","subsystem":"setup-tools.modeExtWire","modeId":"bba28579-1df9-40cb-a379-fc63742eae8d","modeFound":true,"modeExtIds":["ext-attached"],"modeExtIdCount":1}
+{"ts":"2026-10-16T01:03:53.756Z","level":"info","msg":"mode-extensions resolveExt","subsystem":"setup-tools.modeExtWire","extId":"ext-attached","toolCount":2,"toolNames":["ext-x__tool_a","ext-x__tool_b"]}
+{"ts":"2026-10-16T01:03:53.756Z","level":"info","msg":"mode-extensions wired","subsystem":"setup-tools.modeExtWire","finalAgentToolCount":3,"finalAgentToolNames":["ext-x__tool_a","ext-x__tool_b","ext-y__tool_c"]}
+{"ts":"2026-10-16T01:03:53.758Z","level":"info","msg":"Agent orchestration resolution","subsystem":"executor.streamChat.setup","userMessage":"do something","agents":[],"teams":[],"depth":0}
+{"ts":"2026-10-16T01:03:53.773Z","level":"info","msg":"skipped: model lacks image input capability","subsystem":"executor.loadHistory.rehydrate","branchLen":0}
+{"ts":"2026-10-16T01:03:53.774Z","level":"info","msg":"mode routing binding applied","subsystem":"executor.streamChat.setup","modeId":"d9c2f7bf-3ba0-4168-8048-39436b890e73","source":"classifier"}
+{"ts":"2026-10-16T01:03:53.777Z","level":"warn","msg":"run_workflow wire skipped — the conversation row has no owner, so a run could not be authorized","subsystem":"executor.streamChat.setup","conversationId":"b06fea7c-6372-41a8-85a8-47e8add42e86"}
+{"ts":"2026-10-16T01:03:53.778Z","level":"info","msg":"mode-extensions wire","subsystem":"setup-tools.modeExtWire","modeId":"d9c2f7bf-3ba0-4168-8048-39436b890e73","modeFound":true,"modeExtIds":["ext-1","ext-2"],"modeExtIdCount":2}
+{"ts":"2026-10-16T01:03:53.778Z","level":"info","msg":"mode-extensions resolveExt","subsystem":"setup-tools.modeExtWire","extId":"ext-1","toolCount":2,"toolNames":["a_tool","b_tool"]}
+{"ts":"2026-10-16T01:03:53.778Z","level":"info","msg":"mode-extensions resolveExt","subsystem":"setup-tools.modeExtWire","extId":"ext-2","toolCount":1,"toolNames":["c_tool"]}
+{"ts":"2026-10-16T01:03:53.778Z","level":"info","msg":"mode-extensions wired","subsystem":"setup-tools.modeExtWire","finalAgentToolCount":4,"finalAgentToolNames":["a_tool","b_tool","c_tool","d_tool"]}
+{"ts":"2026-10-16T01:03:53.779Z","level":"info","msg":"Agent orchestration resolution","subsystem":"executor.streamChat.setup","userMessage":"do something","agents":[],"teams":[],"depth":0}
+{"ts":"2026-10-16T01:03:53.787Z","level":"info","msg":"skipped: model lacks image input capability","subsystem":"executor.loadHistory.rehydrate","branchLen":0}
+{"ts":"2026-10-16T01:03:53.788Z","level":"info","msg":"mode routing binding applied","subsystem":"executor.streamChat.setup","modeId":"c000a887-e922-4008-ae01-55696bc67624","source":"classifier"}
+{"ts":"2026-10-16T01:03:53.790Z","level":"warn","msg":"run_workflow wire skipped — the conversation row has no owner, so a run could not be authorized","subsystem":"executor.streamChat.setup","conversationId":"b06fea7c-6372-41a8-85a8-47e8add42e86"}
+{"ts":"2026-10-16T01:03:53.791Z","level":"info","msg":"mode-extensions wire","subsystem":"setup-tools.modeExtWire","modeId":"c000a887-e922-4008-ae01-55696bc67624","modeFound":true,"modeExtIds":["ext-a","ext-b"],"modeExtIdCount":2}
+{"ts":"2026-10-16T01:03:53.791Z","level":"info","msg":"mode-extensions resolveExt","subsystem":"setup-tools.modeExtWire","extId":"ext-a","toolCount":2,"toolNames":["shared_tool","only_ext_1"]}
+{"ts":"2026-10-16T01:03:53.791Z","level":"info","msg":"mode-extensions resolveExt","subsystem":"setup-tools.modeExtWire","extId":"ext-b","toolCount":1,"toolNames":["shared_tool"]}
+{"ts":"2026-10-16T01:03:53.791Z","level":"info","msg":"mode-extensions wired","subsystem":"setup-tools.modeExtWire","finalAgentToolCount":2,"finalAgentToolNames":["shared_tool","only_ext_1"]}
+{"ts":"2026-10-16T01:03:53.792Z","level":"info","msg":"Agent orchestration resolution","subsystem":"executor.streamChat.setup","userMessage":"do something","agents":[],"teams":[],"depth":0}
+{"ts":"2026-10-16T01:03:53.800Z","level":"info","msg":"skipped: model lacks image input capability","subsystem":"executor.loadHistory.rehydrate","branchLen":0}
+{"ts":"2026-10-16T01:03:53.801Z","level":"info","msg":"mode routing binding applied","subsystem":"executor.streamChat.setup","modeId":"02f1bc8c-b325-44d4-8b4d-de2b7c2c34bf","source":"classifier"}
+{"ts":"2026-10-16T01:03:53.804Z","level":"warn","msg":"run_workflow wire skipped — the conversation row has no owner, so a run could not be authorized","subsystem":"executor.streamChat.setup","conversationId":"b06fea7c-6372-41a8-85a8-47e8add42e86"}
+{"ts":"2026-10-16T01:03:53.805Z","level":"info","msg":"mode-extensions wire","subsystem":"setup-tools.modeExtWire","modeId":"02f1bc8c-b325-44d4-8b4d-de2b7c2c34bf","modeFound":true,"modeExtIds":[],"modeExtIdCount":0}
+{"ts":"2026-10-16T01:03:53.805Z","level":"info","msg":"Agent orchestration resolution","subsystem":"executor.streamChat.setup","userMessage":"do something","agents":[],"teams":[],"depth":0}
+{"ts":"2026-10-16T01:03:53.814Z","level":"info","msg":"skipped: model lacks image input capability","subsystem":"executor.loadHistory.rehydrate","branchLen":0}
+{"ts":"2026-10-16T01:03:53.815Z","level":"info","msg":"mode routing binding applied","subsystem":"executor.streamChat.setup","modeId":"e7251d8b-41cc-457e-8fae-bf6168461cb8","source":"classifier"}
+{"ts":"2026-10-16T01:03:53.817Z","level":"warn","msg":"run_workflow wire skipped — the conversation row has no owner, so a run could not be authorized","subsystem":"executor.streamChat.setup","conversationId":"b06fea7c-6372-41a8-85a8-47e8add42e86"}
+{"ts":"2026-10-16T01:03:53.818Z","level":"info","msg":"mode-extensions wire","subsystem":"setup-tools.modeExtWire","modeId":"e7251d8b-41cc-457e-8fae-bf6168461cb8","modeFound":true,"modeExtIds":[],"modeExtIdCount":0}
+{"ts":"2026-10-16T01:03:53.819Z","level":"info","msg":"Agent orchestration resolution","subsystem":"executor.streamChat.setup","userMessage":"do something","agents":[],"teams":[],"depth":0}
+{"ts":"2026-10-16T01:03:53.826Z","level":"info","msg":"skipped: model lacks image input capability","subsystem":"executor.loadHistory.rehydrate","branchLen":0}
+{"ts":"2026-10-16T01:03:53.827Z","level":"info","msg":"mode routing binding applied","subsystem":"executor.streamChat.setup","modeId":"4ea7d667-a44c-4399-80d3-6951a5b79782","source":"classifier"}
+{"ts":"2026-10-16T01:03:53.830Z","level":"warn","msg":"run_workflow wire skipped — the conversation row has no owner, so a run could not be authorized","subsystem":"executor.streamChat.setup","conversationId":"b06fea7c-6372-41a8-85a8-47e8add42e86"}
+{"ts":"2026-10-16T01:03:53.830Z","level":"info","msg":"mode-extensions wire","subsystem":"setup-tools.modeExtWire","modeId":"4ea7d667-a44c-4399-80d3-6951a5b79782","modeFound":true,"modeExtIds":["ext-write-allowed"],"modeExtIdCount":1}
+{"ts":"2026-10-16T01:03:53.830Z","level":"info","msg":"mode-extensions resolveExt","subsystem":"setup-tools.modeExtWire","extId":"ext-write-allowed","toolCount":1,"toolNames":["write_y"]}
+{"ts":"2026-10-16T01:03:53.831Z","level":"info","msg":"mode-extensions wired","subsystem":"setup-tools.modeExtWire","finalAgentToolCount":3,"finalAgentToolNames":["read_x","write_y","write_z"]}
+{"ts":"2026-10-16T01:03:53.831Z","level":"info","msg":"Agent orchestration resolution","subsystem":"executor.streamChat.setup","userMessage":"do something","agents":[],"teams":[],"depth":0}
+{"ts":"2026-10-16T01:03:53.838Z","level":"info","msg":"skipped: model lacks image input capability","subsystem":"executor.loadHistory.rehydrate","branchLen":0}
+{"ts":"2026-10-16T01:03:53.839Z","level":"info","msg":"mode routing binding applied","subsystem":"executor.streamChat.setup","modeId":"7ab0eb87-a8f8-48cc-9a43-0641e15abb58","source":"classifier"}
+{"ts":"2026-10-16T01:03:53.841Z","level":"warn","msg":"run_workflow wire skipped — the conversation row has no owner, so a run could not be authorized","subsystem":"executor.streamChat.setup","conversationId":"b06fea7c-6372-41a8-85a8-47e8add42e86"}
+{"ts":"2026-10-16T01:03:53.841Z","level":"info","msg":"mode-extensions wire","subsystem":"setup-tools.modeExtWire","modeId":"7ab0eb87-a8f8-48cc-9a43-0641e15abb58","modeFound":true,"modeExtIds":["ext-missing"],"modeExtIdCount":1}
+{"ts":"2026-10-16T01:03:53.842Z","level":"info","msg":"mode-extensions resolveExt","subsystem":"setup-tools.modeExtWire","extId":"ext-missing","toolCount":0,"toolNames":[]}
+{"ts":"2026-10-16T01:03:53.842Z","level":"info","msg":"mode-extensions wired","subsystem":"setup-tools.modeExtWire","finalAgentToolCount":2,"finalAgentToolNames":["foo","bar"]}
+{"ts":"2026-10-16T01:03:53.842Z","level":"info","msg":"Agent orchestration resolution","subsystem":"executor.streamChat.setup","userMessage":"do something","agents":[],"teams":[],"depth":0}
+{"ts":"2026-10-16T01:03:53.848Z","level":"info","msg":"skipped: model lacks image input capability","subsystem":"executor.loadHistory.rehydrate","branchLen":0}
+{"ts":"2026-10-16T01:03:53.849Z","level":"info","msg":"mode routing binding applied","subsystem":"executor.streamChat.setup","modeId":"6bf5eb88-d2e6-4a27-a18f-a905d4070af3","source":"classifier"}
+{"ts":"2026-10-16T01:03:53.852Z","level":"warn","msg":"run_workflow wire skipped — the conversation row has no owner, so a run could not be authorized","subsystem":"executor.streamChat.setup","conversationId":"b06fea7c-6372-41a8-85a8-47e8add42e86"}
+{"ts":"2026-10-16T01:03:53.853Z","level":"info","msg":"mode-extensions wire","subsystem":"setup-tools.modeExtWire","modeId":"6bf5eb88-d2e6-4a27-a18f-a905d4070af3","modeFound":true,"modeExtIds":["ext-sub"],"modeExtIdCount":1}
+{"ts":"2026-10-16T01:03:53.853Z","level":"info","msg":"mode-extensions resolveExt","subsystem":"setup-tools.modeExtWire","extId":"ext-sub","toolCount":3,"toolNames":["ext-x__tool_a","ext-x__tool_b","ext-x__tool_c"]}
+{"ts":"2026-10-16T01:03:53.853Z","level":"info","msg":"mode-extensions wired","subsystem":"setup-tools.modeExtWire","finalAgentToolCount":3,"finalAgentToolNames":["ext-x__tool_a","ext-x__tool_b","ext-x__tool_c"]}
+{"ts":"2026-10-16T01:03:53.853Z","level":"info","msg":"Agent orchestration resolution","subsystem":"executor.streamChat.setup","userMessage":"do something","agents":[],"teams":[],"depth":0}
+{"ts":"2026-10-16T01:03:53.860Z","level":"info","msg":"skipped: model lacks image input capability","subsystem":"executor.loadHistory.rehydrate","branchLen":0}
+{"ts":"2026-10-16T01:03:53.861Z","level":"info","msg":"mode routing binding applied","subsystem":"executor.streamChat.setup","modeId":"0e1139da-981b-4e99-b37b-28289590709e","source":"classifier"}
+{"ts":"2026-10-16T01:03:53.863Z","level":"warn","msg":"run_workflow wire skipped — the conversation row has no owner, so a run could not be authorized","subsystem":"executor.streamChat.setup","conversationId":"b06fea7c-6372-41a8-85a8-47e8add42e86"}
+{"ts":"2026-10-16T01:03:53.864Z","level":"info","msg":"mode-extensions wire","subsystem":"setup-tools.modeExtWire","modeId":"0e1139da-981b-4e99-b37b-28289590709e","modeFound":true,"modeExtIds":["ext-empty"],"modeExtIdCount":1}
+{"ts":"2026-10-16T01:03:53.864Z","level":"info","msg":"mode-extensions resolveExt","subsystem":"setup-tools.modeExtWire","extId":"ext-empty","toolCount":2,"toolNames":["p_tool","q_tool"]}
+{"ts":"2026-10-16T01:03:53.864Z","level":"info","msg":"mode-extensions wired","subsystem":"setup-tools.modeExtWire","finalAgentToolCount":2,"finalAgentToolNames":["p_tool","q_tool"]}
+{"ts":"2026-10-16T01:03:53.864Z","level":"info","msg":"Agent orchestration resolution","subsystem":"executor.streamChat.setup","userMessage":"do something","agents":[],"teams":[],"depth":0}
+{"ts":"2026-10-16T01:03:53.871Z","level":"info","msg":"skipped: model lacks image input capability","subsystem":"executor.loadHistory.rehydrate","branchLen":0}
+{"ts":"2026-10-16T01:03:53.872Z","level":"info","msg":"mode routing binding applied","subsystem":"executor.streamChat.setup","modeId":"ee44d1b1-07d8-4ec4-a483-c34272b9fe4d","source":"classifier"}
+{"ts":"2026-10-16T01:03:53.875Z","level":"warn","msg":"run_workflow wire skipped — the conversation row has no owner, so a run could not be authorized","subsystem":"executor.streamChat.setup","conversationId":"b06fea7c-6372-41a8-85a8-47e8add42e86"}
+{"ts":"2026-10-16T01:03:53.875Z","level":"info","msg":"mode-extensions wire","subsystem":"setup-tools.modeExtWire","modeId":"ee44d1b1-07d8-4ec4-a483-c34272b9fe4d","modeFound":true,"modeExtIds":["ext-orig"],"modeExtIdCount":1}
+{"ts":"2026-10-16T01:03:53.875Z","level":"info","msg":"mode-extensions resolveExt","subsystem":"setup-tools.modeExtWire","extId":"ext-orig","toolCount":2,"toolNames":["myext__alpha","myext__beta"]}
+{"ts":"2026-10-16T01:03:53.875Z","level":"info","msg":"mode-extensions wired","subsystem":"setup-tools.modeExtWire","finalAgentToolCount":2,"finalAgentToolNames":["myext__alpha","myext__beta"]}
+{"ts":"2026-10-16T01:03:53.876Z","level":"info","msg":"Agent orchestration resolution","subsystem":"executor.streamChat.setup","userMessage":"do something","agents":[],"teams":[],"depth":0}
+{"ts":"2026-10-16T01:03:53.883Z","level":"info","msg":"skipped: model lacks image input capability","subsystem":"executor.loadHistory.rehydrate","branchLen":0}
+{"ts":"2026-10-16T01:03:53.884Z","level":"info","msg":"mode routing binding applied","subsystem":"executor.streamChat.setup","modeId":"d4b6b49e-b4a6-4d68-ac8d-8f28766ae8a7","source":"classifier"}
+{"ts":"2026-10-16T01:03:53.886Z","level":"warn","msg":"run_workflow wire skipped — the conversation row has no owner, so a run could not be authorized","subsystem":"executor.streamChat.setup","conversationId":"b06fea7c-6372-41a8-85a8-47e8add42e86"}
+{"ts":"2026-10-16T01:03:53.887Z","level":"info","msg":"mode-extensions wire","subsystem":"setup-tools.modeExtWire","modeId":"d4b6b49e-b4a6-4d68-ac8d-8f28766ae8a7","modeFound":true,"modeExtIds":["ext-live"],"modeExtIdCount":1}
+{"ts":"2026-10-16T01:03:53.887Z","level":"info","msg":"mode-extensions resolveExt","subsystem":"setup-tools.modeExtWire","extId":"ext-live","toolCount":2,"toolNames":["m_tool","n_tool"]}
+{"ts":"2026-10-16T01:03:53.887Z","level":"info","msg":"mode-extensions wired","subsystem":"setup-tools.modeExtWire","finalAgentToolCount":2,"finalAgentToolNames":["m_tool","n_tool"]}
+{"ts":"2026-10-16T01:03:53.887Z","level":"info","msg":"Agent orchestration resolution","subsystem":"executor.streamChat.setup","userMessage":"do something","agents":[],"teams":[],"depth":0}
+{"ts":"2026-10-16T01:03:53.893Z","level":"info","msg":"skipped: model lacks image input capability","subsystem":"executor.loadHistory.rehydrate","branchLen":0}
+{"ts":"2026-10-16T01:03:53.896Z","level":"warn","msg":"run_workflow wire skipped — the conversation row has no owner, so a run could not be authorized","subsystem":"executor.streamChat.setup","conversationId":"b06fea7c-6372-41a8-85a8-47e8add42e86"}
+{"ts":"2026-10-16T01:03:53.897Z","level":"info","msg":"Agent orchestration resolution","subsystem":"executor.streamChat.setup","userMessage":"do something","agents":[],"teams":[],"depth":0}
+{"ts":"2026-10-16T01:03:53.903Z","level":"info","msg":"skipped: model lacks image input capability","subsystem":"executor.loadHistory.rehydrate","branchLen":0}
+{"ts":"2026-10-16T01:03:53.904Z","level":"info","msg":"mode routing binding applied","subsystem":"executor.streamChat.setup","modeId":"57f93f12-61c8-4bde-b716-9a16ab6a1ff6","source":"classifier"}
+{"ts":"2026-10-16T01:03:53.906Z","level":"warn","msg":"run_workflow wire skipped — the conversation row has no owner, so a run could not be authorized","subsystem":"executor.streamChat.setup","conversationId":"b06fea7c-6372-41a8-85a8-47e8add42e86"}
+{"ts":"2026-10-16T01:03:53.907Z","level":"info","msg":"mode-extensions wire","subsystem":"setup-tools.modeExtWire","modeId":"57f93f12-61c8-4bde-b716-9a16ab6a1ff6","modeFound":true,"modeExtIds":["ext-mode-only"],"modeExtIdCount":1}
+{"ts":"2026-10-16T01:03:53.907Z","level":"info","msg":"mode-extensions resolveExt","subsystem":"setup-tools.modeExtWire","extId":"ext-mode-only","toolCount":2,"toolNames":["mode_tool_alpha","mode_tool_beta"]}
+{"ts":"2026-10-16T01:03:53.907Z","level":"info","msg":"mode-extensions wired","subsystem":"setup-tools.modeExtWire","finalAgentToolCount":9,"finalAgentToolNames":["readFile","listFiles","readDirectory","editFile","shell","grep","glob","mode_tool_alpha","mode_tool_beta"]}
+{"ts":"2026-10-16T01:03:53.907Z","level":"info","msg":"Agent orchestration resolution","subsystem":"executor.streamChat.setup","userMessage":"do something","agents":[],"teams":[],"depth":0}
+{"ts":"2026-10-16T01:03:53.917Z","level":"info","msg":"skipped: model lacks image input capability","subsystem":"executor.loadHistory.rehydrate","branchLen":0}
+{"ts":"2026-10-16T01:03:53.918Z","level":"info","msg":"mode routing binding applied","subsystem":"executor.streamChat.setup","modeId":"da9cd756-7f09-4371-adcf-f5cc851cc76d","source":"classifier"}
+{"ts":"2026-10-16T01:03:53.918Z","level":"warn","msg":"tier classification failed — using default tier this turn","subsystem":"executor.streamChat.setup","err":"ExtensionRegistry.getInstance().getManifest is not a function. (In 'ExtensionRegistry.getInstance().getManifest(extId)', 'ExtensionRegistry.getInstance().getManifest' is undefined)"}
+{"ts":"2026-10-16T01:03:53.920Z","level":"warn","msg":"run_workflow wire skipped — the conversation row has no owner, so a run could not be authorized","subsystem":"executor.streamChat.setup","conversationId":"7b87a5d4-5873-4dc1-b391-d56c61e9014d"}
+{"ts":"2026-10-16T01:03:53.921Z","level":"info","msg":"mode-extensions wire","subsystem":"setup-tools.modeExtWire","modeId":"da9cd756-7f09-4371-adcf-f5cc851cc76d","modeFound":true,"modeExtIds":["ext-conv"],"modeExtIdCount":1}
+{"ts":"2026-10-16T01:03:53.921Z","level":"info","msg":"mode-extensions resolveExt","subsystem":"setup-tools.modeExtWire","extId":"ext-conv","toolCount":3,"toolNames":["ext-x__tool_a","ext-x__tool_b","ext-x__tool_c"]}
+{"ts":"2026-10-16T01:03:53.921Z","level":"info","msg":"mode-extensions wired","subsystem":"setup-tools.modeExtWire","finalAgentToolCount":3,"finalAgentToolNames":["ext-x__tool_a","ext-x__tool_b","ext-x__tool_c"]}
+{"ts":"2026-10-16T01:03:53.921Z","level":"info","msg":"Agent orchestration resolution","subsystem":"executor.streamChat.setup","userMessage":"do something","agents":[],"teams":[],"depth":0}
+{"ts":"2026-10-16T01:03:53.930Z","level":"info","msg":"skipped: model lacks image input capability","subsystem":"executor.loadHistory.rehydrate","branchLen":0}
+{"ts":"2026-10-16T01:03:53.931Z","level":"info","msg":"mode routing binding applied","subsystem":"executor.streamChat.setup","modeId":"403c6943-23b6-4da8-8938-b99b7e63fed6","source":"classifier"}
+{"ts":"2026-10-16T01:03:53.931Z","level":"warn","msg":"tier classification failed — using default tier this turn","subsystem":"executor.streamChat.setup","err":"ExtensionRegistry.getInstance().getManifest is not a function. (In 'ExtensionRegistry.getInstance().getManifest(extId)', 'ExtensionRegistry.getInstance().getManifest' is undefined)"}
+{"ts":"2026-10-16T01:03:53.933Z","level":"warn","msg":"run_workflow wire skipped — the conversation row has no owner, so a run could not be authorized","subsystem":"executor.streamChat.setup","conversationId":"2af8f454-55a3-4ac3-ae8c-5545d28c1ed7"}
+{"ts":"2026-10-16T01:03:53.934Z","level":"info","msg":"mode-extensions wire","subsystem":"setup-tools.modeExtWire","modeId":"403c6943-23b6-4da8-8938-b99b7e63fed6","modeFound":true,"modeExtIds":["ext-1","ext-2"],"modeExtIdCount":2}
+{"ts":"2026-10-16T01:03:53.934Z","level":"info","msg":"mode-extensions resolveExt","subsystem":"setup-tools.modeExtWire","extId":"ext-1","toolCount":1,"toolNames":["e1__a"]}
+{"ts":"2026-10-16T01:03:53.934Z","level":"info","msg":"mode-extensions resolveExt","subsystem":"setup-tools.modeExtWire","extId":"ext-2","toolCount":1,"toolNames":["e2__b"]}
+{"ts":"2026-10-16T01:03:53.934Z","level":"info","msg":"mode-extensions wired","subsystem":"setup-tools.modeExtWire","finalAgentToolCount":2,"finalAgentToolNames":["e1__a","e2__b"]}
+{"ts":"2026-10-16T01:03:53.934Z","level":"info","msg":"Agent orchestration resolution","subsystem":"executor.streamChat.setup","userMessage":"do something","agents":[],"teams":[],"depth":0}
+{"ts":"2026-10-16T01:03:53.943Z","level":"info","msg":"skipped: model lacks image input capability","subsystem":"executor.loadHistory.rehydrate","branchLen":0}
+{"ts":"2026-10-16T01:03:53.944Z","level":"info","msg":"mode routing binding applied","subsystem":"executor.streamChat.setup","modeId":"be5ba7f7-e582-4d5b-a516-85e604c431ee","source":"classifier"}
+{"ts":"2026-10-16T01:03:53.946Z","level":"warn","msg":"run_workflow wire skipped — the conversation row has no owner, so a run could not be authorized","subsystem":"executor.streamChat.setup","conversationId":"49d3ff43-a1b0-4eeb-812f-13b0199ddb3b"}
+{"ts":"2026-10-16T01:03:53.947Z","level":"info","msg":"mode-extensions wire","subsystem":"setup-tools.modeExtWire","modeId":"be5ba7f7-e582-4d5b-a516-85e604c431ee","modeFound":true,"modeExtIds":["ext-z"],"modeExtIdCount":1}
+{"ts":"2026-10-16T01:03:53.947Z","level":"info","msg":"mode-extensions resolveExt","subsystem":"setup-tools.modeExtWire","extId":"ext-z","toolCount":2,"toolNames":["z__a","z__b"]}
+{"ts":"2026-10-16T01:03:53.947Z","level":"info","msg":"mode-extensions wired","subsystem":"setup-tools.modeExtWire","finalAgentToolCount":2,"finalAgentToolNames":["z__a","z__b"]}
+{"ts":"2026-10-16T01:03:53.947Z","level":"info","msg":"Agent orchestration resolution","subsystem":"executor.streamChat.setup","userMessage":"do something","agents":[],"teams":[],"depth":0}
+{"ts":"2026-10-16T01:03:53.956Z","level":"info","msg":"skipped: model lacks image input capability","subsystem":"executor.loadHistory.rehydrate","branchLen":0}
+{"ts":"2026-10-16T01:03:53.957Z","level":"info","msg":"mode routing binding applied","subsystem":"executor.streamChat.setup","modeId":"cd7d03b9-473d-455a-a768-b6f1109f54e7","source":"classifier"}
+{"ts":"2026-10-16T01:03:53.957Z","level":"warn","msg":"tier classification failed — using default tier this turn","subsystem":"executor.streamChat.setup","err":"ExtensionRegistry.getInstance().getManifest is not a function. (In 'ExtensionRegistry.getInstance().getManifest(extId)', 'ExtensionRegistry.getInstance().getManifest' is undefined)"}
+{"ts":"2026-10-16T01:03:53.959Z","level":"warn","msg":"run_workflow wire skipped — the conversation row has no owner, so a run could not be authorized","subsystem":"executor.streamChat.setup","conversationId":"9b0a45f9-fb19-42d3-a199-54d0b7c4470b"}
+{"ts":"2026-10-16T01:03:53.959Z","level":"info","msg":"mode-extensions wire","subsystem":"setup-tools.modeExtWire","modeId":"cd7d03b9-473d-455a-a768-b6f1109f54e7","modeFound":true,"modeExtIds":["ext-w"],"modeExtIdCount":1}
+{"ts":"2026-10-16T01:03:53.959Z","level":"info","msg":"mode-extensions resolveExt","subsystem":"setup-tools.modeExtWire","extId":"ext-w","toolCount":2,"toolNames":["w__a","w__b"]}
+{"ts":"2026-10-16T01:03:53.959Z","level":"info","msg":"mode-extensions wired","subsystem":"setup-tools.modeExtWire","finalAgentToolCount":2,"finalAgentToolNames":["w__a","w__b"]}
+{"ts":"2026-10-16T01:03:53.960Z","level":"info","msg":"Agent orchestration resolution","subsystem":"executor.streamChat.setup","userMessage":"do something","agents":[],"teams":[],"depth":0}
+{"ts":"2026-10-16T01:03:53.968Z","level":"info","msg":"skipped: model lacks image input capability","subsystem":"executor.loadHistory.rehydrate","branchLen":0}
+{"ts":"2026-10-16T01:03:53.969Z","level":"info","msg":"mode routing binding applied","subsystem":"executor.streamChat.setup","modeId":"0c2a82b6-b595-4769-854c-50eec7a70b6d","source":"classifier"}
+{"ts":"2026-10-16T01:03:53.969Z","level":"warn","msg":"tier classification failed — using default tier this turn","subsystem":"executor.streamChat.setup","err":"ExtensionRegistry.getInstance().getManifest is not a function. (In 'ExtensionRegistry.getInstance().getManifest(extId)', 'ExtensionRegistry.getInstance().getManifest' is undefined)"}
+{"ts":"2026-10-16T01:03:53.971Z","level":"warn","msg":"run_workflow wire skipped — the conversation row has no owner, so a run could not be authorized","subsystem":"executor.streamChat.setup","conversationId":"efcfcae2-1f31-4bef-b13c-cd76b13deb5d"}
+{"ts":"2026-10-16T01:03:53.972Z","level":"info","msg":"mode-extensions wire","subsystem":"setup-tools.modeExtWire","modeId":"0c2a82b6-b595-4769-854c-50eec7a70b6d","modeFound":true,"modeExtIds":["ext-cn"],"modeExtIdCount":1}
+{"ts":"2026-10-16T01:03:53.972Z","level":"info","msg":"mode-extensions resolveExt","subsystem":"setup-tools.modeExtWire","extId":"ext-cn","toolCount":2,"toolNames":["conv__alpha","conv__beta"]}
+{"ts":"2026-10-16T01:03:53.972Z","level":"info","msg":"mode-extensions wired","subsystem":"setup-tools.modeExtWire","finalAgentToolCount":2,"finalAgentToolNames":["conv__alpha","conv__beta"]}
+{"ts":"2026-10-16T01:03:53.972Z","level":"info","msg":"Agent orchestration resolution","subsystem":"executor.streamChat.setup","userMessage":"do something","agents":[],"teams":[],"depth":0}
+{"ts":"2026-10-16T01:03:53.980Z","level":"info","msg":"skipped: model lacks image input capability","subsystem":"executor.loadHistory.rehydrate","branchLen":0}
+{"ts":"2026-10-16T01:03:53.980Z","level":"info","msg":"mode routing binding applied","subsystem":"executor.streamChat.setup","modeId":"3be4a58f-ae55-4b97-8908-44c2e4c461be","source":"classifier"}
+{"ts":"2026-10-16T01:03:53.982Z","level":"warn","msg":"run_workflow wire skipped — the conversation row has no owner, so a run could not be authorized","subsystem":"executor.streamChat.setup","conversationId":"98f267fd-f5f7-4510-a826-6b704ca52f3a"}
+{"ts":"2026-10-16T01:03:53.983Z","level":"info","msg":"mode-extensions wire","subsystem":"setup-tools.modeExtWire","modeId":"3be4a58f-ae55-4b97-8908-44c2e4c461be","modeFound":true,"modeExtIds":["ext-n"],"modeExtIdCount":1}
+{"ts":"2026-10-16T01:03:53.983Z","level":"info","msg":"mode-extensions resolveExt","subsystem":"setup-tools.modeExtWire","extId":"ext-n","toolCount":2,"toolNames":["n__a","n__b"]}
+{"ts":"2026-10-16T01:03:53.983Z","level":"info","msg":"mode-extensions wired","subsystem":"setup-tools.modeExtWire","finalAgentToolCount":2,"finalAgentToolNames":["n__a","n__b"]}
+{"ts":"2026-10-16T01:03:53.983Z","level":"info","msg":"Agent orchestration resolution","subsystem":"executor.streamChat.setup","userMessage":"do something","agents":[],"teams":[],"depth":0}
+{"ts":"2026-10-16T01:03:53.991Z","level":"info","msg":"skipped: model lacks image input capability","subsystem":"executor.loadHistory.rehydrate","branchLen":0}
+{"ts":"2026-10-16T01:03:53.991Z","level":"warn","msg":"tier classification failed — using default tier this turn","subsystem":"executor.streamChat.setup","err":"ExtensionRegistry.getInstance().getManifest is not a function. (In 'ExtensionRegistry.getInstance().getManifest(extId)', 'ExtensionRegistry.getInstance().getManifest' is undefined)"}
+{"ts":"2026-10-16T01:03:53.994Z","level":"warn","msg":"run_workflow wire skipped — the conversation row has no owner, so a run could not be authorized","subsystem":"executor.streamChat.setup","conversationId":"c2c80bfb-fb5c-4b84-bf6c-082633303c5d"}
+{"ts":"2026-10-16T01:03:53.994Z","level":"info","msg":"Agent orchestration resolution","subsystem":"executor.streamChat.setup","userMessage":"do something","agents":[],"teams":[],"depth":0}
+{"ts":"2026-10-16T01:03:54.002Z","level":"info","msg":"skipped: model lacks image input capability","subsystem":"executor.loadHistory.rehydrate","branchLen":0}
+{"ts":"2026-10-16T01:03:54.004Z","level":"warn","msg":"run_workflow wire skipped — the conversation row has no owner, so a run could not be authorized","subsystem":"executor.streamChat.setup","conversationId":"5423fbd1-6355-46c1-be77-f4ecc1a524ed"}
+{"ts":"2026-10-16T01:03:54.005Z","level":"info","msg":"Agent orchestration resolution","subsystem":"executor.streamChat.setup","userMessage":"do something","agents":[],"teams":[],"depth":0}
+{"ts":"2026-10-16T01:03:54.012Z","level":"info","msg":"skipped: model lacks image input capability","subsystem":"executor.loadHistory.rehydrate","branchLen":0}
+{"ts":"2026-10-16T01:03:54.015Z","level":"warn","msg":"run_workflow wire skipped — the conversation row has no owner, so a run could not be authorized","subsystem":"executor.streamChat.setup","conversationId":"68e746a9-8669-4db9-962a-776a38a67c44"}
+{"ts":"2026-10-16T01:03:54.015Z","level":"info","msg":"Agent orchestration resolution","subsystem":"executor.streamChat.setup","userMessage":"do something","agents":[],"teams":[],"depth":0}
+{"ts":"2026-10-16T01:03:54.023Z","level":"info","msg":"skipped: model lacks image input capability","subsystem":"executor.loadHistory.rehydrate","branchLen":0}
+{"ts":"2026-10-16T01:03:54.024Z","level":"info","msg":"mode routing binding applied","subsystem":"executor.streamChat.setup","modeId":"ba3d6ffc-1a0e-4701-98f5-ba518dfcec90","source":"classifier"}
+{"ts":"2026-10-16T01:03:54.027Z","level":"warn","msg":"run_workflow wire skipped — the conversation row has no owner, so a run could not be authorized","subsystem":"executor.streamChat.setup","conversationId":"a1a58fff-ec45-468b-bc70-3ec98e55c950"}
+{"ts":"2026-10-16T01:03:54.027Z","level":"info","msg":"mode-extensions wire","subsystem":"setup-tools.modeExtWire","modeId":"ba3d6ffc-1a0e-4701-98f5-ba518dfcec90","modeFound":true,"modeExtIds":["ext-attached2"],"modeExtIdCount":1}
+{"ts":"2026-10-16T01:03:54.027Z","level":"info","msg":"mode-extensions resolveExt","subsystem":"setup-tools.modeExtWire","extId":"ext-attached2","toolCount":1,"toolNames":["ext-x__tool_a"]}
+{"ts":"2026-10-16T01:03:54.027Z","level":"info","msg":"mode-extensions wired","subsystem":"setup-tools.modeExtWire","finalAgentToolCount":2,"finalAgentToolNames":["ext-x__tool_a","ask-user__ask_user_question"]}
+{"ts":"2026-10-16T01:03:54.028Z","level":"info","msg":"Agent orchestration resolution","subsystem":"executor.streamChat.setup","userMessage":"do something","agents":[],"teams":[],"depth":0}
+{"ts":"2026-10-16T01:03:54.035Z","level":"info","msg":"skipped: model lacks image input capability","subsystem":"executor.loadHistory.rehydrate","branchLen":0}
+{"ts":"2026-10-16T01:03:54.036Z","level":"info","msg":"mode routing binding applied","subsystem":"executor.streamChat.setup","modeId":"ba3d6ffc-1a0e-4701-98f5-ba518dfcec90","source":"classifier"}
+{"ts":"2026-10-16T01:03:54.038Z","level":"warn","msg":"run_workflow wire skipped — the conversation row has no owner, so a run could not be authorized","subsystem":"executor.streamChat.setup","conversationId":"b008bcb7-0339-4d37-82fc-17a01dd45582"}
+{"ts":"2026-10-16T01:03:54.039Z","level":"info","msg":"mode-extensions wire","subsystem":"setup-tools.modeExtWire","modeId":"ba3d6ffc-1a0e-4701-98f5-ba518dfcec90","modeFound":true,"modeExtIds":["ext-attached2"],"modeExtIdCount":1}
+{"ts":"2026-10-16T01:03:54.039Z","level":"info","msg":"mode-extensions resolveExt","subsystem":"setup-tools.modeExtWire","extId":"ext-attached2","toolCount":1,"toolNames":["ext-x__tool_a"]}
+{"ts":"2026-10-16T01:03:54.039Z","level":"info","msg":"mode-extensions wired","subsystem":"setup-tools.modeExtWire","finalAgentToolCount":2,"finalAgentToolNames":["ext-x__tool_a","ask-user__ask_user_question"]}
+{"ts":"2026-10-16T01:03:54.039Z","level":"info","msg":"Agent orchestration resolution","subsystem":"executor.streamChat.setup","userMessage":"do something","agents":[],"teams":[],"depth":0}
+
+ 23 pass
+ 0 fail
+ 64 expect() calls
+Ran 23 tests across 1 file. [1261.00ms]

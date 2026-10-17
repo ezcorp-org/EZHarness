@@ -1,0 +1,12 @@
+bun test v1.4.2 (744846f84)
+{"ts":"2026-10-16T01:12:26.861Z","level":"warn","msg":"event owner resolution failed — firing ownerless","subsystem":"event-subscription-dispatcher","eventType":"run:complete","conversationId":"conv-1","error":"Error: Database not initialized — call initDb() first"}
+{"ts":"2026-10-16T01:12:26.861Z","level":"info","msg":"event fire has no resolvable owner — subscriber capability calls will be skipped (clean soft-fail)","subsystem":"event-subscription-dispatcher","eventType":"run:complete","conversationId":"conv-1"}
+{"ts":"2026-10-16T01:12:26.881Z","level":"warn","msg":"event owner resolution failed — firing ownerless","subsystem":"event-subscription-dispatcher","eventType":"run:complete","conversationId":"conv-1","error":"Error: Database not initialized — call initDb() first"}
+{"ts":"2026-10-16T01:12:26.882Z","level":"info","msg":"event fire has no resolvable owner — subscriber capability calls will be skipped (clean soft-fail)","subsystem":"event-subscription-dispatcher","eventType":"run:complete","conversationId":"conv-1"}
+{"ts":"2026-10-16T01:12:26.902Z","level":"warn","msg":"event owner resolution failed — firing ownerless","subsystem":"event-subscription-dispatcher","eventType":"run:complete","conversationId":"conv-1","error":"Error: Database not initialized — call initDb() first"}
+{"ts":"2026-10-16T01:12:26.902Z","level":"info","msg":"event fire has no resolvable owner — subscriber capability calls will be skipped (clean soft-fail)","subsystem":"event-subscription-dispatcher","eventType":"run:complete","conversationId":"conv-1"}
+
+ 3 pass
+ 0 fail
+ 6 expect() calls
+Ran 3 tests across 1 file. [552.00ms]

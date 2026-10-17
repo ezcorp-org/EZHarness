@@ -1,0 +1,19 @@
+# 2026-10-16T03:45:13.070169+00:00 mutant m9-restore-bound-reverted in packages/@ezcorp/extension-runner/src/service.ts
+# cmd: bun test --timeout 30000 ./packages/@ezcorp/extension-runner/tests/service.test.ts
+bun test v1.4.2 (744846f84)
+
+packages/@ezcorp/extension-runner/tests/service.test.ts:
+error: read ECONNRESET
+   errno: -104,
+ syscall: "read",
+    code: "ECONNRESET"
+
+      at close (node:net:676:40)
+(fail) restore carries one store-bounded artifact: a 129 MiB artifact restores and a 161 MiB one refuses request_limit (W4H-32) [674.07ms]
+
+ 10 pass
+ 1 fail
+ 45 expect() calls
+Ran 11 tests across 1 file. [1.67s]
+
+# exit=1

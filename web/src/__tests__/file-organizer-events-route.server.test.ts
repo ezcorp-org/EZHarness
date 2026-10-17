@@ -132,7 +132,7 @@ function hubReq(event: string, payload: Record<string, unknown>, pageId = "revie
       headers: { "Content-Type": "application/json", "Idempotency-Key": crypto.randomUUID() },
       body: JSON.stringify({ source: "hub", pageId, payload }),
     }),
-    locals: { user: { id: "session-user", email: "t@t.com", name: "T", role: "member" } },
+    locals: { user: { id: "session-user", email: "t@t.example", name: "T", role: "member" } },
     params: { name: "file-organizer", event },
   };
 }

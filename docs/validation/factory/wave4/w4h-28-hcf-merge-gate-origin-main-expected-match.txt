@@ -1,0 +1,4 @@
+expected file /tmp/factory-platform-evidence/w00/w4h-merge/w4h-28-hcf-38ec686d8-on-fef0d7d2a/expected-main-findings.txt sha256 99c49be48fbf96798429a80ac4c893ddcb77a39153808c8ccb30643069730f36
+found:    scripts/merge-lcov.ts
+expected: scripts/merge-lcov.ts
+origin/main leg: PASS (findings equal the expected integ set)

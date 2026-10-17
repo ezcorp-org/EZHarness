@@ -1,0 +1,7 @@
+bun test v1.4.2 (744846f84)
+{"ts":"2026-10-16T00:58:55.138Z","level":"error","msg":"Operation failed with an unclassified error","subsystem":"ext.lifecycle.operations","installationId":"74999905-29cc-4a8d-85cc-8ed3237624e3","operationId":"18c99ca4-cdf2-4316-86a3-534a68566819","kind":"build","error":"controlled candidate runner failure","stack":"Error: controlled candidate runner failure\n    at <anonymous> (/home/dev/work/EZCorp/EZHarness-worktrees/composable-factory-platform/.worktrees/w00-integration/docs/extensions/examples/extension-author/e2e-server-pipeline.test.ts:175:61)\n    at runBuild (/home/dev/work/EZCorp/EZHarness-worktrees/composable-factory-platform/.worktrees/w00-integration/src/extensions/v4/lifecycle.ts:268:81)\n    at processTicksAndRejections (native:7:39)"}
+
+ 2 pass
+ 0 fail
+ 68 expect() calls
+Ran 2 tests across 1 file. [2.74s]

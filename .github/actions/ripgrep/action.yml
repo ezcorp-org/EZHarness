@@ -1,0 +1,15 @@
+name: "Install ripgrep"
+description: >
+  ripgrep from the runner image's own Ubuntu archive. src/runtime/tools/grep.ts prefers ripgrep and falls back to GNU
+  grep; the backend suites test both backends (src/__tests__/runtime-tools-grep.test.ts), so every job that runs them
+  installs ripgrep from this one definition (W4H-33; scripts/ripgrep-registration.test.ts holds the rule).
+
+runs:
+  using: composite
+  steps:
+    - name: Install ripgrep
+      shell: bash
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y --no-install-recommends ripgrep
+        rg --version

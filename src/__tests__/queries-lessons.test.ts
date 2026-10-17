@@ -52,9 +52,9 @@ describe("lessons queries", () => {
     projectId = p.id;
     const o = await createProject({ name: "beta", path: "/tmp/beta" });
     otherProjectId = o.id;
-    const u = await createUser({ email: "owner@test.com", passwordHash: "h", name: "Owner" });
+    const u = await createUser({ email: "owner@test.example", passwordHash: "h", name: "Owner" });
     ownerId = u.id;
-    const u2 = await createUser({ email: "other@test.com", passwordHash: "h", name: "Other" });
+    const u2 = await createUser({ email: "other@test.example", passwordHash: "h", name: "Other" });
     otherOwnerId = u2.id;
   });
   afterAll(async () => await closeTestDb());

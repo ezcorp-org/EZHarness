@@ -41,6 +41,7 @@ describe("registerFactoryRuntimeWorkers", () => {
   test("holds a role it cannot drive and names the seam and the owning package", () => {
     const set = registerFactoryRuntimeWorkers(collaborators());
     expect(set.held.map((held) => `${held.role}:${held.workPackage}`)).toEqual([
+      "package-preparation:W4H-26",
       "notification-inbox-delivery:W07/W08",
       "child-settlement:W06",
       "release-outcome:W07/W08",
@@ -246,10 +247,22 @@ describe("registerFactoryRuntimeWorkers", () => {
     expect(undeclared.held.find((held) => held.role === "checkpoint-barrier")!.reason).toBe("recovery is not declared: the startup document has no temporalHttp, so no checkpoint is sealed and effect claims stay closed");
   });
 
+  test("package preparation runs before dispatch when a driver exists, and holds by name without a host launch endpoint (W4H-26)", async () => {
+    let work = true;
+    const set = registerFactoryRuntimeWorkers(collaborators({ packagePreparation: { step: async () => work } }));
+    const names = set.workers.names();
+    expect(names.indexOf("package-preparation")).toBe(names.indexOf("attempt-dispatch") - 1);
+    expect(await set.workers.get("package-preparation").runBatch(new AbortController().signal)).toBe("worked");
+    work = false;
+    expect(await set.workers.get("package-preparation").runBatch(new AbortController().signal)).toBe("idle");
+    expect(registerFactoryRuntimeWorkers(collaborators()).held.find((held) => held.role === "package-preparation")!.reason).toContain("hostLaunch endpoint");
+  });
+
   test("the role list covers every role the plan names", () => {
     expect([...FACTORY_WORKER_ROLES]).toEqual([
       "compute-admission-dispatch",
       "compute-admission-poll",
+      "package-preparation",
       "attempt-dispatch",
       "run-projection",
       "notification-inbox-delivery",

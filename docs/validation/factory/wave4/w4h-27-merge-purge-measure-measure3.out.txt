@@ -1,0 +1,6 @@
+own-pg: w4h-27-measure-pg (docker.io/pgvector/pgvector:pg15 4b4956e2ab1f, server 15.19) on 127.0.0.1:46137
+run 1 rev bea35538d: exit 0; the case 30.912222 s inside the whole file; file wall 57058 ms; disk 119G MemAvailable 17.1 GiB;  63 pass  0 fail 
+run 2 rev bea35538d: exit 0; the case 30.832792 s inside the whole file; file wall 56710 ms; disk 119G MemAvailable 17.7 GiB;  63 pass  0 fail 
+run 3 rev b26a63460: exit 0; the case 30.480743 s inside the whole file; file wall 56538 ms; disk 119G MemAvailable 17.7 GiB;  63 pass  0 fail 
+run 4 rev b26a63460: exit 0; the case 30.449617 s inside the whole file; file wall 56318 ms; disk 119G MemAvailable 17.5 GiB;  63 pass  0 fail 
+returned to integ/w00 bea35538d dirty=0

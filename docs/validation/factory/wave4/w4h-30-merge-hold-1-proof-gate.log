@@ -1,0 +1,2 @@
+resource-gate 2026-10-14T13:53:23Z i5-w4h30 hold start disk=116G memAvailable=14GiB swapFreeKiB=6857132/17173956 floors disk>=100G swap>=2097152KiB mem>=6GiB
+resource-gate 2026-10-14T13:53:29Z i5-w4h30 hold setup disk=115G memAvailable=12GiB swapFreeKiB=6858848/17173956 floors disk>=100G swap>=2097152KiB mem>=6GiB

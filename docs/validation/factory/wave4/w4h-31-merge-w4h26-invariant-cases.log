@@ -1,0 +1,251 @@
+docs/extensions/examples/ez-code/index.test.ts: Ran 63 tests across 1 file. [559.00ms]
+docs/extensions/examples/sample-loop/index.integration.test.ts: Ran 2 tests across 1 file. [613.00ms]
+docs/extensions/examples/sample-loop/try-loop.test.ts: Ran 1 test across 1 file. [604.00ms]
+docs/extensions/examples/seo-watcher/subprocess.integration.test.ts: Ran 1 test across 1 file. [662.00ms]
+docs/extensions/examples/task-stack/e2e-server-pipeline.test.ts: Ran 7 tests across 1 file. [1452.00ms]
+docs/extensions/examples/todo-tracker/e2e-server-pipeline.test.ts: Ran 7 tests across 1 file. [1469.00ms]
+docs/extensions/examples/webhook-ticket-loop/subprocess.integration.test.ts: Ran 2 tests across 1 file. [912.00ms]
+docs/extensions/examples/web-search/e2e-server-pipeline.test.ts: Ran 4 tests across 1 file. [700.00ms]
+extensions/ez-factory/sandbox-discipline.test.ts: Ran 9 tests across 1 file. [452.00ms]
+packages/@ezcorp/extension-contract/src/process-spawn.test.ts: Ran 7 tests across 1 file. [550.00ms]
+packages/@ezcorp/extension-runner/tests/binary-assets.integration.test.ts: Ran 1 test across 1 file. [10.00s]
+packages/@ezcorp/extension-runner/tests/native-network.integration.test.ts: Ran 1 test across 1 file. [37.58s]
+packages/@ezcorp/extension-runner/tests/podman.integration.test.ts: Ran 19 tests across 1 file. [137.71s]
+packages/@ezcorp/extension-runner/tests/service.test.ts: Ran 6 tests across 1 file. [911.00ms]
+packages/@ezcorp/extension-runner/tests/spawn-guard-probe.test.ts: Ran 4 tests across 1 file. [3.49s]
+packages/@ezcorp/extension-runner/tests/spawn-guard.test.ts: Ran 10 tests across 1 file. [466.00ms]
+packages/@ezcorp/extension-runner/tests/startup-probe.test.ts: Ran 2 tests across 1 file. [1397.00ms]
+packages/@ezcorp/extension-runner/tests/trusted-local.test.ts: Ran 2 tests across 1 file. [7.21s]
+packages/@ezcorp/sdk/test/types-host-parity.test.ts: Ran 19 tests across 1 file. [449.00ms]
+src/extensions/candidate-verification-broker.test.ts: Ran 11 tests across 1 file. [586.00ms]
+src/extensions/extension-lifecycle-service.test.ts: Ran 10 tests across 1 file. [457.00ms]
+src/extensions/install-grant.test.ts: Ran 25 tests across 1 file. [471.00ms]
+src/extensions/process-spawn-policy.test.ts: Ran 9 tests across 1 file. [562.00ms]
+src/extensions/runner-connection.test.ts: Ran 8 tests across 1 file. [458.00ms]
+src/extensions/__tests__/drafts-handler.test.ts: Ran 44 tests across 1 file. [1186.00ms]
+src/extensions/__tests__/lessons-handler.test.ts: Ran 21 tests across 1 file. [1056.00ms]
+src/extensions/__tests__/llm-quota.test.ts: Ran 7 tests across 1 file. [902.00ms]
+src/extensions/__tests__/mcp-control.test.ts: Ran 5 tests across 1 file. [589.00ms]
+src/extensions/__tests__/memory-handler.test.ts: Ran 25 tests across 1 file. [1048.00ms]
+src/extensions/__tests__/release-mcp-client.test.ts: Ran 11 tests across 1 file. [553.00ms]
+src/extensions/__tests__/release-process-fence-lifetime.test.ts: Ran 8 tests across 1 file. [3.12s]
+src/extensions/__tests__/release-process.test.ts: Ran 26 tests across 1 file. [618.00ms]
+src/extensions/__tests__/schedule-daemon.test.ts: Ran 33 tests across 1 file. [1095.00ms]
+src/extensions/__tests__/schedule-handler.test.ts: Ran 9 tests across 1 file. [955.00ms]
+src/factory/reference-data/pack.test.ts: Ran 12 tests across 1 file. [522.00ms]
+src/factory/runner/applied-controls.integration.test.ts: Ran 5 tests across 1 file. [32.90s]
+src/factory/runner/attempt-runtime.test.ts: Ran 18 tests across 1 file. [471.00ms]
+src/factory/runner/host-launch-supervisor.test.ts: Ran 22 tests across 1 file. [544.00ms]
+src/factory/runner/python-guest.integration.test.ts: Ran 12 tests across 1 file. [222.91s]
+src/runtime/sandbox/provider-invoker.test.ts: Ran 5 tests across 1 file. [2.65s]
+src/suggest/__tests__/enhance.test.ts: Ran 20 tests across 1 file. [441.00ms]
+src/suggest/__tests__/training-export.test.ts: Ran 18 tests across 1 file. [1.75s]
+src/__tests__/af1-mcp-sandbox-regression.test.ts: Ran 4 tests across 1 file. [19.31s]
+src/__tests__/ai-kit-bundled-install.test.ts: Ran 12 tests across 1 file. [888.00ms]
+src/__tests__/api-client-functions.test.ts: Ran 23 tests across 1 file. [430.00ms]
+src/__tests__/audit-run.test.ts: Ran 13 tests across 1 file. [4.28s]
+src/__tests__/background-timers.test.ts: Ran 73 tests across 1 file. [510.00ms]
+src/__tests__/bundled-ceiling.test.ts: Ran 40 tests across 1 file. [455.00ms]
+src/__tests__/client-bundle-no-eval.test.ts: Ran 11 tests across 1 file. [588.00ms]
+src/__tests__/cli-ext-coverage.test.ts: Ran 24 tests across 1 file. [447.00ms]
+src/__tests__/container-engine.test.ts: Ran 29 tests across 1 file. [512.00ms]
+src/__tests__/conversation-extensions.test.ts: Ran 12 tests across 1 file. [986.00ms]
+src/__tests__/cross-extension.test.ts: Ran 32 tests across 1 file. [549.00ms]
+src/__tests__/entities-manifest-validation.test.ts: Ran 33 tests across 1 file. [454.00ms]
+src/__tests__/executor-run-ownership.test.ts: Ran 4 tests across 1 file. [912.00ms]
+src/__tests__/executor.test.ts: Ran 13 tests across 1 file. [464.00ms]
+src/__tests__/ext-coverage-gaps.test.ts: Ran 32 tests across 1 file. [1072.00ms]
+src/__tests__/extension-control-process-spawn.test.ts: Ran 2 tests across 1 file. [442.00ms]
+src/__tests__/extension-data-dir.test.ts: Ran 15 tests across 1 file. [455.00ms]
+src/__tests__/extension-lifecycle-service-trusted-local.test.ts: Ran 5 tests across 1 file. [1191.00ms]
+src/__tests__/extension-permissions-comprehensive.test.ts: Ran 41 tests across 1 file. [999.00ms]
+src/__tests__/extension-resources.test.ts: Ran 9 tests across 1 file. [436.00ms]
+src/__tests__/extension-runtime-comprehensive.test.ts: Ran 47 tests across 1 file. [1.99s]
+src/__tests__/extension-runtime.test.ts: Ran 21 tests across 1 file. [1416.00ms]
+src/__tests__/extension-security-lifecycle.test.ts: Ran 23 tests across 1 file. [6.91s]
+src/__tests__/extension-security-runtime.test.ts: Ran 27 tests across 1 file. [594.00ms]
+src/__tests__/extension-security.test.ts: Ran 24 tests across 1 file. [461.00ms]
+src/__tests__/ext-registry-executor.test.ts: Ran 75 tests across 1 file. [468.00ms]
+src/__tests__/ext-sdk-subprocess.test.ts: Ran 38 tests across 1 file. [457.00ms]
+src/__tests__/ext-transport-perms.test.ts: Ran 46 tests across 1 file. [616.00ms]
+src/__tests__/factory-boot.test.ts: Ran 23 tests across 1 file. [576.00ms]
+src/__tests__/fs-handler.test.ts: Ran 44 tests across 1 file. [792.00ms]
+src/__tests__/gate-scripts.test.ts: Ran 254 tests across 1 file. [4.08s]
+src/__tests__/installer-core.test.ts: Ran 81 tests across 1 file. [34.91s]
+src/__tests__/lessons-distiller-real-subprocess.e2e.test.ts: Ran 6 tests across 1 file. [11.30s]
+src/__tests__/loop-primitive-subprocess.integration.test.ts: Ran 6 tests across 1 file. [1161.00ms]
+src/__tests__/manifest-tool-capabilities.test.ts: Ran 20 tests across 1 file. [461.00ms]
+src/__tests__/mcp-capabilities.test.ts: Ran 34 tests across 1 file. [458.00ms]
+src/__tests__/mcp-registry.test.ts: Ran 11 tests across 1 file. [1016.00ms]
+src/__tests__/mock-cleanup-coverage.test.ts: Ran 44 tests across 1 file. [952.00ms]
+src/__tests__/perm-expiry-sweep.integration.test.ts: Ran 21 tests across 1 file. [7.78s]
+src/__tests__/perm-expiry-sweep.test.ts: Ran 70 tests across 1 file. [470.00ms]
+src/__tests__/permission-enforcement.test.ts: Ran 9 tests across 1 file. [465.00ms]
+src/__tests__/permission-text.test.ts: Ran 8 tests across 1 file. [1252.00ms]
+src/__tests__/podman-compose-wrapper.test.ts: Ran 64 tests across 1 file. [22.02s]
+src/__tests__/preview-capabilities.test.ts: Ran 3 tests across 1 file. [457.00ms]
+src/__tests__/preview-consent.test.ts: Ran 11 tests across 1 file. [998.00ms]
+src/__tests__/preview-jail.test.ts: Ran 28 tests across 1 file. [457.00ms]
+src/__tests__/preview-port-source.test.ts: Ran 15 tests across 1 file. [462.00ms]
+src/__tests__/preview-port-watcher.test.ts: Ran 29 tests across 1 file. [1299.00ms]
+src/__tests__/preview-rate-limit.test.ts: Ran 10 tests across 1 file. [452.00ms]
+src/__tests__/preview-reaper.test.ts: Ran 10 tests across 1 file. [897.00ms]
+src/__tests__/preview-spawn-c-contract.test.ts: Ran 13 tests across 1 file. [440.00ms]
+src/__tests__/preview-uid-pool.test.ts: Ran 26 tests across 1 file. [471.00ms]
+src/__tests__/preview-wiring.test.ts: Ran 21 tests across 1 file. [459.00ms]
+src/__tests__/price-chart.e2e.test.ts: Ran 7 tests across 1 file. [714.00ms]
+src/__tests__/production-proof-results.test.ts: Ran 5 tests across 1 file. [1222.00ms]
+src/__tests__/registry-integrity.test.ts: Ran 5 tests across 1 file. [532.00ms]
+src/__tests__/registry-reload-process-invalidation.test.ts: Ran 6 tests across 1 file. [451.00ms]
+src/__tests__/registry-veth-cleanup.test.ts: Ran 1 test across 1 file. [557.00ms]
+src/__tests__/runner-worker-isolation.proof.test.ts: Ran 18 tests across 1 file. [580.00ms]
+src/__tests__/runtime-invoke-handler.test.ts: Ran 43 tests across 1 file. [474.00ms]
+src/__tests__/sandbox-seam-a-b.test.ts: Ran 6 tests across 1 file. [795.00ms]
+src/__tests__/security/file-organizer-security.test.ts: Ran 38 tests across 1 file. [510.00ms]
+src/__tests__/security/sb6-lifecycle-handler-rewiring.test.ts: Ran 6 tests across 1 file. [544.00ms]
+src/__tests__/setup-podman.test.ts: Ran 100 tests across 1 file. [19.88s]
+src/__tests__/shell-masked-substitution.test.ts: Ran 2 tests across 1 file. [508.00ms]
+src/__tests__/shell-preview-integration.test.ts: Ran 8 tests across 1 file. [1.54s]
+src/__tests__/shipping-production-suite-wiring.test.ts: Ran 4 tests across 1 file. [1082.00ms]
+src/__tests__/subprocess-fire-and-forget-nets.test.ts: Ran 2 tests across 1 file. [496.00ms]
+src/__tests__/subprocess-install-path-precheck.test.ts: Ran 8 tests across 1 file. [1355.00ms]
+src/__tests__/subprocess-notification-cold-spawn.test.ts: Ran 5 tests across 1 file. [541.00ms]
+src/__tests__/subprocess-npm-deps.test.ts: Ran 13 tests across 1 file. [1423.00ms]
+src/__tests__/subprocess.test.ts: Ran 13 tests across 1 file. [1359.00ms]
+src/__tests__/team-tool-scope.test.ts: Ran 4 tests across 1 file. [491.00ms]
+src/__tests__/tool-context.test.ts: Ran 11 tests across 1 file. [534.00ms]
+src/__tests__/verify-extension.test.ts: Ran 9 tests across 1 file. [657.00ms]
+worker/src/index.test.ts: Ran 27 tests across 1 file. [656.00ms]
+CASE PASS: a second launch, an attach and a read that arrive during a slow start all join it
+CASE PASS: after a restart, other source under a reused identity is refused even as the FIRST request, and does not poison it (T1)
+CASE PASS: only a SUCCEEDED preparation is recorded: a failed build stays in memory and is rebuilt after a restart (N6)
+CASE PASS: two concurrent first requests with durable records build once (N7)
+CASE PASS: a guest this host starts or reattaches may start processes, because the runner denies a start that names no policy
+docs/extensions/examples/sample-loop/index.integration.test.ts: file 86/86 lines hit; added lines 5, instrumented 4, uncovered 0
+docs/extensions/examples/sample-loop/try-loop.test.ts: file 83/83 lines hit; added lines 5, instrumented 4, uncovered 0
+docs/extensions/examples/seo-watcher/subprocess.integration.test.ts: file 121/125 lines hit; added lines 5, instrumented 4, uncovered 0
+docs/extensions/examples/task-stack/e2e-server-pipeline.test.ts: file 170/174 lines hit; added lines 7, instrumented 5, uncovered 0
+docs/extensions/examples/todo-tracker/e2e-server-pipeline.test.ts: file 163/167 lines hit; added lines 7, instrumented 6, uncovered 0
+docs/extensions/examples/web-search/e2e-server-pipeline.test.ts: file 96/103 lines hit; added lines 6, instrumented 5, uncovered 0
+docs/extensions/examples/webhook-ticket-loop/subprocess.integration.test.ts: file 102/109 lines hit; added lines 5, instrumented 4, uncovered 0
+extensions/ez-factory/sandbox-discipline.test.ts: file 193/194 lines hit; added lines 10, instrumented 0, uncovered 0
+packages/@ezcorp/extension-contract/src/process-spawn.test.ts: file 45/45 lines hit; added lines 49, instrumented 45, uncovered 0
+packages/@ezcorp/extension-runner/tests/binary-assets.integration.test.ts: file 47/47 lines hit; added lines 2, instrumented 1, uncovered 0
+packages/@ezcorp/extension-runner/tests/native-network.integration.test.ts: file 75/75 lines hit; added lines 2, instrumented 1, uncovered 0
+packages/@ezcorp/extension-runner/tests/podman.integration.test.ts: file 338/338 lines hit; added lines 2, instrumented 1, uncovered 0
+packages/@ezcorp/extension-runner/tests/service.test.ts: file 143/143 lines hit; added lines 27, instrumented 24, uncovered 0
+packages/@ezcorp/extension-runner/tests/spawn-guard-probe.test.ts: file 33/33 lines hit; added lines 62, instrumented 33, uncovered 0
+packages/@ezcorp/extension-runner/tests/spawn-guard.test.ts: file 58/59 lines hit; added lines 70, instrumented 59, uncovered 1 -> [15]
+packages/@ezcorp/extension-runner/tests/startup-probe.test.ts: file 34/34 lines hit; added lines 77, instrumented 34, uncovered 0
+packages/@ezcorp/extension-runner/tests/trusted-local.test.ts: file 64/64 lines hit; added lines 36, instrumented 31, uncovered 0
+packages/@ezcorp/sdk/test/types-host-parity.test.ts: file 28/28 lines hit; added lines 1, instrumented 0, uncovered 0
+src/__tests__/af1-mcp-sandbox-regression.test.ts: file 49/49 lines hit; added lines 0, instrumented 0, uncovered 0
+src/__tests__/ai-kit-bundled-install.test.ts: file 116/116 lines hit; added lines 12, instrumented 8, uncovered 0
+src/__tests__/api-client-functions.test.ts: file 294/294 lines hit; added lines 106, instrumented 86, uncovered 0
+src/__tests__/audit-run.test.ts: file 192/192 lines hit; added lines 257, instrumented 192, uncovered 0
+src/__tests__/background-timers.test.ts: file 1373/1383 lines hit; added lines 229, instrumented 169, uncovered 0
+src/__tests__/cli-ext-coverage.test.ts: file 361/363 lines hit; added lines 83, instrumented 69, uncovered 0
+src/__tests__/client-bundle-no-eval.test.ts: file 37/37 lines hit; added lines 60, instrumented 37, uncovered 0
+src/__tests__/container-engine.test.ts: file 163/164 lines hit; added lines 18, instrumented 14, uncovered 0
+src/__tests__/conversation-extensions.test.ts: file 183/211 lines hit; added lines 41, instrumented 28, uncovered 0
+src/__tests__/cross-extension.test.ts: file 673/676 lines hit; added lines 5, instrumented 4, uncovered 0
+src/__tests__/entities-manifest-validation.test.ts: file 369/369 lines hit; added lines 66, instrumented 56, uncovered 0
+src/__tests__/executor-run-ownership.test.ts: file 43/43 lines hit; added lines 61, instrumented 43, uncovered 0
+src/__tests__/ext-coverage-gaps.test.ts: file 378/385 lines hit; added lines 14, instrumented 11, uncovered 0
+src/__tests__/ext-registry-executor.test.ts: file 1380/1382 lines hit; added lines 2, instrumented 2, uncovered 0
+src/__tests__/ext-sdk-subprocess.test.ts: file 259/259 lines hit; added lines 3, instrumented 1, uncovered 0
+src/__tests__/ext-transport-perms.test.ts: file 595/595 lines hit; added lines 1, instrumented 1, uncovered 0
+src/__tests__/extension-control-process-spawn.test.ts: file 22/22 lines hit; added lines 28, instrumented 22, uncovered 0
+src/__tests__/extension-lifecycle-service-trusted-local.test.ts: file 116/117 lines hit; added lines 2, instrumented 2, uncovered 1 -> [16]
+src/__tests__/extension-permissions-comprehensive.test.ts: file 338/338 lines hit; added lines 8, instrumented 7, uncovered 0
+src/__tests__/extension-resources.test.ts: file 77/77 lines hit; added lines 4, instrumented 4, uncovered 0
+src/__tests__/extension-runtime-comprehensive.test.ts: file 550/550 lines hit; added lines 6, instrumented 5, uncovered 0
+src/__tests__/extension-runtime.test.ts: file 388/388 lines hit; added lines 6, instrumented 5, uncovered 0
+src/__tests__/extension-security-lifecycle.test.ts: file 323/323 lines hit; added lines 1, instrumented 1, uncovered 0
+src/__tests__/extension-security-runtime.test.ts: file 549/551 lines hit; added lines 2, instrumented 1, uncovered 0
+src/__tests__/extension-security.test.ts: file 286/286 lines hit; added lines 1, instrumented 1, uncovered 0
+src/__tests__/factory-boot.test.ts: file 235/242 lines hit; added lines 0, instrumented 0, uncovered 0
+src/__tests__/fs-handler.test.ts: file 600/604 lines hit; added lines 104, instrumented 88, uncovered 0
+src/__tests__/gate-scripts.test.ts: file 2596/2597 lines hit; added lines 70, instrumented 67, uncovered 0
+src/__tests__/installer-core.test.ts: file 865/865 lines hit; added lines 44, instrumented 38, uncovered 0
+src/__tests__/lessons-distiller-real-subprocess.e2e.test.ts: file 267/288 lines hit; added lines 5, instrumented 5, uncovered 0
+src/__tests__/loop-primitive-subprocess.integration.test.ts: file 192/204 lines hit; added lines 8, instrumented 7, uncovered 0
+src/__tests__/manifest-tool-capabilities.test.ts: file 62/62 lines hit; added lines 70, instrumented 62, uncovered 0
+src/__tests__/mcp-registry.test.ts: file 200/200 lines hit; added lines 14, instrumented 6, uncovered 0
+src/__tests__/mock-cleanup-coverage.test.ts: file 708/730 lines hit; added lines 5, instrumented 1, uncovered 0
+src/__tests__/perm-expiry-sweep.integration.test.ts: file 710/744 lines hit; added lines 84, instrumented 62, uncovered 0
+src/__tests__/perm-expiry-sweep.test.ts: file 873/874 lines hit; added lines 12, instrumented 10, uncovered 0
+src/__tests__/permission-enforcement.test.ts: file 133/135 lines hit; added lines 3, instrumented 2, uncovered 0
+src/__tests__/permission-text.test.ts: file 107/107 lines hit; added lines 122, instrumented 107, uncovered 0
+src/__tests__/podman-compose-wrapper.test.ts: file 894/894 lines hit; added lines 14, instrumented 11, uncovered 0
+src/__tests__/preview-capabilities.test.ts: file 29/29 lines hit; added lines 42, instrumented 29, uncovered 0
+src/__tests__/preview-port-watcher.test.ts: file 426/426 lines hit; added lines 1, instrumented 1, uncovered 0
+src/__tests__/preview-reaper.test.ts: file 134/134 lines hit; added lines 1, instrumented 0, uncovered 0
+src/__tests__/preview-spawn-c-contract.test.ts: file 106/106 lines hit; added lines 1, instrumented 0, uncovered 0
+src/__tests__/preview-wiring.test.ts: file 247/247 lines hit; added lines 24, instrumented 20, uncovered 0
+src/__tests__/price-chart.e2e.test.ts: file 99/221 lines hit; added lines 2, instrumented 2, uncovered 0
+src/__tests__/production-proof-results.test.ts: file 136/136 lines hit; added lines 39, instrumented 32, uncovered 0
+src/__tests__/registry-integrity.test.ts: file 46/46 lines hit; added lines 6, instrumented 3, uncovered 0
+src/__tests__/registry-reload-process-invalidation.test.ts: file 162/162 lines hit; added lines 5, instrumented 4, uncovered 0
+src/__tests__/registry-veth-cleanup.test.ts: file 19/19 lines hit; added lines 0, instrumented 0, uncovered 0
+src/__tests__/runner-worker-isolation.proof.test.ts: file 135/204 lines hit; added lines 332, instrumented 204, uncovered 69 -> [101, 102, 103, 104, 105, 106, 107, 120, 121, 122, 123, 124, 125, 126, 134, 135, 136, 137, 138, 139, 140, 141, 142, 143, 144, 155, 156, 157, 158, 159, 160, 161, 162, 163, 164, 165, 166, 167, 168, 176, 177, 178, 182, 183, 186, 187, 191, 192, 193, 197, 198, 199, 200, 204, 208, 209, 210, 214, 218, 219, 220, 221, 225, 226, 227, 228, 232, 233, 234]
+src/__tests__/runtime-invoke-handler.test.ts: file 604/604 lines hit; added lines 94, instrumented 76, uncovered 0
+src/__tests__/sandbox-seam-a-b.test.ts: file 144/151 lines hit; added lines 2, instrumented 1, uncovered 0
+src/__tests__/security/file-organizer-security.test.ts: file 520/520 lines hit; added lines 1, instrumented 1, uncovered 0
+src/__tests__/security/sb6-lifecycle-handler-rewiring.test.ts: file 177/178 lines hit; added lines 11, instrumented 10, uncovered 0
+src/__tests__/setup-podman.test.ts: file 1358/1372 lines hit; added lines 16, instrumented 14, uncovered 0
+src/__tests__/shell-masked-substitution.test.ts: file 32/32 lines hit; added lines 48, instrumented 32, uncovered 0
+src/__tests__/shell-preview-integration.test.ts: file 115/115 lines hit; added lines 50, instrumented 43, uncovered 0
+src/__tests__/shipping-production-suite-wiring.test.ts: file 135/135 lines hit; added lines 7, instrumented 5, uncovered 0
+src/__tests__/subprocess-fire-and-forget-nets.test.ts: file 53/53 lines hit; added lines 7, instrumented 5, uncovered 0
+src/__tests__/subprocess-install-path-precheck.test.ts: file 104/105 lines hit; added lines 11, instrumented 10, uncovered 0
+src/__tests__/subprocess-notification-cold-spawn.test.ts: file 68/68 lines hit; added lines 5, instrumented 3, uncovered 0
+src/__tests__/subprocess-npm-deps.test.ts: file 165/165 lines hit; added lines 11, instrumented 10, uncovered 0
+src/__tests__/subprocess.test.ts: file 185/192 lines hit; added lines 17, instrumented 17, uncovered 0
+src/__tests__/team-tool-scope.test.ts: file 33/33 lines hit; added lines 51, instrumented 33, uncovered 0
+src/__tests__/verify-extension.test.ts: file 104/105 lines hit; added lines 2, instrumented 2, uncovered 0
+src/extensions/__tests__/drafts-handler.test.ts: file 621/630 lines hit; added lines 31, instrumented 28, uncovered 0
+src/extensions/__tests__/lessons-handler.test.ts: file 323/328 lines hit; added lines 155, instrumented 122, uncovered 0
+src/extensions/__tests__/llm-quota.test.ts: file 112/112 lines hit; added lines 148, instrumented 112, uncovered 0
+src/extensions/__tests__/memory-handler.test.ts: file 407/412 lines hit; added lines 80, instrumented 60, uncovered 0
+src/extensions/__tests__/release-mcp-client.test.ts: file 159/159 lines hit; added lines 0, instrumented 0, uncovered 0
+src/extensions/__tests__/release-process-fence-lifetime.test.ts: file 71/71 lines hit; added lines 2, instrumented 2, uncovered 0
+src/extensions/__tests__/release-process.test.ts: file 368/377 lines hit; added lines 6, instrumented 6, uncovered 0
+src/extensions/__tests__/schedule-handler.test.ts: file 113/117 lines hit; added lines 155, instrumented 117, uncovered 4 -> [13, 15, 16, 17]
+src/extensions/candidate-verification-broker.test.ts: file 194/194 lines hit; added lines 4, instrumented 2, uncovered 0
+src/extensions/install-grant.test.ts: file 323/323 lines hit; added lines 48, instrumented 43, uncovered 0
+src/extensions/process-spawn-policy.test.ts: file 91/91 lines hit; added lines 107, instrumented 91, uncovered 0
+src/extensions/runner-connection.test.ts: file 149/149 lines hit; added lines 6, instrumented 5, uncovered 0
+src/factory/runner/applied-controls.integration.test.ts: file 121/121 lines hit; added lines 6, instrumented 3, uncovered 0
+src/factory/runner/host-launch-supervisor.test.ts: file 347/350 lines hit; added lines 17, instrumented 15, uncovered 0
+src/factory/runner/python-guest.integration.test.ts: file 176/176 lines hit; added lines 2, instrumented 2, uncovered 0
+src/runtime/sandbox/provider-invoker.test.ts: file 151/152 lines hit; added lines 2, instrumented 2, uncovered 0
+src/suggest/__tests__/enhance.test.ts: file 175/175 lines hit; added lines 25, instrumented 21, uncovered 0
+src/suggest/__tests__/training-export.test.ts: file 225/225 lines hit; added lines 12, instrumented 9, uncovered 0
+worker/src/index.test.ts: file 249/249 lines hit; added lines 72, instrumented 62, uncovered 0
+packages/@ezcorp/extension-runner/tests/spawn-guard.test.ts: uncovered 1; not main's own 0
+src/__tests__/extension-lifecycle-service-trusted-local.test.ts: uncovered 1; not main's own 0
+src/__tests__/runner-worker-isolation.proof.test.ts: uncovered 69; not main's own 0
+src/extensions/__tests__/schedule-handler.test.ts: uncovered 4; not main's own 0
+lines named 75 in 4 file(s); not main's own 0
+changed test lines NOT all covered: every line is main's own (SYNC_BASE_MAIN 934531e2e): INFORMATIONAL
+bash line cover: merge 390c49a90 vs base b80a00f47; trace /tmp/factory-platform-evidence/w00/w4h-merge/w4h-31-sync-main-934531e2e/case-check/bash-trace.txt
+scripts/lib/container-engine.sh: added 6, executable 3, executed 3, missed 0
+scripts/podman-compose.sh: added 3, executable 1, executed 1, missed 0
+scripts/setup-podman.sh: added 7, executable 4, executed 4, missed 0
+scripts/start-extension-runner-e2e.sh: added 2, executable 2, executed 0, missed 2 -> [10, 11]
+scripts/start-real-extension-preview.sh: added 2, executable 2, executed 0, missed 2 -> [51, 52]
+scripts/verify-docker-image.sh: added 1, executable 0, executed 0, missed 0
+scripts/verify-docker-upgrade.sh: added 2, executable 2, executed 0, missed 2 -> [129, 130]
+scripts/verify-extension-container.sh: added 2, executable 2, executed 0, missed 2 -> [49, 50]
+scripts/verify-factory-local-gpu.sh: added 2, executable 2, executed 0, missed 2 -> [6, 7]
+scripts/verify-shipping-production-suite.sh: added 4, executable 1, executed 1, missed 0
+scripts/verify-shipping-runtime.sh: added 3, executable 3, executed 0, missed 3 -> [13, 14, 15]
+scripts/start-extension-runner-e2e.sh: uncovered 2; not main's own 0
+scripts/start-real-extension-preview.sh: uncovered 2; not main's own 0
+scripts/verify-docker-upgrade.sh: uncovered 2; not main's own 0
+scripts/verify-extension-container.sh: uncovered 2; not main's own 0
+scripts/verify-factory-local-gpu.sh: uncovered 2; not main's own 0
+scripts/verify-shipping-runtime.sh: uncovered 3; not main's own 0
+lines named 13 in 6 file(s); not main's own 0
+changed bash lines NOT all executed: every line is main's own (SYNC_BASE_MAIN 934531e2e): INFORMATIONAL

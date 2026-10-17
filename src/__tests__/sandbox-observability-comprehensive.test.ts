@@ -36,7 +36,7 @@ beforeAll(async () => {
   await setupTestDb();
   const userRows = await getDb()
     .insert(users)
-    .values({ email: "sandbox-obs@test.com", passwordHash: "hash", name: "Sandbox Obs" })
+    .values({ email: "sandbox-obs@test.example", passwordHash: "hash", name: "Sandbox Obs" })
     .returning();
   userId = userRows[0]!.id;
 

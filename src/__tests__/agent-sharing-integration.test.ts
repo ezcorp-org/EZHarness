@@ -47,8 +47,8 @@ describe("Permission downgrade", () => {
   let targetId: string;
 
   beforeAll(async () => {
-    const owner = await createUser({ email: "asi-pd-owner@test.com", passwordHash: "h", name: "PD Owner", role: "member" });
-    const target = await createUser({ email: "asi-pd-target@test.com", passwordHash: "h", name: "PD Target", role: "member" });
+    const owner = await createUser({ email: "asi-pd-owner@test.example", passwordHash: "h", name: "PD Owner", role: "member" });
+    const target = await createUser({ email: "asi-pd-target@test.example", passwordHash: "h", name: "PD Target", role: "member" });
     ownerId = owner.id;
     targetId = target.id;
     const agent = await createAgentConfig({ name: "PD Agent", description: "test", prompt: "test", userId: ownerId });
@@ -77,8 +77,8 @@ describe("Team + user dual share deduplication", () => {
   let teamId: string;
 
   beforeAll(async () => {
-    const owner = await createUser({ email: "asi-dup-owner@test.com", passwordHash: "h", name: "Dup Owner", role: "member" });
-    const member = await createUser({ email: "asi-dup-member@test.com", passwordHash: "h", name: "Dup Member", role: "member" });
+    const owner = await createUser({ email: "asi-dup-owner@test.example", passwordHash: "h", name: "Dup Owner", role: "member" });
+    const member = await createUser({ email: "asi-dup-member@test.example", passwordHash: "h", name: "Dup Member", role: "member" });
     ownerId = owner.id;
     memberId = member.id;
 
@@ -109,8 +109,8 @@ describe("Unshare team removes access", () => {
   let teamId: string;
 
   beforeAll(async () => {
-    const owner = await createUser({ email: "asi-ut-owner@test.com", passwordHash: "h", name: "UT Owner", role: "member" });
-    const member = await createUser({ email: "asi-ut-member@test.com", passwordHash: "h", name: "UT Member", role: "member" });
+    const owner = await createUser({ email: "asi-ut-owner@test.example", passwordHash: "h", name: "UT Owner", role: "member" });
+    const member = await createUser({ email: "asi-ut-member@test.example", passwordHash: "h", name: "UT Member", role: "member" });
     ownerId = owner.id;
     memberId = member.id;
 
@@ -144,9 +144,9 @@ describe("Share to multiple teams", () => {
   let member2Id: string;
 
   beforeAll(async () => {
-    const owner = await createUser({ email: "asi-mt-owner@test.com", passwordHash: "h", name: "MT Owner", role: "member" });
-    const m1 = await createUser({ email: "asi-mt-m1@test.com", passwordHash: "h", name: "MT Member1", role: "member" });
-    const m2 = await createUser({ email: "asi-mt-m2@test.com", passwordHash: "h", name: "MT Member2", role: "member" });
+    const owner = await createUser({ email: "asi-mt-owner@test.example", passwordHash: "h", name: "MT Owner", role: "member" });
+    const m1 = await createUser({ email: "asi-mt-m1@test.example", passwordHash: "h", name: "MT Member1", role: "member" });
+    const m2 = await createUser({ email: "asi-mt-m2@test.example", passwordHash: "h", name: "MT Member2", role: "member" });
     ownerId = owner.id;
     member1Id = m1.id;
     member2Id = m2.id;
@@ -181,7 +181,7 @@ describe("Owner cannot share to themselves", () => {
   let OWNER: AuthUser;
 
   beforeAll(async () => {
-    const owner = await createUser({ email: "asi-self-owner@test.com", passwordHash: "h", name: "Self Owner", role: "member" });
+    const owner = await createUser({ email: "asi-self-owner@test.example", passwordHash: "h", name: "Self Owner", role: "member" });
     OWNER = { id: owner.id, email: owner.email, name: owner.name, role: "member" };
     const agent = await createAgentConfig({ name: "Self Agent", description: "test", prompt: "test", userId: owner.id });
     agentId = agent.id;
@@ -205,8 +205,8 @@ describe("Delete agent cascades shares", () => {
   let targetId: string;
 
   beforeAll(async () => {
-    const owner = await createUser({ email: "asi-del-owner@test.com", passwordHash: "h", name: "Del Owner", role: "member" });
-    const target = await createUser({ email: "asi-del-target@test.com", passwordHash: "h", name: "Del Target", role: "member" });
+    const owner = await createUser({ email: "asi-del-owner@test.example", passwordHash: "h", name: "Del Owner", role: "member" });
+    const target = await createUser({ email: "asi-del-target@test.example", passwordHash: "h", name: "Del Target", role: "member" });
     ownerId = owner.id;
     targetId = target.id;
 
@@ -240,8 +240,8 @@ describe("getAgentShares returns sharedByName", () => {
   let ownerId: string;
 
   beforeAll(async () => {
-    const owner = await createUser({ email: "asi-sbn-owner@test.com", passwordHash: "h", name: "Sharer NameTest", role: "member" });
-    const target = await createUser({ email: "asi-sbn-target@test.com", passwordHash: "h", name: "Recipient NameTest", role: "member" });
+    const owner = await createUser({ email: "asi-sbn-owner@test.example", passwordHash: "h", name: "Sharer NameTest", role: "member" });
+    const target = await createUser({ email: "asi-sbn-target@test.example", passwordHash: "h", name: "Recipient NameTest", role: "member" });
     ownerId = owner.id;
 
     const agent = await createAgentConfig({ name: "SBN Agent", description: "test", prompt: "test", userId: ownerId });
@@ -269,8 +269,8 @@ describe("Route: GET returns team and user shares", () => {
   let recipientId: string;
 
   beforeAll(async () => {
-    const owner = await createUser({ email: "asi-rget-owner@test.com", passwordHash: "h", name: "RGet Owner", role: "member" });
-    const recipient = await createUser({ email: "asi-rget-recip@test.com", passwordHash: "h", name: "RGet Recip", role: "member" });
+    const owner = await createUser({ email: "asi-rget-owner@test.example", passwordHash: "h", name: "RGet Owner", role: "member" });
+    const recipient = await createUser({ email: "asi-rget-recip@test.example", passwordHash: "h", name: "RGet Recip", role: "member" });
     OWNER = { id: owner.id, email: owner.email, name: owner.name, role: "member" };
     recipientId = recipient.id;
 
@@ -315,7 +315,7 @@ describe("Route: DELETE team share", () => {
   let teamId: string;
 
   beforeAll(async () => {
-    const owner = await createUser({ email: "asi-rdel-owner@test.com", passwordHash: "h", name: "RDel Owner", role: "member" });
+    const owner = await createUser({ email: "asi-rdel-owner@test.example", passwordHash: "h", name: "RDel Owner", role: "member" });
     OWNER = { id: owner.id, email: owner.email, name: owner.name, role: "member" };
 
     const team = await createTeam("ASI RDel Team");

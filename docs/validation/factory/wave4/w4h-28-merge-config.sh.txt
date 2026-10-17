@@ -1,0 +1,7 @@
+# W4H-28-reference-run detached-merge config (integrator-3, prep.sh 2026-10-16T08:58:08Z). Base b7dbd9210 = integ/w00 when prepared; trial tree 36fe098c6.
+D=/tmp/factory-platform-evidence/w00/w4h-merge/w4h-28-reference-run
+BRANCH=wp/w4h-28-reference-run HEADSHA=5deb91a25c7dcba0a4d87230cfe282f6f7e53d0f
+BASE=b7dbd9210c31676e1e7ec67ef608c1510e840016 TREE=36fe098c612395005d8c12622ff5b552b23dac5d
+LIST=/tmp/factory-platform-evidence/w00/w4h-merge/w4h-28-reference-run/hook-mapped-5deb91a25.txt MSG=/tmp/factory-platform-evidence/w00/w4h-merge/w4h-28-reference-run/commit-msg.txt FOCUSED=/tmp/factory-platform-evidence/w00/w4h-merge/w4h-28-reference-run/focused.txt
+SKIP=0 GATE_APPROVED=0 PG_HOOK=0
+HEAVY_EXIT=/tmp/factory-platform-evidence/w00/w4h-merge/w4h-28-reference-run/heavy.exit REVIEW=

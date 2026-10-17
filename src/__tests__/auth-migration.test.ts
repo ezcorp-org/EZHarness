@@ -43,7 +43,7 @@ describe("Auth Migration — Data backfill", () => {
     );
 
     // Create admin user
-    const admin = await createUser({ email: "admin@test.com", passwordHash: "hash", name: "Admin", role: "admin" });
+    const admin = await createUser({ email: "admin@test.example", passwordHash: "hash", name: "Admin", role: "admin" });
 
     // Run backfill
     await db.execute(BACKFILL_CONVERSATIONS);
@@ -63,7 +63,7 @@ describe("Auth Migration — Data backfill", () => {
           VALUES (${agentId}, ${"Ownerless Agent"}, ${"desc"}, ${"prompt"}, NOW(), NOW())`
     );
 
-    const admin = await createUser({ email: "admin2@test.com", passwordHash: "hash", name: "Admin", role: "admin" });
+    const admin = await createUser({ email: "admin2@test.example", passwordHash: "hash", name: "Admin", role: "admin" });
 
     await db.execute(BACKFILL_AGENT_CONFIGS);
 
@@ -80,7 +80,7 @@ describe("Auth Migration — Data backfill", () => {
       sql`INSERT INTO conversations (id, project_id, title) VALUES (${convId}, ${project.id}, 'idem test')`
     );
 
-    const admin = await createUser({ email: "admin3@test.com", passwordHash: "hash", name: "Admin", role: "admin" });
+    const admin = await createUser({ email: "admin3@test.example", passwordHash: "hash", name: "Admin", role: "admin" });
 
     // Run backfill twice
     await db.execute(BACKFILL_CONVERSATIONS);
@@ -111,7 +111,7 @@ describe("Auth Migration — Data backfill", () => {
     const project = await createProject({ name: "Owned", path: "/tmp/owned" });
 
     // Create a regular user who owns the conversation
-    const regularUser = await createUser({ email: "regular@test.com", passwordHash: "hash", name: "Regular", role: "member" });
+    const regularUser = await createUser({ email: "regular@test.example", passwordHash: "hash", name: "Regular", role: "member" });
 
     const convId = crypto.randomUUID();
     await db.execute(
@@ -119,7 +119,7 @@ describe("Auth Migration — Data backfill", () => {
     );
 
     // Create admin (side effect only; backfill must not reassign to this user)
-    await createUser({ email: "admin4@test.com", passwordHash: "hash", name: "Admin", role: "admin" });
+    await createUser({ email: "admin4@test.example", passwordHash: "hash", name: "Admin", role: "admin" });
 
     // Run backfill
     await db.execute(BACKFILL_CONVERSATIONS);

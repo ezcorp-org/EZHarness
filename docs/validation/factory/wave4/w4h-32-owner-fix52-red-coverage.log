@@ -1,0 +1,8 @@
+# 2026-10-17T01:49:39Z head c586125ab4e18732efa22d89b7d2280ecc879386 dirty 0 cmd: bun --config=/tmp/factory-platform-evidence/w00/w4h-merge/w4h-24-web-shard-timeout/bunfig-testfiles.toml test --coverage ./src/factory/guest-package-harness-install.test.ts
+bun test v1.4.2 (744846f84)
+
+ 2 pass
+ 0 fail
+ 8 expect() calls
+Ran 2 tests across 1 file. [3.50s]
+# exit=0

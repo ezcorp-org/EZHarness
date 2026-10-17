@@ -1,0 +1,43 @@
+# W4H-27 (integrator-5; the coordinator's prep order 2026-10-13): the Compose installation comes up. D1 a build-time workflow bundle for the
+# orchestrator (packages/@ezcorp/factory-orchestrator, deploy/factory/Dockerfile); D2 honest fleet CLI exits; D3 the deployer's startup release
+# block (src/factory/provisioning/deployment.ts); D5 a fleet stop command; the W16 G7 proof's configuration. Inside SOURCE_GLOBS: the merge gates
+# vs the first parent BIND. Automatic in hold-w4f.sh by the diff: the orchestrator package test + Node producer; the provisioning producer (its
+# PostgreSQL legs on an OWN fresh pg15 through hold-own-pg.sh, never the shared proof server); every container image built from a clean
+# git-archive snapshot of the merge (image-leg.sh: full, boot, fullnocache, dev, test, factory) when a Dockerfile changes.
+N=/tmp/factory-platform-evidence/w00/w4h-merge/w4h-27-compose-comes-up
+tc_leg typecheck-all bun run typecheck
+# The deployment locks (every factory image pinned by digest) when the factory Dockerfile or a Compose template changes; its own test too.
+if touches '^deploy/factory/(Dockerfile|compose/)'; then
+  NOTEST=1 leg deployment-locks bun scripts/check-factory-deployment-locks.ts
+  leg deployment-locks-test bun test --timeout 120000 ./scripts/check-factory-deployment-locks.test.ts
+fi
+# Own image tags only, by name, after the image legs (image-leg.sh tags localhost/integrator3-img-*:<rev12>; never a prune).
+if touches '(^|/)Dockerfile[^/]*$|^deploy/factory/Dockerfile'; then
+  NOTEST=1 leg image-tag-cleanup bash -c 's=$(git rev-parse HEAD | cut -c1-12); for t in production boot dev test factory; do podman image exists localhost/integrator3-img-$t:$s && podman rmi localhost/integrator3-img-$t:$s; done; podman images --format "{{.Repository}}:{{.Tag}}" | grep -c "integrator3-img-.*:$s" || true'
+fi
+# v1.1 (the coordinator's ruled design 2026-10-13): .github/workflows/ci.yml gains a NEW job (build the factory image, run
+# scripts/check-factory-image-shipped-config.ts), scripts/lib/ci-registration.ts and the registration tests change: actionlint 1.7.7 without the
+# labels at the first parent and the merge, BINDING 0 new findings (W4H-15's tool); hold-w4f.sh's labelled actionlint leg runs too.
+touches '^\.github/workflows/' && NOTEST=1 leg actionlint-compare bash /tmp/factory-platform-evidence/w00/w4h-merge/w4h-15-coverage-artifact-names/actionlint-compare.sh "$M"
+# The fleet local-init script's default S3 release profile and the new image check have their own tests in unit.txt (from the hook map); the
+# check against the BUILT factory image is wired at plan v2 from the script's interface (image-leg.sh removes its factory tag after the build).
+# v2 (the frozen head 713593038; the coordinator's word 2026-10-13):
+# The shipped-isolation guard against the hold's OWN factory image, built as the new ci.yml job builds it, but from a CLEAN git-archive
+# snapshot of the merge (the W4G-1 rule); BINDING: "REPLAY OK: build-time bundle". Own tag localhost/i5-factory-shipped:<rev12>, removed by name.
+NOTEST=1 leg shipped-isolation-guard bash -c 'H=$(git rev-parse HEAD); t=localhost/i5-factory-shipped:${H:0:12}; X=$(mktemp -d /tmp/i5-factory-ctx.XXXXXX)
+  git archive "$H" | tar -x -C "$X"; podman build -f "$X/deploy/factory/Dockerfile" --build-arg "REVISION=$H" -t "$t" "$X" > "$0/shipped-image-build.log" 2>&1; b=$?
+  echo "build exit $b ($(tail -1 "$0/shipped-image-build.log"))"; rc=1
+  if [ $b -eq 0 ]; then bun scripts/check-factory-image-shipped-config.ts "$t"; rc=$?; fi
+  podman image exists "$t" && podman rmi "$t" > /dev/null; echo "own tag $t removed: $(podman image exists "$t" && echo NO || echo yes)"; exit $rc' "$N"
+# The owner's red-first bun cases (warn-cases.txt: the CLI exits, stop/up, the release block, the local release profile, the guard, the CI
+# job's registration) bound by name with test-file lcov and the bash-line binding (W4H-24's case-check.sh, its tools beside it).
+NOTEST=1 leg red-first-cases bash /tmp/factory-platform-evidence/w00/w4h-merge/w4h-24-web-shard-timeout/case-check.sh "$M" "$N"
+# v4 (R5, e3b954880; the coordinator's ruling (e)): the purge case is fixed at the root (independent of the file's residue). BINDING: the
+# hook-mapped pg suite under the HOOK's own 30 s per-test budget on the hold's own pg, 0 fail, with the purge case's time read from junit
+# (the hold's ordinary pg leg uses 300 s and would hide a regression).
+leg pg-provisioning-hook-budget pg bun test --timeout 30000 --reporter=junit --reporter-outfile=$N/pg-provisioning-hook-budget.junit.xml ./tests/postgres/factory-provisioning.test.ts
+NOTEST=1 leg purge-case-time python3 -I -c 'import sys,xml.etree.ElementTree as ET
+c="purge needs an installation-issued approval and closed work, drops the databases, and keeps the archive key"
+t=[x for x in ET.parse(sys.argv[1]).iter("testcase") if c in (x.get("name") or "")]
+print("purge case:", [(x.get("time"), "FAILED" if x.find("failure") is not None else "passed") for x in t])
+sys.exit(0 if t and all(x.find("failure") is None and float(x.get("time") or 99) < 30 for x in t) else 1)' "$N/pg-provisioning-hook-budget.junit.xml"

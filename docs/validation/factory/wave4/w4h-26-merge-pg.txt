@@ -1,0 +1,4 @@
+./tests/postgres/factory-host-launch.test.ts
+./tests/postgres/factory-package-preparation.test.ts
+./tests/postgres/factory-provisioning.test.ts
+./tests/postgres/factory-restore.test.ts

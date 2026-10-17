@@ -1,13 +1,34 @@
 // @ezcorp-host-integration
 import { beforeAll, describe, expect, test } from "bun:test";
 import { EzcorpClient } from "../../src/client";
-import { E2E_API_KEY, E2E_BASE_URL, requireE2eReady } from "./_guard";
+import { E2E_API_KEY, E2E_BASE_URL, requireE2eReady, skipUnless } from "./_guard";
+import { spawnedSubConversations } from "./_poll";
 
 /** Validates that all four fan-out mechanisms work end-to-end against a live
- *  server. Each sub-test creates the pre-conditions it needs (an agent, a
- *  team) and asserts the shape of the spawned sub-conversations. */
+ *  server. The server must already hold what three of them need (the agents
+ *  "researcher" and "writer", an autoSpinUp team, at least one agent): each of
+ *  those cases probes its precondition and skips by name when it is missing.
+ *  spawn_chats needs nothing seeded. */
 
-describe.skipIf(!(E2E_BASE_URL && E2E_API_KEY))("e2e: four fan-out mechanisms", () => {
+const NEEDS_AGENTS = "skip: precondition agents researcher and writer missing; tracked: ai-kit-deployed-lane";
+const NEEDS_TEAM = "skip: precondition autoSpinUp team missing; tracked: ai-kit-deployed-lane";
+const NEEDS_AGENT = "skip: precondition an agent missing; tracked: ai-kit-deployed-lane";
+
+const configured = Boolean(E2E_BASE_URL && E2E_API_KEY);
+type Agent = Awaited<ReturnType<EzcorpClient["listAgents"]>>[number];
+async function seededAgents(): Promise<Agent[]> {
+  await requireE2eReady();
+  return new EzcorpClient({ baseUrl: E2E_BASE_URL!, apiKey: E2E_API_KEY! }).listAgents();
+}
+/** The precondition probe: what the configured server already holds. */
+const agents = configured ? await seededAgents() : [];
+const autoSpinUpTeam = agents.find(
+  (a) => a.category === "team" && (a as unknown as { references?: { autoSpinUp?: boolean } }).references?.autoSpinUp,
+);
+// Unconfigured, the whole suite is out (no lane sets the URL), so no precondition is reported.
+const missing = (present: boolean, reason: string) => configured && skipUnless(present, reason);
+
+describe.skipIf(!configured)("e2e: four fan-out mechanisms", () => {
   beforeAll(requireE2eReady);
 
   const client = () => new EzcorpClient({ baseUrl: E2E_BASE_URL!, apiKey: E2E_API_KEY! });
@@ -25,56 +46,40 @@ describe.skipIf(!(E2E_BASE_URL && E2E_API_KEY))("e2e: four fan-out mechanisms", 
     expect(ids.size).toBe(3);
   }, 60_000);
 
-  test("(a) parallel ![agent:…] mentions spawn concurrent sub-conversations", async () => {
+  test.skipIf(missing(["researcher", "writer"].every((name) => agents.some((a) => a.name === name)), NEEDS_AGENTS))("(a) parallel ![agent:…] mentions spawn concurrent sub-conversations", async () => {
     const c = client();
     const conv = await c.createConversation({ projectId: "global", title: "parallel-agents" });
     await c.sendMessage(conv.id, {
       content: "![agent:researcher] find a fun fact  ![agent:writer] write a haiku",
     });
-    // Settle: wait a bit for agent:spawn events to materialize sub-conversation rows.
-    await new Promise((r) => setTimeout(r, 5_000));
-    const subs = await c.getSubConversations(conv.id);
+    const subs = await spawnedSubConversations(c, conv.id);
     expect(subs.length).toBeGreaterThanOrEqual(1);
   }, 60_000);
 
-  test("(b) ![team:…] with autoSpinUp spawns every member", async () => {
+  test.skipIf(missing(autoSpinUpTeam !== undefined, NEEDS_TEAM))("(b) ![team:…] with autoSpinUp spawns every member", async () => {
     const c = client();
-    const agents = await c.listAgents();
-    const team = agents.find(
-      (a) =>
-        a.category === "team" &&
-        (a as unknown as { references?: { autoSpinUp?: boolean } }).references?.autoSpinUp,
-    );
-    expect(team, "configured fanout server needs an autoSpinUp team").toBeDefined();
+    const team = autoSpinUpTeam;
     const conv = await c.createConversation({ projectId: "global", title: "team-autospin" });
     await c.sendMessage(conv.id, { content: `![team:${team!.name}] start work` });
-    await new Promise((r) => setTimeout(r, 5_000));
-    const subs = await c.getSubConversations(conv.id);
+    const subs = await spawnedSubConversations(c, conv.id);
     expect(subs.length).toBeGreaterThanOrEqual(1);
   }, 60_000);
 
-  test("(c) assign_task + start_assignment spawns a sub-conversation", async () => {
+  test.skipIf(missing(agents.length > 0, NEEDS_AGENT))("(c) assign_task + start_assignment spawns a sub-conversation", async () => {
     const c = client();
-    const agents = await c.listAgents();
     const agent = agents[0];
-    expect(agent, "configured fanout server needs at least one agent").toBeDefined();
     const conv = await c.createConversation({ projectId: "global", title: "task-assignment" });
     // Task creation happens via an orchestrator agent turn; this test exercises
-    // the HTTP endpoints against a synthetic task id and accepts a 4xx as a
-    // skip (the real-server task creation flow is out of scope here — we just
-    // validate the kit's tools call the right URL shape).
+    // the HTTP endpoint against a synthetic task id: the server must route the
+    // call and refuse the unknown task with a client error.
     const err = await c
       .assignTask({
         conversationId: conv.id,
         taskId: "nonexistent-task",
         agentConfigId: agent!.id,
       })
-      .catch((e) => e);
-    if (err && typeof err === "object" && "status" in err) {
-      // 4xx on nonexistent task is expected — proves the endpoint routed.
-      expect((err as { status: number }).status).toBeGreaterThanOrEqual(400);
-    } else {
-      expect(err).toBeDefined();
-    }
+      .then(() => undefined, (e: unknown) => e as { status?: number });
+    expect(err?.status).toBeGreaterThanOrEqual(400);
+    expect(err?.status).toBeLessThan(500);
   }, 60_000);
 });

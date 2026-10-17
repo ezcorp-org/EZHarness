@@ -59,8 +59,8 @@ beforeAll(async () => {
   await setupTestDb();
   const project = await createProject({ name: "Sandbox Test", path: "/tmp/sandbox" });
   projectId = project.id;
-  userA = (await createUser({ email: "sandbox-a@test.com", passwordHash: "hash", name: "Sandbox A" })).id;
-  userB = (await createUser({ email: "sandbox-b@test.com", passwordHash: "hash", name: "Sandbox B" })).id;
+  userA = (await createUser({ email: "sandbox-a@test.example", passwordHash: "hash", name: "Sandbox A" })).id;
+  userB = (await createUser({ email: "sandbox-b@test.example", passwordHash: "hash", name: "Sandbox B" })).id;
 
   // Create a test agent config
   const db = getDb();

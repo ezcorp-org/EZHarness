@@ -1,0 +1,243 @@
+excerpt of job-115704106789.log (1281 lines, 173604 bytes, sha256 b8f13c1b728feb85cf3e1a1afb69542f79e9af3bf5416149f7397800bf06acd5): the first 80 and the last 160 lines, ANSI and timestamps stripped; the full log stays in the evidence dir
+----- first 80 -----
+Current runner version: '2.337.0'
+##[group]Runner Image Provisioner
+Hosted Compute Agent
+Version: 20261002.596
+Commit: c3d12f3313a95f25162a1503be624f3b0617f8c0
+Build Date: 2026-10-02T22:28:27Z
+Worker ID: {844e8461-06cb-4edc-834f-585f89c36637}
+Region: eastus
+Cloud: Azure
+##[endgroup]
+##[group]Operating System
+Ubuntu
+24.04.5
+LTS
+##[endgroup]
+##[group]Runner Image
+Image: ubuntu-24.04
+Version: 20261004.327.1
+Included Software: https://github.com/actions/runner-images/blob/ubuntu24/20261004.327/images/ubuntu/Ubuntu2404-Readme.md
+Image Release: https://github.com/actions/runner-images/releases/tag/ubuntu24%2F20261004.327
+##[endgroup]
+##[group]GITHUB_TOKEN Permissions
+Contents: read
+Metadata: read
+##[endgroup]
+Secret source: Actions
+Cache mode: write
+Prepare workflow directory
+Prepare all required actions
+Getting action download info
+Download action repository 'actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1' (SHA:3d3c42e5aac5ba805825da76410c181273ba90b1)
+Complete job name: Factory image under shipped isolation
+##[group]Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+with:
+  repository: ezcorp-org/EZHarness
+  token: ***
+  ssh-strict: true
+  ssh-user: git
+  persist-credentials: true
+  clean: true
+  sparse-checkout-cone-mode: true
+  fetch-depth: 1
+  fetch-tags: false
+  show-progress: true
+  lfs: false
+  submodules: false
+  set-safe-directory: true
+  allow-unsafe-pr-checkout: false
+env:
+  BUN_FEATURE_FLAG_DISABLE_SQL_AUTO_PIPELINING: 1
+  BUN_RUNTIME_TRANSPILER_CACHE_PATH: 0
+##[endgroup]
+Syncing repository: ezcorp-org/EZHarness
+##[group]Getting Git version info
+Working directory is '/home/runner/work/EZHarness/EZHarness'
+[command]/usr/bin/git version
+git version 2.55.0
+##[endgroup]
+Temporarily overriding HOME='/home/runner/work/_temp/75c1aca3-704b-4886-9260-a74392cfa268' before making global git config changes
+Adding repository directory to the temporary git global config as a safe directory
+[command]/usr/bin/git config --global --add safe.directory /home/runner/work/EZHarness/EZHarness
+Deleting the contents of '/home/runner/work/EZHarness/EZHarness'
+##[group]Determining repository object format
+##[endgroup]
+##[group]Initializing the repository
+[command]/usr/bin/git init /home/runner/work/EZHarness/EZHarness
+hint: Using 'master' as the name for the initial branch. This default branch name
+hint: will change to "main" in Git 3.0. To configure the initial branch name
+hint: to use in all of your new repositories, which will suppress this warning,
+hint: call:
+hint:
+hint: 	git config --global init.defaultBranch <name>
+hint:
+hint: Names commonly chosen instead of 'master' are 'main', 'trunk' and
+hint: 'development'. The just-created branch can be renamed via this command:
+hint:
+hint: 	git branch -m <name>
+hint:
+hint: Disable this message with "git config set advice.defaultBranchName false"
+Initialized empty Git repository in /home/runner/work/EZHarness/EZHarness/.git/
+----- last 160 -----
+   │                         ╰──── Module not found, treating it as an external dependency
+───╯
+
+../node_modules/.bun/which@2.0.2/node_modules/which/which.js (5:21) [UNRESOLVED_IMPORT] Could not resolve 'path' in ../node_modules/.bun/which@2.0.2/node_modules/which/which.js
+   ╭─[ ../node_modules/.bun/which@2.0.2/node_modules/which/which.js:5:22 ]
+   │
+ 5 │ const path = require('path')
+   │                      ───┬──  
+   │                         ╰──── Module not found, treating it as an external dependency
+───╯
+
+../node_modules/.bun/isexe@2.0.0/node_modules/isexe/index.js (1:17) [UNRESOLVED_IMPORT] Could not resolve 'fs' in ../node_modules/.bun/isexe@2.0.0/node_modules/isexe/index.js
+   ╭─[ ../node_modules/.bun/isexe@2.0.0/node_modules/isexe/index.js:1:18 ]
+   │
+ 1 │ var fs = require('fs')
+   │                  ──┬─  
+   │                    ╰─── Module not found, treating it as an external dependency
+───╯
+
+../node_modules/.bun/isexe@2.0.0/node_modules/isexe/windows.js (4:17) [UNRESOLVED_IMPORT] Could not resolve 'fs' in ../node_modules/.bun/isexe@2.0.0/node_modules/isexe/windows.js
+   ╭─[ ../node_modules/.bun/isexe@2.0.0/node_modules/isexe/windows.js:4:18 ]
+   │
+ 4 │ var fs = require('fs')
+   │                  ──┬─  
+   │                    ╰─── Module not found, treating it as an external dependency
+───╯
+
+../node_modules/.bun/isexe@2.0.0/node_modules/isexe/mode.js (4:17) [UNRESOLVED_IMPORT] Could not resolve 'fs' in ../node_modules/.bun/isexe@2.0.0/node_modules/isexe/mode.js
+   ╭─[ ../node_modules/.bun/isexe@2.0.0/node_modules/isexe/mode.js:4:18 ]
+   │
+ 4 │ var fs = require('fs')
+   │                  ──┬─  
+   │                    ╰─── Module not found, treating it as an external dependency
+───╯
+
+  ✔ done
+[PLUGIN_TIMINGS] JavaScript callbacks ran for 73.9s. The build took 26.8s. Callbacks such as `closeBundle` run after the build ends, so callback time can be more than build time.
+The slowest callbacks, timed inside each callback (the wait before a callback starts is excluded, the time it awaits is included):
+  - plugin vite-plugin-sveltekit-compile closeBundle (100%, 49.0s, 1 call)
+  - plugin vite-plugin-sveltekit-compile writeBundle (51%, 13.8s, 1 call)
+  - plugin vite-plugin-svelte:compile transform (17%, 4.6s, 2024 calls)
+  - plugin visualizer generateBundle (11%, 3.1s, 1 call)
+  - plugin vite-plugin-svelte:preprocess transform (4%, 1.0s, 2024 calls)
+Additional callback time came from the callbacks below and from callbacks under 1s.
+1 callback is listed without a time. Its calls overlapped, so the time inside one call includes work from other calls. To find its cost, profile the build with `node --cpu-prof`:
+  - plugin vite-plugin-sveltekit-guard resolveId (19933 calls)
+See https://rolldown.rs/reference/InputOptions.checks#bundlertimings for more details.
+
+--> 7a88b9952854
+[2/3] STEP 10/11: RUN rm -rf web/.svelte-kit/output/client/_app/immutable/*.map coverage .git
+--> 0e5d8331caa2
+[2/3] STEP 11/11: RUN chmod -R a+rX,go-w /app
+--> 1879283b3d66
+[3/3] STEP 1/9: FROM docker.io/oven/bun:1.4.2-slim@sha256:debbe76858f2e398d2937c1eceeb82c571ac1fcd78aadf00e9634578ac2b5ef7
+Trying to pull docker.io/oven/bun@sha256:debbe76858f2e398d2937c1eceeb82c571ac1fcd78aadf00e9634578ac2b5ef7...
+Getting image source signatures
+Copying blob sha256:47ce961b691020289f5cb2621ee6938c0b92b9b90c863131639c2c6178dc3374
+Copying blob sha256:68118f7307e010844e88d59ee86e6990ae73a396844d67da97ef3627f7495d71
+Copying blob sha256:6310eb16bf4251731feab01e8f633bf5e2d75a657ccad97f420b1f83cce457be
+Copying blob sha256:15b06cb96287ed866730cfff572ae8a9a01c7e33389206e7752b08dc5883d099
+Copying blob sha256:16e7fb4da3c26d8c4d5f89c329dd3f390b6444c27f60be3885c26293bce7c5e2
+Copying blob sha256:05d1665ddfbafecceb6ba59648b7b82c8c85be12ba83da09240d05938b6a4039
+Copying blob sha256:b47b60e8766aff7bd7624aa35f6931c6be5fb2094c0ad3a6691f3cef0e1267b7
+Copying config sha256:808ae5d87c721a0c738c37d17ae4837367baa0c9c4353f5ea1762802b0fb6392
+Writing manifest to image destination
+[3/3] STEP 2/9: ARG REVISION=unknown
+--> 17e6e0e3b168
+[3/3] STEP 3/9: ENV BUN_RUNTIME_TRANSPILER_CACHE_PATH=0     BUN_FEATURE_FLAG_DISABLE_SQL_AUTO_PIPELINING=1     NODE_ENV=production     EZCORP_IMAGE_SHA=${REVISION}
+--> ed2c6d6a8cf3
+[3/3] STEP 4/9: LABEL org.opencontainers.image.title="ezcorp-factory"       org.opencontainers.image.revision=${REVISION}
+--> deda12e89f4a
+[3/3] STEP 5/9: COPY --from=node /usr/local/bin/node /usr/local/bin/node
+--> bb7b6da8b48d
+[3/3] STEP 6/9: COPY --from=builder /app /app
+--> 1ce19b2ae793
+[3/3] STEP 7/9: WORKDIR /app
+--> 369288050a57
+[3/3] STEP 8/9: USER 65534:65534
+--> adf47089238b
+[3/3] STEP 9/9: CMD ["bun", "web/build/index.js"]
+[3/3] COMMIT localhost/ezcorp-factory:shipped-isolation
+--> 94d4275e8f82
+Successfully tagged localhost/ezcorp-factory:shipped-isolation
+94d4275e8f82e86bbf09a9090f7898862a113da1fb6071a35d224d272c0783ca
+##[group]Run bun scripts/check-factory-image-shipped-config.ts localhost/ezcorp-factory:shipped-isolation
+bun scripts/check-factory-image-shipped-config.ts localhost/ezcorp-factory:shipped-isolation
+shell: /usr/bin/bash -e {0}
+env:
+  BUN_FEATURE_FLAG_DISABLE_SQL_AUTO_PIPELINING: 1
+  BUN_RUNTIME_TRANSPILER_CACHE_PATH: 0
+##[endgroup]
+shipped-config PASS: podman run --rm --network=none --cap-drop=ALL --security-opt=no-new-privileges:true --tmpfs=/tmp:rw,noexec,nosuid,nodev,size=64m --read-only --user=1001:1001 --userns=keep-id --env=HOME=/tmp --volume=/home/runner/work/EZHarness/EZHarness/scripts/factory-image-replay-check.mjs:/run/ezcorp-check/replay.mjs:ro --volume=/home/runner/work/EZHarness/EZHarness/packages/@ezcorp/factory-orchestrator/test/fixtures/factory-workflow-history.json:/run/ezcorp-check/history.json:ro --entrypoint=node localhost/ezcorp-factory:shipped-isolation /run/ezcorp-check/replay.mjs /app /run/ezcorp-check/history.json
+REPLAY OK: build-time bundle
+2026-10-14T05:58:11.856Z [INFO] Worker state changed {
+  sdkComponent: 'worker',
+  taskQueue: 'fake_replay_queue-0',
+  state: 'RUNNING'
+}
+2026-10-14T05:58:11.990Z [INFO] Worker state changed {
+  sdkComponent: 'worker',
+  taskQueue: 'fake_replay_queue-0',
+  state: 'STOPPING'
+}
+2026-10-14T05:58:11.990Z [INFO] Worker state changed {
+  sdkComponent: 'worker',
+  taskQueue: 'fake_replay_queue-0',
+  state: 'DRAINING'
+}
+2026-10-14T05:58:11.991Z [INFO] Worker state changed {
+  sdkComponent: 'worker',
+  taskQueue: 'fake_replay_queue-0',
+  state: 'DRAINED'
+}
+2026-10-14T05:58:11.991Z [INFO] Worker state changed {
+  sdkComponent: 'worker',
+  taskQueue: 'fake_replay_queue-0',
+  state: 'STOPPED'
+}
+Post job cleanup.
+##[start-action display=Cache bun global install cache;id=__105fa109-738f-4b7a-a9ee-80f907d89be5.__actions_cache]
+Post job cleanup.
+Cache hit occurred on the primary key bun-Linux-1cb0b65f53718e04a897d6022305d459ca3163956ac9c65ff703d281bfc19c1c-1dac0a653fe0a5657494557972d43ceb2a90cc64b3a4f001424de9a6fbfafd47, not saving cache.
+##[end-action id=__105fa109-738f-4b7a-a9ee-80f907d89be5.__actions_cache;outcome=success;conclusion=success;duration_ms=567]
+##[start-action display=Run oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6;id=__105fa109-738f-4b7a-a9ee-80f907d89be5.__oven-sh_setup-bun]
+Post job cleanup.
+##[end-action id=__105fa109-738f-4b7a-a9ee-80f907d89be5.__oven-sh_setup-bun;outcome=success;conclusion=success;duration_ms=182]
+Post job cleanup.
+[command]/usr/bin/git version
+git version 2.55.0
+Temporarily overriding HOME='/home/runner/work/_temp/8e6cdcf5-d441-42e9-956d-bbb1398ec6d0' before making global git config changes
+Adding repository directory to the temporary git global config as a safe directory
+[command]/usr/bin/git config --global --add safe.directory /home/runner/work/EZHarness/EZHarness
+Removing SSH command configuration
+[command]/usr/bin/git config --local --name-only --get-regexp core\.sshCommand
+[command]/usr/bin/git submodule foreach --recursive sh -c "git config --local --name-only --get-regexp 'core\.sshCommand' && git config --local --unset-all 'core.sshCommand' || :"
+Removing HTTP extra header
+[command]/usr/bin/git config --local --name-only --get-regexp http\.https\:\/\/github\.com\/\.extraheader
+[command]/usr/bin/git submodule foreach --recursive sh -c "git config --local --name-only --get-regexp 'http\.https\:\/\/github\.com\/\.extraheader' && git config --local --unset-all 'http.https://github.com/.extraheader' || :"
+Removing includeIf entries pointing to credentials config files
+[command]/usr/bin/git config --local --name-only --get-regexp ^includeIf\.gitdir:
+includeif.gitdir:/home/runner/work/EZHarness/EZHarness/.git.path
+includeif.gitdir:/home/runner/work/EZHarness/EZHarness/.git/worktrees/*.path
+includeif.gitdir:/github/workspace/.git.path
+includeif.gitdir:/github/workspace/.git/worktrees/*.path
+[command]/usr/bin/git config --local --get-all includeif.gitdir:/home/runner/work/EZHarness/EZHarness/.git.path
+/home/runner/work/_temp/git-credentials-791016c1-982d-4eeb-a2b1-cc61604af99a.config
+[command]/usr/bin/git config --local --unset includeif.gitdir:/home/runner/work/EZHarness/EZHarness/.git.path \/home\/runner\/work\/_temp\/git\-credentials\-791016c1\-982d\-4eeb\-a2b1\-cc61604af99a\.config
+[command]/usr/bin/git config --local --get-all includeif.gitdir:/home/runner/work/EZHarness/EZHarness/.git/worktrees/*.path
+/home/runner/work/_temp/git-credentials-791016c1-982d-4eeb-a2b1-cc61604af99a.config
+[command]/usr/bin/git config --local --unset includeif.gitdir:/home/runner/work/EZHarness/EZHarness/.git/worktrees/*.path \/home\/runner\/work\/_temp\/git\-credentials\-791016c1\-982d\-4eeb\-a2b1\-cc61604af99a\.config
+[command]/usr/bin/git config --local --get-all includeif.gitdir:/github/workspace/.git.path
+/github/runner_temp/git-credentials-791016c1-982d-4eeb-a2b1-cc61604af99a.config
+[command]/usr/bin/git config --local --unset includeif.gitdir:/github/workspace/.git.path \/github\/runner_temp\/git\-credentials\-791016c1\-982d\-4eeb\-a2b1\-cc61604af99a\.config
+[command]/usr/bin/git config --local --get-all includeif.gitdir:/github/workspace/.git/worktrees/*.path
+/github/runner_temp/git-credentials-791016c1-982d-4eeb-a2b1-cc61604af99a.config
+[command]/usr/bin/git config --local --unset includeif.gitdir:/github/workspace/.git/worktrees/*.path \/github\/runner_temp\/git\-credentials\-791016c1\-982d\-4eeb\-a2b1\-cc61604af99a\.config
+[command]/usr/bin/git submodule foreach --recursive git config --local --show-origin --name-only --get-regexp remote.origin.url
+Removing credentials config '/home/runner/work/_temp/git-credentials-791016c1-982d-4eeb-a2b1-cc61604af99a.config'
+Cleaning up orphan processes
+Terminate orphan process: pid (2526) (catatonit)

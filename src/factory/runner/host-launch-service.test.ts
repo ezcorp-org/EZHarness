@@ -9,17 +9,21 @@
 import { afterEach, describe, expect, spyOn, test } from "bun:test";
 import type { FactoryRunnerResult } from "@ezcorp/factory-sdk";
 import type { FactoryPrivateRequest } from "../private-https";
-import { factoryLaunchCompletedResult, factoryLaunchLease, factoryLaunchPackage, factoryLaunchRequest, factoryLaunchPeerTenants } from "../../__tests__/helpers/factory-attempt-launch-fixture";
+import { factoryLaunchCompletedResult, factoryLaunchLease, factoryLaunchPackage, factoryLaunchRequest, factoryLaunchPeerTenants, factoryLaunchTenant } from "../../__tests__/helpers/factory-attempt-launch-fixture";
 import { FactoryAttemptRuntimeError, factoryAttemptLaunchIntentToWire, snapshotIntent } from "./attempt-wire";
 import {
   FACTORY_HOST_ATTACH_PATH,
   FACTORY_HOST_LAUNCH_PATH,
+  FACTORY_HOST_PREPARATION_PATH,
   FACTORY_HOST_RESULT_PATH,
   FACTORY_HOST_RESULT_WINDOW_MS,
   createFactoryHostLaunchRouteHandler,
   type FactoryHostLaunchReport,
   type FactoryHostLaunchSupervisor,
+  type FactoryHostPrepared,
+  type FactoryHostPreparation,
 } from "./host-launch-service";
+import { filesDigest } from "@ezcorp/extension-runner";
 import { FactoryHostGuestTenants } from "./host-peer-tenants";
 
 const hostId = factoryLaunchLease.hostId;
@@ -209,5 +213,52 @@ describe("the launch route names a device the host does not have (W02d R4)", () 
     expect(response.status).toBe(422);
     expect(body(response)).toEqual({ error: "device_unavailable", detail });
     expect(reports).toEqual([{ path: FACTORY_HOST_LAUNCH_PATH, status: 422, error: "device_unavailable", detail, ...named }]);
+  });
+});
+
+describe("the preparation route (C05 'Prepare a bound package for dispatch', W4H-26)", () => {
+  const files = { "extension.ts": "export {};" };
+  const sourceDigest = filesDigest(files);
+  const built: FactoryHostPrepared = { result: { operationId: "build-1", state: "succeeded", sourceDigest, artifactDigest: "a".repeat(64), imageDigest: "image@sha256:x", diagnostics: [], evidence: {} as never }, artifacts: { "extension.ts": "export {};" } };
+  const preparation = (overrides: Record<string, unknown> = {}) => Buffer.from(JSON.stringify({ tenantId: factoryLaunchTenant, operationId: "build-1", sourceDigest, files, entrypoint: "extension.ts", ...overrides }));
+  const ask = (bytes: Buffer, peerIdentity = "tenant-a"): FactoryPrivateRequest => ({ peerIdentity, method: "POST", path: FACTORY_HOST_PREPARATION_PATH, headers: { "x-ezcorp-factory-version": "1", "content-type": "application/json" }, body: bytes });
+  function preparing(prepare: FactoryHostLaunchSupervisor["prepare"], windows: { prepareTimeoutMs?: number } = {}) {
+    const reports: FactoryHostLaunchReport[] = [];
+    const seen: FactoryHostPreparation[] = [];
+    const host: FactoryHostLaunchSupervisor = { ...supervisor(async () => { throw new Error("no result"); }), ...(prepare === undefined ? {} : { prepare: async (value, signal) => { seen.push(value); return prepare(value, signal); } }) };
+    const handle = createFactoryHostLaunchRouteHandler({ hostId, peerTenants: factoryLaunchPeerTenants(), supervisor: host, report: (entry) => { reports.push(entry); }, ...windows });
+    return { handle, reports, seen };
+  }
+
+  test("builds the exact source the binding names, for the peer's own tenant, and answers the build with its artifacts", async () => {
+    const { handle, seen, reports } = preparing(async () => built);
+    const response = await handle(ask(preparation()));
+    expect(response.status).toBe(200);
+    expect(body(response)).toEqual(built);
+    expect(seen).toEqual([{ tenantId: factoryLaunchTenant, operationId: "build-1", sourceDigest, files, entrypoint: "extension.ts" }]);
+    expect(reports).toEqual([]);
+  });
+
+  test("refuses a source whose bytes are not the digest it names, before anything is built", async () => {
+    const { handle, seen } = preparing(async () => built);
+    const response = await handle(ask(preparation({ files: { "extension.ts": "export const changed = 1;" } })));
+    expect(response.status).toBe(409);
+    expect(body(response)).toEqual({ error: "source_digest_mismatch" });
+    expect(seen).toEqual([]);
+  });
+
+  test("refuses another tenant's preparation, a malformed body, and a host that cannot prepare", async () => {
+    const { handle, seen } = preparing(async () => built);
+    expect((await handle(ask(preparation({ tenantId: "tenant-other" })))).status).toBe(403);
+    for (const bad of [{ sourceDigest: "sha256:x" }, { files: [] }, { entrypoint: "" }, { extra: 1 }, { operationId: 7 }]) expect(body(await handle(ask(preparation(bad))))).toEqual({ error: "invalid_preparation" });
+    expect(seen).toEqual([]);
+    expect(body(await preparing(undefined).handle(ask(preparation())))).toEqual({ error: "preparation_unavailable" });
+  });
+
+  test("a build past the host's bound answers host_timeout", async () => {
+    const { handle } = preparing((_value, signal) => untilAborted(signal), { prepareTimeoutMs: 5 });
+    const response = await handle(ask(preparation()));
+    expect(response.status).toBe(504);
+    expect(body(response)).toEqual({ error: "host_timeout" });
   });
 });

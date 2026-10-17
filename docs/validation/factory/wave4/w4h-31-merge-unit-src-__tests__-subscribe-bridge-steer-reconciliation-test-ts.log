@@ -1,0 +1,20 @@
+bun test v1.4.2 (744846f84)
+{"ts":"2026-10-16T01:15:21.037Z","level":"info","msg":"turn cache","subsystem":"executor.streamChat.subscribe","provider":"unknown","model":"unknown","hitRate":0,"cachedTokens":0,"cacheWriteTokens":0,"cacheWrite1hTokens":0,"promptTokens":5}
+{"ts":"2026-10-16T01:15:21.037Z","level":"info","msg":"conversation cache summary","subsystem":"executor.streamChat.subscribe","turns":1,"overallHitRate":0,"cachedTokens":0,"promptTokens":5,"segments":[{"provider":"unknown","model":"unknown","hitRate":0,"cachedTokens":0,"cacheWrite1hTokens":0,"turns":1}]}
+{"ts":"2026-10-16T01:15:21.039Z","level":"info","msg":"turn cache","subsystem":"executor.streamChat.subscribe","provider":"unknown","model":"unknown","hitRate":0,"cachedTokens":0,"cacheWriteTokens":0,"cacheWrite1hTokens":0,"promptTokens":5}
+{"ts":"2026-10-16T01:15:21.039Z","level":"info","msg":"conversation cache summary","subsystem":"executor.streamChat.subscribe","turns":2,"overallHitRate":0,"cachedTokens":0,"promptTokens":10,"segments":[{"provider":"unknown","model":"unknown","hitRate":0,"cachedTokens":0,"cacheWrite1hTokens":0,"turns":2}]}
+{"ts":"2026-10-16T01:15:21.039Z","level":"info","msg":"turn cache","subsystem":"executor.streamChat.subscribe","provider":"unknown","model":"unknown","hitRate":0,"cachedTokens":0,"cacheWriteTokens":0,"cacheWrite1hTokens":0,"promptTokens":5}
+{"ts":"2026-10-16T01:15:21.039Z","level":"info","msg":"conversation cache summary","subsystem":"executor.streamChat.subscribe","turns":1,"overallHitRate":0,"cachedTokens":0,"promptTokens":5,"segments":[{"provider":"unknown","model":"unknown","hitRate":0,"cachedTokens":0,"cacheWrite1hTokens":0,"turns":1}]}
+{"ts":"2026-10-16T01:15:21.039Z","level":"info","msg":"turn cache","subsystem":"executor.streamChat.subscribe","provider":"unknown","model":"unknown","hitRate":0,"cachedTokens":0,"cacheWriteTokens":0,"cacheWrite1hTokens":0,"promptTokens":5}
+{"ts":"2026-10-16T01:15:21.039Z","level":"info","msg":"conversation cache summary","subsystem":"executor.streamChat.subscribe","turns":2,"overallHitRate":0,"cachedTokens":0,"promptTokens":10,"segments":[{"provider":"unknown","model":"unknown","hitRate":0,"cachedTokens":0,"cacheWrite1hTokens":0,"turns":2}]}
+{"ts":"2026-10-16T01:15:21.039Z","level":"info","msg":"turn cache","subsystem":"executor.streamChat.subscribe","provider":"unknown","model":"unknown","hitRate":0,"cachedTokens":0,"cacheWriteTokens":0,"cacheWrite1hTokens":0,"promptTokens":5}
+{"ts":"2026-10-16T01:15:21.039Z","level":"info","msg":"conversation cache summary","subsystem":"executor.streamChat.subscribe","turns":1,"overallHitRate":0,"cachedTokens":0,"promptTokens":5,"segments":[{"provider":"unknown","model":"unknown","hitRate":0,"cachedTokens":0,"cacheWrite1hTokens":0,"turns":1}]}
+{"ts":"2026-10-16T01:15:21.039Z","level":"info","msg":"turn cache","subsystem":"executor.streamChat.subscribe","provider":"unknown","model":"unknown","hitRate":0,"cachedTokens":0,"cacheWriteTokens":0,"cacheWrite1hTokens":0,"promptTokens":5}
+{"ts":"2026-10-16T01:15:21.039Z","level":"info","msg":"conversation cache summary","subsystem":"executor.streamChat.subscribe","turns":1,"overallHitRate":0,"cachedTokens":0,"promptTokens":5,"segments":[{"provider":"unknown","model":"unknown","hitRate":0,"cachedTokens":0,"cacheWrite1hTokens":0,"turns":1}]}
+{"ts":"2026-10-16T01:15:21.039Z","level":"info","msg":"turn cache","subsystem":"executor.streamChat.subscribe","provider":"unknown","model":"unknown","hitRate":0,"cachedTokens":0,"cacheWriteTokens":0,"cacheWrite1hTokens":0,"promptTokens":5}
+{"ts":"2026-10-16T01:15:21.039Z","level":"info","msg":"conversation cache summary","subsystem":"executor.streamChat.subscribe","turns":2,"overallHitRate":0,"cachedTokens":0,"promptTokens":10,"segments":[{"provider":"unknown","model":"unknown","hitRate":0,"cachedTokens":0,"cacheWrite1hTokens":0,"turns":2}]}
+
+ 7 pass
+ 0 fail
+ 14 expect() calls
+Ran 7 tests across 1 file. [495.00ms]

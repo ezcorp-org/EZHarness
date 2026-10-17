@@ -1,0 +1,11 @@
+W4H-26 REPORT — R8 (FROZEN, seventh freeze)
+
+Branch wp/w4h-26-runner-wiring. FROZEN head dd99adfd6 = 27c946050 + one commit, one file (as ruled):
+src/factory/runner/supervisor-process.test.ts, 3 insertions, 3 deletions. Earlier report kept: report-27c946050.txt (cb21195a22026c16).
+Identity: dd99adfd6 author and committer archy 281643943+EZArchy@users.noreply.github.com.
+
+R8: the fake PodmanRunner in "the host's runner is constructed with the pinned toolchain, provisioned once per load" drops its
+two dead stub methods (initialize, close), which the loader never calls: it only extends and constructs the class. The case
+now constructs twice and asserts both constructions carry the toolchain while provisioning ran once, so every added line runs.
+Hook-mapped suite at the commit: supervisor-process.test.ts 45 pass, 0 fail (logs/commit-r8.log 06fac5c55aa34ff8).
+The gate file is not changed (one commit, that file only); this report records R8. Everything else is as at 27c946050.

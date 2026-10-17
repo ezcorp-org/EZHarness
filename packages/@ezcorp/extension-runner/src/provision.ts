@@ -79,6 +79,13 @@ async function loadToolchain(toolchainRoot: string): Promise<WorkspaceFiles> {
   return Object.assign({}, ...await Promise.all(packageNames.map(name => packageFiles(name, resolvePaths))));
 }
 
+/**
+ * Nothing of the builder's environment reaches a trusted bundle: one source gives one bundle, and so one artifact digest,
+ * whoever builds it. Bun inlines the builder's NODE_ENV (and BUN_ENV, from it) by default; defining each as itself keeps
+ * it the runtime read the source wrote (W4H-28: the same SDK built under `bun test` and under a service differed).
+ */
+const RUNTIME_ENV_READS = { "process.env.NODE_ENV": "process.env.NODE_ENV", "process.env.BUN_ENV": "process.env.BUN_ENV" };
+
 async function bundleTrustedPackages(sdkRoot: string): Promise<WorkspaceFiles> {
   const root = resolve(sdkRoot, "..");
   const files: WorkspaceFiles = {};
@@ -94,7 +101,7 @@ async function bundleTrustedPackages(sdkRoot: string): Promise<WorkspaceFiles> {
     Object.assign(files, await readTree(join(packageRoot, "src"), `${destination}/src`, true));
     files[`${destination}/package.json`] = JSON.stringify({ name: metadata.name, version: metadata.version, type: "module", exports: Object.fromEntries(Object.entries(entrypoints).map(([entry, value]) => [entry, { types: value.types, ...(value.bun ? { default: value.bun.replace(/\.ts$/, ".js") } : {}) }])) });
   }
-  const result = await Bun.build({ entrypoints: sources, root, naming: { entry: "[dir]/[name].[ext]", chunk: "sdk/shared/[name]-[hash].[ext]" }, splitting: true, target: "bun", format: "esm", packages: "bundle" });
+  const result = await Bun.build({ entrypoints: sources, root, naming: { entry: "[dir]/[name].[ext]", chunk: "sdk/shared/[name]-[hash].[ext]" }, splitting: true, target: "bun", format: "esm", packages: "bundle", define: RUNTIME_ENV_READS });
   if (!result.success) throw new RunnerError("sdk_build_failed", "Trusted SDK could not be bundled");
   for (const output of result.outputs) files[`node_modules/@ezcorp/${output.path.replace(/^(?:\.\/)+/, "")}`] = await output.text();
   return files;

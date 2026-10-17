@@ -146,7 +146,7 @@ describe("PUT /api/account", () => {
 		const res = await PUT(
 			makeEvent({
 				locals: { user },
-				body: { email: "new@x.com" },
+				body: { email: "new@x.example" },
 			}),
 		);
 		expect(res.status).toBe(400);
@@ -160,7 +160,7 @@ describe("PUT /api/account", () => {
 		const res = await PUT(
 			makeEvent({
 				locals: { user },
-				body: { email: "new@x.com", currentPassword: "wrong" },
+				body: { email: "new@x.example", currentPassword: "wrong" },
 			}),
 		);
 		expect(res.status).toBe(400);
@@ -200,29 +200,29 @@ describe("PUT /api/account", () => {
 		// (post-update for response): returns new email.
 		vi.mocked(getUserById)
 			.mockResolvedValueOnce(dbUser as any)
-			.mockResolvedValueOnce({ ...dbUser, email: "new@x.com" } as any);
+			.mockResolvedValueOnce({ ...dbUser, email: "new@x.example" } as any);
 		vi.mocked(verifyPassword).mockResolvedValue(true);
 		vi.mocked(updateUserEmail).mockResolvedValue(true as any);
 
 		const res = await PUT(
 			makeEvent({
 				locals: { user },
-				body: { email: "new@x.com", currentPassword: "good" },
+				body: { email: "new@x.example", currentPassword: "good" },
 			}),
 		);
 		expect(res.status).toBe(200);
 		const body = (await res.json()) as { email: string };
-		expect(body.email).toBe("new@x.com");
+		expect(body.email).toBe("new@x.example");
 		expect(vi.mocked(updateUserEmail)).toHaveBeenCalledWith(
 			user.id,
-			"new@x.com",
+			"new@x.example",
 		);
 		// Audit entry includes oldEmail/newEmail
 		expect(vi.mocked(insertAuditEntry)).toHaveBeenCalledWith(
 			user.id,
 			"auth:email_changed",
 			undefined,
-			{ oldEmail: "u@x", newEmail: "new@x.com" },
+			{ oldEmail: "u@x", newEmail: "new@x.example" },
 		);
 	});
 
@@ -231,7 +231,7 @@ describe("PUT /api/account", () => {
 		const res = await PUT(
 			makeEvent({
 				locals: { user },
-				body: { email: "new@x.com", currentPassword: "good" },
+				body: { email: "new@x.example", currentPassword: "good" },
 			}),
 		);
 		expect(res.status).toBe(404);

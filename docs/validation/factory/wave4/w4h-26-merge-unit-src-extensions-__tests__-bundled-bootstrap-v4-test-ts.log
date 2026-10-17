@@ -1,0 +1,22 @@
+bun test v1.4.2 (744846f84)
+{"ts":"2026-10-14T05:33:39.889Z","level":"info","msg":"Bundled source staged; verified releases require human approval","subsystem":"ext.bundled.bootstrap","name":"test","installationId":"fc78bb98-afa2-41b9-a70c-85644c097a18","operationId":"operation","status":"awaiting_approval"}
+{"ts":"2026-10-14T05:33:39.889Z","level":"info","msg":"Bundled source staged; verified releases require human approval","subsystem":"ext.bundled.bootstrap","name":"test","installationId":"fc78bb98-afa2-41b9-a70c-85644c097a18","operationId":"operation","status":"awaiting_approval"}
+{"ts":"2026-10-14T05:33:39.890Z","level":"info","msg":"Bundled source staged; verified releases require human approval","subsystem":"ext.bundled.bootstrap","name":"test","installationId":"legacy","operationId":"operation","status":"awaiting_approval"}
+{"ts":"2026-10-14T05:33:39.890Z","level":"info","msg":"Bundled extensions await an active administrator before source staging","subsystem":"ext.bundled.bootstrap"}
+{"ts":"2026-10-14T05:33:39.890Z","level":"info","msg":"Bundled source staged; verified releases require human approval","subsystem":"ext.bundled.bootstrap","name":"reference-code","installationId":"554747b5-eb28-469d-aeca-92dc715721cd","operationId":"operation","status":"awaiting_approval"}
+{"ts":"2026-10-14T05:33:39.890Z","level":"info","msg":"Bundled source staged; verified releases require human approval","subsystem":"ext.bundled.bootstrap","name":"reference-code","installationId":"554747b5-eb28-469d-aeca-92dc715721cd","operationId":"operation","status":"awaiting_approval"}
+{"ts":"2026-10-14T05:33:39.890Z","level":"info","msg":"Bundled source staged; verified releases require human approval","subsystem":"ext.bundled.bootstrap","name":"reference-code","installationId":"554747b5-eb28-469d-aeca-92dc715721cd","operationId":"operation","status":"awaiting_approval"}
+{"ts":"2026-10-14T05:33:39.890Z","level":"info","msg":"Bundled source staged; verified releases require human approval","subsystem":"ext.bundled.bootstrap","name":"reference-code","installationId":"554747b5-eb28-469d-aeca-92dc715721cd","operationId":"operation","status":"awaiting_approval"}
+{"ts":"2026-10-14T05:33:39.890Z","level":"info","msg":"Bundled extensions await an active administrator before source staging","subsystem":"ext.bundled.bootstrap"}
+{"ts":"2026-10-14T05:33:39.890Z","level":"info","msg":"Bundled source staged; verified releases require human approval","subsystem":"ext.bundled.bootstrap","name":"reference-code","installationId":"554747b5-eb28-469d-aeca-92dc715721cd","operationId":"operation","status":"awaiting_approval"}
+{"ts":"2026-10-14T05:33:39.890Z","level":"info","msg":"Bundled source staged; verified releases require human approval","subsystem":"ext.bundled.bootstrap","name":"reference-code","installationId":"554747b5-eb28-469d-aeca-92dc715721cd","operationId":"operation","status":"awaiting_approval"}
+{"ts":"2026-10-14T05:33:39.890Z","level":"warn","msg":"Bundled installation owner is inactive; manual ownership review required","subsystem":"ext.bundled.bootstrap","name":"reference-code"}
+{"ts":"2026-10-14T05:33:39.890Z","level":"info","msg":"Bundled source staged; verified releases require human approval","subsystem":"ext.bundled.bootstrap","name":"reference-code","installationId":"554747b5-eb28-469d-aeca-92dc715721cd","operationId":"operation","status":"queued"}
+{"ts":"2026-10-14T05:33:39.891Z","level":"error","msg":"Bundled isolated build failed","subsystem":"ext.bundled.bootstrap","name":"reference-code","installationId":"554747b5-eb28-469d-aeca-92dc715721cd","error":"Error: Completed operation must not restart"}
+{"ts":"2026-10-14T05:33:39.892Z","level":"error","msg":"Built-in runner package staging requires attention","subsystem":"ext.bundled.bootstrap","name":"broken","error":"ContractError: Only JSON data is accepted"}
+{"ts":"2026-10-14T05:33:39.892Z","level":"info","msg":"Bundled source staged; verified releases require human approval","subsystem":"ext.bundled.bootstrap","name":"reference-code","installationId":"554747b5-eb28-469d-aeca-92dc715721cd","operationId":"operation","status":"awaiting_approval"}
+
+ 9 pass
+ 0 fail
+ 32 expect() calls
+Ran 9 tests across 1 file. [439.00ms]

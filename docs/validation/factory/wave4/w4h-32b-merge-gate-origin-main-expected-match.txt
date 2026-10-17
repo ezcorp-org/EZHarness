@@ -1,0 +1,4 @@
+expected file /tmp/factory-platform-evidence/w00/w4h-merge/w4h-32b-relock-acce7a116-on-39baed85a/expected-main-findings.txt sha256 ea41e0e9a9bb546248870b14221bf1c82a34e25d1224529ec506dec39f5c79ca
+found:    scripts/merge-lcov.ts | src/__tests__/task-stack-sdk-integration.test.ts | src/__tests__/todo-tracker-sdk-integration.test.ts
+expected: scripts/merge-lcov.ts | src/__tests__/task-stack-sdk-integration.test.ts | src/__tests__/todo-tracker-sdk-integration.test.ts
+origin/main leg: PASS (findings equal the expected integ set)

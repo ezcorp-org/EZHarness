@@ -1,0 +1,6 @@
+packages/@ezcorp/ai-kit/test/shape.test.ts
+scripts/check-factory-lanes.test.ts
+src/factory/runner/supervisor-services.test.ts
+src/__tests__/shipping-production-suite-wiring.test.ts
+web/src/__tests__/api-users-id.server.test.ts
+web/src/__tests__/sub-conversation.test.ts

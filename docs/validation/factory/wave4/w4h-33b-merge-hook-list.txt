@@ -1,0 +1,6 @@
+packages/@ezcorp/ai-kit/test/unit/deployed-preconditions.test.ts
+scripts/test-skip-inventory.test.ts
+src/__tests__/ci-test-set-drift.test.ts
+src/__tests__/first-party-sealed-test-references.test.ts
+src/__tests__/shipping-preview-isolation.test.ts
+web/src/__tests__/stryker-sandbox-aliases.unit.test.ts

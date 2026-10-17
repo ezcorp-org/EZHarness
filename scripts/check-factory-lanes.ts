@@ -32,6 +32,7 @@
 import { existsSync, readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { REPO_ROOT } from "./coverage-config.ts";
+import { PRODUCTION_PROOF_BOUND_TESTS } from "./production-proof-plan.ts";
 
 export interface FactoryLane {
   /** Workflow job key, e.g. `factory-temporal`. */
@@ -202,8 +203,9 @@ export function laneTestFiles(job: string, lanes: readonly FactoryLane[] = FACTO
 }
 
 /** The files the hosted shard selection must never select: every lane's bound tests, sorted. */
-export function laneBoundTestFiles(lanes: readonly FactoryLane[] = FACTORY_LANES): string[] {
-  return [...new Set(lanes.flatMap((lane) => lane.boundTests))].sort();
+/** The hosted subtraction: the factory lanes' bound tests and the production proofs' bound tests (scripts/production-proof-plan.ts). */
+export function laneBoundTestFiles(lanes: readonly FactoryLane[] = FACTORY_LANES, proofBound: readonly string[] = PRODUCTION_PROOF_BOUND_TESTS): string[] {
+  return [...new Set([...lanes.flatMap((lane) => lane.boundTests), ...proofBound])].sort();
 }
 
 /**

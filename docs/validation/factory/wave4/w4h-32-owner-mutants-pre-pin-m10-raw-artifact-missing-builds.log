@@ -1,0 +1,37 @@
+# 2026-10-16T00:02:03.146379+00:00 mutant m10-raw-artifact-missing-builds in src/factory/package-preparation.ts
+# cmd: bun test --timeout 30000 ./src/factory/package-preparation.integration.test.ts
+bun test v1.4.2 (744846f84)
+
+src/factory/package-preparation.integration.test.ts:
+178 |     // only be a runner nothing wraps, and building would mask an unrecoverable artifact (team-lead ruling).
+179 |     [new RunnerError("artifact_missing", "The release's artifact is not in this runner's store", "runner", false, { errorClass: "Error", errorCode: "ENOENT" }), { code: "artifact_missing", errorClass: "Error", errorCode: "ENOENT" }],
+180 |   ];
+181 |   for (const [error, named] of cases) {
+182 |     const refusal = await context.preparations(reading(error)).prepare(projectId, reference).catch((caught: unknown) => caught);
+183 |     expect(refusal).toBeInstanceOf(FactoryPackagePreparationError);
+                          ^
+error: expect(received).toBeInstanceOf(expected)
+
+Expected constructor: [class FactoryPackagePreparationError extends Error]
+Received value: 165 | });
+166 | 
+167 | test("a rebuild is never an error handler: an artifact read error other than 'not built yet' refuses by name with the runner's code and class, never its message, and never builds (W4H-32)", async () => {
+168 |   const context = await packageContext();
+169 |   let builds = 0;
+170 |   const reading = (error: unknown): Pick<Runner, "build" | "collectArtifacts"> => ({ async build() { builds++; throw new Error("must not build"); }, async collectArtifacts() { throw error; } });
+                                                                                                                               ^
+error: must not build
+      at build (/home/dev/work/EZCorp/EZHarness/.worktrees/w4h-32/src/__tests__/helpers/factory-package-preparation-suite.ts:170:122)
+      at hydrate (/home/dev/work/EZCorp/EZHarness/.worktrees/w4h-32/src/factory/package-preparation.ts:292:466)
+      at async prepare (/home/dev/work/EZCorp/EZHarness/.worktrees/w4h-32/src/factory/package-preparation.ts:276:384)
+
+
+      at <anonymous> (/home/dev/work/EZCorp/EZHarness/.worktrees/w4h-32/src/__tests__/helpers/factory-package-preparation-suite.ts:183:21)
+(fail) a rebuild is never an error handler: an artifact read error other than 'not built yet' refuses by name with the runner's code and class, never its message, and never builds (W4H-32) [368.10ms]
+
+ 29 pass
+ 1 fail
+ 163 expect() calls
+Ran 30 tests across 1 file. [12.93s]
+
+# exit=1

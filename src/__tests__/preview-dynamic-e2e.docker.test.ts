@@ -1,12 +1,14 @@
 /**
- * Docker-gated LIVE end-to-end for the DYNAMIC preview passthrough (Secure
- * User-Site Preview / Port Exposure, Phase 3b).
+ * LIVE end-to-end for the DYNAMIC preview passthrough (Secure User-Site
+ * Preview / Port Exposure, Phase 3b), run inside the production image.
  *
  * These need a real Linux container with the compiled setuid-root
  * `preview-spawn` helper (4755), live /proc/net/tcp, and the ability to bind
- * loopback ports — so they are gated behind DOCKER_TEST=1, mirroring the
- * uid-keystone split (preview-uid-keystone.docker.test.ts). Locally (no
- * DOCKER_TEST) the whole suite is a logged no-op.
+ * loopback ports. They run in the production-proof lane beside the
+ * uid-keystone file (preview-uid-keystone.docker.test.ts):
+ * scripts/verify-shipping-preview-isolation.sh sets
+ * EZCORP_PREVIEW_ISOLATION_PROOF=1 inside the candidate image under rootless
+ * Podman. The hosted shards never select this file.
  *
  * Imports are kept to BACKEND modules only (no web `$server`-aliased glue,
  * which bun can't resolve outside vite). The proxy's loopback port-pin +
@@ -25,7 +27,7 @@
 
 import { test, expect, describe } from "bun:test";
 
-const DOCKER = process.env.DOCKER_TEST === "1";
+const PROOF_LANE = process.env.EZCORP_PREVIEW_ISOLATION_PROOF === "1";
 
 async function spawnListener(conv: string, port: number, ws = false) {
   const { allocatePreviewUid, _resetPreviewUidPoolForTests } = await import(
@@ -56,7 +58,7 @@ async function teardown(server: { kill(): void; exited: Promise<number> }) {
   await Promise.race([server.exited.catch(() => {}), new Promise((r) => setTimeout(r, 2000))]);
 }
 
-describe.skipIf(!DOCKER)("dynamic preview — LIVE e2e (DOCKER_TEST=1)", () => {
+describe.skipIf(!PROOF_LANE)("dynamic preview — LIVE e2e (production image)", () => {
   test(
     "spawn as preview uid → ProcPortSource detects → loopback fetch 200",
     async () => {

@@ -1,0 +1,40 @@
+# W4H-33 re-merge (integrator-5; team-lead's order 2026-10-16 ~19:1xZ: W4H-33 ahead of W4H-32): test hygiene on main; e50aedefd (27 commits)
+# onto integ/w00 b0b7bedf1, 183 files. A PACKAGE merge: patch, new-file and CRAP bind (no W-SYNC form). hold-w4f.sh runs: the hook suites
+# (full-run form, 154), unit 166 (hook + the 51 invariant tests + 14 importers), the guard set, the web server leg, the Bun canonical
+# producers (R4), the coverage merge with lcov-foreign-sources (R7), CRAP, actionlint and its labels leg (workflow files change), and the
+# merge gates with the folder's expected sets on both legs (R1: main = the two ruled deletions + scripts/merge-lcov.ts; base = the two
+# deletions; both checked once at the prep, gate-integrity-prep.txt). Beyond those, sourced by hold-w4f.sh (each leg is a leg or nothing;
+# no secret value in argv or in this file; file_leg: a listed file that is missing fails by name):
+# - static (the W4H-28 form):
+NOTEST=1 leg build-packages bun run build:packages
+tc_leg typecheck-all bun run typecheck
+NOTEST=1 leg lint bun run lint
+NOTEST=1 leg check-boundaries bun scripts/check-boundaries.ts
+NOTEST=1 leg factory-boundaries bun scripts/check-factory-boundaries.ts
+NOTEST=1 leg schema-drift bun scripts/check-schema-generate-drift.ts
+# - (1) the in-image preview proof (the two preview docker test files run inside the image under rootless Podman). The image is the
+#   MERGE commit's own production image, built by w00/image-leg.sh from a clean git-archive snapshot of $M (never an owner image);
+#   only that tag is removed after the proof.
+PIMG=localhost/integrator3-img-production:${M:0:12}
+NOTEST=1 leg preview-image bash /tmp/factory-platform-evidence/w00/image-leg.sh "$M" full
+file_leg preview-isolation-proof scripts/verify-shipping-preview-isolation.sh env EZ_PRODUCTION_IMAGE="$PIMG" EZ_PRODUCTION_RECEIPT_DIR="$D/preview-receipt" timeout 2400 bash scripts/verify-shipping-preview-isolation.sh
+NOTEST=1 leg preview-receipt-files ls -la "$D/preview-receipt"
+NOTEST=1 leg preview-image-rm podman rmi "$PIMG"
+# - (2) the price-chart Podman suites on the loopback market stub, with NO outside network (every proxy points at a closed loopback
+#   port, loopback exempt), plus the stub's own test:
+NONET="HTTPS_PROXY=http://127.0.0.1:9 HTTP_PROXY=http://127.0.0.1:9 https_proxy=http://127.0.0.1:9 http_proxy=http://127.0.0.1:9 NO_PROXY=127.0.0.1,localhost no_proxy=127.0.0.1,localhost"
+file_leg price-chart-e2e src/__tests__/price-chart.e2e.test.ts env $NONET timeout 900 bun test --timeout 60000 --coverage --coverage-reporter=lcov --coverage-dir=$C/price-chart-e2e ./src/__tests__/price-chart.e2e.test.ts ./src/__tests__/price-chart-market-stub.test.ts
+file_leg price-chart-stream-bridge web/src/__tests__/price-chart-stream-bridge.test.ts bash -c 'cd web && exec env '"$NONET"' timeout 900 bun test --timeout 60000 ./src/__tests__/price-chart-stream-bridge.test.ts'
+# - (3) the real-auth Playwright specs as the lane runs them (chromium); ai-kit-public-api starts the ai-kit e2e suites itself (doctor,
+#   internal-auth, on-behalf-of; bundled, quickstart, fanout; real-subprocess-obo) with the live server's URL and a minted key, so this
+#   one leg is the real run of the ai-kit e2e files (not-runnable.txt, ruled). The suites run as the spec's CHILD `bun test`;
+#   w00/child-cov-bun.sh puts a wrapper first on PATH that gives that child lcov coverage into $D/childcov/lcov and keeps its stdout and
+#   stderr (the R2 input); case-check v9 merges the records of the not-runnable.txt files only.
+NOTEST=1 leg child-cov-bun bash /tmp/factory-platform-evidence/w00/child-cov-bun.sh "$D/childcov"
+file_leg real-auth-specs web/e2e/real-auth/ai-kit-public-api.spec.ts env PATH="$D/childcov/bin:$PATH" CHILD_COV_DIR="$D/childcov/lcov" CHILD_COV_MATCH=packages/@ezcorp/ai-kit/test/e2e/ bash -c 'cd web && exec timeout 3600 bunx playwright test --config playwright.real.config.ts e2e/real-auth/sub-conversation-flow.spec.ts e2e/real-auth/ai-kit-public-api.spec.ts --project=chromium --reporter=list'
+# - red-first cases BY NAME (case-check v9, package form): the owner's red-on-base.txt f156134e8f67c89d (three sections); its RED and
+#   GREEN-as-listed files (red-first-input.txt: 15 files, 25 new names in warn-cases.txt, 6 whole files) bind by name; RED-LOAD-ERROR files
+#   (red-first-load-error-files.txt, 4) give no case (ruling 2026-10-16); not-runnable files (red-first-not-runnable-files.txt, 10) are
+#   judged by their real legs above. R2: an uncovered changed test line passes only through <folder>/tracked-skip-lines.txt
+#   (w00/tracked-skip-lines.py; reason ai-kit-deployed-lane), which is written from the real child run; without it every such line is red.
+NOTEST=1 leg w4h33-red-first-cases bash /tmp/factory-platform-evidence/w00/w4h-merge/w4h-24-web-shard-timeout/case-check.sh "$M" "$D"

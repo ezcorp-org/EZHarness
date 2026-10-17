@@ -98,6 +98,28 @@ export interface FactoryGuestModelJournal {
    * the operation exactly as settled, for the guest to copy into its result.
    */
   fail(attempt: FactoryRunnerRequest, request: FactoryGuestModelRequest, failure: FactoryModelFailure): Promise<FactoryRunnerFailedOperation>;
+  /** The tokens the attempt's settled operations measured, input and output (W4H-28 budget envelope). */
+  spent(attempt: FactoryRunnerRequest): Promise<number>;
+}
+
+/** The input estimate the envelope charges: four bytes of message text to a token, rounded up. */
+export const FACTORY_GUEST_MODEL_BYTES_PER_TOKEN = 4;
+
+/**
+ * Whether one call fits what the attempt's token budget has left (W4H-28).
+ *
+ * The bound is the call's own: its output bound plus its input at four bytes a
+ * token. It is decided before the claim, so a call that cannot fit is refused
+ * with no journal row and no provider effect. The measured usage still settles
+ * a call that fits; this only refuses one that never could.
+ */
+export function factoryGuestModelBudgetRefusal(attempt: FactoryRunnerRequest, request: FactoryGuestModelRequest, spent: number): string | undefined {
+  const budget = attempt.resources.maxTokens;
+  if (budget === undefined) return undefined;
+  const inputBytes = request.messages.reduce((total, message) => total + new TextEncoder().encode(message.text).byteLength, 0);
+  const bound = request.maxOutputTokens + Math.ceil(inputBytes / FACTORY_GUEST_MODEL_BYTES_PER_TOKEN);
+  const left = budget - spent;
+  return bound > left ? `factory_model_budget_exceeded: this call may use ${bound} tokens and the attempt has ${Math.max(0, left)} of ${budget} left.` : undefined;
 }
 
 export interface FactoryGuestModelBrokerOptions {
@@ -167,6 +189,9 @@ export function createFactoryGuestModelBroker(options: FactoryGuestModelBrokerOp
     const request = payload as FactoryGuestModelRequest;
 
     if (!pinned(attempt, request.model)) return factoryGuestModelRefusal(request.operationId, "model_pin_mismatch", "A guest may only call the model its attempt pinned.");
+
+    const overBudget = factoryGuestModelBudgetRefusal(attempt, request, await options.journal.spent(attempt));
+    if (overBudget !== undefined) return factoryGuestModelRefusal(request.operationId, "budget_exceeded", overBudget);
 
     const claim = await options.journal.claim(attempt, request);
     if (!claim.claimed) {

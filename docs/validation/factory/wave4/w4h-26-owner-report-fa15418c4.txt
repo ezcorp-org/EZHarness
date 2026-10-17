@@ -1,0 +1,44 @@
+W4H-26 REPORT — the started application can run a reference-code task (FROZEN, second freeze)
+
+Branch wp/w4h-26-runner-wiring from origin/main 1981febd2. FROZEN head fa15418c4 (code head 27412cb92; fa15418c4 adds only the
+gate file tasks/factory/w4h-26-GATES.md 3467ca9685ebf52f and tasks/todo.md lines). The first freeze (d2d78d98e) is kept as
+report-d2d78d98e.txt (9bb9a7be72ced967); I unfroze for the lead's crossed condition on staging visibility. 49 files,
++1898 -230 vs origin/main. Identity: every commit author and committer is 281643943+EZArchy@users.noreply.github.com; the
+personal address occurs 0 times in the diff and the evidence. No model call.
+
+Since the first freeze: 27412cb92 — built-in staging returns its outcome by package and the boot publishes it under
+readiness detail.diagnostics.builtinRunnerPackages (served by /api/ready); tests assert the failed and per-package cases.
+
+RESULT at 27412cb92 (proof/final-2.json 32d3a144e4ed20d9), composed application, public HTTP:
+- /api/ready: builtinRunnerPackages {state: staged, staged: [reference-code, reference-code-validator], failed: []};
+- snapshot-repository admitted, prepared by the supervisor, dispatched and executed in docker.io/oven/bun@sha256:9114c058…
+  on the shipped fixture; sealed snapshot sha256:e020cd24… = the product's own snapshot of the same fixture; port output =
+  recomputed; the run then stops at generate-private-candidate factory_native_package_untrusted (the later package).
+
+LEGS at 27412cb92: red-first 16 of 16 red on 1981febd2; D6 mutants 4 of 4 killed; patch PASS (24 files); new-file PASS (5);
+CRAP none over 30; guard 42 files 522/0; typecheck 0 (tc-gate in the lock, after build:packages); lint 0; gate-integrity 0
+findings on both legs; boundaries, factory boundaries, lanes, prune clean (prune/boundary logs unchanged since 610ca637d).
+
+BLOCKED (reported): the fleet profile for generateCandidate cannot pin the installation's model: reference.code.v1's
+configurationDigest sha256:bbbb… cannot equal digest(configuration) (native-runner-policy.ts:85-88). Left out; the later package.
+OPEN: G7, the Compose-level proof, after W4H-27. G8d stays blocked.
+
+EVIDENCE (sha256, first 16; earlier entries in report-d2d78d98e.txt still hold)
+32d3a144e4ed20d9 proof/final-2.json
+9919c26f77c30ee2 proof/proof.ts
+b9da2c36a0f3f32c red/red.sh
+eeb82963e376b803 red/red-on-base.txt
+a5b764c6810f38e4 mutants/d6-mutants.txt
+aaf1a3d5e219f9dc legs/focused.sh
+2d2efa9dc2f3cbe9 legs/final.sh
+45f3da88525d9633 legs/final.log
+94cd0e4fe503df7e legs/final-focused-3.out
+8f85d428400208e2 legs/focused/patch.log
+98f440692be56a57 legs/focused/crap.log
+4e8a1a43ad13bdc1 legs/final-guard-2.out
+d3a5953467b72d94 legs/final-typecheck-3.out
+e1d37117bd583491 legs/final-lint-2.log
+b1a0297506aab4a1 legs/final-gi-main-2.log
+b36e22cb8d16783b pending-lesson.md
+a769156a467fe449 journey.md
+Base worktree .worktrees/w4h-26-base (1981febd2, clean) kept for red-first re-runs; remove after validation.

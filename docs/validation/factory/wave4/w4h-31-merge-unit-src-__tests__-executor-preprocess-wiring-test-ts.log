@@ -1,0 +1,62 @@
+bun test v1.4.2 (744846f84)
+{"ts":"2026-10-16T01:03:55.113Z","level":"info","msg":"skipped: model lacks image input capability","subsystem":"executor.loadHistory.rehydrate","branchLen":1}
+{"ts":"2026-10-16T01:03:55.124Z","level":"warn","msg":"run_workflow wire skipped — the conversation row has no owner, so a run could not be authorized","subsystem":"executor.streamChat.setup","conversationId":"3e2d1cc9-950c-4ef8-8c7e-467cb98af669"}
+{"ts":"2026-10-16T01:03:55.126Z","level":"info","msg":"preprocess: running deterministic preprocessors","subsystem":"executor.streamChat.setup","invocations":["graded-card-scanner:identify_slab@912ee343-e33a-4b0f-9848-6427140ce2cf"]}
+{"ts":"2026-10-16T01:03:55.129Z","level":"info","msg":"Agent orchestration resolution","subsystem":"executor.streamChat.setup","userMessage":"what is this slab worth?","agents":[],"teams":[],"depth":0}
+{"ts":"2026-10-16T01:03:55.154Z","level":"info","msg":"skipped: model lacks image input capability","subsystem":"executor.loadHistory.rehydrate","branchLen":1}
+{"ts":"2026-10-16T01:03:55.157Z","level":"warn","msg":"run_workflow wire skipped — the conversation row has no owner, so a run could not be authorized","subsystem":"executor.streamChat.setup","conversationId":"533a2807-cead-4f98-87e0-b0ce383b117d"}
+{"ts":"2026-10-16T01:03:55.159Z","level":"info","msg":"preprocess: running deterministic preprocessors","subsystem":"executor.streamChat.setup","invocations":["graded-card-scanner:identify_slab@12893929-ba70-4061-89f9-e51129c63e4d"]}
+{"ts":"2026-10-16T01:03:55.160Z","level":"info","msg":"Agent orchestration resolution","subsystem":"executor.streamChat.setup","userMessage":"what is this slab worth?","agents":[],"teams":[],"depth":0}
+{"ts":"2026-10-16T01:03:55.177Z","level":"info","msg":"skipped: model lacks image input capability","subsystem":"executor.loadHistory.rehydrate","branchLen":1}
+{"ts":"2026-10-16T01:03:55.182Z","level":"warn","msg":"run_workflow wire skipped — the conversation row has no owner, so a run could not be authorized","subsystem":"executor.streamChat.setup","conversationId":"c14cf2ee-9374-4b91-931e-9bc3c17ba726"}
+{"ts":"2026-10-16T01:03:55.182Z","level":"info","msg":"Agent orchestration resolution","subsystem":"executor.streamChat.setup","userMessage":"what is this slab worth?","agents":[],"teams":[],"depth":0}
+{"ts":"2026-10-16T01:03:55.199Z","level":"info","msg":"skipped: model lacks image input capability","subsystem":"executor.loadHistory.rehydrate","branchLen":1}
+{"ts":"2026-10-16T01:03:55.202Z","level":"warn","msg":"run_workflow wire skipped — the conversation row has no owner, so a run could not be authorized","subsystem":"executor.streamChat.setup","conversationId":"ffc947d7-1129-4064-a212-1448e62d96bf"}
+{"ts":"2026-10-16T01:03:55.203Z","level":"info","msg":"preprocess: running deterministic preprocessors","subsystem":"executor.streamChat.setup","invocations":["graded-card-scanner:identify_slab@131aa0cd-3ceb-4d9f-a8bc-0b92c17c9ae5"]}
+{"ts":"2026-10-16T01:03:55.203Z","level":"warn","msg":"preprocess: tool dispatch threw","subsystem":"executor.streamChat.setup","extension":"graded-card-scanner","tool":"identify_slab","attachmentId":"131aa0cd-3ceb-4d9f-a8bc-0b92c17c9ae5","error":"simulated PDP denial"}
+{"ts":"2026-10-16T01:03:55.205Z","level":"info","msg":"Agent orchestration resolution","subsystem":"executor.streamChat.setup","userMessage":"what is this?","agents":[],"teams":[],"depth":0}
+{"ts":"2026-10-16T01:03:55.222Z","level":"info","msg":"skipped: model lacks image input capability","subsystem":"executor.loadHistory.rehydrate","branchLen":1}
+{"ts":"2026-10-16T01:03:55.226Z","level":"warn","msg":"run_workflow wire skipped — the conversation row has no owner, so a run could not be authorized","subsystem":"executor.streamChat.setup","conversationId":"7cde7916-037c-425d-927e-6b747ba68605"}
+{"ts":"2026-10-16T01:03:55.226Z","level":"info","msg":"Agent orchestration resolution","subsystem":"executor.streamChat.setup","userMessage":"plain text turn","agents":[],"teams":[],"depth":0}
+{"ts":"2026-10-16T01:03:55.244Z","level":"info","msg":"skipped: model lacks image input capability","subsystem":"executor.loadHistory.rehydrate","branchLen":1}
+{"ts":"2026-10-16T01:03:55.247Z","level":"warn","msg":"run_workflow wire skipped — the conversation row has no owner, so a run could not be authorized","subsystem":"executor.streamChat.setup","conversationId":"f72cbe39-9adb-45b7-9b14-864c55fc2e20"}
+{"ts":"2026-10-16T01:03:55.248Z","level":"info","msg":"Agent orchestration resolution","subsystem":"executor.streamChat.setup","userMessage":"image turn, plain extension","agents":[],"teams":[],"depth":0}
+{"ts":"2026-10-16T01:03:55.263Z","level":"info","msg":"skipped: model lacks image input capability","subsystem":"executor.loadHistory.rehydrate","branchLen":1}
+{"ts":"2026-10-16T01:03:55.266Z","level":"warn","msg":"run_workflow wire skipped — the conversation row has no owner, so a run could not be authorized","subsystem":"executor.streamChat.setup","conversationId":"d8f20a5f-9d51-4c9d-a7da-81635ac7b14b"}
+{"ts":"2026-10-16T01:03:55.267Z","level":"info","msg":"preprocess: running deterministic preprocessors","subsystem":"executor.streamChat.setup","invocations":["graded-card-scanner:identify_slab@fc8a8f96-927e-4294-a6b2-652c67d92901"]}
+{"ts":"2026-10-16T01:03:55.268Z","level":"info","msg":"Agent orchestration resolution","subsystem":"executor.streamChat.setup","userMessage":"what is this?","agents":[],"teams":[],"depth":0}
+{"ts":"2026-10-16T01:03:55.282Z","level":"info","msg":"skipped: model lacks image input capability","subsystem":"executor.loadHistory.rehydrate","branchLen":1}
+{"ts":"2026-10-16T01:03:55.285Z","level":"warn","msg":"run_workflow wire skipped — the conversation row has no owner, so a run could not be authorized","subsystem":"executor.streamChat.setup","conversationId":"491c1d31-3977-4232-8579-40fdd9ae6cd4"}
+{"ts":"2026-10-16T01:03:55.286Z","level":"info","msg":"Agent orchestration resolution","subsystem":"executor.streamChat.setup","userMessage":"what is this slab worth?","agents":[],"teams":[],"depth":0}
+{"ts":"2026-10-16T01:03:55.299Z","level":"info","msg":"skipped: model lacks image input capability","subsystem":"executor.loadHistory.rehydrate","branchLen":1}
+{"ts":"2026-10-16T01:03:55.302Z","level":"warn","msg":"run_workflow wire skipped — the conversation row has no owner, so a run could not be authorized","subsystem":"executor.streamChat.setup","conversationId":"2f1a961e-0e90-4b86-a1f5-5d0014d561e1"}
+{"ts":"2026-10-16T01:03:55.303Z","level":"info","msg":"preprocess: running deterministic preprocessors","subsystem":"executor.streamChat.setup","invocations":["graded-card-scanner:identify_slab@7769e46d-9666-48e5-93d7-8ab3c1894ad0"]}
+{"ts":"2026-10-16T01:03:55.303Z","level":"warn","msg":"preprocess: tool dispatch threw","subsystem":"executor.streamChat.setup","extension":"graded-card-scanner","tool":"identify_slab","attachmentId":"7769e46d-9666-48e5-93d7-8ab3c1894ad0","error":"The operation was aborted."}
+{"ts":"2026-10-16T01:03:55.307Z","level":"info","msg":"Agent orchestration resolution","subsystem":"executor.streamChat.setup","userMessage":"cancel preprocessing","agents":[],"teams":[],"depth":0}
+{"ts":"2026-10-16T01:03:55.321Z","level":"info","msg":"skipped: model lacks image input capability","subsystem":"executor.loadHistory.rehydrate","branchLen":1}
+{"ts":"2026-10-16T01:03:55.335Z","level":"info","msg":"briefing chat tools wired for turn","subsystem":"briefing.chat-tools","conversationId":"44f49c39-56d7-4d5e-a174-444bbeb79d00","userId":"490daa08-277c-4f25-bb05-7bd1721eb1c1","registered":4,"expected":4}
+{"ts":"2026-10-16T01:03:55.335Z","level":"info","msg":"run_workflow wired for turn","subsystem":"workflow-tools-host","conversationId":"44f49c39-56d7-4d5e-a174-444bbeb79d00","userId":"490daa08-277c-4f25-bb05-7bd1721eb1c1","projectId":"d109c919-7586-451c-994c-a057c53b1221"}
+{"ts":"2026-10-16T01:03:55.344Z","level":"info","msg":"preprocess: running deterministic preprocessors","subsystem":"executor.streamChat.setup","invocations":["graded-card-scanner:identify_slab@24fd03b4-b72f-4350-8aaf-6abf1c2efe9a"]}
+{"ts":"2026-10-16T01:03:55.347Z","level":"info","msg":"Agent orchestration resolution","subsystem":"executor.streamChat.setup","userMessage":"what is this slab worth?","agents":[],"teams":[],"depth":0}
+{"ts":"2026-10-16T01:03:55.362Z","level":"info","msg":"skipped: model lacks image input capability","subsystem":"executor.loadHistory.rehydrate","branchLen":1}
+{"ts":"2026-10-16T01:03:55.365Z","level":"warn","msg":"run_workflow wire skipped — the conversation row has no owner, so a run could not be authorized","subsystem":"executor.streamChat.setup","conversationId":"aa31cc6e-7007-41db-8ea4-a94355e9ee72"}
+{"ts":"2026-10-16T01:03:55.366Z","level":"info","msg":"preprocess: skipping oversized attachment(s)","subsystem":"executor.streamChat.setup","extension":"graded-card-scanner","tool":"identify_slab","attachmentId":"c30a169c-7a94-4ce3-b6c5-3d0882f9d76e","sizeBytes":9437184,"maxBytes":8388608}
+{"ts":"2026-10-16T01:03:55.366Z","level":"info","msg":"Agent orchestration resolution","subsystem":"executor.streamChat.setup","userMessage":"huge image","agents":[],"teams":[],"depth":0}
+{"ts":"2026-10-16T01:03:55.381Z","level":"info","msg":"skipped: model lacks image input capability","subsystem":"executor.loadHistory.rehydrate","branchLen":1}
+{"ts":"2026-10-16T01:03:55.383Z","level":"warn","msg":"run_workflow wire skipped — the conversation row has no owner, so a run could not be authorized","subsystem":"executor.streamChat.setup","conversationId":"6458663b-c835-4872-aa96-624738c7e44f"}
+{"ts":"2026-10-16T01:03:55.384Z","level":"info","msg":"preprocess: running deterministic preprocessors","subsystem":"executor.streamChat.setup","invocations":["graded-card-scanner:identify_slab@e13e6d0a-42fc-44d8-8363-06b3a8018ccd"]}
+{"ts":"2026-10-16T01:03:55.385Z","level":"info","msg":"Agent orchestration resolution","subsystem":"executor.streamChat.setup","userMessage":"what is this slab worth?","agents":[],"teams":[],"depth":0}
+{"ts":"2026-10-16T01:03:55.398Z","level":"info","msg":"skipped: model lacks image input capability","subsystem":"executor.loadHistory.rehydrate","branchLen":1}
+{"ts":"2026-10-16T01:03:55.401Z","level":"warn","msg":"run_workflow wire skipped — the conversation row has no owner, so a run could not be authorized","subsystem":"executor.streamChat.setup","conversationId":"2ef680c8-6098-482f-ac20-be8eaab37d54"}
+{"ts":"2026-10-16T01:03:55.402Z","level":"info","msg":"Agent orchestration resolution","subsystem":"executor.streamChat.setup","userMessage":"plain text turn","agents":[],"teams":[],"depth":0}
+{"ts":"2026-10-16T01:03:55.415Z","level":"info","msg":"skipped: model lacks image input capability","subsystem":"executor.loadHistory.rehydrate","branchLen":1}
+{"ts":"2026-10-16T01:03:55.418Z","level":"warn","msg":"run_workflow wire skipped — the conversation row has no owner, so a run could not be authorized","subsystem":"executor.streamChat.setup","conversationId":"cee321ce-282f-477a-869c-8f40524c2776"}
+{"ts":"2026-10-16T01:03:55.420Z","level":"info","msg":"Agent orchestration resolution","subsystem":"executor.streamChat.setup","userMessage":"what is this slab worth?","agents":[],"teams":[],"depth":0}
+{"ts":"2026-10-16T01:03:55.434Z","level":"info","msg":"skipped: model lacks image input capability","subsystem":"executor.loadHistory.rehydrate","branchLen":1}
+{"ts":"2026-10-16T01:03:55.437Z","level":"warn","msg":"run_workflow wire skipped — the conversation row has no owner, so a run could not be authorized","subsystem":"executor.streamChat.setup","conversationId":"44831e28-f07b-434e-bd28-9a07d786f5f7"}
+{"ts":"2026-10-16T01:03:55.438Z","level":"info","msg":"Agent orchestration resolution","subsystem":"executor.streamChat.setup","userMessage":"what is this?","agents":[],"teams":[],"depth":0}
+
+ 15 pass
+ 0 fail
+ 70 expect() calls
+Ran 15 tests across 1 file. [1274.00ms]

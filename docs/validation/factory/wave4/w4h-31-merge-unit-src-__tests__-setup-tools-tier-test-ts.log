@@ -1,0 +1,22 @@
+bun test v1.4.2 (744846f84)
+{"ts":"2026-10-16T01:15:00.978Z","level":"warn","msg":"tier classification failed — using default tier this turn","subsystem":"executor.streamChat.setup","err":"registry not ready"}
+{"ts":"2026-10-16T01:15:00.978Z","level":"warn","msg":"exploration-rate read failed — exploration off this turn","subsystem":"executor.streamChat.setup","err":"settings table unavailable"}
+{"ts":"2026-10-16T01:15:00.978Z","level":"warn","msg":"routing-shadow read failed — shadow mode off this turn","subsystem":"executor.streamChat.setup","err":"settings table unavailable"}
+{"ts":"2026-10-16T01:15:00.978Z","level":"warn","msg":"routing-config provenance read failed — routing unaffected","subsystem":"executor.streamChat.setup","err":"settings table unavailable"}
+{"ts":"2026-10-16T01:15:00.978Z","level":"warn","msg":"tier classification failed — using default tier this turn","subsystem":"executor.streamChat.setup","err":"registry not ready"}
+{"ts":"2026-10-16T01:15:00.979Z","level":"warn","msg":"tier classification failed — using default tier this turn","subsystem":"executor.streamChat.setup","err":"registry not ready"}
+{"ts":"2026-10-16T01:15:00.979Z","level":"warn","msg":"exploration-rate read failed — exploration off this turn","subsystem":"executor.streamChat.setup","err":"settings table unavailable"}
+{"ts":"2026-10-16T01:15:00.979Z","level":"warn","msg":"routing-shadow read failed — shadow mode off this turn","subsystem":"executor.streamChat.setup","err":"settings table unavailable"}
+{"ts":"2026-10-16T01:15:00.979Z","level":"warn","msg":"routing-config provenance read failed — routing unaffected","subsystem":"executor.streamChat.setup","err":"settings table unavailable"}
+{"ts":"2026-10-16T01:15:00.979Z","level":"info","msg":"routing exploration fired — serving one rung below the classifier's tier","subsystem":"executor.streamChat.setup","classifierTier":"powerful","servedTier":"balanced","reason":"tool-messages"}
+{"ts":"2026-10-16T01:15:00.979Z","level":"warn","msg":"exploration-rate read failed — exploration off this turn","subsystem":"executor.streamChat.setup","err":"settings table unavailable"}
+{"ts":"2026-10-16T01:15:00.979Z","level":"warn","msg":"routing-shadow read failed — shadow mode off this turn","subsystem":"executor.streamChat.setup","err":"settings table unavailable"}
+{"ts":"2026-10-16T01:15:00.979Z","level":"warn","msg":"routing-config provenance read failed — routing unaffected","subsystem":"executor.streamChat.setup","err":"settings table unavailable"}
+{"ts":"2026-10-16T01:15:00.980Z","level":"warn","msg":"exploration-rate read failed — exploration off this turn","subsystem":"executor.streamChat.setup","err":"settings table unavailable"}
+{"ts":"2026-10-16T01:15:00.980Z","level":"warn","msg":"routing-shadow read failed — shadow mode off this turn","subsystem":"executor.streamChat.setup","err":"settings table unavailable"}
+{"ts":"2026-10-16T01:15:00.980Z","level":"warn","msg":"routing-config provenance read failed — routing unaffected","subsystem":"executor.streamChat.setup","err":"settings table unavailable"}
+
+ 32 pass
+ 0 fail
+ 103 expect() calls
+Ran 32 tests across 1 file. [489.00ms]

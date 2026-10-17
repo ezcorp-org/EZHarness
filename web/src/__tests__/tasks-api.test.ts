@@ -37,7 +37,7 @@ mock.module("$server/runtime/task-tracking-host", () => ({
 // ── Mock auth + scope middleware ────────────────────────────────────
 
 const mockUser: { id: string; email: string; name: string; role: string } = {
-  id: "user-1", email: "test@test.com", name: "Test", role: "member",
+  id: "user-1", email: "test@test.example", name: "Test", role: "member",
 };
 const realAuthMiddleware = serverModule("auth/middleware", {});
 beforeAll(() => {
@@ -186,7 +186,7 @@ describe("GET /api/conversations/[id]/tasks", () => {
   // updated for sec-H3: fail-closed on null owner
   test("admins can access null-owner conversation", async () => {
     mockConv = { id: "conv-1", userId: null, projectId: "proj-1" };
-    const admin = { id: "admin-1", email: "a@a.com", name: "Admin", role: "admin" };
+    const admin = { id: "admin-1", email: "a@a.example", name: "Admin", role: "admin" };
     const res = await GET(makeEvent("conv-1", { user: admin }));
     expect(res.status).toBe(200);
   });

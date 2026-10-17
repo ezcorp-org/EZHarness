@@ -80,8 +80,8 @@ describe("UsersSection server search", () => {
 		vi.useFakeTimers();
 		try {
 			const dataset = [
-				{ id: "u1", email: "alice@corp.io", name: "Alice", role: "member", status: "active" },
-				{ id: "u2", email: "bob@corp.io", name: "Bob", role: "member", status: "active" },
+				{ id: "u1", email: "alice@corp.example", name: "Alice", role: "member", status: "active" },
+				{ id: "u2", email: "bob@corp.example", name: "Bob", role: "member", status: "active" },
 			];
 			const requests = stubPagedFetch(dataset);
 			const { getByTestId, getByText, queryByText } = render(UsersSection, { props: { currentUser } });
@@ -203,7 +203,7 @@ describe("UsersSection load failure", () => {
 					usersCalls += 1;
 					if (usersCalls === 1) return Response.json({ error: "boom" }, { status: 500 });
 					return Response.json({
-						users: [{ id: "u1", email: "alice@corp.io", name: "Alice", role: "member", status: "active" }],
+						users: [{ id: "u1", email: "alice@corp.example", name: "Alice", role: "member", status: "active" }],
 					});
 				}
 				if (url.includes("/api/admin/sessions")) return Response.json({ sessions: [] });
@@ -226,7 +226,7 @@ describe("UsersSection load failure", () => {
 
 describe("UsersSection conditional badges", () => {
 	test("default member/active/0-sessions row renders no badges", async () => {
-		stubFetch([{ id: "u1", email: "plain@corp.io", name: "Plain", role: "member", status: "active" }]);
+		stubFetch([{ id: "u1", email: "plain@corp.example", name: "Plain", role: "member", status: "active" }]);
 		const { getByText, queryByText, queryByTitle } = render(UsersSection, { props: { currentUser } });
 
 		await waitFor(() => {
@@ -239,8 +239,8 @@ describe("UsersSection conditional badges", () => {
 
 	test("admin/inactive/with-sessions row renders all badges", async () => {
 		stubFetch(
-			[{ id: "u1", email: "boss@corp.io", name: "Boss", role: "admin", status: "inactive" }],
-			[{ id: "s1", userId: "u1", userName: "Boss", userEmail: "boss@corp.io", userAgent: null, ipAddress: null, lastActiveAt: null, createdAt: "2026-01-01T00:00:00Z" }],
+			[{ id: "u1", email: "boss@corp.example", name: "Boss", role: "admin", status: "inactive" }],
+			[{ id: "s1", userId: "u1", userName: "Boss", userEmail: "boss@corp.example", userAgent: null, ipAddress: null, lastActiveAt: null, createdAt: "2026-01-01T00:00:00Z" }],
 		);
 		const { getByText, getByTitle } = render(UsersSection, { props: { currentUser } });
 
@@ -304,7 +304,7 @@ function stubActionFetch(state: {
 
 const otherUser = (status = "active") => ({
 	id: "u-other",
-	email: "other@corp.io",
+	email: "other@corp.example",
 	name: "Other",
 	role: "member",
 	status,
@@ -314,7 +314,7 @@ const otherSession = {
 	id: "s1",
 	userId: "u-other",
 	userName: "Other",
-	userEmail: "other@corp.io",
+	userEmail: "other@corp.example",
 	userAgent: null,
 	ipAddress: null,
 	lastActiveAt: null,

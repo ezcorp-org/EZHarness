@@ -51,8 +51,8 @@ async function setupRoutesWithDelay(
 		if (path === "/api/agent-configs") return route.fulfill({ json: [] });
 		if (path === "/api/extensions") return route.fulfill({ json: [] });
 		if (path === "/api/tools") return route.fulfill({ json: { tools: [], count: 0 } });
-		if (path === "/api/auth/me") return route.fulfill({ json: { user: { id: "u1", email: "a@b.com", name: "Test", role: "member" } } });
-		if (path === "/api/account") return route.fulfill({ json: { id: "u1", email: "a@b.com", name: "Test", role: "member", createdAt: "2026-01-01T00:00:00.000Z" } });
+		if (path === "/api/auth/me") return route.fulfill({ json: { user: { id: "u1", email: "a@b.example", name: "Test", role: "member" } } });
+		if (path === "/api/account") return route.fulfill({ json: { id: "u1", email: "a@b.example", name: "Test", role: "member", createdAt: "2026-01-01T00:00:00.000Z" } });
 		if (path === "/api/favicon") return route.fulfill({ json: { icon: "" } });
 		if (path === "/api/fs/list") return route.fulfill({ json: [] });
 		if (path === "/api/mentions/search") return route.fulfill({ json: [] });
@@ -130,7 +130,7 @@ test.describe("SkeletonLoader", () => {
 		await setupRoutesWithDelay(page, {
 			delayPath: "/api/account",
 			delayMs: 1000,
-			delayJson: { id: "u1", email: "a@b.com", name: "Test", role: "member", createdAt: "2026-01-01T00:00:00.000Z" },
+			delayJson: { id: "u1", email: "a@b.example", name: "Test", role: "member", createdAt: "2026-01-01T00:00:00.000Z" },
 		});
 		await page.goto("/account");
 

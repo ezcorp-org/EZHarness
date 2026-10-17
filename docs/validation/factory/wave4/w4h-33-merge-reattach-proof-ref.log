@@ -1,0 +1,3 @@
+Previous HEAD position was b6414ec0b merge: wp/w4h-33-test-hygiene e50aedefd into integ/w00 (test hygiene on main: never-running tests run or carry a tracked reason, Docker-only tests get a Podman lane, fixtures move to reserved domains, measured timeouts are declared (W4H-33))
+Switched to branch 'integ/w00'
+proof=b6414ec0b137272e413da5e0db9b4421bc7ac386 head=b0b7bedf1c0de65af84febe7811171021f573b1c branch=integ/w00 dirty=0

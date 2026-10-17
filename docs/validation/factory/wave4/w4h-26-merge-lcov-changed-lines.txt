@@ -1,0 +1,33 @@
+per-file lcov proof: merge 9bd32cc3b vs base 1f63311fb; lcov /tmp/factory-platform-evidence/w00/w4h-merge/w4h-26-runner-wiring/merged.lcov
+packages/@ezcorp/factory-sdk/src/guest-materials.ts: file 104/104 lines hit; added lines 38, instrumented 19, uncovered 0
+scripts/check-factory-boundaries.ts: file 430/430 lines hit; added lines 2, instrumented 2, uncovered 0
+scripts/factory-fleet-init-local.ts: file 42/42 lines hit; added lines 15, instrumented 8, uncovered 0
+scripts/factory-graph-proof/guest-package.ts: file 25/66 lines hit; added lines 20, instrumented 15, uncovered 5 -> [79, 81, 84, 85, 92]
+scripts/factory-graph-proof/guest/graph-guest.ts: NO LCOV RECORD in this hold (4 added lines)
+src/__tests__/helpers/factory-guest-material-host.ts: file 28/28 lines hit; added lines 41, instrumented 28, uncovered 0
+src/__tests__/helpers/factory-package-preparation-suite.ts: file 428/432 lines hit; added lines 112, instrumented 97, uncovered 2 -> [90, 119]
+src/extensions/bundled-bootstrap.ts: file 111/111 lines hit; added lines 105, instrumented 64, uncovered 0
+src/extensions/bundled.ts: file 489/493 lines hit; added lines 6, instrumented 4, uncovered 0
+src/extensions/extension-lifecycle-service.ts: file 334/334 lines hit; added lines 2, instrumented 1, uncovered 0
+src/factory/attempt-composition.ts: file 103/103 lines hit; added lines 4, instrumented 2, uncovered 0
+src/factory/guest-package-build.ts: file 75/75 lines hit; added lines 160, instrumented 75, uncovered 0
+src/factory/host-preparation-client.ts: file 34/34 lines hit; added lines 63, instrumented 34, uncovered 0
+src/factory/installation-startup.ts: file 516/516 lines hit; added lines 31, instrumented 19, uncovered 0
+src/factory/package-preparation.ts: file 152/152 lines hit; added lines 57, instrumented 29, uncovered 0
+src/factory/provisioning/fleet.ts: file 189/189 lines hit; added lines 7, instrumented 4, uncovered 0
+src/factory/reference-code/freeze.ts: file 81/81 lines hit; added lines 2, instrumented 1, uncovered 0
+src/factory/reference-code/guest-entry.ts: file 54/54 lines hit; added lines 4, instrumented 3, uncovered 0
+src/factory/reference-code/guest.ts: file 43/43 lines hit; added lines 21, instrumented 20, uncovered 0
+src/factory/reference-code/runner-entry.ts: file 54/54 lines hit; added lines 133, instrumented 54, uncovered 0
+src/factory/reference-code/runner-install.ts: file 38/38 lines hit; added lines 86, instrumented 38, uncovered 0
+src/factory/reference-code/runner-packages.ts: file 42/42 lines hit; added lines 80, instrumented 42, uncovered 0
+src/factory/reference-code/snapshot.ts: file 110/110 lines hit; added lines 15, instrumented 4, uncovered 0
+src/factory/runner/host-launch-service.ts: file 101/101 lines hit; added lines 78, instrumented 31, uncovered 0
+src/factory/runner/host-launch-supervisor.ts: file 181/181 lines hit; added lines 91, instrumented 45, uncovered 0
+src/factory/runner/supervisor-process.ts: file 280/280 lines hit; added lines 26, instrumented 8, uncovered 0
+src/factory/runner/supervisor-services.ts: file 106/106 lines hit; added lines 4, instrumented 1, uncovered 0
+src/factory/runtime-workers.ts: file 112/112 lines hit; added lines 10, instrumented 5, uncovered 0
+src/factory/startup-config.ts: file 340/340 lines hit; added lines 21, instrumented 13, uncovered 0
+src/readiness.ts: file 14/14 lines hit; added lines 16, instrumented 8, uncovered 0
+web/e2e/factory-services/guest.ts: NO LCOV RECORD in this hold (14 added lines)
+TOTAL instrumented added lines 674, uncovered 7

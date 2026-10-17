@@ -1,0 +1,52 @@
+resource-gate 2026-10-16T04:33:35Z w4h33-price-chart-commit outside-lock disk=109G memAvailable=16GiB swapFreeKiB=5855712/17173956 floors disk>=104G mem>=8GiB mem+swap>=11010048KiB (swap component 2621440KiB)
+gated-flock w4h33-price-chart-commit: gate green outside the lock, queue for the lock (try 1) 2026-10-16T04:33:35Z
+resource-gate 2026-10-16T04:39:39Z price-chart-commit disk=109G memAvailable=16GiB swapFreeKiB=6060564/17173956 floors disk>=100G mem>=8GiB mem+swap>=10485760KiB (swap component 2097152KiB)
+=== price-chart-commit start 2026-10-16T04:39:39Z pin bun 1.4.2
+Checked 4 files in 8ms. No fixes applied.
+── Tests (staged) ─────────────────────────────────
+  bun: src/__tests__/price-chart.e2e.test.ts
+bun test v1.4.2 (744846f84)
+
+src/__tests__/price-chart.e2e.test.ts:
+(pass) price-chart e2e — non-network paths > rejects empty ticker with toolError [75.22ms]
+(pass) price-chart e2e — non-network paths > rejects whitespace ticker [61.75ms]
+(pass) price-chart e2e — non-network paths > unknown tool name returns JSON-RPC error [64.56ms]
+(pass) price-chart e2e — installed v4 release + network broker (loopback market stub) > get_stock_chart(AAPL) returns JSON with points + no iframeSrc [3463.52ms]
+(pass) price-chart e2e — installed v4 release + network broker (loopback market stub) > get_crypto_chart(BTC) returns JSON with points + Bitcoin name [3385.09ms]
+(pass) price-chart e2e — installed v4 release + network broker (loopback market stub) > an upstream HTTP error comes back as a tool error that names the status [3444.90ms]
+(pass) price-chart e2e — through ToolExecutor (stub PDP) > ToolExecutor.executeToolCall returns JSON payload [3432.53ms]
+(pass) price-chart e2e — chat-flow path (real PDP) > extensionToAgentTool.execute returns JSON payload (no sensitive-cap prompt) [3468.99ms]
+
+ 8 pass
+ 0 fail
+ 40 expect() calls
+Ran 8 tests across 1 file. [27.11s]
+  bun: src/__tests__/price-chart-market-stub.test.ts
+bun test v1.4.2 (744846f84)
+
+src/__tests__/price-chart-market-stub.test.ts:
+(pass) the loopback market stub > records the URL the extension asked for from the pinned request's host header, and refuses an unstubbed path [1.04ms]
+(pass) the loopback market stub > routes the host's own path (default DNS, global fetch) for the market hosts only, and restores both [3.36ms]
+
+ 2 pass
+ 0 fail
+ 10 expect() calls
+Ran 2 tests across 1 file. [364.00ms]
+  bun: web/src/__tests__/price-chart-stream-bridge.test.ts
+bun test v1.4.2 (744846f84)
+
+web/src/__tests__/price-chart-stream-bridge.test.ts:
+(pass) price-chart stream-bridge — synthetic events > tool:start seeds a running entry with cardType='price-chart' [0.16ms]
+(pass) price-chart stream-bridge — synthetic events > tool:complete with MCP envelope unwraps to the JSON text [0.26ms]
+(pass) price-chart stream-bridge — synthetic events > tool:complete with success=false flips status to error and preserves output text [0.09ms]
+(pass) price-chart stream-bridge — synthetic events > cardLayout='inline' is the default; 'dock' propagates through reducer [0.04ms]
+(pass) price-chart stream-bridge — synthetic events > tool:complete with no matching running call is a no-op (no orphan entry) [0.02ms]
+(pass) price-chart stream-bridge — live executor → bus → reducer > executor emits bus events that drive the store to a renderable price-chart entry [3486.70ms]
+
+ 6 pass
+ 0 fail
+ 30 expect() calls
+Ran 6 tests across 1 file. [11.41s]
+commit exit=0 head=6e6506ba5
+=== price-chart-commit end 2026-10-16T04:40:18Z exit=0
+gated-flock w4h33-price-chart-commit: command exit 0 2026-10-16T04:40:19Z
