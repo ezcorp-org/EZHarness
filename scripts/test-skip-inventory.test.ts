@@ -314,8 +314,9 @@ describe("the repository", () => {
   test("the Docker suites log in with the identity that each seed creates", () => {
     const read = (path: string) => repositoryReader(ROOT)(path) ?? "";
     const login = /email:\s*"([^"]+)",\s*password:\s*"([^"]+)"/.exec(read("web/e2e/docker-auth-setup.ts"));
-    expect(login).not.toBeNull();
-    const identity = [login?.[1], login?.[2]];
+    const [, email, password] = login ?? [];
+    if (email === undefined || password === undefined) throw new Error("web/e2e/docker-auth-setup.ts: no login line with an email and a password");
+    const identity: [string, string] = [email, password];
     const seed = read("scripts/seed-marketplace.ts");
     const lifecycle = [...read("scripts/verify-production-image-lifecycle.sh").matchAll(/\{"email":"([^"]+)","password":"([^"]+)"/g)];
     // The Compose seed, and the production proof's setup and login.
