@@ -133,14 +133,35 @@ function kubernetesValid({ profile, kubernetes, resources }: FactoryFleetSetting
   const nodeSelector = k?.nodeSelector as unknown;
   return keys(k, "egressCidrs,egressPorts,ingress,kubeconfigPath,kubectl,nodeCidrs,nodeSelector,runAsUser,runnerRoot,runtimeSocketPath,services,systemNamespace")
     && absolute(k!.kubectl) && absolute(k!.kubeconfigPath) && absolute(k!.runtimeSocketPath) && absolute(k!.runnerRoot) && NAMESPACE.test(k!.systemNamespace)
-    && Array.isArray(k!.nodeCidrs) && k!.nodeCidrs.every((cidr) => typeof cidr === "string" && CIDR.test(cidr))
+    && Array.isArray(k!.nodeCidrs)
     && Number.isSafeInteger(k!.runAsUser) && k!.runAsUser > 0
     && typeof nodeSelector === "object" && nodeSelector !== null && !Array.isArray(nodeSelector) && Object.values(nodeSelector).every((value) => typeof value === "string")
     && (resources?.profile !== "gpu" || Object.keys(nodeSelector).length > 0)
     && keys(k!.ingress, "listenPort,nodePort") && port(k!.ingress.listenPort) && Number.isSafeInteger(k!.ingress.nodePort) && k!.ingress.nodePort >= 30_000 && k!.ingress.nodePort <= 32_767
-    && Array.isArray(k!.egressCidrs) && k!.egressCidrs.every((cidr) => typeof cidr === "string" && CIDR.test(cidr))
+    && Array.isArray(k!.egressCidrs)
     && Array.isArray(k!.egressPorts) && k!.egressPorts.every((value) => Number.isSafeInteger(value) && value >= 1 && value <= 65_535)
     && servicesValid(k!.services);
+}
+
+/** An offending settings entry as the refusal shows it: a string quoted, anything else as JSON, either cut to 48 characters. */
+function boundedEntry(value: unknown): string {
+  const text = typeof value === "string" ? value : JSON.stringify(value) ?? String(value);
+  const cut = text.length > 48 ? `${text.slice(0, 48)}…` : text;
+  return typeof value === "string" ? JSON.stringify(cut) : cut;
+}
+
+/**
+ * Each malformed entry of the hosted profile's CIDR lists, by field, index, and bounded entry (C12 row "Shared-service
+ * readiness and address (hosted)"): one IPv4 CIDR per entry. The lists' presence is kubernetesValid's.
+ */
+function kubernetesCidrFindings({ profile, kubernetes }: FactoryFleetSettings): string[] {
+  if (profile !== "kubernetes" || typeof kubernetes !== "object" || kubernetes === null) return [];
+  return (["nodeCidrs", "egressCidrs"] as const).flatMap((list) => {
+    const entries = (kubernetes as unknown as Record<string, unknown>)[list];
+    return Array.isArray(entries)
+      ? entries.flatMap((entry, index) => typeof entry === "string" && CIDR.test(entry) ? [] : [`kubernetes.${list}[${index}] ${boundedEntry(entry)}`])
+      : [];
+  });
 }
 
 /** A runner profile that asks for a whole GPU host. */
@@ -198,7 +219,7 @@ export function parseFactoryFleetSettings(value: unknown): FactoryFleetSettings 
   const fields = "control,database,fleetId,image,ingress,installations,profile,release,resources,roots,schemaVersion,storage,temporal";
   const withKubernetes = "control,database,fleetId,image,ingress,installations,kubernetes,profile,release,resources,roots,schemaVersion,storage,temporal";
   if ((!keys(value, fields) && !keys(value, withKubernetes)) || settings.schemaVersion !== FACTORY_FLEET_SCHEMA) throw fleetSettingsInvalid(["document"]);
-  const invalid = FLEET_FIELD_CHECKS.filter(([, valid]) => !valid(settings)).map(([field]) => field);
+  const invalid = [...FLEET_FIELD_CHECKS.filter(([, valid]) => !valid(settings)).map(([field]) => field), ...kubernetesCidrFindings(settings)];
   if (invalid.length > 0) throw fleetSettingsInvalid(invalid);
   // The runner profiles, and the release block the deployer will write, must be exactly what the startup document admits.
   parseFactoryFleetRunnerProfiles(settings.installations.runnerProfiles, settings.installations.modelProvider);

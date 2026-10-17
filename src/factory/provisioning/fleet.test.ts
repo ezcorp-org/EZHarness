@@ -117,11 +117,21 @@ describe("parseFactoryFleetSettings", () => {
     expect(refusal({ ...VALID, profile: "kubernetes" }).message).toBe("Fleet settings are invalid: kubernetes.");
     expect(refusal({ ...VALID, kubernetes }).message).toBe("Fleet settings are invalid: kubernetes.");
     for (const [field, value] of [
-      ["runnerRoot", "runner"], ["nodeCidrs", ["10.89.1.0"]], ["nodeCidrs", "10.89.1.0/24"],
+      ["runnerRoot", "runner"], ["nodeCidrs", "10.89.1.0/24"], ["egressCidrs", "10.0.0.0/24"],
       ["kubectl", "kubectl"], ["kubeconfigPath", ""], ["systemNamespace", "Bad_Name"], ["runAsUser", 0], ["runtimeSocketPath", "podman.sock"], ["nodeSelector", []],
-      ["ingress", { listenPort: 80, nodePort: 30443 }], ["ingress", { listenPort: 8443, nodePort: 1 }], ["egressCidrs", ["10.0.0.0"]], ["egressPorts", [0]],
+      ["ingress", { listenPort: 80, nodePort: 30443 }], ["ingress", { listenPort: 8443, nodePort: 1 }], ["egressPorts", [0]],
       ["services", { ...kubernetes.services, databasePort: "5432" }], ["services", { ...kubernetes.services, ordinaryEndpoint: "s3://x" }], ["extra", 1],
     ] as const) expect(refusal({ ...hosted, kubernetes: { ...kubernetes, [field]: value } }).message).toBe("Fleet settings are invalid: kubernetes.");
+    // A malformed CIDR entry is named by its field, index, and bounded entry; every bad entry at once (W4H-35 kind proof run 5).
+    const dualStack = "fc00:f853:ccd:e793::/6410.89.5.0/24";
+    expect(refusal({ ...hosted, kubernetes: { ...kubernetes, nodeCidrs: ["10.89.1.0/24", dualStack] } }).message)
+      .toBe(`Fleet settings are invalid: kubernetes.nodeCidrs[1] "${dualStack}".`);
+    expect(refusal({ ...hosted, kubernetes: { ...kubernetes, nodeCidrs: ["10.89.1.0"], egressCidrs: ["10.89.0.0/24", 7, "fc00::/64"] } }).message)
+      .toBe('Fleet settings are invalid: kubernetes.nodeCidrs[0] "10.89.1.0", kubernetes.egressCidrs[1] 7, kubernetes.egressCidrs[2] "fc00::/64".');
+    const long = `${"9".repeat(200)}/24`;
+    const bounded = refusal({ ...hosted, kubernetes: { ...kubernetes, egressCidrs: [long] } }).message;
+    expect(bounded).toStartWith('Fleet settings are invalid: kubernetes.egressCidrs[0] "999');
+    expect(bounded.length).toBeLessThan(140);
     // A GPU fleet's supervisor runs only on the nodes it declares.
     const gpu = { profile: "gpu", cpuCapacity: 2, gpuProfilesPath: "/srv/operator/gpu-host-profiles.json" };
     expect(refusal({ ...hosted, resources: gpu }).message).toBe("Fleet settings are invalid: kubernetes.");

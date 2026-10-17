@@ -53,6 +53,9 @@ supervisor runs only there), `ingress` (`listenPort`, `nodePort` 30000-32767),
 how a pod reaches the database, both object stores and Temporal. The fleet
 host's pool uses the same addresses. A pod does not see the provisioner's own
 addresses.
+Every `nodeCidrs` and `egressCidrs` entry is one IPv4 CIDR. An IPv6 or dual-stack
+hosted cluster is outside this profile. A malformed entry is refused by its
+field, index, and entry (for example `kubernetes.nodeCidrs[0] "10.89.1.0"`).
 
 One named gap stays open: the supervisor DaemonSet and the Compose fleet host
 both hold one fleet-wide host identity (`hosted-host-identity-shared`).
