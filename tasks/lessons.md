@@ -2443,6 +2443,25 @@ smokes under the lock, detached-job wake-ups) are not repeated.
   "NOT OK" with the full merge sha; validator-8's planted case caught it before the install (plan-gate.md at
   d80f5a5ccff58e22 and 87271bce4f5bc1da; ruled 2026-10-16).
 
+#### The W4H-32 and W4H-33 holds (merge order, the harness contract, lane routing; 2026-10-16)
+- Coordinator: a red hold moves its package behind the next ready one, rather than holding the line. Trigger: W4H-32's
+  merge hold went red on the graph mock pass, and W4H-33 went ahead of it (coordinator log 19:05Z; ruled 2026-10-16).
+- Owner: a proof harness follows the product's contract: its release keeps the artifact copy in the release blobs, it is
+  prepared through the product runner, and a raw runner is never a preparation builder. Trigger: W4H-32's hold red came
+  from the harness, which prepared through a raw runner on a fresh store and kept only the guest's source, so it depended
+  on the rebuild path that W4H-32's ruled change removed; the product's own wiring was right. Fix B lands product and
+  harness together, red first (21643286f (788a514c8 before the rebase); verdict-w4h-32.txt at aa6fdcbdff3067f9;
+  coordinator log 19:09Z).
+- Coordinator: a change to a preparation, build, install or first-boot rule needs the graph mock pass among the owner's
+  freeze legs, not only in the hold. Trigger: the same W4H-32 hold red, which no owner leg had exercised (validator-8's
+  own rule, adopted for the team; validator-8 pending-lesson.md at 233ce5809f9af8f6, lines 209 to 211; ruled 2026-10-16).
+- Integrator: a hold routes test files by the product's own lane classifier, never by path or by scanning imports, and
+  every lane the product requires has a hold leg. Trigger: W4H-33's hold routed web/src/__tests__/sub-conversation.test.ts
+  to vitest by path, while the required lane "Web tests (bun-leg orphans)" (ci.yml line 505 at 8fb4474e9) runs it through
+  web_bunleg_files (scripts/lib/test-file-sets.sh line 496); fixed in case-web-junit.sh v3 247e29a17ea48697 with the new
+  leg web-bunleg-changed.sh v2 eea2f14dad7b00bb (coordinator log 20:49Z; ruled 2026-10-16). web-bunleg-changed.sh was
+  retired on 2026-10-17 and replaced by the lane-forms hold leg (b), lane-forms-leg.py.
+
 #### Owners (from w4h-5/pending-lesson.md)
 - Read the inbox before each report and before each new leg of work; when an order changes the plan (a split, a hold, a start word), stop
   and follow it.
