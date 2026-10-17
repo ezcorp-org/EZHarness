@@ -21,8 +21,9 @@
  *     provisioner's delivery directories — never written into a manifest. A
  *     Secret volume is a tree of symbolic links owned by root, which the
  *     factory's private reader correctly refuses, so an init container copies
- *     each service's Secret into that service's own in-memory `emptyDir` as
- *     0600 files owned by the pod's uid.
+ *     each service's Secret into an owned 0700 directory of that service's own
+ *     in-memory `emptyDir` as 0600 files owned by the pod's uid; the reader mounts
+ *     only that directory.
  *   - The namespace enforces Pod Security `restricted`. The supervisor is a
  *     DaemonSet in the fleet's system namespace, the only namespace allowed
  *     `privileged`, and the only workload given the container runtime socket
@@ -102,6 +103,21 @@ const restrictedContainer = (runAsUser: number) => ({
  */
 const restrictedPod = (runAsUser: number) => ({ runAsNonRoot: true, runAsUser, runAsGroup: runAsUser, fsGroup: runAsUser, seccompProfile: { type: "RuntimeDefault" } });
 
+/**
+ * The owned directory inside each delivered emptyDir (C12 row "Scoped secret delivery (hosted)"). The kubelet owns an emptyDir's
+ * root, and the factory's private reader needs a directory it owns on the path, so the copies live one level down.
+ */
+const DELIVERED = "private";
+
+/** The deliver-secrets command: per service, an owned 0700 directory in its emptyDir, then 0600 copies of its Secret's files. */
+function deliverCommand(services: readonly string[]): string[] {
+  const copy = (service: string) => `mkdir -p -m 0700 /delivered/${service}/${DELIVERED} && cp -L /source/${service}/* /delivered/${service}/${DELIVERED}/ && chmod 0600 /delivered/${service}/${DELIVERED}/*`;
+  return ["sh", "-ec", `umask 077 && ${services.map(copy).join(" && ")}`];
+}
+
+/** A reader's mount of its delivered copy: only the owned directory, read-only, at its secrets path. */
+const deliveredMount = (name: string, mountPath: string) => ({ name, mountPath, subPath: DELIVERED, readOnly: true });
+
 /** A container's `env` list from an environment record, in its order. */
 function environment(values: Readonly<Record<string, string>>): { name: string; value: string }[] {
   return Object.entries(values).map(([name, value]) => ({ name, value }));
@@ -140,7 +156,7 @@ export function renderFactoryKubernetesInstallation(bundle: FactoryInstallationB
     securityContext: restrictedContainer(settings.runAsUser),
     resources: { requests: { memory: LIMITS[service].memory, cpu: LIMITS[service].cpu }, limits: { memory: LIMITS[service].memory, cpu: LIMITS[service].cpu } },
     volumeMounts: [
-      { name: deliveredVolume(service), mountPath: FACTORY_CONTAINER_PATHS.secrets, readOnly: true },
+      deliveredMount(deliveredVolume(service), FACTORY_CONTAINER_PATHS.secrets),
       // Each readiness writer mounts only its own subdirectory, so it cannot forge another's record; readers see all of it read-only.
       service === "orchestrator"
         ? { name: "readiness", mountPath: `${FACTORY_CONTAINER_PATHS.readiness}/${ORCHESTRATION}`, subPath: ORCHESTRATION }
@@ -156,7 +172,6 @@ export function renderFactoryKubernetesInstallation(bundle: FactoryInstallationB
       readinessProbe: { exec: { command: service === "gateway" ? ["bun", "src/factory/provisioning/readiness-check.ts", "--tcp", `127.0.0.1:${bundle.ports.gateway}`] : ["bun", "src/factory/provisioning/readiness-check.ts", `${FACTORY_CONTAINER_PATHS.readiness}/${ORCHESTRATION}/${ORCHESTRATION}.json`] }, periodSeconds: 5 },
     }),
   }));
-  const copy = FACTORY_CONTAINER_SERVICES.map((service) => `cp -L /source/${service}/* /delivered/${service}/ && chmod 0600 /delivered/${service}/*`).join(" && ");
   return pinned(Object.freeze([
     { apiVersion: "v1", kind: "Namespace", metadata: { name: namespace, labels: { ...labels(bundle), "pod-security.kubernetes.io/enforce": "restricted", "pod-security.kubernetes.io/enforce-version": "latest" } } },
     { apiVersion: "v1", kind: "ServiceAccount", metadata: metadata("installation"), automountServiceAccountToken: false },
@@ -176,7 +191,7 @@ export function renderFactoryKubernetesInstallation(bundle: FactoryInstallationB
             terminationGracePeriodSeconds: 30,
             securityContext: restrictedPod(settings.runAsUser),
             initContainers: [{
-              name: "deliver-secrets", image, imagePullPolicy: "IfNotPresent", command: ["sh", "-ec", `umask 077 && ${copy}`],
+              name: "deliver-secrets", image, imagePullPolicy: "IfNotPresent", command: deliverCommand(FACTORY_CONTAINER_SERVICES),
               securityContext: restrictedContainer(settings.runAsUser),
               resources: { requests: { memory: "32Mi", cpu: "50m" }, limits: { memory: "64Mi", cpu: "100m" } },
               volumeMounts: FACTORY_CONTAINER_SERVICES.flatMap((service) => [{ name: sourceVolume(service), mountPath: `/source/${service}`, readOnly: true }, { name: deliveredVolume(service), mountPath: `/delivered/${service}` }]),
@@ -244,7 +259,7 @@ export function renderFactoryKubernetesSystem(settings: FactoryKubernetesSetting
             automountServiceAccountToken: false, enableServiceLinks: false,
             securityContext: restrictedPod(settings.runAsUser),
             initContainers: [{
-              name: "deliver-secrets", image, imagePullPolicy: "IfNotPresent", command: ["sh", "-ec", "umask 077 && cp -L /source/pool/* /delivered/pool/ && chmod 0600 /delivered/pool/*"],
+              name: "deliver-secrets", image, imagePullPolicy: "IfNotPresent", command: deliverCommand(["pool"]),
               securityContext: restrictedContainer(settings.runAsUser),
               resources: { requests: { memory: "32Mi", cpu: "50m" }, limits: { memory: "64Mi", cpu: "100m" } },
               volumeMounts: [{ name: "pool-secret-source", mountPath: "/source/pool", readOnly: true }, { name: "pool-secrets", mountPath: "/delivered/pool" }],
@@ -256,7 +271,7 @@ export function renderFactoryKubernetesSystem(settings: FactoryKubernetesSetting
               securityContext: restrictedContainer(settings.runAsUser),
               resources: { requests: { memory: "512Mi", cpu: "500m" }, limits: { memory: "512Mi", cpu: "1" } },
               ports: [{ name: "pool", containerPort: poolPort }],
-              volumeMounts: [{ name: "pool-secrets", mountPath: FACTORY_CONTAINER_PATHS.secrets, readOnly: true }, { name: "readiness", mountPath: `${FACTORY_CONTAINER_PATHS.readiness}/pool` }, { name: "tmp", mountPath: "/tmp" }],
+              volumeMounts: [deliveredMount("pool-secrets", FACTORY_CONTAINER_PATHS.secrets), { name: "readiness", mountPath: `${FACTORY_CONTAINER_PATHS.readiness}/pool` }, { name: "tmp", mountPath: "/tmp" }],
               readinessProbe: { exec: { command: ["bun", "src/factory/provisioning/readiness-check.ts", `${FACTORY_CONTAINER_PATHS.readiness}/pool/pool.json`] }, periodSeconds: 5 },
             }],
             volumes: [
@@ -283,7 +298,7 @@ export function renderFactoryKubernetesSystem(settings: FactoryKubernetesSetting
             securityContext: restrictedPod(settings.runAsUser),
             // A Secret volume is a tree of root-owned links the private reader refuses: copy it into private files first, as the pool does.
             initContainers: [{
-              name: "deliver-secrets", image, imagePullPolicy: "IfNotPresent", command: ["sh", "-ec", "umask 077 && cp -L /source/supervisor/* /delivered/supervisor/ && chmod 0600 /delivered/supervisor/*"],
+              name: "deliver-secrets", image, imagePullPolicy: "IfNotPresent", command: deliverCommand(["supervisor"]),
               securityContext: restrictedContainer(settings.runAsUser),
               resources: { requests: { memory: "32Mi", cpu: "50m" }, limits: { memory: "64Mi", cpu: "100m" } },
               volumeMounts: [{ name: "supervisor-secret-source", mountPath: "/source/supervisor", readOnly: true }, { name: "supervisor-secrets", mountPath: "/delivered/supervisor" }],
@@ -300,7 +315,7 @@ export function renderFactoryKubernetesSystem(settings: FactoryKubernetesSetting
               volumeMounts: [
                 { name: "runtime-socket", mountPath: settings.runtimeSocketPath },
                 { name: "runner-root", mountPath: settings.runnerRoot },
-                { name: "supervisor-secrets", mountPath: FACTORY_KUBERNETES_SUPERVISOR_PATHS.secrets, readOnly: true },
+                deliveredMount("supervisor-secrets", FACTORY_KUBERNETES_SUPERVISOR_PATHS.secrets),
                 { name: "readiness", mountPath: FACTORY_KUBERNETES_SUPERVISOR_PATHS.readinessDirectory },
                 { name: "tmp", mountPath: "/tmp" },
               ],

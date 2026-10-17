@@ -3,7 +3,7 @@ import { basename, dirname, resolve } from "node:path";
 import { createSecureContext } from "node:tls";
 import { fileURLToPath } from "node:url";
 import { openBunSql } from "../../db/bun-sql-pipelining";
-import { privateDirectory, readPrivateBounded } from "../private-files";
+import { factoryPrivateReadReason, privateDirectory, readPrivateBounded } from "../private-files";
 import { type FactoryPoolReadiness, type FactoryPoolReadinessUpdate, type FactoryPoolReadinessWriter, createFactoryPoolReadinessWriter } from "./readiness";
 import type { PoolResourceClass, PoolSql } from "./ledger";
 import { loadFactoryGpuHostProfiles, type FactoryGpuHostProfiles } from "./gpu-host-profiles";
@@ -239,8 +239,11 @@ const productionDependencies: FactoryPoolProcessDependencies = {
 /** Runs the existing pool service from one private, reference-only config. */
 export async function runConfiguredFactoryPoolProcess(configPath: string, signal: AbortSignal, dependencies: FactoryPoolProcessDependencies = productionDependencies): Promise<void> {
   let config: FactoryPoolProcessConfig;
-  try { config = parseFactoryPoolProcessConfig(JSON.parse(utf8(await readPrivatePath(configPath, MAX_CONFIG_BYTES)))); }
-  catch { throw new Error("factory pool config is unavailable"); }
+  let bytes: Uint8Array;
+  try { bytes = await readPrivatePath(configPath, MAX_CONFIG_BYTES); }
+  catch (error) { throw new Error(`factory pool config is unreadable (${factoryPrivateReadReason(error)})`); }
+  try { config = parseFactoryPoolProcessConfig(JSON.parse(utf8(bytes))); }
+  catch { throw new Error("factory pool config is invalid"); }
   const readiness = dependencies.readiness(config);
   // The latest record, served on the pool's readiness route to installations that cannot mount its file (hosted profile, W4H-35).
   let latest: FactoryPoolReadiness | undefined;

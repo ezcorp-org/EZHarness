@@ -3,7 +3,7 @@ import { chmod, mkdir, readdir, rm, stat, symlink, writeFile } from "node:fs/pro
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { makeFactoryTempPrivateRoot } from "../__tests__/helpers/factory-private-root";
-import { privateComponentVerdict, privateDirectory, readPrivate, readPrivateBounded, writePrivateBoundedAtomic } from "./private-files";
+import { FactoryPrivatePathError, factoryPrivateReadReason, privateComponentVerdict, privateDirectory, readPrivate, readPrivateBounded, writePrivateBoundedAtomic } from "./private-files";
 
 // A fresh 0700 root under os.tmpdir(): owned by this user, below the root-owned sticky /tmp.
 // That is the shape a hosted runner offers, where $HOME is an owned 0755 directory.
@@ -204,5 +204,28 @@ describe("writePrivateBoundedAtomic", () => {
     await expect(writePrivateBoundedAtomic(join(directory, "target"), Buffer.from("x"), 8)).rejects.toMatchObject({ code: expect.stringMatching(/^(EISDIR|ENOTEMPTY|EEXIST)$/) });
     expect(await readdir(directory)).toEqual(["target"]);
     expect(await readThrough(join(directory, "target"), "inside", 8)).toBe("kept");
+  });
+});
+
+// A service that cannot read its private config names why, and only by text that is safe to print (C12 row "Scoped secret
+// delivery (hosted)", kind proof run 10): this module's fixed refusal, the bare errno code, or "unknown"; never a path.
+describe("factoryPrivateReadReason", () => {
+  test("names this module's refusal by its fixed text, which is a FactoryPrivatePathError", async () => {
+    const error = await privateDirectory("/").then(() => undefined, (refusal: unknown) => refusal);
+    expect(error).toBeInstanceOf(FactoryPrivatePathError);
+    expect(factoryPrivateReadReason(error)).toBe("Private path has no owned directory.");
+  });
+
+  test("names a system refusal by its errno code only, without the path in its message", async () => {
+    const error = await privateDirectory(join(root, "absent", "leaf")).then(() => undefined, (refusal: unknown) => refusal);
+    expect((error as Error).message).toContain("absent");
+    expect(factoryPrivateReadReason(error)).toBe("ENOENT");
+  });
+
+  test("anything else is unknown", () => {
+    expect(factoryPrivateReadReason(new Error(`secret at ${root}`))).toBe("unknown");
+    expect(factoryPrivateReadReason(Object.assign(new Error("x"), { code: "ERR_INVALID_ARG_TYPE" }))).toBe("unknown");
+    expect(factoryPrivateReadReason("not an error")).toBe("unknown");
+    expect(factoryPrivateReadReason(undefined)).toBe("unknown");
   });
 });

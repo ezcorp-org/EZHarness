@@ -237,10 +237,18 @@ describe("factory pool process lifecycle", () => {
     expect(stopDatabase.closed).toBe(true);
   });
 
-  test("rejects inaccessible config without creating readiness", async () => {
+  // The read and the parse fail by different names (C12 row "Scoped secret delivery (hosted)", kind proof run 10: one message for
+  // both hid that the pool could not read its delivered copy). The read names the private reader's own fixed reason, never a path.
+  test("rejects inaccessible config without creating readiness, naming the private reader's reason", async () => {
     const { paths } = await fixture(); await chmod(paths.config, 0o644);
     const controller = new AbortController();
-    await expect(runConfiguredFactoryPoolProcess(paths.config, controller.signal, dependencies(new ProcessDatabase(), controller, []))).rejects.toThrow("factory pool config is unavailable");
+    await expect(runConfiguredFactoryPoolProcess(paths.config, controller.signal, dependencies(new ProcessDatabase(), controller, []))).rejects.toThrow("factory pool config is unreadable (Private file must be owned, private, regular, and bounded.)");
+  });
+
+  test("rejects a config it can read but not parse as invalid, not as unreadable", async () => {
+    const { paths } = await fixture(); await writeFile(paths.config, "{ not json", { mode: 0o600 });
+    const controller = new AbortController();
+    await expect(runConfiguredFactoryPoolProcess(paths.config, controller.signal, dependencies(new ProcessDatabase(), controller, []))).rejects.toThrow(/^factory pool config is invalid$/);
   });
 });
 
@@ -273,5 +281,5 @@ test("main prints why the pool could not start, by the error's generic message, 
 test("the pool process started on a config it cannot read prints the reason and exits 1", async () => {
   const child = Bun.spawn([process.execPath, new URL("./process.ts", import.meta.url).pathname, "/nonexistent/w16-pool/pool.json"], { stdout: "pipe", stderr: "pipe" });
   const [code, stderr] = await Promise.all([child.exited, new Response(child.stderr).text()]);
-  expect({ code, stderr: stderr.trim() }).toEqual({ code: 1, stderr: "[factory-pool] failed to start: factory pool config is unavailable" });
+  expect({ code, stderr: stderr.trim() }).toEqual({ code: 1, stderr: "[factory-pool] failed to start: factory pool config is unreadable (ENOENT)" });
 });

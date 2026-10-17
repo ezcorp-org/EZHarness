@@ -9,7 +9,20 @@ function owner(): number {
   return uid;
 }
 
-function privateError(message: string): Error { return new Error(message); }
+/** A refusal by the private-file rules. Its message is one of this module's fixed texts, never a path, so a caller may show it. */
+export class FactoryPrivatePathError extends Error { override readonly name = "FactoryPrivatePathError"; }
+
+function privateError(message: string): Error { return new FactoryPrivatePathError(message); }
+
+/**
+ * Why a private read failed, safe to print: this module's fixed refusal text, or the bare errno code (ENOENT, EACCES), or
+ * "unknown". Never a path or a cause (C12 row "Scoped secret delivery (hosted)": a service names why its config is unreadable).
+ */
+export function factoryPrivateReadReason(error: unknown): string {
+  if (error instanceof FactoryPrivatePathError) return error.message;
+  const code = (error as NodeJS.ErrnoException | undefined)?.code;
+  return typeof code === "string" && /^E[A-Z]+$/.test(code) ? code : "unknown";
+}
 
 const STICKY = 0o1000;
 
