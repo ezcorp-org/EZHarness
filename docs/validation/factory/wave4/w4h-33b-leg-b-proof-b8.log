@@ -1,0 +1,41 @@
+lane-forms: base env without CI,COVERAGE_LEGS_ONLY,CRITICAL_ONLY,EZCORP_RUN_PODMAN_TESTS,FACTORY_ONLY,RESIDUAL_ONLY
+== web-bun-tests (web-bun-tests, env -): bun test --timeout 30000 ./src/__tests__/price-chart-stream-bridge.test.ts  [cwd web] [no podman]
+bun test v1.4.2 (744846f84)
+
+src/__tests__/price-chart-stream-bridge.test.ts:
+108 |       if (stderr) errors += chunk.toString(); else output += chunk.toString();
+109 |     };
+110 |     child.stdout.on("data", chunk => collect(chunk, false));
+111 |     child.stderr.on("data", chunk => collect(chunk, true));
+112 |     child.on("error", error => { clearTimeout(timer); reject(error); });
+113 |     child.on("close", code => { clearTimeout(timer); if (code === 0) resolve(output); else reject(new RunnerCommandError((errors.trim() || output.trim()).slice(0, 8192) || `Runner control exited ${code}`, code)); });
+                                                                                                        ^
+RunnerError: podman: not installed in this lane (lane-forms podman=no row)
+     stage: "runner",
+ retryable: false,
+    detail: undefined,
+  exitCode: 127,
+      code: "command_failed"
+
+      at <anonymous> (/home/dev/work/EZCorp/EZHarness-worktrees/composable-factory-platform/.worktrees/i5-legb-8fb4474e9/packages/@ezcorp/extension-runner/src/core.ts:113:99)
+      at emit (node:events:103:22)
+      at #maybeClose (node:child_process:827:16)
+      at #handleOnExit (node:child_process:570:72)
+(fail) (unnamed) [1665.68ms]
+335 | beforeAll(async () => {
+336 | 	release = await buildFirstPartyRelease("price-chart");
+337 | }, 120_000);
+338 | 
+339 | afterAll(async () => {
+340 | 	await release.close();
+             ^
+TypeError: undefined is not an object (evaluating 'release.close')
+      at <anonymous> (/home/dev/work/EZCorp/EZHarness-worktrees/composable-factory-platform/.worktrees/i5-legb-8fb4474e9/web/src/__tests__/price-chart-stream-bridge.test.ts:340:8)
+(fail) (unnamed) [0.10ms]
+
+ 0 pass
+ 2 fail
+Ran 2 tests across 1 file. [1.99s]
+
+RED run web-bun-tests web/src/__tests__/price-chart-stream-bridge.test.ts: exit 1
+lane-forms: 1 changed test file(s), 1 lane run(s), 1 red

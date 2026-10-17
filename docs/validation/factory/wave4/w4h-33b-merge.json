@@ -1,0 +1,52 @@
+{
+ "package": "w4h-33b",
+ "kind": "package merge: W4H-33b hosted fixes for W4H-33 (D1 ai-kit release snapshot, D2 price-chart host lane, D3 Stryker sandbox alias, D4 preview-isolation log driver, D5 seed login; plus the typecheck fix of the login pair case)",
+ "branch": "wp/w4h-33b-hosted-fixes",
+ "head": "ef5e29a25ccbd27007c0642d8534c3b70c090285",
+ "base": "8fb4474e993a381ee9bc68b70cd16e4d95586550",
+ "main": "934531e2e9e8fd0c3c97e48527d545ca3476eb5e",
+ "mergeSha": "7f83176566b043e0c7c7bfedb6d616b33feb3e09",
+ "treeEquality": {
+  "trialTree": "0487db83fa38bcbcc2e9e440882ab438cbbed308",
+  "mergeTree": "0487db83fa38bcbcc2e9e440882ab438cbbed308",
+  "headTree": "0487db83fa38bcbcc2e9e440882ab438cbbed308",
+  "equal": true
+ },
+ "validatorVerdict": "validator-8 hold OK, plain green, naming 7f83176566b043e0c7c7bfedb6d616b33feb3e09 (verdict-w4h-33b.txt eb3c405d816489a3; copied as w4h-33b-validation.txt)",
+ "ownerReport": {
+  "w4h-33b/report.txt": "7979d499b5a526d3",
+  "w4h-33b/red-on-base.txt": "2a3734d3a560b2e7",
+  "w4h-33b/pending-lesson.md": "20c928239e455603"
+ },
+ "gateChange": "none of W4H-33b's own: origin/main leg equals the folder's expected set ea41e0e9a9bb5462 (scripts/merge-lcov.ts + the two W4H-33 deletions); base leg clean (empty set)",
+ "commit": {
+  "form": "detached merge, full-run hook, EZ_PRECOMMIT_TEST_MAX=6, PG_HOOK=0, in the heavy lock (margin 3); rerere off; archy noreply",
+  "try1_at_31ce24621": "folder w4h-33b-hosted-fixes-31ce24621-on-8fb4474e9: fast typecheck red (TS2769 scripts/test-skip-inventory.test.ts:323), nothing committed; routed to the owner; new head ef5e29a25 (one test-only commit), re-ACCEPTed, re-prepped",
+  "commit": "02:41:45-02:44:36Z exit 0; typecheck in the lock exit 0; hook 6 files: bun 56 pass 0 fail + vitest 2 passed"
+ },
+ "hold": {
+  "run": "launched 02:52:44Z, memory gate wait, in the lock 03:01:48Z with an own pg15, HEAVY DONE 03:18:18Z status=0: 85 legs, all exit 0",
+  "legs": {
+   "a_bundle_build": "28 of 28 succeeded, expected set empty, 0 red",
+   "b_lane_forms": "via hold-w4f.sh b2c155eff1d367db (route A): 6 changed test files, 6 lane runs, 0 red; the price-chart file is unchanged in this diff, judged on the extra-legs host-lane record (6 pass) and the leg (b) proof run1 b-new on the identical tree",
+   "c_mutation_lane": "23 mutants in 2 files, every one had tests run; PASS",
+   "d_preview_hosted_conmon": "7 pass 0 fail"
+  },
+  "rulings": "rulings-route-a-pricechart-a.txt 528e8737c227268f"
+ },
+ "identity": "publish identity step: identity-check commits 8fb4474e9..7f8317656, 7 commits, clean",
+ "published": "integ/w00 8fb4474e9 -> 7f8317656 at 2026-10-17T03:23:21Z by publish-if-main.sh with config.sh; remote main 934531e2e = expected",
+ "pushed": false,
+ "excludedFromReceipts": [
+  "the 4 owner originals w4h-33b/report.txt, logs/mutant-d5-lifecycle-reverted.log, logs/mutant-d5-seed-reverted.log, logs/red-d5-inventory.log (each holds one refused address); their redacted copies under the merge folder owner-redacted/ (PROVENANCE.txt) are the receipts under the same names (team-lead ruling R2-by-copy)",
+  "owner install and build logs (noise)",
+  "heavy-build-* and heavy-web-build (standard)",
+  "w4h-33b/logs/d5-moved-old-addresses.txt, d5-files-with-old.txt, d5-doc.patch and identity-files.log (they list fixture addresses)"
+ ],
+ "deviations": [
+  "commit try 1 at 31ce24621 refused by the fast typecheck (a package finding); the prep was redone at ef5e29a25 in a new folder",
+  "leg (b) selects changed test files only; a file moved between lanes with no change (price-chart) is not selected: a leftover for leg (b) (--base), owner integrator-5",
+  "the hold launched under the pre-authorization after a message that said it was held (team-lead's sequence lesson)",
+  "receipts try 1 refused by the identity step (4 owner files); try 2 with redacted copies (team-lead ruling); publish-basis.txt added (route R-a)"
+ ]
+}

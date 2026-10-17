@@ -1,0 +1,29 @@
+bun test v1.4.2 (744846f84)
+
+src/__tests__/first-party-sealed-test-references.test.ts:
+(pass) sealed first-party tests name only files the release keeps > a sealed test naming a left-out suite (also by a template) is a finding; a kept target is not [0.44ms]
+66 |       const sealed = new Map<string, string>();
+67 |       for (const path of Object.keys(snapshot.files)) sealed.set(path, TEST_FILE.test(path) ? await Bun.file(resolve(ROOT, source.directory, path)).text() : "");
+68 |       const excluded = trackedFiles(source.directory).filter((file) => !(file in snapshot.files));
+69 |       findings.push(...sealedReferencesToExcluded(sealed, excluded).map((finding) => `${source.directory}/${finding}`));
+70 |     }
+71 |     expect(findings).toEqual([]);
+                          ^
+error: expect(received).toEqual(expected)
+
+- []
++ [
++   "packages/@ezcorp/ai-kit/test/unit/deployed-preconditions.test.ts: names ./test/e2e/${suite}.test.ts, which the release snapshot leaves out",
++ ]
+
+- Expected  - 1
++ Received  + 3
+
+      at <anonymous> (/home/dev/work/EZCorp/EZHarness/.worktrees/w4h-33b/src/__tests__/first-party-sealed-test-references.test.ts:71:22)
+(fail) sealed first-party tests name only files the release keeps > every first-party release snapshot in the tree [385.15ms]
+
+ 1 pass
+ 1 fail
+ 3 expect() calls
+Ran 2 tests across 1 file. [770.00ms]
+exit=1

@@ -1,0 +1,7 @@
+STEP c8: PASS
+STEP c31: PASS
+STEP d8: PASS
+STEP d31: PASS
+STEP dm8: PASS
+STEP conf: PASS
+legs-cd-proof judge: 6 of 6 PASS

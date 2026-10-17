@@ -1,0 +1,12 @@
+bun test v1.4.2 (744846f84)
+
+src/__tests__/shipping-preview-isolation.test.ts:
+(pass) runs the plan's preview files inside the candidate image with the preview uid range mapped and the lane variable set [25.56ms]
+(pass) a run where the in-image tests skipped, failed or ran nothing is a failed proof [68.12ms]
+(pass) refuses to start without the candidate image or a receipt directory [7.50ms]
+
+ 3 pass
+ 0 fail
+ 27 expect() calls
+Ran 3 tests across 1 file. [472.00ms]
+exit=0

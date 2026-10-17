@@ -1,0 +1,159 @@
+lane-forms: base env without CI,COVERAGE_LEGS_ONLY,CRITICAL_ONLY,EZCORP_RUN_PODMAN_TESTS,FACTORY_ONLY,RESIDUAL_ONLY
+== cov-extras (cov-extras, env EZCORP_RUN_PODMAN_TESTS=1;COVERAGE_LEGS_ONLY=1): env COV_OUT=/home/dev/work/EZCorp/EZHarness-worktrees/composable-factory-platform/.worktrees/w00-integration/coverage/w4h-33b-hosted-fixes-ef5e29a25-on-8fb4474e9/lane-forms/cov-extras-packages-ezcorp-ai-kit-test-unit-deployed-preconditions-test-ts bash scripts/test-coverage.sh  [cwd .]
+pacted more aggressively and spend will report as unmeasured. Re-pin the conversation to a listed model, or run refresh-models if the provider still serves this id.","subsystem":"providers.router","provider":"anthropic","modelId":"claude-sonnet-4-20250514"}
+
+ 52 pass
+ 0 fail
+ 102 expect() calls
+Ran 52 tests across 1 file. [446.00ms]
+bun test v1.4.2 (744846f84)
+
+ 14 pass
+ 0 fail
+ 96 expect() calls
+Ran 14 tests across 1 file. [438.00ms]
+bun test v1.4.2 (744846f84)
+
+ 42 pass
+ 0 fail
+ 100 expect() calls
+Ran 42 tests across 1 file. [446.00ms]
+bun test v1.4.2 (744846f84)
+
+ 15 pass
+ 0 fail
+ 24 expect() calls
+Ran 15 tests across 1 file. [902.00ms]
+bun test v1.4.2 (744846f84)
+
+ 10 pass
+ 0 fail
+ 11 expect() calls
+Ran 10 tests across 1 file. [460.00ms]
+bun test v1.4.2 (744846f84)
+
+ 8 pass
+ 0 fail
+ 16 expect() calls
+Ran 8 tests across 1 file. [582.00ms]
+bun test v1.4.2 (744846f84)
+
+ 16 pass
+ 0 fail
+ 26 expect() calls
+Ran 16 tests across 1 file. [457.00ms]
+bun test v1.4.2 (744846f84)
+
+ 12 pass
+ 0 fail
+ 35 expect() calls
+Ran 12 tests across 1 file. [445.00ms]
+bun test v1.4.2 (744846f84)
+
+ 22 pass
+ 0 fail
+ 43 expect() calls
+Ran 22 tests across 1 file. [449.00ms]
+bun test v1.4.2 (744846f84)
+
+ 4 pass
+ 0 fail
+ 13 expect() calls
+Ran 4 tests across 1 file. [435.00ms]
+bun test v1.4.2 (744846f84)
+
+ 9 pass
+ 0 fail
+ 21 expect() calls
+Ran 9 tests across 1 file. [463.00ms]
+merged 526 source files → /tmp/tmp.jHyQeTo92o/merged.lcov
+kept 15 requested LCOV source records → /tmp/tmp.0z3EgxL46F/cov_providers/lcov.info
+wrote 15 provider source records → /tmp/tmp.0z3EgxL46F/cov_providers/lcov.info
+
+── leg output: api-client ──
+bun test v1.4.2 (744846f84)
+
+ 100 pass
+ 0 fail
+ 360 expect() calls
+Ran 100 tests across 2 files. [509.00ms]
+kept 1 requested LCOV source records → /tmp/tmp.0z3EgxL46F/cov_api_client/lcov.info
+
+── leg output: empty-node-shim ──
+bun test v1.4.2 (744846f84)
+
+ 1 pass
+ 0 fail
+ 3 expect() calls
+Ran 1 test across 1 file. [478.00ms]
+kept 1 requested LCOV source records → /tmp/tmp.0z3EgxL46F/cov_empty_node_shim/lcov.info
+
+── leg output: worker ──
+bun test v1.4.2 (744846f84)
+
+ 27 pass
+ 0 fail
+ 166 expect() calls
+Ran 27 tests across 1 file. [672.00ms]
+kept 1 requested LCOV source records → /tmp/tmp.0z3EgxL46F/cov_worker/lcov.info
+wrote canonical worker source record → /tmp/tmp.0z3EgxL46F/cov_worker/lcov.info
+
+── leg output: web-utility ──
+Running 29 direct web utility suites under Bun coverage (3 parallel)...
+merged 29 source files → /tmp/tmp.gUzYc22fVg/merged.lcov
+kept 26 requested LCOV source records → /tmp/tmp.0z3EgxL46F/cov_web_utility/lcov.info
+wrote 26 web utility source records → /tmp/tmp.0z3EgxL46F/cov_web_utility/lcov.info
+tolerated leg exit code (not gated here): suggest=0
+emitted 9 lcov shard(s) → /home/dev/work/EZCorp/EZHarness-worktrees/composable-factory-platform/.worktrees/w00-integration/coverage/w4h-33b-hosted-fixes-ef5e29a25-on-8fb4474e9/lane-forms/cov-extras-packages-ezcorp-ai-kit-test-unit-deployed-preconditions-test-ts
+  1469 pass | 0 fail | legs
+
+PASS cov-extras packages/@ezcorp/ai-kit/test/unit/deployed-preconditions.test.ts: 2054 pass
+== cov-shard (cov-shard, env -): bun test --timeout 30000 --coverage --coverage-reporter=lcov --coverage-dir=/home/dev/work/EZCorp/EZHarness-worktrees/composable-factory-platform/.worktrees/w00-integration/coverage/w4h-33b-hosted-fixes-ef5e29a25-on-8fb4474e9/lane-forms/cov-shard-scripts-test-skip-inventory-test-ts ./scripts/test-skip-inventory.test.ts  [cwd .]
+bun test v1.4.2 (744846f84)
+
+ 27 pass
+ 0 fail
+ 65 expect() calls
+Ran 27 tests across 1 file. [1.52s]
+
+PASS cov-shard scripts/test-skip-inventory.test.ts: 27 pass
+== cov-shard (cov-shard, env -): bun test --timeout 30000 --coverage --coverage-reporter=lcov --coverage-dir=/home/dev/work/EZCorp/EZHarness-worktrees/composable-factory-platform/.worktrees/w00-integration/coverage/w4h-33b-hosted-fixes-ef5e29a25-on-8fb4474e9/lane-forms/cov-shard-src-tests-ci-test-set-drift-test-ts ./src/__tests__/ci-test-set-drift.test.ts  [cwd .]
+bun test v1.4.2 (744846f84)
+
+ 18 pass
+ 0 fail
+ 177 expect() calls
+Ran 18 tests across 1 file. [1.58s]
+
+PASS cov-shard src/__tests__/ci-test-set-drift.test.ts: 18 pass
+== cov-shard (cov-shard, env -): bun test --timeout 30000 --coverage --coverage-reporter=lcov --coverage-dir=/home/dev/work/EZCorp/EZHarness-worktrees/composable-factory-platform/.worktrees/w00-integration/coverage/w4h-33b-hosted-fixes-ef5e29a25-on-8fb4474e9/lane-forms/cov-shard-src-tests-first-party-sealed-test-references-test-ts ./src/__tests__/first-party-sealed-test-references.test.ts  [cwd .]
+bun test v1.4.2 (744846f84)
+
+ 2 pass
+ 0 fail
+ 3 expect() calls
+Ran 2 tests across 1 file. [786.00ms]
+
+PASS cov-shard src/__tests__/first-party-sealed-test-references.test.ts: 2 pass
+== cov-shard (cov-shard, env -): bun test --timeout 30000 --coverage --coverage-reporter=lcov --coverage-dir=/home/dev/work/EZCorp/EZHarness-worktrees/composable-factory-platform/.worktrees/w00-integration/coverage/w4h-33b-hosted-fixes-ef5e29a25-on-8fb4474e9/lane-forms/cov-shard-src-tests-shipping-preview-isolation-test-ts ./src/__tests__/shipping-preview-isolation.test.ts  [cwd .]
+bun test v1.4.2 (744846f84)
+
+ 3 pass
+ 0 fail
+ 27 expect() calls
+Ran 3 tests across 1 file. [548.00ms]
+
+PASS cov-shard src/__tests__/shipping-preview-isolation.test.ts: 3 pass
+== test-web-shard (test-web-shard, env -): npx vitest run --testTimeout=30000 src/__tests__/stryker-sandbox-aliases.unit.test.ts  [cwd web] [no podman]
+
+ RUN  v5.0.3 /home/dev/work/EZCorp/EZHarness-worktrees/composable-factory-platform/.worktrees/w00-integration/web
+
+
+ Test Files  1 passed (1)
+      Tests  2 passed (2)
+   Start at  23:16:06
+   Duration  770ms (transform 59%, tests 28%, setup 13%)
+
+
+PASS test-web-shard web/src/__tests__/stryker-sandbox-aliases.unit.test.ts: 2 pass
+lane-forms: 6 changed test file(s), 6 lane run(s), 0 red

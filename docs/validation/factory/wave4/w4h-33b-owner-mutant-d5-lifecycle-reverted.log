@@ -1,0 +1,83 @@
+bun test v1.4.2 (744846f84)
+
+scripts/test-skip-inventory.test.ts:
+(pass) testGates finds what never runs and what is gated > a static describe.skip, test.todo or a Playwright test.skip(name, fn) never runs [0.56ms]
+(pass) testGates finds what never runs and what is gated > a skip in a comment or a string is not a gate [0.08ms]
+(pass) testGates finds what never runs and what is gated > a conditional alias is a gate, not a static skip, and its variable is found through a const [0.20ms]
+(pass) testGates finds what never runs and what is gated > the reversed alias (cond ? describe.skip : describe) is a gate too [0.08ms]
+(pass) testGates finds what never runs and what is gated > skipIf, if, runIf and todoIf read variables directly, by index, and through Bun.env [0.17ms]
+(pass) testGates finds what never runs and what is gated > a gate on an imported const reads the variable the imported module names [0.12ms]
+(pass) testGates finds what never runs and what is gated > a gate on a host probe reads no variable, and a nested call keeps its whole condition [0.14ms]
+(pass) testGates finds what never runs and what is gated > an unresolvable import and a deep const chain stop without a variable [0.08ms]
+(pass) assignsVariable > shell, YAML, object-key and quoted-key assignments count; a read does not [0.07ms]
+(pass) inventoryViolations > a static skip with no tracked row is a test that never runs [0.20ms]
+(pass) inventoryViolations > a conditional gate with no row is refused by name [0.10ms]
+(pass) inventoryViolations > an env row passes only when every setter assigns every variable the gate reads [0.26ms]
+(pass) inventoryViolations > a gate through a relative import is judged by the imported module [0.27ms]
+(pass) inventoryViolations > a capability row may not hide an environment gate [0.07ms]
+(pass) inventoryViolations > a tracked row keeps a static skip only with an issue that the test file names [0.12ms]
+(pass) inventoryViolations > a precondition skip (team-lead's ruling for a lane that lacks a suite's preconditions) > passes only in the exact form, with a registry id whose suites list the file and whose names list the precondition [0.27ms]
+(pass) inventoryViolations > a precondition skip (team-lead's ruling for a lane that lacks a suite's preconditions) > a malformed string, an unknown id, a suite the row does not list, or an unlisted precondition is refused [0.20ms]
+(pass) inventoryViolations > a precondition skip (team-lead's ruling for a lane that lacks a suite's preconditions) > a registry row is complete and names suites that exist [0.03ms]
+(pass) inventoryViolations > a precondition skip (team-lead's ruling for a lane that lacks a suite's preconditions) > an env variable no lane sets passes only as a named precondition with a tracked skip in the file [0.17ms]
+(pass) inventoryViolations > duplicate, missing, reasonless and stale rows are refused [0.03ms]
+(pass) fixture addresses (identity-check.sh files mode in the repository) > reserved domains, the archy noreply address, URL userinfo, scp remotes and unit names pass [0.12ms]
+(pass) fixture addresses (identity-check.sh files mode in the repository) > an address on a real domain is refused by line, another GitHub noreply too, and the message never repeats it [0.15ms]
+(pass) the repository > lists tracked test files only: no vendored node_modules, no deleted file [10.92ms]
+(pass) the repository > every gated test file names the lane that sets its variable or the capability it probes, and nothing never runs [265.27ms]
+(pass) the repository > every fixture address in the test tree is on a reserved domain [588.26ms]
+306 |   test("every fixture address in the test tree is on a reserved domain", () => {
+307 |     expect(fixtureAddressViolations(repositoryTestFiles(ROOT, FIXTURE_TREE))).toEqual([]);
+308 |   });
+309 | 
+310 |   test("every fixture address where a fixture account is created or checked is on a reserved domain", () => {
+311 |     expect(fixtureAddressViolations(repositoryTestFiles(ROOT, FIXTURE_ACCOUNT_SOURCES))).toEqual([]);
+                                                                                               ^
+error: expect(received).toEqual(expected)
+
+- []
++ [
++   "scripts/verify-production-image-lifecycle.sh:228: a fixture address on a non-reserved domain; use example.com, *.example, *.invalid, *.test, *.localhost or *.local",
++ ]
+
+- Expected  - 1
++ Received  + 3
+
+      at <anonymous> (/home/dev/work/EZCorp/EZHarness/.worktrees/w4h-33b/scripts/test-skip-inventory.test.ts:311:90)
+(fail) the repository > every fixture address where a fixture account is created or checked is on a reserved domain [46.54ms]
+318 |     const identity = [login?.[1], login?.[2]];
+319 |     const seed = read("scripts/seed-marketplace.ts");
+320 |     const lifecycle = [...read("scripts/verify-production-image-lifecycle.sh").matchAll(/\{"email":"([^"]+)","password":"([^"]+)"/g)];
+321 |     // The Compose seed, and the production proof's setup and login.
+322 |     expect([/const testEmail = "([^"]+)"/.exec(seed)?.[1], /const testPassword = "([^"]+)"/.exec(seed)?.[1]]).toEqual(identity);
+323 |     expect(lifecycle.map(([, email, password]) => [email, password])).toEqual([identity, identity]);
+                                                                            ^
+error: expect(received).toEqual(expected)
+
+  [
+    [
+-     "test@test.example",
++     "<a non-noreply address>",
+      "Test123!",
+    ],
+    [
+      "test@test.example",
+      "Test123!",
+    ],
+  ]
+
+- Expected  - 1
++ Received  + 1
+
+      at <anonymous> (/home/dev/work/EZCorp/EZHarness/.worktrees/w4h-33b/scripts/test-skip-inventory.test.ts:323:71)
+(fail) the repository > the Docker suites log in with the identity that each seed creates [0.31ms]
+
+2 tests failed:
+(fail) the repository > every fixture address where a fixture account is created or checked is on a reserved domain [46.54ms]
+(fail) the repository > the Docker suites log in with the identity that each seed creates [0.31ms]
+
+ 25 pass
+ 2 fail
+ 66 expect() calls
+Ran 27 tests across 1 file. [1376.00ms]
+exit=1
