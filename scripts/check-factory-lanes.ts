@@ -208,7 +208,6 @@ export function laneTestFiles(job: string, lanes: readonly FactoryLane[] = FACTO
   return [...lane.tests, ...lane.boundTests];
 }
 
-/** The files the hosted shard selection must never select: every lane's bound tests, sorted. */
 /** The hosted subtraction: the factory lanes' bound tests and the production proofs' bound tests (scripts/production-proof-plan.ts). */
 export function laneBoundTestFiles(lanes: readonly FactoryLane[] = FACTORY_LANES, proofBound: readonly string[] = PRODUCTION_PROOF_BOUND_TESTS): string[] {
   return [...new Set([...lanes.flatMap((lane) => lane.boundTests), ...proofBound])].sort();
