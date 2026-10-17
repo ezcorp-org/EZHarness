@@ -5,6 +5,7 @@ import { join, resolve } from "node:path";
 import { withoutGitContext } from "@ezcorp/sdk/git";
 import {
   assignsVariable,
+  FIXTURE_ACCOUNT_SOURCES,
   FIXTURE_TREE,
   fixtureAddressLines,
   fixtureAddressViolations,
@@ -304,5 +305,22 @@ describe("the repository", () => {
 
   test("every fixture address in the test tree is on a reserved domain", () => {
     expect(fixtureAddressViolations(repositoryTestFiles(ROOT, FIXTURE_TREE))).toEqual([]);
+  });
+
+  test("every fixture address where a fixture account is created or checked is on a reserved domain", () => {
+    expect(fixtureAddressViolations(repositoryTestFiles(ROOT, FIXTURE_ACCOUNT_SOURCES))).toEqual([]);
+  });
+
+  test("the Docker suites log in with the identity that each seed creates", () => {
+    const read = (path: string) => repositoryReader(ROOT)(path) ?? "";
+    const login = /email:\s*"([^"]+)",\s*password:\s*"([^"]+)"/.exec(read("web/e2e/docker-auth-setup.ts"));
+    const [, email, password] = login ?? [];
+    if (email === undefined || password === undefined) throw new Error("web/e2e/docker-auth-setup.ts: no login line with an email and a password");
+    const identity: [string, string] = [email, password];
+    const seed = read("scripts/seed-marketplace.ts");
+    const lifecycle = [...read("scripts/verify-production-image-lifecycle.sh").matchAll(/\{"email":"([^"]+)","password":"([^"]+)"/g)];
+    // The Compose seed, and the production proof's setup and login.
+    expect([/const testEmail = "([^"]+)"/.exec(seed)?.[1], /const testPassword = "([^"]+)"/.exec(seed)?.[1]]).toEqual(identity);
+    expect(lifecycle.map(([, email, password]) => [email, password])).toEqual([identity, identity]);
   });
 });

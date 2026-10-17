@@ -251,6 +251,9 @@ describe("web/src pass/fail gating", () => {
 
   test.each([
     ["isolated Hub worker suite", "web/src/__tests__/hub-isolated-action.integration.test.ts"],
+    // Builds the price-chart release with the rootless Podman runner; only the
+    // prepared host lanes install it (W4H-33b: it failed 2 in web orphans).
+    ["isolated price-chart release suite", "web/src/__tests__/price-chart-stream-bridge.test.ts"],
     ["invite limiter isolation", "web/src/__tests__/invite-rate-limit-isolation.test.ts"],
     ["nested extension uploads", "web/src/routes/api/extensions/[name]/uploads/__tests__/upload.test.ts"],
   ])("%s runs in prepared root host lanes, not web orphans", (_name, file) => {

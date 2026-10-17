@@ -55,6 +55,9 @@ test("runs the plan's preview files inside the candidate image with the preview 
   // Rootless Podman maps 65,536 subordinate ids: the image's low ids and the helper's 90000–99000 range, nothing else.
   for (const map of ["--uidmap=0:0:56536", "--uidmap=90000:56536:9001", "--gidmap=0:0:56536", "--gidmap=90000:56536:9001"]) expect(argv).toContain(map);
   expect(argv).toContain("--network=none");
+  // The proof job installs the runner's pinned static conmon, built without journald, and Podman logs to journald by
+  // default: the run then dies with "conmon failed: exit status 1" (W4H-33b). The runner passes the same flag.
+  expect(argv).toContain("--log-driver=none");
   expect(argv).toContain("--env=EZCORP_PREVIEW_ISOLATION_PROOF=1");
   // The image ships no tests, and the image's bun user must be able to read them whatever the checkout's umask: the
   // plan's files are staged world-readable in a temporary folder (W4H-33: a 0700 worktree folder read as "no test
