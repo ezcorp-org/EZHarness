@@ -1,5 +1,6 @@
 import { expect, test } from "bun:test";
-import { spawn } from "node:child_process";
+import { spawn, type ChildProcess, type ChildProcessWithoutNullStreams } from "node:child_process";
+import { once } from "node:events";
 import { request } from "node:http";
 import { mkdtemp, rm } from "node:fs/promises";
 import { join } from "node:path";
@@ -27,6 +28,79 @@ const unusedRunnerMethods: Pick<Runner, "build" | "inspect" | "collectArtifacts"
   build: unexpectedRunnerMethod, inspect: unexpectedRunnerMethod, collectArtifacts: unexpectedRunnerMethod,
 };
 
+async function readyExecution(child: ChildProcess, execution: FramedExecution, signal: AbortSignal): Promise<FramedExecution> {
+  const waiting = new AbortController();
+  try {
+    const [message] = await Promise.race([
+      once(child, "message", { signal: AbortSignal.any([signal, waiting.signal]) }),
+      execution.exited.then(() => { throw new Error("Provider fixture exited before readiness"); }),
+    ]);
+    if (message !== "ready") throw new Error("Invalid provider fixture readiness");
+    return execution;
+  } catch (error) {
+    await execution.close();
+    await execution.exited;
+    throw error;
+  } finally { waiting.abort(); }
+}
+
+function spawnProvider(program: string): ChildProcessWithoutNullStreams {
+  const child = spawn(process.execPath, ["-e", program], { stdio: ["pipe", "pipe", "pipe", "ipc"] });
+  if (!child.stdin || !child.stdout || !child.stderr) {
+    child.kill("SIGKILL");
+    throw new Error("Provider fixture requires piped standard streams");
+  }
+  return child as ChildProcessWithoutNullStreams;
+}
+
+function startupFixture(program: string, timeoutMs = 1000) {
+  const child = spawnProvider(program);
+  const execution = new FramedExecution("startup-provider", child, async () => null,
+    async () => { child.kill("SIGKILL"); }, 64 * 1024, timeoutMs);
+  return { child, execution };
+}
+
+test("provider startup failures are redacted and close their fresh child", async () => {
+  const canary = "startup-failure-secret-canary";
+  for (const fixture of [
+    { program: `process.stderr.write(${JSON.stringify(canary)}); process.exit(1);`, reason: "exited before readiness" },
+    { program: `process.send(${JSON.stringify(canary)}); process.stdin.resume();`, reason: "Invalid provider fixture readiness" },
+  ]) {
+    const { child, execution } = startupFixture(fixture.program);
+    try {
+      const startup = readyExecution(child, execution, new AbortController().signal);
+      await expect(startup).rejects.toThrow(fixture.reason);
+      await expect(startup).rejects.not.toThrow(canary);
+      await expect(execution.exited).resolves.toBeDefined();
+    } finally { await execution.close(); await execution.exited; }
+  }
+});
+
+test("aborting provider startup terminates the child before any request", async () => {
+  const { child, execution } = startupFixture('process.stdin.resume(); process.stderr.write("startup-held");');
+  const controller = new AbortController();
+  try {
+    const startup = readyExecution(child, execution, controller.signal);
+    await once(child.stderr, "data");
+    controller.abort();
+    await expect(startup).rejects.toMatchObject({ name: "AbortError" });
+    await expect(execution.exited).resolves.toBeDefined();
+    expect(child.killed).toBe(true);
+  } finally { await execution.close(); await execution.exited; }
+});
+
+test("a ready provider still enforces the sensitive request deadline", async () => {
+  const { child, execution } = startupFixture('process.stdin.on("data", () => {}); process.send("ready");', 20);
+  try {
+    await readyExecution(child, execution, new AbortController().signal);
+    await expect(requestSensitiveProviderResult(execution, {})).rejects.toMatchObject({
+      code: "sensitive_failed", message: "Sensitive provider request failed",
+    });
+    await expect(execution.exited).resolves.toBeDefined();
+    expect(child.killed).toBe(true);
+  } finally { await execution.close(); await execution.exited; }
+});
+
 test("the remote service keeps sensitive bytes off ordinary JSON responses", async () => {
   const directory = await mkdtemp("/tmp/ez-sensitive-service-");
   const socketPath = join(directory, "runner.sock");
@@ -35,8 +109,11 @@ test("the remote service keeps sensitive bytes off ordinary JSON responses", asy
   const sdk = new URL("../../sdk/src/v4/index.ts", import.meta.url).pathname;
   const runner: Runner = { ...unusedRunnerMethods,
     start: async input => {
-      const child = spawn(process.execPath, ["-e", `import { defineExtension, serve } from ${JSON.stringify(sdk)}; await serve(defineExtension({ manifest: { schemaVersion: 4, name: "provider", version: "1.0.0", description: "Provider", author: { name: "Test" }, permissions: {} }, providerCredentials: () => ${JSON.stringify(canary)} }));`], { stdio: ["pipe", "pipe", "pipe"] });
-      return new FramedExecution(input.workerId, child, async () => null, async () => { child.kill("SIGKILL"); }, 64 * 1024, 1000, undefined, params => ({ ...(params as Record<string, unknown>), context: { ...input.context, invocationId: "provider-credential", deadline: Date.now() + 5000 } }));
+      // SDK import/initialization is startup, not a provider request. Each fresh
+      // child signals readiness on IPC after serve has attached its input loop.
+      const child = spawnProvider(`import { defineExtension, serve } from ${JSON.stringify(sdk)}; const running = serve(defineExtension({ manifest: { schemaVersion: 4, name: "provider", version: "1.0.0", description: "Provider", author: { name: "Test" }, permissions: {} }, providerCredentials: () => ${JSON.stringify(canary)} })); process.send("ready"); await running;`);
+      const execution = new FramedExecution(input.workerId, child, async () => null, async () => { child.kill("SIGKILL"); }, 64 * 1024, 1000, undefined, params => ({ ...(params as Record<string, unknown>), context: { ...input.context, invocationId: "provider-credential", deadline: Date.now() + 5000 } }));
+      return readyExecution(child, execution, AbortSignal.timeout(Math.max(1, input.context.deadline - Date.now())));
     },
     cancel: async () => {},
   };

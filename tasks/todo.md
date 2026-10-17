@@ -9048,3 +9048,16 @@ Current review: Both remaining test fixes reproduced RED and passed focused test
 Review evidence: original full stage native1 retained externally; actual full c686 archive consumer reproduces identical refusal. New real-stage fixture RED before repair, GREEN after. Focused suite25tests passes including23 unsafe archive/link cases; full actual c686 archive now extracts with both Python pin aliases regular and matching canonical bytes; no extracted source links. Independent review/normal commit pending.
 
 Independent review CLEAR: helper88feae6d5795b3f56ac9ef8b376c5ef61ed3ae5ae77c583e63f70e3b55245b63, test70e2d6a04b23e4d91914d70efbbf12f99e9ef436355905223c1456306358f1ac. Reviewer independently ran25tests and fullactualc686archive consumer with no links and matching pin bytes. Only extract_head changed in production; source/output/runtime guards preserved. A new integrated source SHA needs fresh canonical and stage bindings; no stale-pin full staging was attempted.
+
+
+## Sensitive service hosted CI repair
+
+- [x] Inspect hosted failure and real child/protocol path; install only required isolated dependencies with pinned Bun.
+- [x] Reproduce cold-start failure through the actual service and sensitive consumer; retain evidence.
+- [x] Fix proven root cause without raising deadlines, retrying requests, or weakening redaction.
+- [x] Validate real cold startup and negative/redaction/deadline boundaries.
+- [x] Independent cross-review CLEAR; normal commit prepared; final SHA recorded in `.cache/sensitive-ci-repair/commit-result.json`.
+
+Review: real cold25%CPU baseline first service test RED1395ms; fresh real SDK readiness1892ms exceeded fixture request1000ms. Per-child IPC readiness now separates startup from the unchanged1000ms request deadline; startup still honors existing absolute context deadline. No warm worker, retries, product changes, or suppressed assertion. Cold coverage under same quota/cache-disabled PASS7tests/37assertions; adjacent sensitive protocol plus service PASS21tests/109assertions; strict runner package typecheck and Biome PASS. Startup crash/invalid-marker/abort cleanup and post-ready deadline controls pass. Owned scopes inactive; independent review and normal commit pending.
+
+Cross-review CLEAR on testSHAbe72b493763843b183d958a5f0ef6202d2bfc971ca9c1a2a4fd5591d4a5f05d9: independent pinnedBun/cache-disabled7tests37assertions0; startup boundary, unchanged request/context bounds, redaction and cleanup verified. Receipt incus-resources-ci-sol61-oct17/.cache/resource-ci-repair/sensitive-independent-clear.json. No production source changes; final combined-source gates and hosted CI remain root work.
