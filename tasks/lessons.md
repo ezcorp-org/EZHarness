@@ -2418,6 +2418,31 @@ smokes under the lock, detached-job wake-ups) are not repeated.
   left its peer-gateway child (ppid 1); the gateway now ends when its stdin pipe closes, so it cannot outlive the service
   (W4H-28 follow-up 2, c3affbfd5); a worktree removal check found the orphan a day later.
 
+#### The W4H-33 hold and its union publish (records, gates and verdict checks; 2026-10-16)
+- Validator: a validator OK is cited by its file plus the file's hash at the time cited. A changed hash is accepted only
+  when a prefix-equality check proves the file changed by one append. Trigger: a record's hash differed from the hash
+  named in a message (ruled 2026-10-16).
+- Coordinator: a publish gate reads a hold's result from its exit file and its log. When a red leg is caused by a harness
+  defect and the fixed legs re-ran green at the same merge, the union result is derived by a checker from both records
+  (the re-run green; every original red a ruled not-runnable record or green in the re-run; the same diff and merge sha;
+  the validator's verdict naming the merge), never written by hand, and the gate reads the derived files through its own
+  config, which leaves the original config and records untouched. A package defect never takes this route. Trigger: the
+  W4H-33 publish refused on heavy.exit 1 while the validator's union OK named the merge (detached-merge/publish.sh
+  f55db31d526c443a, lines 11 and 12; union-exit.py 3ec27ab6246a68c7; ruled 2026-10-16).
+- Integrator: an install may follow a recorded OK that names exact hashes; a lock launch waits for the OK message itself
+  and for every check that message asks for, because a correction can travel behind the record. Trigger: the W4H-33
+  re-run launched before the validator's installed-hash check, when the validator's withdrawal of "no wait" crossed the
+  integrator's read of the record (integrator-5's and validator-8's pending-lesson.md; ruled 2026-10-16).
+- Integrator: a tool never overwrites a record in an evidence folder. A tool that writes into a merge folder refuses when
+  its target file exists, before any state change such as a ref move, and names the ruled form in its refusal: a recorded
+  mv to a new name, with the hash recorded before and after. Trigger: publish.sh line 16 wrote reattach.log with a plain
+  redirect and would have overwritten the W4H-33 folder's worktree-switch record from the red hold (the installed
+  publish.sh e3919a185e9386f0 refuses; ruled 2026-10-16).
+- Validator: a checker that accepts a verdict line by the presence of OK also refuses NOT OK, proven by a test case with
+  the negated verdict and a mutant without the refusal. Trigger: the first union checker accepted a first line reading
+  "NOT OK" with the full merge sha; validator-8's planted case caught it before the install (plan-gate.md at
+  d80f5a5ccff58e22 and 87271bce4f5bc1da; ruled 2026-10-16).
+
 #### Owners (from w4h-5/pending-lesson.md)
 - Read the inbox before each report and before each new leg of work; when an order changes the plan (a split, a hold, a start word), stop
   and follow it.
