@@ -3,7 +3,8 @@
  * DB: gating, auth scope, deterministic project+conversation creation, rate
  * limit override, and ownership-checked reset.
  */
-import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, test } from "bun:test";
+import { rm } from "node:fs/promises";
+import { spyOn, afterAll, afterEach, beforeAll, beforeEach, describe, expect, test } from "bun:test";
 import { restoreModuleMocks } from "../../../src/__tests__/helpers/mock-cleanup";
 import { mockDbConnection, mockRealSettings, setupTestDb, closeTestDb } from "../../../src/__tests__/helpers/test-pglite";
 
@@ -13,9 +14,14 @@ mockRealSettings();
 const { POST: seed } = await import("../routes/api/__test/seed/+server");
 const { POST: reset } = await import("../routes/api/__test/reset/+server");
 const { getConversation, createConversation, getMessagesWithToolCalls } = await import("../../../src/db/queries/conversations");
-const { createProject } = await import("../../../src/db/queries/projects");
+const projectGit = await import("../../../src/extensions/project-open-pr");
+const { readProjectGit } = await import("../../../src/extensions/project-git-broker");
+const { getSecret } = await import("../../../src/extensions/secrets-store");
+const { resolveProjectSourceCredential } = await import("../../../src/extensions/source-import");
+const { getProject, createProject } = await import("../../../src/db/queries/projects");
 const { getSetting } = await import("../../../src/db/queries/settings");
 const { createUser } = await import("../../../src/db/queries/users");
+const { listProjectMembers } = await import("../../../src/db/queries/project-members");
 
 const savedE2E = process.env.PI_E2E_REAL;
 const savedNodeEnv = process.env.NODE_ENV;
@@ -30,6 +36,7 @@ const ev = (body: unknown, locals: unknown = { user }) => ({ request: req(body),
 beforeAll(async () => {
   await setupTestDb();
   // conversations.user_id is an FK → users.id; create the principals first.
+  await createUser({ id: "source-admin", email: "source-admin@x.test", passwordHash: "x", name: "Source Admin", role: "admin", status: "active" });
   for (const id of ["u1", "other-user"]) {
     await createUser({ id, email: `${id}@x.test`, passwordHash: "x", name: id, role: "member", status: "active" });
   }
@@ -48,11 +55,72 @@ describe("POST /api/__test/seed", () => {
     expect((await seed(ev({}))).status).toBe(404);
   });
 
+  test("Incus fixture remains hidden when the test surface is off", async () => {
+    delete process.env.PI_E2E_REAL;
+    expect((await seed(ev({ incusProject: true }))).status).toBe(404);
+  });
+
+  test("Incus fixture requires an authenticated principal", async () => {
+    await expect(seed(ev({ incusProject: true }, {}))).rejects.toMatchObject({ status: 401 });
+  });
+
+  test("Incus fixture uses the project service to publish its owner and binding", async () => {
+    const res = await seed(ev({ incusProject: true, projectName: "Incus browser fixture" }));
+    expect(res.status).toBe(201);
+    const out = await res.json();
+    expect(out.project.id).toMatch(/^incus-project-[0-9a-f]{48}$/);
+    expect(out.project.name).toBe("Incus browser fixture");
+    expect(out.binding.projectId).toBe(out.project.id);
+    expect(await listProjectMembers(out.project.id)).toContainEqual(expect.objectContaining({ userId: user.id, role: "owner" }));
+  });
+
+  test("source credentials fail closed outside the test surface and for members", async () => {
+    process.env.NODE_ENV = "production";
+    expect((await seed(ev({ githubSourceToken: "canary" }, { user: { ...user, id: "source-admin", role: "admin" } }))).status).toBe(404);
+    delete process.env.NODE_ENV;
+    expect((await seed(ev({ githubSourceToken: "canary" }))).status).toBe(403);
+    const admin = { user: { ...user, id: "source-admin", role: "admin" } };
+    expect((await seed(ev({ githubSourceToken: "canary" }, { ...admin, apiKeyScopes: ["chat"] }))).status).toBe(403);
+    for (const token of [null, 1, "", "x".repeat(4097)]) expect((await seed(ev({ githubSourceToken: token }, admin))).status).toBe(400);
+  });
+
+  test("source credential is bound to the caller's exact fixed repository project", async () => {
+    const savedGitDirectory = process.env.GIT_DIR;
+    const savedGitWorktree = process.env.GIT_WORK_TREE;
+    process.env.GIT_DIR = "/unrelated-hook-repository";
+    process.env.GIT_WORK_TREE = "/unrelated-hook-worktree";
+    let res: Response;
+    try { res = await seed(ev({ githubSourceToken: "synthetic-source-canary" }, { user: { ...user, id: "source-admin", role: "admin" } })); }
+    finally {
+      if (savedGitDirectory === undefined) delete process.env.GIT_DIR; else process.env.GIT_DIR = savedGitDirectory;
+      if (savedGitWorktree === undefined) delete process.env.GIT_WORK_TREE; else process.env.GIT_WORK_TREE = savedGitWorktree;
+    }
+    expect(res.status).toBe(201);
+    const out = await res.json();
+    expect(Object.keys(out).sort()).toEqual(["conversationId", "projectId"]);
+    const project = await getProject(out.projectId);
+    try {
+      expect(await readProjectGit(project!.path, "origin")).toBe("https://github.com/ezcorp-org/EZHarness");
+      expect(await getSecret("github-projects", out.projectId, "apiToken")).toBe("synthetic-source-canary");
+      expect(await getSecret("github-projects", null, "apiToken")).toBeNull();
+      expect(await resolveProjectSourceCredential({ principalId: "source-admin", kind: "human", scope: "global" }, "ezcorp-org/EZHarness", out.projectId)).toBe("synthetic-source-canary");
+      await expect(resolveProjectSourceCredential({ principalId: "source-admin", kind: "human", scope: "global" }, "foreign/repo", out.projectId)).rejects.toMatchObject({ code: "source_mismatch" });
+    } finally { await rm(project!.path, { recursive: true, force: true }); }
+  });
+
+  test("failed fixture Git initialization cannot publish a credential fixture", async () => {
+    const runner = spyOn(projectGit, "createProjectCommandRunner").mockReturnValue(async () => ({ exitCode: 1, stdout: "", stderr: "fixture failure" }));
+    try {
+      await expect(seed(ev({ githubSourceToken: "synthetic-canary" }, { user: { ...user, id: "source-admin", role: "admin" } }))).rejects.toThrow("Cannot initialize source fixture Git origin");
+    } finally { runner.mockRestore(); }
+  });
+
   test("creates a project + conversation owned by the caller", async () => {
     const res = await seed(ev({ title: "spec-1" }));
     expect(res.status).toBe(201);
     const out = await res.json();
     expect(out.projectId).toBeTruthy();
+    expect(await listProjectMembers(out.projectId)).toContainEqual(expect.objectContaining({ userId: user.id, role: "owner" }));
     expect(out.conversationId).toBeTruthy();
     const conv = await getConversation(out.conversationId);
     expect(conv?.userId).toBe("u1");

@@ -1,5 +1,10 @@
 import { z, type ZodError } from "zod";
 
+/** Durable user-project identity emitted by IncusFeatureService.prepareProject. */
+export const incusProjectIdSchema = z.string().regex(/^incus-project-[a-f0-9]{48}$/, "Invalid projectId");
+/** Concrete projects exclude the global sentinel; callers add their supported seeds. */
+export const concreteProjectIdSchema = z.union([z.string().uuid("Invalid projectId"), incusProjectIdSchema]);
+
 /** Shared password complexity schema: min 8 chars, upper, lower, digit. */
 export const passwordSchema = z.string()
   .min(8, "Password must be at least 8 characters")

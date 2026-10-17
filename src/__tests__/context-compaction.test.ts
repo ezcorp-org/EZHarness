@@ -6,6 +6,7 @@
  * `makeCompactionTransform` wiring (incl. a custom strategy).
  */
 import { test, expect, describe } from "bun:test";
+import { getCurrentTools, getCurrentSystemPrompt } from "@earendil-works/pi-ai";
 import {
   DEFAULTS,
   estimateMessageTokens,
@@ -103,8 +104,8 @@ describe("estimateTokens", () => {
     expect(estimateMessageTokens({ kind: "ui-only" } as Msg)).toBe(0);
   });
 
-  test("transcript system messages stay outside the conversation estimate", () => {
-    expect(estimateMessageTokens({ role: "system", content: "instructions" } as Msg)).toBe(0);
+  test("transcript system instructions count toward the input budget", () => {
+    expect(estimateMessageTokens({ role: "system", content: "instructions" } as Msg)).toBe(7);
   });
 
   test("monotonic in text length", () => {
@@ -743,4 +744,43 @@ describe("makeCompactionTransform", () => {
     const msgs = [userMsg("a".repeat(10_000)), asstText("b".repeat(10_000))];
     expect(await transform(msgs)).toBe(msgs);
   });
+});
+
+test("trim preserves replayed system instruction, section and tool changes without mutating history", async () => {
+  const tool = (name: string) => ({ name, description: name, parameters: { type: "object", properties: {} } });
+  const initial = { role: "system", content: "BASE", sections: { keep: "OLD", discard: "REMOVE" }, toolsAdded: [tool("old")], timestamp: 0 };
+  const update = { role: "system", content: "UPDATE", sections: { keep: "NEW", discard: null }, toolsRemoved: [{ name: "old" }], toolsAdded: [tool("new")], timestamp: 2 };
+  const messages: Msg[] = [initial, userMsg("x".repeat(8000)), update, userMsg("current")];
+  const original = JSON.stringify(messages);
+  const model = fakeModel(1000, 100);
+  const modelBefore = JSON.stringify(model);
+  const out = await makeCompactionTransform(model, { responseReserveFloor: 100, responseReserveCap: 100, safetyFraction: 0 })(messages);
+  expect(getCurrentTools(out as any).map(tool => tool.name)).toEqual(["new"]);
+  expect(getCurrentSystemPrompt(out as any)).toBe(getCurrentSystemPrompt(messages as any));
+  expect(out.filter(message => message.role === "system")).toHaveLength(1);
+  expect(out[0]).toMatchObject({ role: "system", content: "BASE\n\nUPDATE", sections: { keep: "NEW" } });
+  expect(out.some(isCompactionMarker)).toBe(true);
+  expect(estimateTokens(out)).toBeLessThanOrEqual(900);
+  expect(JSON.stringify(messages)).toBe(original);
+  expect(JSON.stringify(model)).toBe(modelBefore);
+});
+
+test("system estimation charges text parts, section values and tool declarations", () => {
+  const message: Msg = { role: "system", content: [{ type: "text", text: "a" }, { type: "text", text: "b" }],
+    sections: { present: "section", absent: null }, toolsAdded: [], toolsRemoved: [{ name: "gone" }], timestamp: 0 };
+  const chars = "a\nb".length + "section".length + JSON.stringify([]).length + JSON.stringify(message.toolsRemoved).length;
+  expect(estimateMessageTokens(message)).toBe(4 + Math.ceil(chars / 4));
+  expect(estimateMessageTokens({ role: "system", content: "", timestamp: 0 } as Msg)).toBe(4);
+});
+
+test("oversized authority remains intact instead of silently discarding instructions or tools", async () => {
+  const system: Msg = { role: "system", content: "AUTHORITY".repeat(1000), timestamp: 0 };
+  const current = userMsg("current");
+  const messages = [system, current];
+  const out = await makeCompactionTransform(fakeModel(100, 0), { responseReserveFloor: 0,
+    responseReserveCap: 0, safetyFraction: 0 })(messages);
+  expect(getCurrentSystemPrompt(out as any)).toBe(system.content);
+  expect(out).toContain(current);
+  expect(estimateTokens(out)).toBeGreaterThan(100);
+  expect(messages).toEqual([system, current]);
 });

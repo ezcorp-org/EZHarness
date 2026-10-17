@@ -1,4 +1,6 @@
 #!/usr/bin/env bash
+source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/test-file-context.sh"
+
 # Shared test-file-set definitions — sourced by scripts/test.sh (pass/fail),
 # scripts/test-coverage.sh (coverage), and the CI shard runner so the two sets
 # can never drift apart. Each function prints one repo-relative path per line,
@@ -287,6 +289,15 @@ web_host_files() {
     # extension-RBAC grants API route tests (coverage for the two rbac
     # +server.ts files pinned at 100 in coverage-thresholds.json).
     find web/src/routes/api/rbac/__tests__ -name "*.test.ts"
+    # These Incus routes are pinned at 100% and need LCOV from the root host
+    # pool. Their isolated bun:test files also gate pass/fail through P.
+    printf '%s\n' \
+      web/src/routes/api/infrastructure/incus/probe-fixtures/probe-fixtures.test.ts \
+      web/src/routes/api/infrastructure/incus/qualification/qualification.test.ts \
+      web/src/routes/api/infrastructure/incus/capacity/route.test.ts \
+      web/src/routes/api/infrastructure/incus/smoke/smoke.test.ts \
+      web/src/routes/api/infrastructure/incus/features/features.test.ts \
+      web/src/routes/api/infrastructure/incus/management/management.test.ts
     # Scoped web bun:test files. Per-file notes on why each is MEASURED (the
     # C-side rationale) — all of them also GATE, per the header above.
     #   permission-mode-indicator: the github-projects route tests import
@@ -362,6 +373,7 @@ web_host_files() {
       web/src/__tests__/runs-wait-route.test.ts \
       web/src/__tests__/seed-reset-route.test.ts \
       web/src/__tests__/seed-static-preview-route.test.ts \
+      web/src/__tests__/seed-sandbox-preview-route.test.ts \
       web/src/__tests__/invite-rate-limit-isolation.test.ts \
       web/src/__tests__/test-agent-config.test.ts \
       web/src/__tests__/extensions-events-route.test.ts \
@@ -748,9 +760,9 @@ gate_host_failures() {
       # back to the plain run: the exit code still gates identically,
       # nothing soft-passes.
       if command -v timeout >/dev/null 2>&1; then
-        RETRY_OUT=$(timeout -k 30 300 bun test --timeout 30000 "./$f" 2>&1)
+        RETRY_OUT=$(ez_test_file_context "$f" timeout -k 30 300 bun test --timeout 30000 "./$f" 2>&1)
       else
-        RETRY_OUT=$(bun test --timeout 30000 "./$f" 2>&1)
+        RETRY_OUT=$(ez_test_file_context "$f" bun test --timeout 30000 "./$f" 2>&1)
       fi
       RETRY_CODE=$?
       set -e
@@ -845,10 +857,10 @@ recover_missing_coverage() {
     for ((attempt = 1; attempt <= COVERAGE_RECOVERY_ATTEMPTS; attempt++)); do
       set +e
       if command -v timeout >/dev/null 2>&1; then
-        timeout -k 30 300 bun test --timeout 30000 --coverage --coverage-reporter=lcov \
+        ez_test_file_context "$f" timeout -k 30 300 bun test --timeout 30000 --coverage --coverage-reporter=lcov \
           --coverage-dir="$dir" "./$f" >/dev/null 2>&1
       else
-        bun test --timeout 30000 --coverage --coverage-reporter=lcov \
+        ez_test_file_context "$f" bun test --timeout 30000 --coverage --coverage-reporter=lcov \
           --coverage-dir="$dir" "./$f" >/dev/null 2>&1
       fi
       set -e

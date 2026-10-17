@@ -116,8 +116,13 @@ let mockAuthUser: { id: string; email: string; name: string; role: string } | nu
 // registration) so a partial override below can't shadow other exports
 // (e.g. `isInteractiveSession`, reached transitively through
 // `auth/permission-mode-ceiling.ts`) — see W18 hygiene item C2.
+const realProjectMembers = serverModule("db/queries/project-members", {});
 const realAuthMiddleware = serverModule("auth/middleware", {});
 beforeAll(() => {
+  mock.module("$server/db/queries/project-members", () => ({
+    ...realProjectMembers,
+    getProjectMembership: async () => ({ role: "member" }),
+  }));
   mock.module("$server/auth/middleware", () => ({
     ...realAuthMiddleware,
     requireAuth: (locals: { user?: unknown }) => {
@@ -129,6 +134,7 @@ beforeAll(() => {
 });
 afterAll(() => {
   mock.module("$server/auth/middleware", () => realAuthMiddleware);
+  mock.module("$server/db/queries/project-members", () => realProjectMembers);
 });
 
 const apiKeysExports = webLibModule("server/security/api-keys", {

@@ -5,11 +5,13 @@ import { snapshotFirstPartyExtension } from "../../scripts/migrate-extension-v4"
 import { generateSourceLock } from "../../scripts/regenerate-manifest-lock";
 import { getProjectRoot } from "../extensions/project-root";
 
-test("first-party source inventory is deterministic and covers all 51 candidates without config execution", async () => {
+test("first-party source inventory is deterministic and covers all 53 candidates without config execution", async () => {
   const first = await generateSourceLock(getProjectRoot());
   const second = await generateSourceLock(getProjectRoot());
-  expect(Object.keys(first.sources)).toHaveLength(51);
-  expect(first.sources["local-sandbox"]).toMatchObject({ directory: "extensions/local-sandbox" });
+  expect(Object.keys(first.sources)).toHaveLength(53);
+  for (const name of ["local-sandbox", "incus-sandbox", "infisical-secrets"]) {
+    expect(first.sources[name]).toMatchObject({ directory: `extensions/${name}`, entrypoint: "extension.ts" });
+  }
   expect(second).toEqual(first);
   expect(first.schemaVersion).toBe(4);
 });

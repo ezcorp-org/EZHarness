@@ -153,6 +153,7 @@ mock.module("$server/db/queries/projects", () => ({ getProject: mock(async () =>
 // isInteractiveSession through unchanged — the messages route reaches it via
 // `auth/permission-mode-ceiling.ts`), and afterAll hands the alias back to
 // the real module.
+const realProjectMembers = serverModule("db/queries/project-members", {});
 const realAuthMiddleware = serverModule("auth/middleware", {});
 const apiKeysExports = webLibModule("server/security/api-keys", { requireScope: () => null });
 mock.module("$lib/server/security/api-keys", () => apiKeysExports);
@@ -167,7 +168,10 @@ mock.module("$lib/server/security/resource-quotas", () => resourceQuotasExports)
 // chains lifecycle handlers onto it.
 const settled = Promise.resolve();
 const mockStreamChat = mock(
-  (_cid: string, _content: string, _opts: { model?: string; provider?: string }) => settled,
+  (_cid: string, _content: string, opts: { model?: string; provider?: string; onRunRegistered?: () => void }) => {
+    opts.onRunRegistered?.();
+    return settled;
+  },
 );
 const contextExports = contextModule({
   getExecutor: () => ({ streamChat: mockStreamChat }),
@@ -243,6 +247,10 @@ function patchEvent(cid: string, user: unknown, body: Record<string, unknown> = 
 }
 
 beforeAll(() => {
+  mock.module("$server/db/queries/project-members", () => ({
+    ...realProjectMembers,
+    getProjectMembership: async () => ({ role: "member" }),
+  }));
   mock.module("$server/auth/middleware", () => ({
     ...realAuthMiddleware,
     requireAuth: (locals: { user?: unknown }) => {
@@ -254,6 +262,7 @@ beforeAll(() => {
 });
 afterAll(() => {
   mock.module("$server/auth/middleware", () => realAuthMiddleware);
+  mock.module("$server/db/queries/project-members", () => realProjectMembers);
 });
 
 beforeEach(() => {
@@ -282,7 +291,10 @@ beforeEach(() => {
   mockGetActiveRun.mockReset();
   mockGetActiveRun.mockImplementation(async () => mockActiveRun);
   mockStreamChat.mockReset();
-  mockStreamChat.mockImplementation(() => settled);
+  mockStreamChat.mockImplementation((_cid, _content, opts) => {
+    opts.onRunRegistered?.();
+    return settled;
+  });
 });
 
 // ── The widened access: non-admin ROOT owner on a userId=null sub ────

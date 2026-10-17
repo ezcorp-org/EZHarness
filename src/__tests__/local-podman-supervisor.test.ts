@@ -17,11 +17,13 @@ async function fixture(outputBytes = 12, stopFails = false) {
 	const root = await mkdtemp(join(tmpdir(), "ez-supervisor-")); roots.push(root);
 	const processRoot = join(root, "resource", "process"); await mkdir(processRoot, { recursive: true, mode: 0o700 });
 	const runtimeState = join(root, "runtime-state"); await writeFile(runtimeState, "running");
+	const commandLog = join(root, "command-log");
 	const descendantPid = join(root, "descendant-pid"); const execArgs = join(root, "exec-args"); const stopGate = join(root, "stop-gate"); const outputGate = join(root, "output-gate");
 	const podman = join(root, "podman");
 	await writeFile(podman, `#!${bunExecutable}
-import { readFile, writeFile } from "node:fs/promises";
+import { appendFile, readFile, writeFile } from "node:fs/promises";
 const args = process.argv.slice(2); const state = ${JSON.stringify(runtimeState)}; const descendantPid = ${JSON.stringify(descendantPid)};
+await appendFile(${JSON.stringify(commandLog)}, JSON.stringify(args) + "\\n");
 if (args.includes("exec")) { await writeFile(${JSON.stringify(execArgs)}, JSON.stringify(args)); if (args.includes("utf8")) { while (!(await Bun.file(${JSON.stringify(outputGate)}).exists())) await Bun.sleep(5); if ((await readFile(state, "utf8")) !== "running") process.exit(0); process.stdout.write(new Uint8Array([0xe2])); await Bun.sleep(5); process.stdout.write(new Uint8Array([0x82, 0xac])); } else { process.stdout.write("abcdefghij"); process.stderr.write("KLMNOPQRST"); } if (args.includes("background")) { const child = Bun.spawn(["/bin/sh", "-c", "sleep 30"], { stdout: "inherit", stderr: "inherit" }); await writeFile(descendantPid, String(child.pid)); process.exit(0); } if (args.includes("identity-check")) process.exit(0); while ((await readFile(state, "utf8")) === "running") await Bun.sleep(5); process.exit(0); }
 if (args.includes("stop") || args.includes("kill")) { if (${stopFails}) process.exit(1); while (await Bun.file(${JSON.stringify(stopGate)}).exists()) await Bun.sleep(5); await writeFile(state, "stopped"); try { process.kill(Number(await readFile(descendantPid, "utf8")), "SIGKILL"); } catch { await Promise.resolve(); } process.exit(0); }
 if (args.includes("inspect")) { const running = (await readFile(state, "utf8")) === "running"; console.log(args.some(value => value.includes(".Name")) ? "containerid containername " + running : "containerid " + running); process.exit(0); }
@@ -32,7 +34,7 @@ process.exit(2);
 	const config = { stateRoot: root, podmanPath: podman, supervisorPath: "/trusted/supervisor", maxOutputBytes: outputBytes, workspaceUid: 0, workspaceGid: 0 };
 	const supervisor = new LocalProcessSupervisor(config, async () => resource, argv => { entries.push(runSupervisorEntry(argv[1]!)); });
 	const input: SandboxProcessStartInput = { call, resourceId: "resource", argv: ["tool"], env: { SAFE: "yes" }, cwd: "/", user: "workspace", timeoutMs: 2_000 };
-	return { root, processRoot, runtimeState, execArgs, stopGate, outputGate, podman, resource, entries, supervisor, input, config };
+	return { root, processRoot, runtimeState, commandLog, execArgs, stopGate, outputGate, podman, resource, entries, supervisor, input, config };
 }
 
 async function terminal(f: Awaited<ReturnType<typeof fixture>>, identity: { bootId: string; processId: string }) {
@@ -165,8 +167,13 @@ describe("LocalProcessSupervisor", () => {
 	test("persists unknown and exits when stop escalation cannot verify termination", async () => {
 		const f = await fixture(64, true); const started = await f.supervisor.start(f.input); if (!("process" in started)) throw new Error("missing process");
 		await f.supervisor.cancel({ call, resourceId: "resource", identity: started.process.identity });
-		const result = await Promise.race([terminal(f, started.process.identity), Bun.sleep(2_000).then(() => { throw new Error("supervisor did not exit after failed stop escalation"); })]);
+		const result = await terminal(f, started.process.identity);
 		expect(result).toMatchObject({ receipt: { outcome: "succeeded" }, process: { state: "unknown" } });
+		expect(await readFile(f.runtimeState, "utf8")).toBe("running");
+		const commands = (await readFile(f.commandLog, "utf8")).trim().split("\n").map(line => JSON.parse(line) as string[]);
+		expect(commands.some(args => args.includes("stop"))).toBe(true);
+		expect(commands.some(args => args.includes("kill"))).toBe(true);
+		expect(commands.at(-1)).toContain("inspect");
 	});
 
 	test("stops background descendants before waiting for inherited output pipes", async () => {

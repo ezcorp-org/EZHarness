@@ -7,7 +7,7 @@ import type { ChildProcessWithoutNullStreams } from "node:child_process";
 import type { BuildResult, InvocationContext, ProcessSpawnPolicy, ResourceLimits, Runner, RunnerCapabilities, RunnerInspection, StartRequest, WorkspaceFiles } from "@ezcorp/extension-contract";
 import { canonicalJson, processSpawnPolicy, validateInvocationContext, validateManifest, workspaceFileBytes, workspaceText } from "@ezcorp/extension-contract";
 import { buildLimits, capture, command, digest, executionLimits, filesDigest, identifier, limitsWithin, processSpawn, relativePath, RunnerCommandError, RunnerError, sha256, validateFiles } from "./core";
-import { FramedExecution, type FramedTransport, type ReverseRpc } from "./protocol";
+import { bindSensitiveRequestContext, FramedExecution, type FramedTransport, type ReverseRpc } from "./protocol";
 import { fetchLockedDependencies } from "./dependencies";
 import { browserBuild, browserBuilderProgram } from "./browser";
 import { BUN_SHIM_UNDUMPABLE, BUN_SPAWN_GUARD, BUN_SPAWN_GUARD_PATH, bunWorkerArgs } from "./spawn-guard";
@@ -683,7 +683,16 @@ export class PodmanRunner implements Runner {
     if (this.operations.get(id)?.state !== "building") throw new RunnerError("cancelled", "Build was cancelled");
   }
   async collectArtifacts(artifactDigest: string): Promise<WorkspaceFiles> {
-    const files = JSON.parse(await readFile(join(this.root, "artifacts", digest(artifactDigest)), "utf8"));
+    let stored: string;
+    try {
+      stored = await readFile(join(this.root, "artifacts", digest(artifactDigest)), "utf8");
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === "ENOENT") {
+        throw new RunnerError("artifact_missing", "Runner artifact is missing from its local store");
+      }
+      throw error;
+    }
+    const files = JSON.parse(stored);
     validateFiles(files, 160 * 1024 ** 2, 4000);
     if (filesDigest(files) !== artifactDigest) throw new RunnerError("artifact_corrupt", "Stored artifact digest mismatch");
     return files;
@@ -753,7 +762,7 @@ export class PodmanRunner implements Runner {
         if (["workerId", "releaseId", "principalId", "scopeId"].some(key => context[key as keyof InvocationContext] !== input.context[key as keyof InvocationContext]) || context.deadline <= Date.now() || context.deadline > Date.now() + limits.timeoutMs || contexts.has(context.invocationId)) throw new RunnerError("invalid_context", "Invocation identity, deadline or active ID is invalid");
         contexts.set(context.invocationId, context);
         return () => { contexts.delete(context.invocationId); };
-      });
+      }, bindSensitiveRequestContext(input.context, limits.timeoutMs));
       this.executions.set(input.workerId, execution);
       const cleanupFailed = () => {
         const current = this.operations.get(input.workerId);
@@ -772,7 +781,15 @@ export class PodmanRunner implements Runner {
         if (!this.containers.has(input.workerId)) await rm(stage, { recursive: true, force: true });
       }).catch(cleanupFailed);
       return execution;
-    } catch (error) { this.activeExecutions--; this.operations.set(input.workerId, { id: input.workerId, state: "failed", diagnostics: [new RunnerError("worker_start_failed", "Worker could not start").diagnostic()] }); if (staged) await rm(staged, { recursive: true, force: true }); throw error; }
+    } catch (error) {
+      this.activeExecutions--;
+      const diagnostic = error instanceof RunnerError && error.code === "artifact_missing"
+        ? error.diagnostic()
+        : new RunnerError("worker_start_failed", "Worker could not start").diagnostic();
+      this.operations.set(input.workerId, { id: input.workerId, state: "failed", diagnostics: [diagnostic] });
+      if (staged) await rm(staged, { recursive: true, force: true });
+      throw error;
+    }
   }
   /**
    * Signals the sandbox's init process so the guest can clean up. It never

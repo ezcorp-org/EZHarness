@@ -1,0 +1,11 @@
+# Incus host capacity review gate
+
+The verified Incus server setup does not, by itself, admit sandboxes. An administrator must use `POST /api/infrastructure/incus/capacity` from a same-origin browser session:
+
+1. Send `{ "action": "plan", "setupId": "<verified setup ID>" }`. The plan is read-only. It pins the approved provider release, generation, connection revision, setup plan and recipe digests. It reads fresh `MemAvailable`, PID headroom and Incus pool space over host-pinned SSH. It derives capacity from the exact restricted project limits, leaving 8 GiB host memory, 10 GiB pool space, two CPU threads and 1,024 PIDs outside the pool. The admission capacity also retains 4 GiB, 10 GiB, one CPU equivalent, 512 PIDs and one execution slot as its internal safety margin.
+2. Review the returned limits, measured values, expiry and `planDigest`. Expiry is ten minutes after the protected host sample. Then send `{ "action": "apply", "plan": <exact returned plan>, "planDigest": "<exact digest>" }` from an admin session before expiry. Apply rechecks the active release, connection, exact setup, server configuration and fresh headroom. It locks the installation, release approval and connection authority rows and checks expiry again inside the capacity transaction. It writes only EZHarness database capacity and a receipt in that transaction. Existing reservations above the new usable limit reject the transaction. Exact replay returns the saved receipt; another plan conflicts.
+3. The plan assumes the reviewed Incus project is dedicated to EZHarness. Out-of-band workloads or future changes to host headroom need a new reviewed setup and capacity review. Capacity in the database is a reservation ceiling, not proof of actual load containment.
+
+An admin can recover the saved receipt with `GET /api/infrastructure/incus/capacity?setupId=<verified setup ID>` after a lost response or engine restart.
+
+Verification here is local PGlite and mocked protected SSH only. It does not apply capacity to the live isolated app, run a live sandbox, or satisfy SP04. The operator must separately review the live Plan response and approve its digest before live Apply. If the setup or host probe cannot pass, leave admission closed.

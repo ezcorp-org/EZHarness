@@ -18,6 +18,7 @@ import { test, expect, describe, afterAll } from "bun:test";
 import { AgentExecutor } from "../runtime/executor";
 import { EventBus } from "../runtime/events";
 import { loadAgentsStatic } from "../runtime/loader";
+import { localWorkspaceTarget } from "../runtime/workspaces/target";
 import type { AgentDefinition, AgentEvents, AgentRun } from "../types";
 
 // Mirror the watchdog/timer cleanup pattern from executor.test.ts so the
@@ -337,4 +338,16 @@ describe("AgentExecutor — orphan cascade on abnormal parent terminals", () => 
     exec.cancelRun(child.id);
     await Promise.all([parent.done, child.done]);
   });
+});
+
+
+test("a terminal run releases its bound workspace target", () => {
+  const bus = new EventBus<AgentEvents>();
+  const exec = track(new AgentExecutor(loadAgentsStatic([]), bus));
+  const target = localWorkspaceTarget("/workspace/project");
+  expect(exec.getWorkspaceTarget("run-1")).toBeUndefined();
+  exec.bindWorkspaceTarget("run-1", target);
+  expect(exec.getWorkspaceTarget("run-1")).toBe(target);
+  bus.emit("run:complete", { run: runShape("run-1"), conversationId: "conversation" });
+  expect(exec.getWorkspaceTarget("run-1")).toBeUndefined();
 });

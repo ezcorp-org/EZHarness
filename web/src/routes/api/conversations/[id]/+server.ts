@@ -11,6 +11,7 @@ import { requireScope } from "$lib/server/security/api-keys";
 import { deleteForConversation as deleteAttachmentsFromDisk } from "$server/chat/attachments/storage";
 import { logger } from "$server/logger";
 import type { RequestHandler } from "./$types";
+import { resolveLocalProjectTarget } from "$server/runtime/workspaces/project-target";
 
 const log = logger.child("api.conversations");
 
@@ -85,6 +86,14 @@ export const DELETE: RequestHandler = async ({ params, locals }) => {
   // DB rows cascade via FK; but attachment files live on disk and need manual GC.
   // Resolve project root before the cascade nukes the conversation row.
   const project = await getProject(conv.projectId);
+  let attachmentTarget: Awaited<ReturnType<typeof resolveLocalProjectTarget>> | undefined;
+  if (project) {
+    try {
+      attachmentTarget = await resolveLocalProjectTarget(project, "attachment delete");
+    } catch {
+      return errorJson(503, "Sandbox attachment storage is unavailable");
+    }
+  }
 
   // Secure-preview reaping (Phase 3b): kill any dev-server process running
   // under this conversation's preview uid + release the uid + drop the
@@ -104,8 +113,11 @@ export const DELETE: RequestHandler = async ({ params, locals }) => {
   const deleted = await convQueries.deleteConversation(params.id);
   if (!deleted) return errorJson(404, "Not found");
 
-  if (project?.path) {
-    await deleteAttachmentsFromDisk({ projectRoot: project.path, conversationId: params.id })
+  if (attachmentTarget) {
+    await deleteAttachmentsFromDisk({
+      workspaceTarget: attachmentTarget,
+      conversationId: params.id,
+    })
       .catch((err) => log.warn("attachment GC failed", { error: err instanceof Error ? err.message : String(err), conversationId: params.id }));
   }
 

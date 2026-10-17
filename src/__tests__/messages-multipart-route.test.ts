@@ -42,6 +42,8 @@ const contextExports = contextModule({
   getExecutor: () => ({
     streamChat: async (...args: any[]) => {
       streamChatCalls.push(args);
+      // The real executor acknowledges only after the run is registered.
+      args[2]?.onRunRegistered?.();
       return { id: "run-test", status: "success" } as any;
     },
   }),
@@ -167,7 +169,7 @@ async function invokePost(req: Request): Promise<Response> {
   return POST({
     request: req,
     params: { id: conversationId },
-    locals: {} as any,
+    locals: { user: ADMIN_USER } as any,
   } as any);
 }
 

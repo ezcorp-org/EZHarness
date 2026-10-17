@@ -1,0 +1,781 @@
+import { logger } from "../logger";
+import { SandboxController, SandboxControllerError, operatorRecoveryDestroy, type SandboxProviderObservationScope } from "../sandboxes/controller";
+import { inspectedOutcome, mutationInput } from "../sandboxes/incus-dispatcher";
+import { permitsLinkedCleanupStop, permitsFailedCleanupInspection } from "./incus-cleanup-stop-policy";
+import { resourceName } from "./incus-transport/lifecycle";
+import { permitsCreateReadbackDuringQueuedCleanup } from "./incus-create-readback-policy";
+import { createHash, X509Certificate } from "node:crypto";
+import { ContractError, canonicalJson, sandboxPresetDigest, validateSandboxProviderMethodValue, type JsonValue, type SandboxOperationInspection, type SandboxProtocolOperation } from "@ezcorp/extension-contract";
+import { and, eq, sql, or, isNull, not, inArray, gte, exists } from "drizzle-orm";
+import { getDb, type Database } from "../db/connection";
+import { releaseRows } from "../db/queries/extension-releases";
+import { projects, sandboxBindings, sandboxOperations, sandboxCleanupRecoveries, sandboxReservations, type SandboxBinding, type SandboxOperation } from "../db/schema";
+import type { ActiveExtensionRelease } from "../extensions/release-process";
+import { HostIncusProbeTransport, type HostConnectionResolver, type HostConnectionScope } from "./incus-transport/transport";
+import type { IncusSetupRecipe } from "../../scripts/incus/model";
+import { HostIncusLifecycleTransport, incusLifecycleOperationId, type PostEffectDestroyReplyFault } from "./incus-transport/lifecycle";
+import { HostIncusGuestTransport } from "./incus-transport/guest";
+import { GUEST_HELPER_VERSION, guestHelperSha256 } from "./incus-guest/protocol";
+import { createIncusTransportCommand } from "../../extensions/incus-sandbox/adapter";
+import { incusMethodName } from "../../extensions/incus-sandbox/manifest";
+import type { IncusConnectionConfig } from "../../extensions/incus-sandbox/config";
+import { IncusTransportError, type IncusTransport, type IncusTransportRequest } from "../../extensions/incus-sandbox/transport";
+
+export interface IncusObservationRuntime {
+  resolveActiveRelease(installationId: string): Promise<ActiveExtensionRelease>;
+  now?: () => number;
+  delay?: (milliseconds: number, signal: AbortSignal) => Promise<void>;
+}
+interface IncusObservationSlot {
+  scope: PreparedIncusAction;
+  expiresAt: number;
+  abort: AbortController;
+  providerOperationId?: string;
+  work?: Promise<void>;
+  dispatch?: Promise<unknown>;
+  observationFinished?: boolean;
+  dispatchFinished?: boolean;
+}
+const OBSERVATION_LIMIT = 32;
+const OBSERVATION_BUDGET_MS = 10 * 60_000;
+const OBSERVATION_PAUSE_MS = 250;
+const observationStates = ["DISPATCHING", "PROVIDER_PENDING", "OUTCOME_UNKNOWN"] as const;
+
+export const INCUS_PROVIDER_TRANSPORT_RPC = "ezcorp/provider.incus.transport";
+export const INCUS_PROVIDER_PREFLIGHT_METHOD = "incus/preflight";
+
+interface Connection extends Awaited<ReturnType<HostConnectionResolver["resolveForHost"]>> {
+  id: string;
+  revision: number;
+  configuration: { kind: "incus"; profile: string; helperVersion: string; guestUser: string };
+}
+
+export interface ProviderConnectionResolver extends HostConnectionResolver {
+  resolveForHost(scope: { connectionId: string; providerInstallationId: string; providerReleaseId: string; revision: number }): Promise<Connection>;
+  getMetadata(id: string): Promise<Pick<Connection, "id" | "revision"> & { providerInstallationId: string; providerReleaseId: string; revokedAt: Date | null } | null>;
+}
+
+export interface PreparedIncusProbe {
+  readonly installationId: string;
+  readonly releaseId: string;
+  readonly releaseDigest: string;
+  readonly generation: number;
+  readonly connectionId: string;
+  readonly revision: number;
+  readonly config: IncusConnectionConfig;
+  readonly approvedPreflight?: HostConnectionScope["approvedPreflight"];
+}
+
+export interface PreparedIncusAction extends PreparedIncusProbe {
+  readonly hostContractMinor?: 0 | 1;
+  readonly settlementScope?: SandboxProviderObservationScope;
+  readonly operation: SandboxProtocolOperation;
+  readonly method: string;
+  readonly bindingId: string;
+  readonly projectId: string;
+  readonly bindingGeneration: number;
+  readonly resourceKey: string;
+  readonly expectedCommand: IncusTransportRequest;
+  readonly approvedPreset: {
+    profile: string;
+    incusProfile: string;
+    presetId: string;
+    presetDigest: string;
+    effectiveSettingsDigest: string;
+    imageFingerprint: string;
+    limits: { memoryBytes: number; cpuMillis: number; pids: number; diskBytes: number };
+  };
+  readonly approvedGuest?: { user: string; uid: number; gid: number; helperSha256: string };
+}
+
+function observationBindingPredicate(scope: SandboxProviderObservationScope) {
+  return and(eq(sandboxBindings.id, scope.id), eq(sandboxBindings.projectId, scope.projectId),
+    eq(sandboxBindings.providerInstallationId, scope.providerInstallationId), eq(sandboxBindings.providerReleaseId, scope.providerReleaseId),
+    eq(sandboxBindings.connectionId, scope.connectionId),
+    scope.connectionRevision === null ? isNull(sandboxBindings.connectionRevision) : eq(sandboxBindings.connectionRevision, scope.connectionRevision),
+    scope.resourceKey === null ? isNull(sandboxBindings.resourceKey) : eq(sandboxBindings.resourceKey, scope.resourceKey),
+    eq(sandboxBindings.generation, scope.generation),
+    scope.currentOperationId === null ? isNull(sandboxBindings.currentOperationId) : eq(sandboxBindings.currentOperationId, scope.currentOperationId),
+    eq(sandboxBindings.desiredState, scope.desiredState),
+    scope.tombstonedAt === null ? isNull(sandboxBindings.tombstonedAt) : eq(sandboxBindings.tombstonedAt, scope.tombstonedAt));
+}
+
+const lifecycleObservationOperations = new Set<SandboxProtocolOperation>([
+  "lifecycle.create", "lifecycle.setPower", "lifecycle.destroy",
+]);
+const mutationOperations = new Set<SandboxProtocolOperation>([
+  ...lifecycleObservationOperations, "files.writeAtomic", "files.remove", "processes.start", "processes.cancel",
+]);
+
+function isAction(scope: PreparedIncusProbe): scope is PreparedIncusAction {
+  return "expectedCommand" in scope;
+}
+
+function fingerprint(pem: string): string {
+  try { return createHash("sha256").update(new X509Certificate(pem).raw).digest("hex"); }
+  catch { throw new ContractError("INVALID_PROVIDER_CONFIG", "Incus server identity is invalid"); }
+}
+
+type ActionBinding = SandboxBinding & {
+  connectionRevision: number;
+  profile: string;
+  presetId: string;
+  presetDigest: string;
+  effectiveSettingsDigest: string;
+  resourceKey: string;
+};
+
+function assertActionBinding(
+  binding: SandboxBinding | undefined,
+  snapshot: ActiveExtensionRelease,
+  operation: SandboxProtocolOperation,
+  input: Record<string, unknown>,
+  linkedCleanupStop = false,
+): ActionBinding {
+  if (!binding || binding.tombstonedAt && operation !== "lifecycle.destroy" && operation !== "lifecycle.inspectOperation" && !linkedCleanupStop
+    || binding.providerInstallationId !== snapshot.installation.id || binding.providerReleaseId !== snapshot.release.id
+    || !binding.connectionRevision || !binding.profile || !binding.presetId || !binding.presetDigest
+    || !binding.effectiveSettingsDigest || !binding.resourceKey
+    || input.connectionId !== binding.connectionId || input.providerId !== "incus"
+    || input.sandboxId !== binding.id) {
+    throw new ContractError("CAPABILITY_DENIED", "Incus sandbox binding is unavailable");
+  }
+  if ((operation.startsWith("files.") || operation.startsWith("processes."))
+    && (binding.desiredState !== "RUNNING" || binding.observedState !== "RUNNING")) {
+    throw new ContractError("CAPABILITY_DENIED", "Incus workspace is not running");
+  }
+  return binding as ActionBinding;
+}
+
+async function approvedActionPreset(snapshot: ActiveExtensionRelease, binding: SandboxBinding, operation: SandboxProtocolOperation) {
+  const contribution = snapshot.release.manifest.sandboxProviders?.find(provider => provider.kind === "sandbox" && provider.id === "incus");
+  const preset = contribution?.presets.find(candidate => candidate.id === binding.presetId && candidate.profile === binding.profile);
+  if (!preset || await sandboxPresetDigest(preset) !== binding.presetDigest
+    || !snapshot.release.manifest.methods?.some(method => method.name === incusMethodName(operation))) {
+    throw new ContractError("RELEASE_CHANGED", "Incus preset or method changed");
+  }
+  if (preset.imageDigest === "0".repeat(64)) {
+    throw new ContractError("CAPABILITY_UNAVAILABLE", "Reviewed Incus guest image is not published");
+  }
+  return preset;
+}
+
+async function assertCreateAdmission(db: Database, binding: SandboxBinding, preset: Awaited<ReturnType<typeof approvedActionPreset>>, operation: SandboxProtocolOperation, input: Record<string, unknown>): Promise<void> {
+  if (operation === "lifecycle.create") {
+    if (input.profile !== binding.profile || input.presetId !== binding.presetId
+      || input.presetDigest !== binding.presetDigest || input.effectiveSettingsDigest !== binding.effectiveSettingsDigest) {
+      throw new ContractError("CAPABILITY_DENIED", "Incus create request changed its approved preset");
+    }
+    const [reservation] = await db.select().from(sandboxReservations)
+      .where(eq(sandboxReservations.bindingId, binding.id)).limit(1);
+    if (!reservation || reservation.generation !== binding.generation || reservation.computeState !== "RESERVED"
+      || reservation.connectionId !== binding.connectionId || reservation.providerInstallationId !== binding.providerInstallationId
+      || reservation.memoryBytes !== preset.limits.memoryBytes || reservation.cpuMillicores !== preset.limits.cpuMillis
+      || reservation.pids !== preset.limits.pids || reservation.diskBytes !== preset.limits.diskBytes) {
+      throw new ContractError("CAPABILITY_DENIED", "Incus sandbox resource admission is unavailable");
+    }
+  }
+}
+
+async function linkedCleanupStop(db: Database, binding: SandboxBinding, stop: SandboxOperation): Promise<boolean> {
+  const [recovery] = await db.select().from(sandboxCleanupRecoveries).where(eq(sandboxCleanupRecoveries.stopOperationId, stop.id)).limit(1);
+  const [failed] = recovery ? await db.select().from(sandboxOperations).where(eq(sandboxOperations.id, recovery.failedDestroyOperationId)).limit(1) : [];
+  return permitsLinkedCleanupStop(binding, recovery, failed, stop, resourceName(binding.connectionId, binding.id));
+}
+
+async function cleanupReadOnlyInspection(db: Database, binding: SandboxBinding | undefined, operation: SandboxProtocolOperation): Promise<boolean> {
+  if (!binding?.tombstonedAt || operation !== "lifecycle.inspect" || !binding.currentOperationId) return false;
+  const [current] = await db.select().from(sandboxOperations).where(eq(sandboxOperations.id, binding.currentOperationId)).limit(1);
+  if (permitsFailedCleanupInspection(binding, current)) return true;
+  return Boolean(current?.state === "SUCCEEDED" && await linkedCleanupStop(db, binding, current));
+}
+
+async function linkedCleanupStopInput(db: Database, binding: SandboxBinding | undefined,
+  operation: SandboxProtocolOperation, input: Record<string, unknown>): Promise<boolean> {
+  if (!binding?.tombstonedAt || operation !== "lifecycle.setPower" || input.desiredState !== "stopped" || typeof input.requestId !== "string") return false;
+  const [stop] = await db.select().from(sandboxOperations).where(eq(sandboxOperations.id, input.requestId)).limit(1);
+  return Boolean(stop && stop.state === "DISPATCHING" && stop.requestPayload.expectedGeneration === input.expectedGeneration && await linkedCleanupStop(db, binding, stop));
+}
+
+function approvedGuestHelper(operation: SandboxProtocolOperation, base: PreparedIncusProbe, preset: Awaited<ReturnType<typeof approvedActionPreset>>): string | undefined {
+  const guestOperation = operation.startsWith("files.") || operation.startsWith("processes.");
+  const helperSha256 = guestOperation ? guestHelperSha256() : undefined;
+  if (guestOperation && (base.config.helperVersion !== GUEST_HELPER_VERSION
+    || base.config.guestUser !== "sandbox" || !helperSha256 || !preset.helperDigests.includes(helperSha256))) {
+    throw new ContractError("RELEASE_CHANGED", "Approved Incus guest image or helper is unavailable");
+  }
+  return helperSha256;
+}
+
+type ReadbackKind = "CREATE" | "START" | "STOP" | "DESTROY";
+
+function readbackScopeMatches(scope: PreparedIncusAction, binding: SandboxBinding,
+  journal: SandboxOperation, kind: ReadbackKind, queuedCleanup = false, cleanupStop = false): boolean {
+  const preset = scope.approvedPreset;
+  return ["DISPATCHING", "PROVIDER_PENDING", "OUTCOME_UNKNOWN"].includes(journal.state)
+    && (journal.id === binding.currentOperationId || queuedCleanup) && journal.generation === binding.generation
+    && journal.generation === scope.bindingGeneration
+    && (queuedCleanup || cleanupStop || Boolean(binding.tombstonedAt) === (kind === "DESTROY"))
+    && (queuedCleanup || cleanupStop || binding.desiredState === (kind === "START" ? "RUNNING" : kind === "DESTROY" ? "ABSENT" : "STOPPED"))
+    && binding.profile === preset.profile && binding.presetId === preset.presetId
+    && binding.presetDigest === preset.presetDigest && binding.effectiveSettingsDigest === preset.effectiveSettingsDigest;
+}
+
+function readbackIntentMatches(scope: PreparedIncusAction, journal: SandboxOperation, kind: ReadbackKind): boolean {
+  if (kind !== "CREATE") {
+    const expectedGeneration = journal.requestPayload.expectedGeneration;
+    return Object.keys(journal.requestPayload).length === 1
+      && Number.isSafeInteger(expectedGeneration) && (expectedGeneration as number) >= 1;
+  }
+  const preset = scope.approvedPreset;
+  return journal.generation === 1 && journal.requestPayload.profile === preset.profile
+    && journal.requestPayload.presetId === preset.presetId
+    && journal.requestPayload.presetDigest === preset.presetDigest
+    && journal.requestPayload.effectiveSettingsDigest === preset.effectiveSettingsDigest;
+}
+
+async function lifecycleReadbackJournal(db: Database, scope: PreparedIncusAction,
+  binding: SandboxBinding, providerOperationId: string, kind: ReadbackKind):
+  Promise<{ id: string; expectedGeneration: number; desiredState: "running" | "stopped" | "absent" } | null> {
+  if (scope.expectedCommand.idempotency) return null;
+  const rows = await db.select().from(sandboxOperations).where(and(
+    eq(sandboxOperations.bindingId, scope.bindingId),
+    eq(sandboxOperations.providerOperationId, providerOperationId),
+    eq(sandboxOperations.kind, kind),
+  )).limit(2);
+  if (rows.length !== 1) return null;
+  const journal = rows[0]!;
+  const [cleanup] = kind === "CREATE" && binding.currentOperationId !== journal.id
+    ? await db.select().from(sandboxOperations).where(eq(sandboxOperations.id, binding.currentOperationId ?? "")).limit(1)
+    : [];
+  const queuedCleanup = permitsCreateReadbackDuringQueuedCleanup(binding, journal, cleanup);
+  const cleanupStop = kind === "STOP" && Boolean(binding.tombstonedAt) && await linkedCleanupStop(db, binding, journal);
+  if (!readbackScopeMatches(scope, binding, journal, kind, queuedCleanup, cleanupStop)
+    || !readbackIntentMatches(scope, journal, kind)) return null;
+  return { id: journal.id, expectedGeneration: journal.requestPayload.expectedGeneration as number,
+    desiredState: kind === "START" ? "running" : kind === "DESTROY" ? "absent" : "stopped" };
+}
+
+function lifecycleReadbackKind(scope: PreparedIncusProbe, command: IncusTransportRequest,
+  binding: SandboxBinding | undefined, providerOperationId: unknown): "CREATE" | "START" | "STOP" | "DESTROY" | null {
+  if (!isAction(scope) || scope.operation !== "lifecycle.inspectOperation"
+    || command.idempotency || typeof providerOperationId !== "string") return null;
+  const match = /^(?:incus-(create|setPower|setPowerIntent|destroy)-[a-f0-9-]{36}|ezh-(create|setPower|destroy)-[a-f0-9]{32}-[a-f0-9]{32})$/.exec(providerOperationId);
+  const kind = match?.[1] ?? match?.[2];
+  if (kind === "create") return "CREATE";
+  if (kind === "destroy") return "DESTROY";
+  if (kind !== "setPower" && kind !== "setPowerIntent") return null;
+  if (binding?.desiredState === "RUNNING") return "START";
+  if (binding?.desiredState === "STOPPED" || binding?.desiredState === "ABSENT" && binding.tombstonedAt) return "STOP";
+  throw new IncusTransportError("permission", "Incus power journal has no desired state");
+}
+
+async function journalBoundTransportCommand(db: Database, scope: PreparedIncusAction,
+  binding: SandboxBinding | undefined, command: IncusTransportRequest): Promise<IncusTransportRequest> {
+  const providerOperationId = command.action === "operation.inspect"
+    && command.payload && typeof command.payload === "object" && !Array.isArray(command.payload)
+    ? command.payload.operationId : null;
+  const kind = lifecycleReadbackKind(scope, command, binding, providerOperationId);
+  if (!kind) return command;
+  const journal = binding ? await lifecycleReadbackJournal(db, scope, binding,
+    providerOperationId as string, kind) : null;
+  if (!journal) throw new IncusTransportError("permission", "Incus lifecycle journal is unavailable");
+  return { ...command,
+    idempotency: { requestId: journal.id, key: journal.id },
+    ...(kind === "CREATE" ? {} : { payload: { ...command.payload as Record<string, JsonValue>,
+      readback: { expectedGeneration: journal.expectedGeneration, desiredState: journal.desiredState } } }),
+  };
+}
+
+/** Only ReleaseProcess calls this broker. No generic extension capability exposes it. */
+export class ProviderRpcBroker {
+  private readonly observations = new Map<string, IncusObservationSlot>();
+  private observationsStopped = false;
+  private readonly dispatchedMutations = new WeakMap<PreparedIncusAction, Promise<JsonValue>>();
+  constructor(
+    private readonly connections: ProviderConnectionResolver,
+    private readonly transportFactory: (scope: PreparedIncusProbe, signal?: AbortSignal) => HostIncusProbeTransport =
+      (scope, signal) => new HostIncusProbeTransport(connections, {
+        providerInstallationId: scope.installationId,
+        providerReleaseId: scope.releaseId,
+        revision: scope.revision,
+        approvedPreflight: scope.approvedPreflight,
+        signal,
+      }),
+    private readonly db?: Database,
+    private readonly actionTransportFactory: (scope: PreparedIncusAction, signal?: AbortSignal, recordAcceptedOperation?: (id: string) => Promise<void>, recordTerminalObservation?: (observation: SandboxOperationInspection) => Promise<void>, observeNativeWait?: boolean) => IncusTransport =
+      (scope, signal, recordAcceptedOperation, recordTerminalObservation, observeNativeWait) => {
+        const hostScope = {
+        providerInstallationId: scope.installationId,
+        providerReleaseId: scope.releaseId,
+        revision: scope.revision,
+        approvedPreset: scope.approvedPreset,
+        hostContractMinor: scope.hostContractMinor,
+        recordAcceptedOperation,
+        recordTerminalObservation,
+        observeNativeWait,
+        ...(scope.approvedGuest ? { approvedGuest: scope.approvedGuest } : {}),
+        signal,
+        };
+        return scope.approvedGuest
+          ? new HostIncusGuestTransport(connections, hostScope)
+          : new HostIncusLifecycleTransport(connections, hostScope, undefined, lostDestroyReply);
+      },
+    lostDestroyReply?: PostEffectDestroyReplyFault,
+    private readonly observationRuntime?: IncusObservationRuntime,
+  ) {}
+
+  private get database(): Database { return this.db ?? getDb(); }
+
+  private async reviewedPreflight(scope: PreparedIncusProbe, command: IncusTransportRequest): Promise<PreparedIncusProbe["approvedPreflight"]> {
+    // Unit callers without a host database can still make a conservative probe.
+    if (!this.db) return undefined;
+    const payload = command.payload;
+    if (!payload || typeof payload !== "object" || Array.isArray(payload)) return undefined;
+    const presetId = payload.presetId;
+    if (typeof presetId !== "string") return undefined;
+    const [setup] = releaseRows<{ providerReleaseId: string; providerReleaseDigest: string;
+      connectionId: string; connectionRevision: number; state: string; recipe: IncusSetupRecipe }>(
+      await this.db.execute(sql`SELECT provider_release_id AS "providerReleaseId",
+        provider_release_digest AS "providerReleaseDigest", connection_id AS "connectionId",
+        connection_revision AS "connectionRevision", state, recipe FROM incus_operator_setups
+        WHERE provider_installation_id = ${scope.installationId}
+        ORDER BY created_at DESC, id DESC LIMIT 1`));
+    if (setup?.state !== "verified" || setup.providerReleaseId !== scope.releaseId
+      || setup.providerReleaseDigest !== scope.releaseDigest || setup.connectionId !== scope.connectionId
+      || setup.connectionRevision !== scope.revision) return undefined;
+    const { IncusQualificationStore } = await import("./incus-qualification");
+    const qualifications = new IncusQualificationStore({ db: this.db });
+    const qualificationScope = { installationId: scope.installationId, releaseId: scope.releaseId,
+      connectionId: scope.connectionId, presetId };
+    let qualification = await qualifications.load(qualificationScope);
+    if (!qualification) {
+      try {
+        const { IncusAdmissionReadinessService } = await import("./incus-admission-readiness");
+        qualification = (await new IncusAdmissionReadinessService(this.db, qualifications).check(qualificationScope, false)).qualification;
+      } catch { return undefined; }
+    }
+    const image = setup.recipe?.guestImage;
+    if (!qualification || qualification.presetDigest !== payload.presetDigest
+      || qualification.effectiveSettingsDigest !== payload.effectiveSettingsDigest
+      || !image || typeof image.fingerprint !== "string" || !/^[a-f0-9]{64}$/.test(image.fingerprint)
+      || typeof image.helperSha256 !== "string" || !/^[a-f0-9]{64}$/.test(image.helperSha256)) return undefined;
+    return { recipe: setup.recipe, imageFingerprint: image.fingerprint,
+      helperSha256: image.helperSha256,
+      nestedCompose: qualification.profile === "persistent-web-compose.v1",
+      // load() requires the real HTTP/WS preview proof for this profile.
+      endpointProxy: qualification.profile === "persistent-web-compose.v1"
+        && qualification.cases.some(item => item.caseId === "SP09" && item.status === "passed") };
+  }
+
+  /** Bind one host-journaled operation to its exact approved release and preset. */
+  async prepareAction(
+    snapshot: ActiveExtensionRelease,
+    bindingId: string,
+    operation: SandboxProtocolOperation,
+    inputValue: unknown,
+  ): Promise<PreparedIncusAction> {
+    if (operation === "describe" || operation === "preflight" || operation.startsWith("endpoints.")) {
+      throw new ContractError("CAPABILITY_DENIED", "Incus action is not available to the host broker");
+    }
+    const input = validateSandboxProviderMethodValue(operation, "input", inputValue) as Record<string, unknown>;
+    const [binding] = await this.database.select().from(sandboxBindings)
+      .where(eq(sandboxBindings.id, bindingId)).limit(1);
+    const cleanupStop = await linkedCleanupStopInput(this.database, binding, operation, input)
+      || await cleanupReadOnlyInspection(this.database, binding, operation);
+    const approvedBinding = assertActionBinding(binding, snapshot, operation, input, cleanupStop);
+    const base = await this.prepare(snapshot, approvedBinding.connectionId);
+    if (base.revision !== approvedBinding.connectionRevision) {
+      throw new ContractError("RELEASE_CHANGED", "Incus connection revision changed");
+    }
+    const preset = await approvedActionPreset(snapshot, approvedBinding, operation);
+    await assertCreateAdmission(this.database, approvedBinding, preset, operation, input);
+    const expectedCommand = createIncusTransportCommand(operation, input, base.config);
+    const helperSha256 = approvedGuestHelper(operation, base, preset);
+    const [settlementJournal] = await this.database.select().from(sandboxOperations)
+      .where(eq(sandboxOperations.id, expectedCommand.idempotency?.requestId ?? "")).limit(1);
+    const settlementScope = settlementJournal && observationStates.includes(settlementJournal.state as typeof observationStates[number]) ? Object.freeze({
+      id: approvedBinding.id, projectId: approvedBinding.projectId,
+      providerInstallationId: approvedBinding.providerInstallationId, providerReleaseId: approvedBinding.providerReleaseId,
+      connectionId: approvedBinding.connectionId, connectionRevision: approvedBinding.connectionRevision,
+      resourceKey: approvedBinding.resourceKey, generation: approvedBinding.generation,
+      currentOperationId: approvedBinding.currentOperationId, desiredState: approvedBinding.desiredState,
+      tombstonedAt: approvedBinding.tombstonedAt, kind: settlementJournal.kind, payloadHash: settlementJournal.payloadHash,
+    }) : undefined;
+    return Object.freeze({
+      ...base,
+      ...(settlementScope ? { settlementScope } : {}),
+      hostContractMinor: snapshot.release.manifest.sandboxProviders?.find(provider => provider.id === "incus")?.minimumHostContract?.minor ?? 0,
+      operation,
+      method: incusMethodName(operation),
+      bindingId,
+      projectId: approvedBinding.projectId,
+      bindingGeneration: approvedBinding.generation,
+      resourceKey: approvedBinding.resourceKey,
+      expectedCommand,
+      ...(helperSha256 ? { approvedGuest: Object.freeze({ user: "sandbox", uid: 1000, gid: 1000, helperSha256 }) } : {}),
+      approvedPreset: Object.freeze({
+        profile: approvedBinding.profile,
+        incusProfile: base.config.profile,
+        presetId: approvedBinding.presetId,
+        presetDigest: approvedBinding.presetDigest,
+        effectiveSettingsDigest: approvedBinding.effectiveSettingsDigest,
+        imageFingerprint: preset.imageDigest,
+        limits: Object.freeze({
+          memoryBytes: preset.limits.memoryBytes,
+          cpuMillis: preset.limits.cpuMillis,
+          pids: preset.limits.pids,
+          diskBytes: preset.limits.diskBytes,
+        }),
+      }),
+    });
+  }
+
+  async prepare(snapshot: ActiveExtensionRelease, connectionId: string): Promise<PreparedIncusProbe> {
+    if (!snapshot.release.manifest.sandboxProviders?.some((provider) => provider.id === "incus" && provider.kind === "sandbox")
+      || !snapshot.release.manifest.methods?.some((method) => method.name === INCUS_PROVIDER_PREFLIGHT_METHOD)) {
+      throw new ContractError("UNDECLARED_CONTRIBUTION", "Incus provider preflight is not declared");
+    }
+    const metadata = await this.connections.getMetadata(connectionId);
+    if (!metadata || metadata.revokedAt || metadata.providerInstallationId !== snapshot.installation.id
+      || metadata.providerReleaseId !== snapshot.release.id) {
+      throw new ContractError("INVALID_PROVIDER_CONFIG", "Incus provider connection is unavailable");
+    }
+    let connection: Connection;
+    try {
+      connection = await this.connections.resolveForHost({
+        connectionId, providerInstallationId: snapshot.installation.id,
+        providerReleaseId: snapshot.release.id, revision: metadata.revision,
+      });
+    } catch {
+      throw new ContractError("INVALID_PROVIDER_CONFIG", "Incus provider connection is unavailable");
+    }
+    if (connection.configuration.kind !== "incus") {
+      throw new ContractError("INVALID_PROVIDER_CONFIG", "Incus provider connection has the wrong kind");
+    }
+    return Object.freeze({
+      installationId: snapshot.installation.id,
+      releaseId: snapshot.release.id,
+      releaseDigest: snapshot.release.releaseDigest,
+      generation: snapshot.installation.generation,
+      connectionId,
+      revision: metadata.revision,
+      config: Object.freeze({
+        connectionId,
+        serverCertificateSha256: fingerprint(connection.serverCertificatePem),
+        project: connection.project,
+        profile: connection.configuration.profile,
+        helperVersion: connection.configuration.helperVersion,
+        guestUser: connection.configuration.guestUser,
+      }),
+    });
+  }
+
+  private async observationRelease(installationId: string): Promise<ActiveExtensionRelease> {
+    if (this.observationRuntime) return this.observationRuntime.resolveActiveRelease(installationId);
+    const runtime = await import("../extensions/release-process");
+    return runtime.resolveActiveRelease(installationId, runtime.getReleaseRuntime());
+  }
+
+  private observationNow(): number { return (this.observationRuntime?.now ?? Date.now)(); }
+
+  private async reserveObservation(scope: PreparedIncusAction): Promise<IncusObservationSlot | undefined> {
+    if (scope.hostContractMinor !== 1) return undefined;
+    if (!scope.expectedCommand.idempotency || !scope.settlementScope) throw new IncusTransportError("permission", "Incus host journal scope is missing");
+    const id = scope.expectedCommand.idempotency.requestId;
+    const [saved] = await this.database.select({ journal: sandboxOperations, operatorOwned: operatorRecoveryDestroy })
+      .from(sandboxOperations).where(eq(sandboxOperations.id, id)).limit(1);
+    if (!saved || !observationStates.includes(saved.journal.state as typeof observationStates[number])) {
+      throw new IncusTransportError("permission", "Incus host journal is no longer admitted");
+    }
+    const journal = saved.journal;
+    if (saved.operatorOwned === true) return undefined;
+    const [owned] = await this.database.select({ id: sandboxBindings.id }).from(sandboxBindings)
+      .where(observationBindingPredicate(scope.settlementScope)).limit(1);
+    if (!owned) throw new IncusTransportError("permission", "Incus binding changed before effect admission");
+    const expiresAt = (journal.dispatchedAt ?? journal.createdAt).getTime() + OBSERVATION_BUDGET_MS;
+    if (this.observationsStopped || expiresAt <= this.observationNow()) {
+      throw new IncusTransportError("unavailable", "Incus host observation budget is unavailable", { effect: "none" });
+    }
+    const existing = this.observations.get(id);
+    if (existing) {
+      if (existing.scope !== scope) throw new IncusTransportError("permission", "Incus journal already has a host observation owner");
+      return existing;
+    }
+    if (this.observations.size >= OBSERVATION_LIMIT) throw new IncusTransportError("unavailable", "Incus host observation capacity is full", { effect: "none" });
+    const slot = { scope, expiresAt, abort: new AbortController() };
+    this.observations.set(id, slot);
+    return slot;
+  }
+
+  private async observationPause(signal: AbortSignal): Promise<void> {
+    if (this.observationRuntime?.delay) return this.observationRuntime.delay(OBSERVATION_PAUSE_MS, signal);
+    if (signal.aborted) return;
+    await new Promise<void>(resolve => {
+      const finish = () => { clearTimeout(timer); signal.removeEventListener("abort", finish); resolve(); };
+      const timer = setTimeout(finish, OBSERVATION_PAUSE_MS);
+      signal.addEventListener("abort", finish, { once: true });
+    });
+  }
+
+  private async observe(slot: IncusObservationSlot): Promise<void> {
+    const original = slot.scope;
+    const id = original.expectedCommand.idempotency!.requestId;
+    try {
+      while (!slot.abort.signal.aborted && this.observationNow() < slot.expiresAt) {
+        const [journal] = await this.database.select().from(sandboxOperations)
+          .where(and(eq(sandboxOperations.id, id), not(operatorRecoveryDestroy))).limit(1);
+        if (!journal || !observationStates.includes(journal.state as typeof observationStates[number])
+          || journal.providerOperationId !== slot.providerOperationId) return;
+        const expected = original.settlementScope!;
+        const [binding] = await this.database.select().from(sandboxBindings).where(observationBindingPredicate(expected)).limit(1);
+        if (!binding || journal.kind !== expected.kind || journal.payloadHash !== expected.payloadHash) return;
+        const snapshot = await this.observationRelease(original.installationId);
+        if (snapshot.release.id !== original.releaseId || snapshot.release.releaseDigest !== original.releaseDigest
+          || snapshot.installation.generation !== original.generation) return;
+        const deadlineMs = Math.min(slot.expiresAt, this.observationNow() + 30_000);
+        const fresh = await this.prepareAction(snapshot, original.bindingId, "lifecycle.inspectOperation", {
+          providerId: "incus", connectionId: original.connectionId, sandboxId: original.bindingId,
+          operationId: slot.providerOperationId, rpcDeadlineMs: deadlineMs,
+        });
+        const command = await journalBoundTransportCommand(this.database, fresh, binding, fresh.expectedCommand);
+        const result = validateSandboxProviderMethodValue("lifecycle.inspectOperation", "result",
+          await this.actionTransportFactory(fresh, slot.abort.signal, undefined, undefined, true).request(command)) as {
+            ok: boolean; operation?: SandboxOperationInspection };
+        if (!result.ok || !result.operation || result.operation.operationId !== slot.providerOperationId) return;
+        if (["succeeded", "failed", "cancelled"].includes(result.operation.state)) {
+          const [current] = await this.database.select().from(sandboxOperations).where(eq(sandboxOperations.id, id)).limit(1);
+          if (!current || !observationStates.includes(current.state as typeof observationStates[number])
+            || current.providerOperationId !== slot.providerOperationId) return;
+          await this.recordLifecycleTerminal(original, result.operation);
+          return;
+        }
+        if (result.operation.state === "outcome_unknown") return;
+        await this.observationPause(slot.abort.signal);
+      }
+    } catch (error) {
+      // The saved journal remains authoritative; an obsolete observer has no effect.
+      if (!slot.abort.signal.aborted && !(error instanceof SandboxControllerError && error.code === "SUPERSEDED_OPERATION")) logger.child("incus.observation").warn("Native observation ended without terminal settlement", { operationId: id });
+    } finally {
+      slot.observationFinished = true;
+      this.releaseObservation(slot);
+    }
+  }
+
+  private releaseObservation(slot: IncusObservationSlot): void {
+    const id = slot.scope.expectedCommand.idempotency!.requestId;
+    if ((!slot.work || slot.observationFinished) && (!slot.dispatch || slot.dispatchFinished)
+      && this.observations.get(id) === slot) this.observations.delete(id);
+  }
+
+  async resumePendingObservations(): Promise<void> {
+    if (this.observationsStopped) return;
+    const pending = await this.database.select().from(sandboxOperations).where(and(
+      inArray(sandboxOperations.state, [...observationStates]), not(operatorRecoveryDestroy),
+      gte(sql<Date>`COALESCE(${sandboxOperations.dispatchedAt}, ${sandboxOperations.createdAt})`, new Date(this.observationNow() - OBSERVATION_BUDGET_MS)),
+      sql`${sandboxOperations.providerOperationId} ~ ${"^incus-(create|setPower|destroy)-[a-f0-9-]{36}$"}`,
+    )).limit(OBSERVATION_LIMIT);
+    for (const journal of pending) {
+      if (this.observations.has(journal.id)) continue;
+      if (this.observations.size >= OBSERVATION_LIMIT) return;
+      try {
+        const [binding] = await this.database.select().from(sandboxBindings).where(eq(sandboxBindings.id, journal.bindingId)).limit(1);
+        if (!binding || binding.currentOperationId !== journal.id || binding.generation !== journal.generation) continue;
+        const nativeKind = journal.kind === "CREATE" ? "create" : journal.kind === "DESTROY" ? "destroy" : "setPower";
+        if (!journal.providerOperationId?.startsWith(`incus-${nativeKind}-`)) continue;
+        const snapshot = await this.observationRelease(binding.providerInstallationId);
+        const operation: SandboxProtocolOperation = journal.kind === "CREATE" ? "lifecycle.create"
+          : journal.kind === "DESTROY" ? "lifecycle.destroy" : "lifecycle.setPower";
+        const input = mutationInput({ operationId: journal.id, kind: journal.kind, generation: journal.generation,
+          idempotency: { scope: journal.idempotencyScope, key: journal.idempotencyKey, payloadHash: journal.payloadHash },
+          payload: journal.requestPayload, binding }, this.observationNow() + 30_000);
+        const prepared = await this.prepareAction(snapshot, binding.id, operation, input);
+        const slot = await this.reserveObservation(prepared);
+        if (slot) {
+          slot.providerOperationId = journal.providerOperationId;
+          slot.work = this.observe(slot);
+        }
+      } catch {
+        logger.child("incus.observation").warn("Saved native observation could not resume", { operationId: journal.id });
+      }
+    }
+  }
+
+  async awaitObservation(operationId: string): Promise<void> { await this.observations.get(operationId)?.work; }
+
+  async stopObservations(): Promise<void> {
+    this.observationsStopped = true;
+    const slots = [...this.observations.values()];
+    for (const slot of slots) slot.abort.abort();
+    await Promise.allSettled(slots.flatMap(slot => [slot.work, slot.dispatch]));
+    this.observations.clear();
+  }
+
+  private async recordLifecycleAcceptance(scope: PreparedIncusAction, providerOperationId: string): Promise<void> {
+    const kind = scope.operation === "lifecycle.create" ? "CREATE" : scope.operation === "lifecycle.destroy" ? "DESTROY"
+      : scope.expectedCommand.payload && (scope.expectedCommand.payload as Record<string, unknown>).desiredState === "running" ? "START" : "STOP";
+    const nativeKind = kind === "CREATE" ? "create" : kind === "DESTROY" ? "destroy" : "setPower";
+    const stableId = incusLifecycleOperationId(nativeKind, scope.expectedCommand);
+    if (!scope.expectedCommand.idempotency || providerOperationId !== stableId
+      && !new RegExp(`^incus-${nativeKind}${kind === "START" || kind === "STOP" ? "(?:Intent)?" : ""}-[a-f0-9-]{36}$`).test(providerOperationId)) {
+      throw new IncusTransportError("permission", "Incus accepted receipt escaped its host journal");
+    }
+    const authority = scope.settlementScope;
+    if (!authority || authority.currentOperationId !== scope.expectedCommand.idempotency.requestId
+      || authority.kind !== kind) throw new IncusTransportError("unavailable", "Incus accepted receipt lost its host scope", { effect: "unknown", operationId: providerOperationId });
+    const [saved] = await this.database.update(sandboxOperations).set({ providerOperationId }).where(and(
+      eq(sandboxOperations.id, scope.expectedCommand.idempotency.requestId), eq(sandboxOperations.bindingId, scope.bindingId),
+      eq(sandboxOperations.generation, scope.bindingGeneration), eq(sandboxOperations.kind, kind), eq(sandboxOperations.state, "DISPATCHING"),
+      eq(sandboxOperations.payloadHash, authority.payloadHash),
+      exists(this.database.select({ id: sandboxBindings.id }).from(sandboxBindings).where(observationBindingPredicate(authority))),
+      or(isNull(sandboxOperations.providerOperationId), eq(sandboxOperations.providerOperationId, stableId), eq(sandboxOperations.providerOperationId, providerOperationId),
+        ...(nativeKind === "setPower" && /^incus-setPower-[a-f0-9-]{36}$/.test(providerOperationId)
+          ? [sql`${sandboxOperations.providerOperationId} ~ ${"^incus-setPowerIntent-[a-f0-9-]{36}$"}`] : [])),
+    )).returning({ id: sandboxOperations.id });
+    if (!saved) throw new IncusTransportError("unavailable", "Incus accepted receipt journal changed", { effect: "unknown", operationId: providerOperationId });
+    const slot = this.observations.get(scope.expectedCommand.idempotency.requestId);
+    if (slot && !slot.work && /^incus-(create|setPower|destroy)-[a-f0-9-]{36}$/.test(providerOperationId)) {
+      slot.providerOperationId = providerOperationId;
+      slot.work = this.observe(slot);
+    }
+  }
+
+  private async recordLifecycleTerminal(scope: PreparedIncusAction, observation: SandboxOperationInspection): Promise<void> {
+    const identity = scope.expectedCommand.idempotency;
+    if (scope.hostContractMinor !== 1 || !identity || observation.resourceId !== scope.expectedCommand.sandboxName) {
+      throw new IncusTransportError("permission", "Incus terminal receipt escaped its host journal");
+    }
+    validateSandboxProviderMethodValue(scope.operation, "result", { ok: true, receipt: {
+      operationId: observation.operationId, kind: observation.kind, requestId: identity.requestId,
+      idempotencyKey: identity.key, sandboxId: scope.bindingId, acceptedAt: new Date().toISOString(), terminalObservation: observation,
+    } });
+    const kind = scope.operation === "lifecycle.create" ? "CREATE" : scope.operation === "lifecycle.destroy" ? "DESTROY"
+      : (scope.expectedCommand.payload as Record<string, unknown>).desiredState === "running" ? "START" : "STOP";
+    const outcome = inspectedOutcome(kind, observation.operationId, observation);
+    if (outcome.outcome !== "SUCCEEDED" && outcome.outcome !== "FAILED") throw new IncusTransportError("permission", "Incus terminal state changed intent");
+    if (!scope.settlementScope) throw new IncusTransportError("permission", "Incus terminal journal was not captured before dispatch");
+    const controller = new SandboxController(this.database, {
+      dispatch: async () => { throw new Error("Observation settlement cannot dispatch"); },
+      inspectOperation: async () => { throw new Error("Observation settlement cannot inspect"); },
+    });
+    await controller.recordProviderObservation(identity.requestId, observation.operationId, outcome, scope.settlementScope);
+  }
+
+  private async authorizeAdmissionDispatch(scope: PreparedIncusProbe): Promise<(() => void) | undefined> {
+    if (!isAction(scope) || scope.operation !== "lifecycle.create"
+      && !(scope.operation === "lifecycle.setPower" && (scope.expectedCommand.payload as Record<string, unknown>).desiredState === "running")) return;
+    try {
+      const [binding] = await this.database.select().from(sandboxBindings).where(eq(sandboxBindings.id, scope.bindingId)).limit(1);
+      const [project] = binding ? await this.database.select({ purpose: projects.purpose }).from(projects)
+        .where(eq(projects.id, binding.projectId)).limit(1) : [];
+      if (project?.purpose === "incus-qualification") return;
+      if (!binding || project?.purpose !== "user") throw new Error("Admission scope unavailable");
+      const [operation] = await this.database.select().from(sandboxOperations)
+        .where(eq(sandboxOperations.id, scope.expectedCommand.idempotency?.requestId ?? "")).limit(1);
+      if (!operation || operation.bindingId !== binding.id || operation.generation !== binding.generation
+        || operation.kind !== (scope.operation === "lifecycle.create" ? "CREATE" : "START")) throw new Error("Admission journal unavailable");
+      const [{ IncusAdmissionReadinessService }, { IncusQualificationStore }] = await Promise.all([
+        import("./incus-admission-readiness"), import("./incus-qualification")]);
+      const service = new IncusAdmissionReadinessService(this.database, new IncusQualificationStore({ db: this.database }));
+      const ready = await service.assertDispatch(binding, operation);
+      return () => service.assertDeadline(ready);
+    } catch {
+      throw new IncusTransportError("permission", "Current Incus admission readiness is unavailable", { effect: "none" });
+    }
+  }
+
+  private async requestTransport(scope: PreparedIncusProbe, reviewedScope: PreparedIncusProbe,
+    transportCommand: IncusTransportRequest, deadline: number, signal?: AbortSignal): Promise<JsonValue> {
+    const assertAdmissionDeadline = await this.authorizeAdmissionDispatch(scope);
+    const observation = isAction(scope) && lifecycleObservationOperations.has(scope.operation) ? await this.reserveObservation(scope) : undefined;
+      try {
+        const dispatchSignal = observation ? AbortSignal.any([observation.abort.signal, ...(signal ? [signal] : [])]) : signal;
+        const transport = isAction(scope)
+          ? this.actionTransportFactory(scope, dispatchSignal, id => this.recordLifecycleAcceptance(scope, id), observation => this.recordLifecycleTerminal(scope, observation))
+          : this.transportFactory(reviewedScope, signal);
+        try { assertAdmissionDeadline?.(); }
+        catch { throw new IncusTransportError("permission", "Incus admission readiness expired before transport", { effect: "none" }); }
+        const invocation = transport.request({ ...transportCommand, deadlineMs: Math.min(transportCommand.deadlineMs, deadline) });
+        if (observation) observation.dispatch = invocation;
+        return await invocation as JsonValue;
+      }
+      finally {
+        if (observation) {
+          observation.dispatchFinished = true;
+          this.releaseObservation(observation);
+        }
+      }
+  }
+
+  async request(scope: PreparedIncusProbe, input: Record<string, unknown>, deadline: number, signal?: AbortSignal): Promise<JsonValue> {
+    try { return { ok: true, result: await this.probe(scope, input, deadline, signal) } as JsonValue; }
+    catch (error) {
+      if (error instanceof IncusTransportError) {
+        return { ok: false, error: { kind: error.kind, effect: error.effect,
+          ...(error.operationId ? { operationId: error.operationId } : {}) } } as JsonValue;
+      }
+      throw error;
+    }
+  }
+
+  private async probe(scope: PreparedIncusProbe, input: Record<string, unknown>, deadline: number, signal?: AbortSignal): Promise<JsonValue> {
+    if (signal?.aborted) throw new IncusTransportError("deadline", "Incus probe was cancelled");
+    if (Object.keys(input).length !== 1 || !input.command || typeof input.command !== "object" || Array.isArray(input.command)) {
+      throw new ContractError("INVALID_REQUEST", "Invalid Incus provider request");
+    }
+    const command = input.command as unknown as IncusTransportRequest;
+    if (isAction(scope)) {
+      if (canonicalJson(command) !== canonicalJson(scope.expectedCommand)) {
+        throw new IncusTransportError("permission", "Incus provider request changed its host-approved action");
+      }
+    } else if (command.action !== "probe") throw new IncusTransportError("unsupported", "Incus transport action is unavailable");
+    if (!command.pins || typeof command.pins !== "object" || Array.isArray(command.pins)
+      || !command.tags || typeof command.tags !== "object" || Array.isArray(command.tags)) {
+      throw new IncusTransportError("invalid", "Invalid Incus provider request");
+    }
+    if (command.connectionId !== scope.connectionId
+      || command.pins?.connectionId !== scope.connectionId
+      || command.pins?.serverCertificateSha256 !== scope.config.serverCertificateSha256
+      || command.pins?.project !== scope.config.project || command.pins?.profile !== scope.config.profile
+      || command.pins?.helperVersion !== scope.config.helperVersion || command.pins?.guestUser !== scope.config.guestUser) {
+      throw new IncusTransportError("permission", "Incus provider request is outside its approved connection");
+    }
+    const dispatch = async (): Promise<JsonValue> => {
+      let binding: SandboxBinding | undefined;
+      if (isAction(scope)) {
+        [binding] = await this.database.select().from(sandboxBindings)
+          .where(eq(sandboxBindings.id, scope.bindingId)).limit(1);
+        const inspection = scope.operation === "lifecycle.inspectOperation";
+        const cleanupStop = await linkedCleanupStopInput(this.database, binding, scope.operation, { ...(scope.expectedCommand.payload as Record<string, unknown>), requestId: scope.expectedCommand.idempotency?.requestId })
+          || await cleanupReadOnlyInspection(this.database, binding, scope.operation);
+        if (!binding || binding.projectId !== scope.projectId
+          || binding.providerInstallationId !== scope.installationId
+          || binding.providerReleaseId !== scope.releaseId
+          || binding.connectionId !== scope.connectionId || binding.connectionRevision !== scope.revision
+          || binding.resourceKey !== scope.resourceKey
+          || !inspection && (binding.generation !== scope.bindingGeneration || binding.tombstonedAt && scope.operation !== "lifecycle.destroy" && !cleanupStop)
+          || (scope.operation.startsWith("files.") || scope.operation.startsWith("processes."))
+            && (binding.desiredState !== "RUNNING" || binding.observedState !== "RUNNING")
+          || !inspection && scope.expectedCommand.idempotency
+            && binding.currentOperationId !== scope.expectedCommand.idempotency.requestId
+            && scope.operation.startsWith("lifecycle.")) {
+          throw new IncusTransportError("permission", "Incus binding changed before transport dispatch");
+        }
+      }
+      const reviewedScope = !isAction(scope)
+        ? { ...scope, approvedPreflight: await this.reviewedPreflight(scope, command) }
+        : scope;
+      const transportCommand = isAction(scope)
+        ? await journalBoundTransportCommand(this.database, scope, binding, command) : command;
+      return this.requestTransport(scope, reviewedScope, transportCommand, deadline, signal);
+    };
+    if (isAction(scope) && mutationOperations.has(scope.operation)) {
+      const prior = this.dispatchedMutations.get(scope);
+      if (prior) return prior;
+      const invocation = dispatch();
+      this.dispatchedMutations.set(scope, invocation);
+      return invocation;
+    }
+    return dispatch();
+  }
+}

@@ -86,8 +86,13 @@ mock.module("$server/db/queries/agent-configs", () => ({
   })),
 }));
 
+const realProjectMembers = serverModule("db/queries/project-members", {});
 const realAuthMiddleware = serverModule("auth/middleware", {});
 beforeAll(() => {
+  mock.module("$server/db/queries/project-members", () => ({
+    ...realProjectMembers,
+    getProjectMembership: async () => ({ role: "member" }),
+  }));
   mock.module("$server/auth/middleware", () => ({
     ...realAuthMiddleware,
     requireAuth: () => ({ id: "user-1", email: "u@e.com", name: "U", role: "member" }),
@@ -95,6 +100,7 @@ beforeAll(() => {
 });
 afterAll(() => {
   mock.module("$server/auth/middleware", () => realAuthMiddleware);
+  mock.module("$server/db/queries/project-members", () => realProjectMembers);
 });
 const apiKeysExports = webLibModule("server/security/api-keys", {
   requireScope: () => null,
@@ -218,7 +224,7 @@ function makePOST(subConvId: string) {
       body: JSON.stringify({ content: "hi from user" }),
     }),
     params: { id: subConvId },
-    locals: {},
+    locals: { user: { id: "user-1", email: "u@e.com", name: "U", role: "member" } },
   } as any;
 }
 

@@ -9,8 +9,10 @@
  * pi's real `generateSummary` runs but never touches the network.
  */
 import { test, expect, describe, afterAll, beforeEach, mock } from "bun:test";
+import { getCurrentTools, getCurrentSystemPrompt } from "@earendil-works/pi-ai";
 import { restoreModuleMocks } from "./helpers/mock-cleanup";
 import {
+  makeCompactionTransform,
   DEFAULTS,
   estimateTokens,
   splitTurnBlocks,
@@ -275,4 +277,25 @@ describe("makeSummarizer", () => {
     const out = await makeSummarizer(turnModel, "evict-0", "evict-0")(summarizeInput, opts);
     expect(out).toBe("REFRESHED");
   });
+});
+
+test("shared summarize transform retains authoritative system replay outside summarized turns", async () => {
+  const tool = (name: string) => ({ name, description: name, parameters: { type: "object", properties: {} } });
+  const messages: any[] = [{ role: "system", content: "BASE", toolsAdded: [tool("old")], timestamp: 0 },
+    { role: "user", content: "x".repeat(16000), timestamp: 1 },
+    { role: "system", content: "UPDATE", toolsRemoved: [{ name: "old" }], toolsAdded: [tool("new")], timestamp: 2 },
+    { role: "user", content: "current", timestamp: 3 }];
+  const original = JSON.stringify(messages);
+  let summarized: any[] = [];
+  const out = await makeCompactionTransform({ id: "test", contextWindow: 1000, maxTokens: 0 } as any,
+    { strategy: "summarize", responseReserveFloor: 0, responseReserveCap: 0, safetyFraction: 0, summarizeMaxTokens: 100 },
+    { summarize: async body => { summarized = body; return "earlier work"; } })(messages);
+  expect(summarized.length).toBeGreaterThan(0);
+  expect(summarized.every(message => message.role !== "system")).toBe(true);
+  expect(getCurrentTools(out as any).map(tool => tool.name)).toEqual(["new"]);
+  expect(getCurrentSystemPrompt(out as any)).toBe("BASE\n\nUPDATE");
+  expect(out.filter(message => message.role === "system")).toHaveLength(1);
+  expect(out.some(isCompactionMarker)).toBe(true);
+  expect(estimateTokens(out)).toBeLessThanOrEqual(1000);
+  expect(JSON.stringify(messages)).toBe(original);
 });

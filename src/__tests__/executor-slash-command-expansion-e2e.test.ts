@@ -163,6 +163,7 @@ mock.module("$lib/server/context", () => ({
           llmVisiblePrompt = await applyCommandExpansion(userMessage, options.commandResolver);
         }
         streamChatCalls.push({ conversationId, userMessage, options, llmVisiblePrompt });
+        options.onRunRegistered?.();
         return { id: "run-test", status: "success" } as any;
       })();
       inflightStreamChats.push(p);
@@ -262,7 +263,7 @@ function postJson(content: string): Promise<Response> {
   return POST({
     request: req,
     params: { id: conversationId },
-    locals: {} as any,
+    locals: { user: ADMIN_USER } as any,
   } as any);
 }
 

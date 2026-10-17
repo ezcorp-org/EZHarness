@@ -101,9 +101,9 @@ async function runWaves(
  * freed their slots) before being reported as `[deferred: quota]`, distinct
  * from a real member output and from a `[error: …]`.
  *
- * Then injects the orchestrator prompt (or task-tracking instructions
- * for non-orchestrator runs) onto `ctx.system` and clears the
- * `_*` scratch fields off `run`.
+ * Then injects the orchestrator prompt onto `ctx.system` and clears the
+ * `_*` scratch fields off `run`. Returns true for normal runs, whose task
+ * instructions must be assembled from the final filtered tool catalog.
  *
  * Mutates `ctx.system` and `run`'s scratch fields in place.
  */
@@ -111,7 +111,7 @@ export async function applyAutoSpinUp(
   ctx: StreamChatContext,
   host: StreamChatHost,
   userMessage: string,
-): Promise<void> {
+): Promise<boolean> {
   const { run, controller } = ctx;
   // Typed view onto the orchestration scratch fields populated by setup-tools.
   // See OrchestratedRun / RunOrchestrationMeta in ./setup-tools for the shape.
@@ -191,13 +191,8 @@ export async function applyAutoSpinUp(
     delete orchRun._memberOverrides;
     delete orchRun._subAgentMembers;
     delete orchRun._teamToolScope;
-  } else {
-    // Non-orchestrator runs: still inject task tracking instructions so single agents
-    // can decompose complex work into visible tasks.
-    try {
-      const { buildTaskTrackingInstructions } = await import("../orchestrator-prompt");
-      const taskBlock = buildTaskTrackingInstructions();
-      ctx.system = ctx.system ? `${ctx.system}\n\n${taskBlock}` : taskBlock;
-    } catch { /* non-fatal */ }
+    return false;
   }
+  // Normal planning instructions are assembled after the final tool filters.
+  return true;
 }

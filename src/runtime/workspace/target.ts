@@ -35,8 +35,9 @@ export function getSandboxWorkspaceDispatcher(): SandboxWorkspaceDispatcher | nu
  * this decision: a sandbox binding never carries a host filesystem root. */
 export async function resolveWorkspaceTarget(projectId: string, expectedRevision?: number): Promise<WorkspaceTarget> {
   const db = getDb();
-  const [project] = await db.select({ id: projects.id, path: projects.path }).from(projects).where(eq(projects.id, projectId));
-  if (!project) throw new Error("Project workspace is unavailable");
+  const [project] = await db.select({ id: projects.id, path: projects.path, purpose: projects.purpose })
+    .from(projects).where(eq(projects.id, projectId));
+  if (project?.purpose !== "user") throw new Error("Project workspace is unavailable");
 
   const [binding] = await db
     .select()

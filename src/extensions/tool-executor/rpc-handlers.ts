@@ -9,6 +9,7 @@ import type { EventBus } from "../../runtime/events";
 import type { AgentEvents } from "../../types";
 import type { AgentExecutor } from "../../runtime/executor";
 import type { SpawnQuota } from "../spawn-quota";
+import type { WorkspaceTarget } from "../../runtime/workspaces/target";
 import type { FsRpcResponse } from "../fs-handler";
 import { handleStorageRpc, type StorageContext } from "../storage-handler";
 import { handleAgentConfigsRpc, type AgentConfigsContext } from "../agent-configs-handler";
@@ -75,6 +76,7 @@ export interface RpcHandlerDeps {
   currentProvider?: string;
   currentUserId?: string;
   currentConversationId?: string;
+  workspaceTarget?: WorkspaceTarget;
   /** The single decision core for the extension-RBAC axis; lives on the
    *  ToolExecutor core (shared with the pre-dispatch enforcement gate). */
   resolveExtensionScopeGrant: (
@@ -301,6 +303,7 @@ export async function handlePiSpawnAssignment(
     bus: deps.bus,
     quota: deps.spawnQuota,
     spawnDepth,
+    ...(deps.workspaceTarget ? { workspaceTarget: deps.workspaceTarget } : {}),
     // Phase 4: thread the registry so the handler can compute child
     // effective grants from each shared extension's installed grants
     // + manifest, and persist them on conversation_extensions.

@@ -2,7 +2,7 @@ import { json } from "@sveltejs/kit";
 import { errorJson } from "$lib/server/http-errors";
 import { logger } from "$server/logger";
 import * as convQueries from "$server/db/queries/conversations";
-import { requireAuth } from "$server/auth/middleware";
+import { checkProjectWorkAccess, requireAuth } from "$server/auth/middleware";
 import { requireScope } from "$lib/server/security/api-keys";
 import { resolveRootConversationForOwnership } from "$lib/server/conversation-ownership";
 import { getExecutor } from "$lib/server/context";
@@ -52,6 +52,8 @@ export const POST: RequestHandler = async ({ params, request, locals }) => {
   const ownership = await resolveRootConversationForOwnership(conversationId, user);
   if (!ownership) return errorJson(404, "Not found");
   const conv = ownership.conv;
+  const projectDenial = await checkProjectWorkAccess(locals, conv.projectId);
+  if (projectDenial) return projectDenial;
 
   // ── Boundary 2: per-API-key mode lock + autopilot refusal ─────────
   // A retry re-runs a turn, so it is a run-start route and was a way AROUND the
@@ -119,6 +121,7 @@ export const POST: RequestHandler = async ({ params, request, locals }) => {
   // Anchor the turn at the EXISTING user row: no new user message is created,
   // so the assistant response becomes a sibling of `target`.
   const streamPromise = executor.streamChat(conversationId, parentUser.content, {
+    workspacePrincipal: { userId: user.id },
     projectId: conv.projectId,
     provider,
     model,

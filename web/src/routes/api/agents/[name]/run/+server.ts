@@ -1,6 +1,6 @@
 import { json } from "@sveltejs/kit";
 import { getExecutor } from "$lib/server/context";
-import { requireAuth } from "$server/auth/middleware";
+import { checkProjectWorkAccess, requireAuth } from "$server/auth/middleware";
 import { runAgentSchema } from "./schema";
 import { validationError } from "$lib/server/security/validation";
 import { checkTokenBudget } from "$lib/server/security/resource-quotas";
@@ -24,6 +24,8 @@ export const POST: RequestHandler = async ({ request, params, locals }) => {
       return validationError(result.error);
     }
     const { projectId, ...input } = result.data;
+    const projectDenial = await checkProjectWorkAccess(locals, projectId);
+    if (projectDenial) return projectDenial;
     // Attribute the run to the initiating user so per-user run-ownership
     // (GET/DELETE /api/runs/[id]) lets them read/cancel their own agent run.
     // Without this the run inserts user_id=NULL and is admin-only (fail-closed).

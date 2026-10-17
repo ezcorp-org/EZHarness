@@ -20,7 +20,9 @@ let fileResponse: unknown;
 let failWrite = false;
 let mergeResult = true;
 let effects: { path: string; method: string; body: unknown }[];
-const service = new ProjectPullRequests({ database: driver, now: () => now, authorize: async () => {
+let authorizedScopes: unknown[];
+const service = new ProjectPullRequests({ database: driver, now: () => now, authorize: async (authorizedScope) => {
+  authorizedScopes.push(authorizedScope);
   if (!allowed) throw new Error("revoked");
   return { repository, selfProject, writePaths: ["docs/", "README.md"] };
 }, request: async (_scope, path, method = "GET", body) => {
@@ -33,7 +35,7 @@ const service = new ProjectPullRequests({ database: driver, now: () => now, auth
 } });
 beforeEach(async () => {
   await database.exec("DELETE FROM extension_project_decisions");
-  now = 1000; allowed = true; selfProject = false; repository = "owner/repository"; failWrite = false; mergeResult = true; effects = [];
+  now = 1000; allowed = true; selfProject = false; repository = "owner/repository"; failWrite = false; mergeResult = true; effects = []; authorizedScopes = [];
   metadata = { head: { sha: "a".repeat(40) }, base: { sha: "b".repeat(40) }, node_id: "PR_id", state: "open", draft: true, mergeable: true };
   fileResponse = [{ filename: "docs/new.md", previous_filename: "docs/old.md" }];
 });
@@ -51,6 +53,36 @@ test("proposals disclose exact host-read files and never execute without human d
   await expect(service.inspect({ ...actor, principalId: "other" }, proposed.proposalId)).rejects.toThrow("not found");
   await expect(service.observe({ ...scope, bindingId: "new" }, proposed.proposalId, "finalize")).rejects.toThrow("not found");
   expect(effects).toEqual([]);
+});
+
+test("a durable sandbox proposal cannot be observed through a local target", async () => {
+  const sandboxScope = {
+    ...scope,
+    workspaceTarget: {
+      kind: "sandbox" as const,
+      binding: {
+        projectId: scope.projectId,
+        workspaceId: "workspace",
+        connectionId: "connection",
+        providerId: "incus",
+        generation: 7,
+        presetId: "small",
+        releaseDigest: "a".repeat(64),
+        presetDigest: "b".repeat(64),
+        effectiveSettingsDigest: "c".repeat(64),
+      },
+    },
+  };
+  const proposed = await service.propose(sandboxScope, {
+    number: 42,
+    merge: false,
+    runId: "sandbox-loop",
+  });
+  authorizedScopes = [];
+
+  await expect(service.observe(scope, proposed.proposalId, "finalize"))
+    .rejects.toThrow("not found");
+  expect(authorizedScopes).toEqual([]);
 });
 
 test("human exact approval executes fixed ready comment and SHA-locked squash merge once", async () => {

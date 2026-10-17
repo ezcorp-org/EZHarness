@@ -1,9 +1,9 @@
 import type { RequestHandler } from "./$types";
 import { json } from "@sveltejs/kit";
 import { checkRole } from "$server/auth/middleware";
-import { createInvite, listInvites } from "$server/db/queries/invites";
+import { createInvite, listInvites, deleteInvite } from "$server/db/queries/invites";
 import { insertAuditEntry } from "$server/db/queries/audit-log";
-import { createInviteSchema } from "./schema";
+import { createInviteSchema, deleteInviteSchema } from "./schema";
 import { validationError } from "$lib/server/security/validation";
 
 /**
@@ -67,4 +67,19 @@ export const GET: RequestHandler = async ({ locals }) => {
     if (e instanceof Response) return e;
     throw e;
   }
+};
+
+/** Delete by private ID on the authenticated collection, not the public token route. */
+export const DELETE: RequestHandler = async ({ request, locals, url }) => {
+  const admin = checkRole(locals, "admin");
+  if (admin instanceof Response) return admin;
+  const origin = request.headers.get("origin");
+  if (origin !== url.origin && !(origin === null && locals.apiKeyScopes)) {
+    return json({ error: "Same-origin request required" }, { status: 403 });
+  }
+  const parsed = deleteInviteSchema.safeParse(await request.json().catch(() => null));
+  if (!parsed.success) return validationError(parsed.error);
+  if (!await deleteInvite(parsed.data.id)) return json({ error: "Invite not found" }, { status: 404 });
+  await insertAuditEntry(admin.id, "invite:deleted", parsed.data.id);
+  return json({ ok: true });
 };

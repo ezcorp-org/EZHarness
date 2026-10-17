@@ -16,6 +16,10 @@
 import { test, expect, describe, vi, beforeEach } from "vitest";
 import { makeRequestEvent } from "./helpers/server-route-test-utils";
 
+const getProjectMembership = vi.fn(async () => ({ role: "member" }));
+vi.mock("$server/db/queries/project-members", () => ({ getProjectMembership }));
+beforeEach(() => { getProjectMembership.mockReset(); getProjectMembership.mockResolvedValue({ role: "member" }); });
+
 vi.mock("$server/db/queries/conversations", () => ({
   createConversation: vi.fn(),
   listConversations: vi.fn(),

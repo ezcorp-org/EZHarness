@@ -63,11 +63,12 @@ export async function rehydrateUserMessageContent(
 	text: string,
 	attachments: StagedAttachment[],
 	caps: AttachmentCapabilities,
+	workspaceTarget: import("../../runtime/workspaces/target").WorkspaceTarget,
 ): Promise<string | PiContentPart[]> {
 	const accepted = attachments.filter((a) => isMimeAccepted(caps, a.mimeType));
 	if (accepted.length === 0) return text;
 	try {
-		return await buildUserContent(text, accepted, caps);
+		return await buildUserContent(text, accepted, caps, workspaceTarget);
 	} catch {
 		return text;
 	}

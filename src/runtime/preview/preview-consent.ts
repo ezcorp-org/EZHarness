@@ -33,6 +33,9 @@ import { getSetting, upsertSetting, deleteSetting } from "../../db/queries/setti
 import { createPreviewSession } from "../../db/queries/preview-sessions";
 import { mintOneTimeCode } from "./preview-token";
 import type { PreviewDetectedEvent } from "./preview-port-watcher";
+import { getConversation } from "../../db/queries/conversations";
+import { getProject } from "../../db/queries/projects";
+import { resolveProjectWorkspaceTarget } from "../workspaces/project-target";
 
 const log = logger.child("preview.consent");
 
@@ -148,11 +151,26 @@ export async function exposeDetectedPort(event: PreviewDetectedEvent): Promise<{
   if (!Number.isInteger(port) || port <= 0) {
     throw new Error(`exposeDetectedPort: invalid port ${port}`);
   }
+  const conversation = await getConversation(conversationId);
+  if (!conversation || conversation.userId !== userId) {
+    throw new Error("exposeDetectedPort: conversation is not owned by the requester");
+  }
+  const project = await getProject(conversation.projectId);
+  if (!project) {
+    throw new Error("exposeDetectedPort: project workspace is unavailable");
+  }
+  const workspaceTarget = await resolveProjectWorkspaceTarget(project, "preview open").catch(error => {
+    if (!project.path && error instanceof Error && error.message === "Project path is unavailable for preview open") {
+      throw new Error("exposeDetectedPort: project workspace is unavailable");
+    }
+    throw error;
+  });
   const row = await createPreviewSession({
     userId,
     conversationId,
     kind: "dynamic",
     targetPort: port,
+    workspaceTarget,
   });
   const code = mintOneTimeCode({ previewId: row.id, userId });
   return { previewId: row.id, code, subdomainLabel: row.id };
