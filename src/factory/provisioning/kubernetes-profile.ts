@@ -96,6 +96,12 @@ const restrictedContainer = (runAsUser: number) => ({
   capabilities: { drop: ["ALL"] }, seccompProfile: { type: "RuntimeDefault" },
 });
 
+/**
+ * A pod's own non-root user and group (C12 row "Scoped secret delivery (hosted)"). Kubernetes owns a Secret volume's
+ * files by root; `fsGroup` makes the kubelet present them as root:group 0440, the only way a non-root reader reads them.
+ */
+const restrictedPod = (runAsUser: number) => ({ runAsNonRoot: true, runAsUser, runAsGroup: runAsUser, fsGroup: runAsUser, seccompProfile: { type: "RuntimeDefault" } });
+
 /** A container's `env` list from an environment record, in its order. */
 function environment(values: Readonly<Record<string, string>>): { name: string; value: string }[] {
   return Object.entries(values).map(([name, value]) => ({ name, value }));
@@ -168,7 +174,7 @@ export function renderFactoryKubernetesInstallation(bundle: FactoryInstallationB
             serviceAccountName: "installation", automountServiceAccountToken: false, enableServiceLinks: false,
             // Above the harness's 25 s shutdown hard timeout, so it drains and closes its database before SIGKILL.
             terminationGracePeriodSeconds: 30,
-            securityContext: { runAsNonRoot: true, runAsUser: settings.runAsUser, runAsGroup: settings.runAsUser, seccompProfile: { type: "RuntimeDefault" } },
+            securityContext: restrictedPod(settings.runAsUser),
             initContainers: [{
               name: "deliver-secrets", image, imagePullPolicy: "IfNotPresent", command: ["sh", "-ec", `umask 077 && ${copy}`],
               securityContext: restrictedContainer(settings.runAsUser),
@@ -236,7 +242,7 @@ export function renderFactoryKubernetesSystem(settings: FactoryKubernetesSetting
           metadata: { labels: { ...common, "app.kubernetes.io/name": "factory-pool" } },
           spec: {
             automountServiceAccountToken: false, enableServiceLinks: false,
-            securityContext: { runAsNonRoot: true, runAsUser: settings.runAsUser, runAsGroup: settings.runAsUser, seccompProfile: { type: "RuntimeDefault" } },
+            securityContext: restrictedPod(settings.runAsUser),
             initContainers: [{
               name: "deliver-secrets", image, imagePullPolicy: "IfNotPresent", command: ["sh", "-ec", "umask 077 && cp -L /source/pool/* /delivered/pool/ && chmod 0600 /delivered/pool/*"],
               securityContext: restrictedContainer(settings.runAsUser),
@@ -274,9 +280,11 @@ export function renderFactoryKubernetesSystem(settings: FactoryKubernetesSetting
           spec: {
             // On the host network, and still resolving each installation's harness service for its guest-broker route.
             serviceAccountName: "factory-supervisor", automountServiceAccountToken: false, hostNetwork: true, dnsPolicy: "ClusterFirstWithHostNet", nodeSelector: { ...settings.nodeSelector },
+            securityContext: restrictedPod(settings.runAsUser),
             // A Secret volume is a tree of root-owned links the private reader refuses: copy it into private files first, as the pool does.
             initContainers: [{
               name: "deliver-secrets", image, imagePullPolicy: "IfNotPresent", command: ["sh", "-ec", "umask 077 && cp -L /source/supervisor/* /delivered/supervisor/ && chmod 0600 /delivered/supervisor/*"],
+              securityContext: restrictedContainer(settings.runAsUser),
               resources: { requests: { memory: "32Mi", cpu: "50m" }, limits: { memory: "64Mi", cpu: "100m" } },
               volumeMounts: [{ name: "supervisor-secret-source", mountPath: "/source/supervisor", readOnly: true }, { name: "supervisor-secrets", mountPath: "/delivered/supervisor" }],
             }],
@@ -358,7 +366,7 @@ export function renderFactoryKubernetesIngress(settings: FactoryKubernetesSettin
           metadata: { labels, annotations: { "ezcorp.io/ingress-digest": digest } },
           spec: {
             automountServiceAccountToken: false, enableServiceLinks: false,
-            securityContext: { runAsNonRoot: true, runAsUser: settings.runAsUser, runAsGroup: settings.runAsUser, seccompProfile: { type: "RuntimeDefault" } },
+            securityContext: restrictedPod(settings.runAsUser),
             containers: [{
               name: "nginx", image: ingress.image, imagePullPolicy: "IfNotPresent",
               command: ["nginx", "-c", `${INGRESS_ROOT}/nginx.conf`, "-g", "daemon off;"],

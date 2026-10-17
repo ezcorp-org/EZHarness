@@ -27,6 +27,11 @@ const SETTINGS: FactoryKubernetesSettings = {
   runtimeSocketPath: "/run/containerd/containerd.sock", runnerRoot: "/srv/ezcorp-runner", nodeCidrs: ["172.18.0.0/16"], nodeSelector: { "ezcorp.io/runner": "true" },
 };
 
+/** The ingress fixture: the Compose platform's nginx, pinned, with one file in each of its three places. */
+const NGINX = `docker.io/library/nginx@sha256:${"2".repeat(64)}`;
+const files = { "nginx.conf": "events {}\n", "conf/ezcorp-factory.conf": "server {}\n", "certs/tenant-01.crt": "crt", "certs/tenant-01.key": "key" };
+const ingress = () => renderFactoryKubernetesIngress(SETTINGS, { image: NGINX, listenPort: 8443, nodePort: 30443, files });
+
 interface Container { name: string; image: string; command: string[]; env: { name: string; value: string }[]; securityContext: Record<string, unknown>; volumeMounts: { name: string; mountPath: string; subPath?: string; readOnly?: boolean }[] }
 interface PodSpec { containers: Container[]; initContainers?: Container[]; volumes: Record<string, unknown>[]; hostNetwork?: boolean; securityContext?: Record<string, unknown>; automountServiceAccountToken?: boolean }
 
@@ -275,9 +280,6 @@ describe("renderFactoryKubernetesSystem", () => {
 });
 
 describe("renderFactoryKubernetesIngress (C12 row \"Trusted ingress\")", () => {
-  const NGINX = `docker.io/library/nginx@sha256:${"2".repeat(64)}`;
-  const files = { "nginx.conf": "events {}\n", "conf/ezcorp-factory.conf": "server {}\n", "certs/tenant-01.crt": "crt", "certs/tenant-01.key": "key" };
-  const ingress = () => renderFactoryKubernetesIngress(SETTINGS, { image: NGINX, listenPort: 8443, nodePort: 30443, files });
 
   test("one pinned nginx in the system namespace, configured only from one Secret mounted read-only at the Compose path", () => {
     const objects = ingress();
@@ -313,6 +315,78 @@ describe("renderFactoryKubernetesIngress (C12 row \"Trusted ingress\")", () => {
     for (const path of ["routes/tenant-01.json", "../nginx.conf", "conf/a/b.conf", "conf/--x.conf"]) {
       expect(() => renderFactoryKubernetesIngress(SETTINGS, { image: NGINX, listenPort: 8443, nodePort: 30443, files: { ...files, [path]: "x" } })).toThrow(expect.objectContaining({ code: "ingress_files_invalid" }));
     }
+  });
+});
+
+describe("scoped secret delivery (C12 row \"Scoped secret delivery (hosted)\")", () => {
+  /** Kubernetes' mode for a Secret or projected volume that names no `defaultMode`. */
+  const KUBERNETES_DEFAULT_MODE = 0o644;
+  interface SecretSource { defaultMode?: number; items?: { mode?: number }[]; sources?: { secret?: { items?: { mode?: number }[] } }[] }
+  interface Pod { securityContext?: { fsGroup?: number; runAsUser?: number; runAsGroup?: number }; initContainers?: Container[]; containers: Container[]; volumes?: { name: string; secret?: SecretSource; projected?: SecretSource }[] }
+  const positive = (value: unknown): value is number => Number.isInteger(value) && (value as number) > 0;
+  const key = (object: FactoryKubernetesObject) => `${String(object.kind)}/${(object.metadata as { name: string }).name}`;
+
+  /**
+   * Every breach of the row in a rendered object stream, by workload, container and volume. A root-owned Secret file
+   * is readable by a non-root container only through the pod's fsGroup, whatever its group bit, so every pod that
+   * mounts one needs fsGroup equal to each reader's group; no mode may grant others; every container's user and
+   * group are explicit (pod or container) and non-root.
+   */
+  function refusals(stream: readonly FactoryKubernetesObject[]): string[] {
+    return stream.flatMap((object) => {
+      const pod = (object.spec as { template?: { spec?: Pod } } | undefined)?.template?.spec;
+      if (!pod) return [];
+      const workload = key(object);
+      const secrets = (pod.volumes ?? []).filter((volume) => volume.secret ?? volume.projected);
+      const found: string[] = [];
+      for (const volume of secrets) {
+        const source = (volume.secret ?? volume.projected)!;
+        const items = [...(source.items ?? []), ...(source.sources ?? []).flatMap((entry) => entry.secret?.items ?? [])];
+        for (const mode of [source.defaultMode ?? KUBERNETES_DEFAULT_MODE, ...items.flatMap((item) => item.mode === undefined ? [] : [item.mode])]) {
+          if ((mode & 0o007) !== 0) found.push(`${workload}: volume ${volume.name} mode 0${mode.toString(8)} is readable by others`);
+        }
+      }
+      for (const container of [...(pod.initContainers ?? []), ...pod.containers]) {
+        const own = container.securityContext as { runAsUser?: number; runAsGroup?: number } | undefined;
+        const user = own?.runAsUser ?? pod.securityContext?.runAsUser;
+        const group = own?.runAsGroup ?? pod.securityContext?.runAsGroup;
+        const where = `${workload}/${container.name}`;
+        if (!positive(user)) found.push(`${where}: no explicit non-root runAsUser`);
+        if (!positive(group)) found.push(`${where}: no explicit non-root runAsGroup`);
+        const reads = container.volumeMounts.some((mount) => secrets.some((volume) => volume.name === mount.name));
+        if (reads && pod.securityContext?.fsGroup !== group) found.push(`${where}: reads a Secret volume, but the pod's fsGroup ${String(pod.securityContext?.fsGroup)} is not its group ${String(group)}`);
+      }
+      return found;
+    });
+  }
+
+  const everyPodTemplate = () => [...objects, ...system, ...ingress()];
+  /** A deep copy of the stream with one change to the pod template of one workload, named by kind and name. */
+  const mutate = (workload: string, change: (pod: Pod) => void) => everyPodTemplate().map((object) => {
+    const copy = structuredClone(object) as FactoryKubernetesObject;
+    if (key(copy) === workload) change((copy.spec as { template: { spec: Pod } }).template.spec);
+    return copy;
+  });
+
+  test("the invariant visits every rendered pod template: installation, pool, supervisor, and ingress", () => {
+    expect(everyPodTemplate().filter((object) => (object.spec as { template?: unknown } | undefined)?.template !== undefined).map(key))
+      .toEqual(["Deployment/installation", "Deployment/factory-pool", "DaemonSet/factory-supervisor", "Deployment/factory-ingress"]);
+  });
+
+  test("every rendered pod template keeps its Secrets private and readable by its own non-root readers", () => {
+    expect(refusals(everyPodTemplate())).toEqual([]);
+  });
+
+  test("the invariant refuses a pod without fsGroup, a mode readable by others, and a container left to the image's user", () => {
+    expect(refusals(mutate("Deployment/installation", (pod) => { delete pod.securityContext!.fsGroup; }))).toContain("Deployment/installation/deliver-secrets: reads a Secret volume, but the pod's fsGroup undefined is not its group 10001");
+    expect(refusals(mutate("Deployment/factory-ingress", (pod) => { pod.volumes![0]!.secret!.defaultMode = 0o444; }))).toEqual(["Deployment/factory-ingress: volume ingress mode 0444 is readable by others"]);
+    expect(refusals(mutate("Deployment/factory-ingress", (pod) => { delete pod.volumes![0]!.secret!.defaultMode; }))).toEqual(["Deployment/factory-ingress: volume ingress mode 0644 is readable by others"]);
+    expect(refusals(mutate("DaemonSet/factory-supervisor", (pod) => { delete pod.securityContext; }))).toEqual([
+      "DaemonSet/factory-supervisor/deliver-secrets: reads a Secret volume, but the pod's fsGroup undefined is not its group 10001",
+      "DaemonSet/factory-supervisor/supervisor: no explicit non-root runAsUser",
+      "DaemonSet/factory-supervisor/supervisor: no explicit non-root runAsGroup",
+    ]);
+    expect(refusals(mutate("Deployment/factory-pool", (pod) => { pod.containers[0]!.securityContext.runAsUser = 0; }))).toContain("Deployment/factory-pool/pool: no explicit non-root runAsUser");
   });
 });
 

@@ -56,6 +56,11 @@ addresses.
 Every `nodeCidrs` and `egressCidrs` entry is one IPv4 CIDR. An IPv6 or dual-stack
 hosted cluster is outside this profile. A malformed entry is refused by its
 field, index, and entry (for example `kubernetes.nodeCidrs[0] "10.89.1.0"`).
+`runAsUser` is the user and the group of every factory container, the
+supervisor and every init container included, and the `fsGroup` of every pod.
+Kubernetes owns a Secret volume's files by root. With `fsGroup`, the kubelet
+shows them as root and that group, mode 0440, so only the pod's own containers
+read them (C12 row "Scoped secret delivery (hosted)").
 
 One named gap stays open: the supervisor DaemonSet and the Compose fleet host
 both hold one fleet-wide host identity (`hosted-host-identity-shared`).
