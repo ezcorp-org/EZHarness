@@ -113,7 +113,7 @@ export interface FactoryGuestHarnessRelease {
  * write cannot drift between them. The artifact digest comes from the real build, never a literal.
  */
 export async function buildFactoryGuestHarnessRelease(options: {
-  readonly runner: Pick<Runner, "build">;
+  readonly runner: Pick<Runner, "build" | "collectArtifacts">;
   readonly blobs: BlobStore;
   readonly files: WorkspaceFiles;
   readonly operationId: string;
@@ -122,7 +122,12 @@ export async function buildFactoryGuestHarnessRelease(options: {
   readonly releaseId: string;
 }): Promise<FactoryGuestHarnessRelease> {
   const build = await buildFactoryGuestPackage(options.runner, { operationId: options.operationId, sourceDigest: filesDigest(options.files), files: options.files, limits: options.limits });
+  // C05 "Prepare a release built outside the lifecycle" (W4H-32): like a lifecycle release, the harness release keeps its
+  // artifact copy beside its source, so a fresh preparation store is restored from it. Checked before anything is stored.
+  const artifacts = await options.runner.collectArtifacts(build.artifactDigest);
+  if (filesDigest(artifacts) !== build.artifactDigest) throw new FactoryGuestPackageStagingError("the collected files do not digest to the build's artifact", "factory_guest_package_artifact_mismatch");
   const sourceDigest = await putFiles(options.blobs, options.files, "workspace");
+  if (await putFiles(options.blobs, artifacts, "artifact") !== build.artifactDigest) throw new FactoryGuestPackageStagingError("the stored artifact copy does not carry the build's digest", "factory_guest_package_artifact_mismatch");
   const input = {
     installationId: options.installationId, workspaceId: "workspace", workspaceRevision: 1, sourceDigest,
     artifactDigest: build.artifactDigest, imageDigest: build.imageDigest, manifest: build.manifest, evidence: build.evidence,

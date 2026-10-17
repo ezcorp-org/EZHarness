@@ -4,7 +4,7 @@ import { dirname, join } from "node:path";
 import { randomUUID, timingSafeEqual } from "node:crypto";
 import type { BuildRequest, Runner, RunnerExecution, StartRequest } from "@ezcorp/extension-contract";
 import { validateResourceLimits, validateInvocationContext } from "@ezcorp/extension-contract";
-import { identifier, processSpawn, RunnerError, validateFiles, safeHostError } from "./core";
+import { identifier, MAXIMUM_ARTIFACT_BYTES, processSpawn, RunnerError, validateFiles, safeHostError } from "./core";
 
 type Event = { id?: string; method: string; params: unknown };
 /**
@@ -52,10 +52,16 @@ const MAXIMUM_ATTACHMENT_LEASE_MS = 600_000;
 /** Request and response policy. Bun.serve carries no header option, so this file holds it. */
 const MAXIMUM_HEADER_BYTES = 4096;
 const MAXIMUM_REQUEST_BYTES = 128 * 1024 ** 2;
+/**
+ * A restore carries exactly one release artifact, so its bound is the store's own artifact bound plus the JSON
+ * envelope, not the general request bound (W4H-32): every artifact a store can hold can be restored into it.
+ */
+const MAXIMUM_RESTORE_BYTES = MAXIMUM_ARTIFACT_BYTES + 1024 ** 2;
+const RESTORE_PATH = "/v4/artifacts/restore";
 const MAXIMUM_RESPONSE_BYTES = 180 * 1024 ** 2;
 
 /** Read one bounded JSON object body. A stream over the policy limit is refused mid-flight. */
-async function readRequestBody(request: Request): Promise<RunnerRequestBody> {
+async function readRequestBody(request: Request, maximumBytes: number): Promise<RunnerRequestBody> {
   const chunks: Uint8Array[] = [];
   let bytes = 0;
   const reader = request.body?.getReader();
@@ -63,7 +69,7 @@ async function readRequestBody(request: Request): Promise<RunnerRequestBody> {
     const chunk = await reader.read();
     if (chunk.done) break;
     bytes += chunk.value.byteLength;
-    if (bytes > MAXIMUM_REQUEST_BYTES) { await reader.cancel(); throw new RunnerError("request_limit", "Runner request exceeds policy"); }
+    if (bytes > maximumBytes) { await reader.cancel(); throw new RunnerError("request_limit", "Runner request exceeds policy"); }
     chunks.push(chunk.value);
   }
   // A body that is not JSON is the caller's error (400), never the runner's (500).
@@ -78,6 +84,11 @@ function respond(status: number, body: unknown): Response {
   const json = JSON.stringify(body);
   if (Buffer.byteLength(json) > MAXIMUM_RESPONSE_BYTES) throw new RunnerError("response_limit", "Runner response exceeds policy");
   return new Response(json, { status, headers: { "content-type": "application/json" } });
+}
+
+/** An endpoint this runner does not serve; a host reads it as "not supported" (capabilities, restore). */
+function unknownMethod(): Response {
+  return respond(404, { error: { code: "unknown_method", message: "Unknown runner endpoint" } });
 }
 
 /** Release one host attachment. The worker keeps running and keeps every queued event. */
@@ -274,11 +285,16 @@ export async function startRunnerService(options: RunnerServiceOptions): Promise
       case "/v4/cancel": await closeSession(identifier(data.id)); await options.runner.cancel(data.id); return respond(200, {});
       case "/v4/inspect": return respond(200, await options.runner.inspect(identifier(data.id)));
       case "/v4/artifacts": return respond(200, { files: await options.runner.collectArtifacts(data.artifactDigest) });
+      // The host's own copy of a release artifact, back into this store (W4H-32). A runner without it answers like an older service.
+      case RESTORE_PATH:
+        if (!options.runner.restoreArtifact) return unknownMethod();
+        await options.runner.restoreArtifact(data.artifactDigest, data.files);
+        return respond(200, {});
       // A host asks before it starts a worker that may not spawn: a runner that
       // cannot block process creation says so here, and an older runner answers
       // unknown_method, which the host reads as the same "not enforced".
       case "/v4/capabilities": return respond(200, await options.runner.capabilities?.() ?? { processSpawnEnforcement: false });
-      default: return respond(404, { error: { code: "unknown_method", message: "Unknown runner endpoint" } });
+      default: return unknownMethod();
     }
   }
 
@@ -290,7 +306,7 @@ export async function startRunnerService(options: RunnerServiceOptions): Promise
     const expected = Buffer.from(`Bearer ${options.token}`);
     if (authorization.length !== expected.length || !timingSafeEqual(authorization, expected)) return respond(401, { error: { code: "unauthorized", message: "Runner authentication failed" } });
     if (request.method !== "POST" || request.headers.get("content-type") !== "application/json") throw new RunnerError("invalid_request", "Use versioned JSON POST endpoints");
-    return dispatch(request, await readRequestBody(request));
+    return dispatch(request, await readRequestBody(request, new URL(request.url).pathname === RESTORE_PATH ? MAXIMUM_RESTORE_BYTES : MAXIMUM_REQUEST_BYTES));
   }
   async function closeSession(id: string): Promise<void> {
     const session = sessions.get(id);
@@ -313,7 +329,7 @@ export async function startRunnerService(options: RunnerServiceOptions): Promise
       unix: privatePath,
       // The policy bound lives in readRequestBody so an oversized body is
       // refused with the runner's own typed diagnostic; this is the backstop.
-      maxRequestBodySize: MAXIMUM_REQUEST_BYTES + 1024 ** 2,
+      maxRequestBodySize: Math.max(MAXIMUM_REQUEST_BYTES, MAXIMUM_RESTORE_BYTES) + 1024 ** 2,
       // Bun's unix listener takes no idle timeout. The slow-client bound stays
       // where the untrusted peer connects: peer-gateway.py times out every
       // relay read at 360 s and admits at most 32 connections.

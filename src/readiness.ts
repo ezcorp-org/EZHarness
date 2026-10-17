@@ -5,6 +5,14 @@ export interface Readiness {
   reason?: string;
   detail?: unknown;
   since: string;
+  warnings?: ReadinessWarning[];
+}
+
+/** A non-blocking condition a person should know about (W4H-32): a code and its subject, never a message. */
+export interface ReadinessWarning {
+  code: string;
+  artifactDigest: string;
+  count: number;
 }
 
 let current: Readiness = { state: "booting", since: new Date().toISOString() };
@@ -21,11 +29,22 @@ export function setReadinessDiagnostic(name: string, value: unknown): void {
   else diagnostics.set(name, value);
 }
 
+/** Warnings by code and subject, each with how often it happened in this process. They never change the state. */
+const warnings = new Map<string, ReadinessWarning>();
+
+export function recordReadinessWarning(warning: Omit<ReadinessWarning, "count">): void {
+  const key = `${warning.code}\0${warning.artifactDigest}`;
+  warnings.set(key, { code: warning.code, artifactDigest: warning.artifactDigest, count: (warnings.get(key)?.count ?? 0) + 1 });
+}
+
 export function getReadiness(): Readiness {
-  if (diagnostics.size === 0) return current;
-  const detail = current.detail;
-  const base = detail !== null && typeof detail === "object" && !Array.isArray(detail) ? detail : detail === undefined ? {} : { value: detail };
-  return { ...current, detail: { ...base, diagnostics: Object.fromEntries(diagnostics) } };
+  let readiness = current;
+  if (diagnostics.size > 0) {
+    const detail = current.detail;
+    const base = detail !== null && typeof detail === "object" && !Array.isArray(detail) ? detail : detail === undefined ? {} : { value: detail };
+    readiness = { ...readiness, detail: { ...base, diagnostics: Object.fromEntries(diagnostics) } };
+  }
+  return warnings.size === 0 ? readiness : { ...readiness, warnings: [...warnings.values()].map(warning => ({ ...warning })) };
 }
 
 export function setReadiness(next: Omit<Readiness, "since"> & { since?: string }): void {
@@ -34,4 +53,5 @@ export function setReadiness(next: Omit<Readiness, "since"> & { since?: string }
 
 export function resetReadiness(): void {
   current = { state: "booting", since: new Date().toISOString() };
+  warnings.clear();
 }

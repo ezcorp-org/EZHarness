@@ -16,7 +16,9 @@ import { migrate } from "../db/migrate";
 import { DatabaseLifecycleRepository } from "../db/queries/extension-releases";
 import { digestObject, FileBlobStore, putFiles } from "../extensions/v4/blobs";
 import { FactoryGrants, type FactoryPrincipal } from "./grants";
-import { FactoryPackagePreparations, FactoryPackageTrusts, FactoryV4PackageCatalog } from "./package-preparation";
+import { type FactoryPackagePreparationError, FactoryPackagePreparations, FactoryPackageTrusts, FactoryV4PackageCatalog } from "./package-preparation";
+import { productExtensionRunner } from "../extensions/runner-rehydration";
+import { getReadiness, resetReadiness } from "../readiness";
 import { FactoryRecords } from "./records";
 
 const tenantId = "podman-package-tenant";
@@ -29,7 +31,7 @@ function record(build: Awaited<ReturnType<Runner["build"]>>, sourceDigest: strin
   return { ...input, id: "podman-package-release", releaseDigest: digestObject(input), createdAt: "2030-01-01T00:00:00.000Z" };
 }
 
-test("rebuilds the exact immutable v4 source into a fresh real Podman runner and retains a durable receipt", async () => {
+test("a fresh real Podman runner store is restored from the product's blob copy, never rebuilt, and the preparation keeps a durable receipt (W4H-32)", async () => {
   const root = await mkdtemp(join(tmpdir(), "factory-package-preparation-"));
   const publisherRoot = join(root, "publisher-runner");
   const consumerRoot = join(root, "consumer-runner");
@@ -48,6 +50,8 @@ test("rebuilds the exact immutable v4 source into a fresh real Podman runner and
     expect(initial.diagnostics).toEqual([]);
     const blobs = new FileBlobStore(blobRoot);
     const sourceDigest = await putFiles(blobs, files, "workspace");
+    // The lifecycle keeps the product's own copy of every release artifact beside its source.
+    expect(await putFiles(blobs, await publisher.collectArtifacts(initial.artifactDigest!), "artifact")).toBe(initial.artifactDigest!);
     const release = record(initial, sourceDigest);
     const reference: RunnerReference = { package: `@ezcorp/${release.manifest.name}`, manifestName: release.manifest.name, version: release.manifest.version, digest: `sha256:${release.artifactDigest}`, export: "echo" };
     const records = new FactoryRecords(db, tenantId);
@@ -62,18 +66,32 @@ test("rebuilds the exact immutable v4 source into a fresh real Podman runner and
     await repository.create({ installation: { id: release.installationId, ownerId: admin.id, scope: `project:${projectId}`, generation: 1, activeReleaseId: release.id, enabled: true, uninstalled: false, status: "active", grants: [], acknowledgedGeneration: 1 }, workspaces: {}, revisions: {}, operations: {}, releases: { [release.id]: release }, approvals: {} });
     const trusts = new FactoryPackageTrusts(db, tenantId, grants);
     consumer = new PodmanRunner({ root: consumerRoot, ...await provision() });
-    const preparations = new FactoryPackagePreparations(db, tenantId, grants, trusts, new FactoryV4PackageCatalog(repository, blobs), consumer, buildLimits);
-    await preparations.bind(admin, { projectId, reference, installationId: release.installationId, releaseId: release.id }, "podman-bind");
+    let builds = 0;
+    const build = consumer.build.bind(consumer);
+    consumer.build = async input => { builds++; return build(input); };
+    // A runner nothing wraps: its fresh store's artifact_missing is refused by name, never rebuilt (C10 amendment W4H-32).
+    const unwrapped = new FactoryPackagePreparations(db, tenantId, grants, trusts, new FactoryV4PackageCatalog(repository, blobs), consumer, buildLimits);
+    await unwrapped.bind(admin, { projectId, reference, installationId: release.installationId, releaseId: release.id }, "podman-bind");
     await trusts.publish(admin, { projectId, reference, expectedRevision: 0 }, "podman-trust");
+    const refusal = await unwrapped.prepare(projectId, reference).catch((error: unknown) => error) as FactoryPackagePreparationError;
+    expect(refusal).toMatchObject({ code: "factory_package_artifact_unavailable" });
+    expect(JSON.parse(refusal.detail!)).toMatchObject({ code: "artifact_missing", errorCode: "ENOENT" });
+    // The product's runner restores the artifact from the blob copy and the preparation completes without a build.
+    resetReadiness();
+    const product = productExtensionRunner(blobs, db, consumer);
+    const preparations = new FactoryPackagePreparations(db, tenantId, grants, trusts, new FactoryV4PackageCatalog(repository, blobs), product, buildLimits);
     const receipt = await preparations.prepare(projectId, reference);
+    expect(builds).toBe(0);
+    expect(getReadiness().warnings).toEqual([{ code: "runner_artifact_rehydrated", artifactDigest: release.artifactDigest, count: 1 }]);
     expect(receipt).toMatchObject({ reference, artifactDigest: release.artifactDigest, sourceDigest, releaseDigest: release.releaseDigest, trustRevision: 1 });
     expect(filesDigest(await consumer.collectArtifacts(receipt.artifactDigest))).toBe(receipt.artifactDigest);
     const context = { workerId: "prepared-package-worker", invocationId: "prepared-package-invocation", releaseId: receipt.artifactDigest, principalId: tenantId, scopeId: projectId, token: "local-test", deadline: Date.now() + 30_000 };
     const worker = await consumer.start({ workerId: context.workerId, artifactDigest: receipt.artifactDigest, context, limits: executionLimits }, async () => { throw new Error("unexpected host call"); });
     try { expect(await worker.request("extension/invoke", { name: reference.export, input: { prepared: true }, context })).toEqual({ prepared: true }); }
     finally { await worker.close(); }
-    const restarted = new FactoryPackagePreparations(db, tenantId, grants, trusts, new FactoryV4PackageCatalog(repository, blobs), consumer, buildLimits);
+    const restarted = new FactoryPackagePreparations(db, tenantId, grants, trusts, new FactoryV4PackageCatalog(repository, blobs), product, buildLimits);
     expect(await restarted.prepare(projectId, reference)).toEqual(receipt);
+    expect(builds).toBe(0);
   } finally {
     await consumer?.close();
     await publisher?.close();

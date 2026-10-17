@@ -1,7 +1,8 @@
 import { describe, expect, test } from "bun:test";
 import type { BuildRequest, BuildResult, WorkspaceFiles } from "@ezcorp/extension-contract";
 import { filesDigest } from "@ezcorp/extension-runner";
-import { digestObject } from "../extensions/v4/blobs";
+import { digestBytes, digestObject, getFiles } from "../extensions/v4/blobs";
+import { LifecycleError, type BlobStore } from "../extensions/v4/types";
 import {
   FactoryGuestPackageStagingError,
   buildFactoryGuestHarnessRelease,
@@ -13,6 +14,17 @@ import {
 
 const files: WorkspaceFiles = { "extension.ts": "export {};" };
 const evidence = { protocolVersion: 4, tests: [] } as unknown as BuildResult["evidence"];
+const artifacts: WorkspaceFiles = { "extension.ts": "export {};", ".runner/recipe.json": "{}" };
+
+/** A content-addressed release blob store in memory: what the lifecycle's FileBlobStore promises. */
+function memoryBlobs() {
+  const stored = new Map<string, Uint8Array>();
+  const blobs: BlobStore = {
+    async put(bytes) { const digest = digestBytes(bytes); stored.set(digest, bytes); return digest; },
+    async get(digest) { const bytes = stored.get(digest); if (!bytes) throw new LifecycleError("artifact_missing", "One stored extension release blob is missing."); return bytes; },
+  };
+  return { blobs, stored };
+}
 
 function runner(answer: Partial<BuildResult>) {
   const asked: BuildRequest[] = [];
@@ -37,13 +49,39 @@ describe("the one guest-package builder (W4H-26)", () => {
 
   test("the harness release record is derived from the real build and the stored source", async () => {
     const manifest = factoryGuestManifest({ name: "m", version: "1.0.0", author: "a", description: "d", tools: {} });
-    const stored: Uint8Array[] = [];
-    const blobs = { async put(bytes: Uint8Array) { stored.push(bytes); return digestObject(files); }, async get() { return stored[0]!; } };
-    const built = await buildFactoryGuestHarnessRelease({ runner: runner({ artifactDigest: "b".repeat(64), manifest: manifest as never }), blobs: blobs as never, files, operationId: "op", limits: {} as never, installationId: "inst", releaseId: "rel" });
+    const { blobs } = memoryBlobs();
+    const built = await buildFactoryGuestHarnessRelease({ runner: { ...runner({ artifactDigest: digestObject(artifacts), manifest: manifest as never }), async collectArtifacts() { return structuredClone(artifacts); } }, blobs, files, operationId: "op", limits: {} as never, installationId: "inst", releaseId: "rel" });
     expect(built.sourceDigest).toBe(digestObject(files));
-    expect(built.release).toMatchObject({ id: "rel", installationId: "inst", sourceDigest: digestObject(files), artifactDigest: "b".repeat(64), runnerProfile: "rootless-podman-v4", manifest });
+    expect(built.release).toMatchObject({ id: "rel", installationId: "inst", sourceDigest: digestObject(files), artifactDigest: digestObject(artifacts), runnerProfile: "rootless-podman-v4", manifest });
     const { id: _id, releaseDigest, createdAt: _createdAt, ...input } = built.release as Record<string, unknown>;
     expect(releaseDigest).toBe(digestObject(input));
+  });
+
+  test("the harness release keeps its artifact copy in the release blobs beside its source, under the digest the release names (W4H-32)", async () => {
+    const manifest = factoryGuestManifest({ name: "m", version: "1.0.0", author: "a", description: "d", tools: {} });
+    const { blobs } = memoryBlobs();
+    const built = await buildFactoryGuestHarnessRelease({ runner: { ...runner({ artifactDigest: digestObject(artifacts), manifest: manifest as never }), async collectArtifacts() { return structuredClone(artifacts); } }, blobs, files, operationId: "op", limits: {} as never, installationId: "inst", releaseId: "rel" });
+    expect(await getFiles(blobs, built.release.artifactDigest as string, "artifact")).toEqual(artifacts);
+    expect(await getFiles(blobs, built.sourceDigest, "workspace")).toEqual(files);
+  });
+
+  test("collected files that do not digest to the build's artifact are refused by name, and no artifact copy is stored (W4H-32)", async () => {
+    const manifest = factoryGuestManifest({ name: "m", version: "1.0.0", author: "a", description: "d", tools: {} });
+    const { blobs, stored } = memoryBlobs();
+    const tampered = { ...artifacts, "extension.ts": "export const tampered = 1;" };
+    await expect(buildFactoryGuestHarnessRelease({ runner: { ...runner({ artifactDigest: digestObject(artifacts), manifest: manifest as never }), async collectArtifacts() { return tampered; } }, blobs, files, operationId: "op", limits: {} as never, installationId: "inst", releaseId: "rel" }))
+      .rejects.toThrow("factory_guest_package_artifact_mismatch");
+    expect([...stored.keys()]).not.toContain(digestObject(artifacts));
+    expect([...stored.keys()]).not.toContain(digestObject(tampered));
+  });
+
+  test("a release blob store that files the artifact copy under another digest is refused by name (W4H-32, validator-8 Addendum H mutant)", async () => {
+    const manifest = factoryGuestManifest({ name: "m", version: "1.0.0", author: "a", description: "d", tools: {} });
+    const { blobs } = memoryBlobs();
+    // The source is filed under its own digest; the artifact copy comes back under another one.
+    const skewed: BlobStore = { get: blobs.get, async put(bytes) { const digest = await blobs.put(bytes); return digest === digestObject(artifacts) ? "f".repeat(64) : digest; } };
+    await expect(buildFactoryGuestHarnessRelease({ runner: { ...runner({ artifactDigest: digestObject(artifacts), manifest: manifest as never }), async collectArtifacts() { return structuredClone(artifacts); } }, blobs: skewed, files, operationId: "op", limits: {} as never, installationId: "inst", releaseId: "rel" }))
+      .rejects.toThrow("factory_guest_package_artifact_mismatch: the stored artifact copy does not carry the build's digest");
   });
 
   test("the generated entry serves each named export as a tool with only the broker capability", () => {

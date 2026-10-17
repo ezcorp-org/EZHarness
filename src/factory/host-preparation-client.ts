@@ -2,17 +2,12 @@ import type { BuildResult, Runner, WorkspaceFiles } from "@ezcorp/extension-cont
 import { createGatewayTransport, GatewayStatusError, type GatewayTransportOptions } from "@ezcorp/factory-transport";
 import { digestObject } from "../extensions/v4/blobs";
 import { FactoryHostLaunchRefusal } from "./host-launch-client";
+import { FactoryHostPreparationError } from "./package-preparation";
 import { FACTORY_HOST_PREPARATION_PATH, FACTORY_HOST_PREPARATION_REPLY_BYTES, FACTORY_HOST_PREPARATION_TIMEOUT_MS } from "./runner/host-launch-service";
 
 /** Longer than the host's own build bound, so the host always answers first. */
 export const FACTORY_HOST_PREPARATION_CLIENT_TIMEOUT_MS = FACTORY_HOST_PREPARATION_TIMEOUT_MS + 30_000;
 
-export class FactoryHostPreparationError extends Error {
-  constructor(readonly code: "host_preparation_invalid" | "host_preparation_artifact_mismatch" | "host_preparation_not_built", message: string) {
-    super(`${code}: ${message}`);
-    this.name = "FactoryHostPreparationError";
-  }
-}
 
 /**
  * The supervisor as the builder `FactoryPackagePreparations` prepares through (C05 "Prepare a bound

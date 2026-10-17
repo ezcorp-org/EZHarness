@@ -165,3 +165,12 @@ test("trusted-local mode selects the in-process runner and never reads the socke
     names.forEach((name, index) => { if (previous[index] === undefined) delete process.env[name]; else process.env[name] = previous[index]; });
   }
 });
+
+test("the lazy runner passes an artifact restore to the resolved runner, and a runner without restore answers unknown_method (W4H-32)", async () => {
+  const files = { "extension.js": "export {};" };
+  const restored: unknown[] = [];
+  const base = { build: async () => { throw new Error("unused"); }, start: async () => { throw new Error("unused"); }, cancel: async () => {}, inspect: async (id: string) => ({ id, state: "unknown" as const, diagnostics: [] }), collectArtifacts: async () => ({}) } satisfies Runner;
+  await createLazyExtensionRunner(() => ({ ...base, restoreArtifact: async (digest, given) => { restored.push([digest, given]); } })).restoreArtifact!("d".repeat(64), files);
+  expect(restored).toEqual([["d".repeat(64), files]]);
+  await expect(createLazyExtensionRunner(() => base).restoreArtifact!("d".repeat(64), files)).rejects.toMatchObject({ code: "unknown_method" });
+});
