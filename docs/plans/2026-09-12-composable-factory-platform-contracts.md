@@ -572,6 +572,7 @@ Commit #246 on main shipped an extension v4 lifecycle (`src/extensions/v4/README
 | C10 GitHub adapter | `project-pull-request-broker.ts` | Extend with branch namespace, tested-base binding, and receipt fields |
 | C10 periodic sweep | `host-maintenance-daemon.ts` sub-ticks | New sub-tick, not new infrastructure |
 | C01 tenant scope | none: the lifecycle actor scope is `global` or `project:<id>` | New |
-| C11 metrics and notifications | none | New |
+| C11 outbound notifications | `src/delivery-queue/durable-delivery-queue.ts`, the C02 shared queue (dedup, lease, attempts, dead letter, `outcome_unknown`): the sender runs its own `factory_notification_sends` queue on it, declared in the C13 inventory (`REQUIRED_SHARED_IMPORTS`) | Reuse; no second queue (W4H-34) |
+| C11 metrics | none | New |
 
 **F13 proof — stage 1 and every later stage:** A boundary test asserts that factory modules import the shared modules named above and that no factory module defines a function whose name and signature duplicates one of them. The `Factory schema and kernel` lane runs it from stage 1, and each stage extends the list with the modules it touches.
