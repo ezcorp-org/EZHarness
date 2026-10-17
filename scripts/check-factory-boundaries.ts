@@ -107,6 +107,8 @@ export const REQUIRED_SHARED_IMPORTS: readonly RequiredImport[] = [
   { factoryPath: "src/factory/legacy-workflow/classification.ts", sharedModule: "src/extensions/v4/blobs.ts" },
   { factoryPath: "src/factory/legacy-workflow/import.ts", sharedModule: "src/extensions/v4/blobs.ts" },
   { factoryPath: "src/factory/native-runner-policy.ts", sharedModule: "src/extensions/v4/blobs.ts" },
+  // The outbound notification sender runs its own queue on the C02 shared queue: no second queue (W4H-34, C13 C11 row).
+  { factoryPath: "src/factory/notification-sender.ts", sharedModule: "src/delivery-queue/durable-delivery-queue.ts" },
   { factoryPath: "src/factory/outbox.ts", sharedModule: "src/delivery-queue/durable-delivery-queue.ts" },
   { factoryPath: "src/factory/package-fence.ts", sharedModule: "src/extensions/v4/blobs.ts" },
   { factoryPath: "src/factory/package-preparation.ts", sharedModule: "src/db/queries/audit-log.ts" },
