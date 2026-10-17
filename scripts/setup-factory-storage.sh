@@ -53,7 +53,7 @@ require_owned_credentials() {
   [[ -n "${EZCORP_FACTORY_STORAGE_SECRETS_DIR:-}" ]] || fail 'Set the generated credential directory before stop.'
   local canonical
   canonical="$(realpath -e -- "$EZCORP_FACTORY_STORAGE_SECRETS_DIR")"
-  [[ "$canonical" == "${runtime_base%/}"/ezcorp-factory-storage.* && "$(dirname -- "$canonical")" == "${runtime_base%/}" ]] || fail 'Credential directory must be generated directly below XDG_RUNTIME_DIR.'
+  [[ "$canonical" == "${runtime_base%/}/${secrets_prefix}".* && "$(dirname -- "$canonical")" == "${runtime_base%/}" ]] || fail 'Credential directory must be generated directly below XDG_RUNTIME_DIR.'
   [[ ! -L "$EZCORP_FACTORY_STORAGE_SECRETS_DIR" && "$(stat -c '%u' "$canonical")" == "$UID" ]] || fail 'Credential directory ownership is invalid.'
   [[ -f "$canonical/.factory-storage-owner" && ! -L "$canonical/.factory-storage-owner" && "$(cat "$canonical/.factory-storage-owner")" == "$project_name" ]] || fail 'Credential directory has no matching ownership record.'
 }

@@ -13,14 +13,14 @@ const SCRIPT = resolve(import.meta.dir, "setup-factory-storage.sh");
 const roots: string[] = [];
 afterEach(() => { for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true }); });
 
-function run(env: Record<string, string>) {
-  const root = mkdtempSync(join(tmpdir(), "setup-storage-test-")); roots.push(root);
-  const runtime = join(root, "runtime"); mkdirSync(runtime); chmodSync(runtime, 0o700);
-  const bin = join(root, "bin"); mkdirSync(bin);
+function run(env: Record<string, string>, action = "up", reuse?: string) {
+  const root = reuse ?? mkdtempSync(join(tmpdir(), "setup-storage-test-")); if (!reuse) roots.push(root);
+  const runtime = join(root, "runtime"); if (!existsSync(runtime)) { mkdirSync(runtime); chmodSync(runtime, 0o700); }
+  const bin = join(root, "bin"); mkdirSync(bin, { recursive: true });
   const calls = join(root, "calls");
   writeFileSync(join(bin, "docker"), `#!/usr/bin/env bash\n[ "$1 $2" = "compose version" ] && exit 0\necho "project=$COMPOSE_PROJECT_NAME $*" >> ${calls}\ncase " $* " in *" exec "*) sed "s/^/stdin: /" >> ${calls};; esac\nexit 0\n`, { mode: 0o755 });
   writeFileSync(join(bin, "podman"), "#!/usr/bin/env bash\nexit 0\n", { mode: 0o755 });
-  const result = Bun.spawnSync(["bash", SCRIPT, "up"], {
+  const result = Bun.spawnSync(["bash", SCRIPT, action], {
     env: { PATH: `${bin}:${process.env.PATH}`, HOME: root, UID: String(process.getuid!()), XDG_RUNTIME_DIR: runtime, EZCORP_CONTAINER_ENGINE: "podman", DOCKER_HOST: "unix:///nonexistent.sock", ...env },
   });
   const [secrets] = readdirSync(runtime);
@@ -29,7 +29,7 @@ function run(env: Record<string, string>) {
   const out = `${result.stdout.toString()}${result.stderr.toString()}`;
   const keys = dir ? ["ordinary", "archive"].flatMap((domain) => (JSON.parse(readFileSync(join(dir, `${domain}.json`), "utf8")).identities as { credentials: { accessKey: string; secretKey: string }[] }[])
     .flatMap((entry) => [entry.credentials[0]!.accessKey, entry.credentials[0]!.secretKey])) : [];
-  return { code: result.exitCode, secrets: secrets ?? "", dir, names, out, keys, calls: existsSync(calls) ? readFileSync(calls, "utf8").split("\n").filter(Boolean) : [], mode: dir ? statSync(join(dir, "ordinary.json")).mode & 0o777 : 0 };
+  return { root, runtime, code: result.exitCode, secrets: secrets ?? "", dir, names, out, keys, calls: existsSync(calls) ? readFileSync(calls, "utf8").split("\n").filter(Boolean) : [], mode: dir ? statSync(join(dir, "ordinary.json")).mode & 0o777 : 0 };
 }
 
 describe("setup-factory-storage.sh", () => {
@@ -58,6 +58,17 @@ describe("setup-factory-storage.sh", () => {
       "s3.bucket.create -name=tenant-01", "s3.bucket.create -name=tenant-35", "s3.bucket.create -name=tenant-01", "s3.bucket.create -name=tenant-35",
     ]);
     for (const key of r.keys) expect(r.out).not.toContain(key);
+  });
+
+  test("down removes a named project's own pair and its credential directory (W4H-35 kind proof run 7)", () => {
+    const env = { EZCORP_FACTORY_STORAGE_PROJECT: "w4h35-stores", EZCORP_FACTORY_STORAGE_TENANTS: "01 35" };
+    const up = run(env);
+    expect(up.code).toBe(0);
+    const down = run({ ...env, EZCORP_FACTORY_STORAGE_SECRETS_DIR: up.dir }, "down", up.root);
+    expect(down.out).toBe("");
+    expect(down.code).toBe(0);
+    expect(down.calls.filter((line) => line.includes(" down --volumes")).map((line) => line.split(" ")[0])).toEqual(["project=w4h35-stores"]);
+    expect(existsSync(up.dir)).toBe(false);
   });
 
   test("a malformed project name or tenant id is refused before anything is written", () => {
