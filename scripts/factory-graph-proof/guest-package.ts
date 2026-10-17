@@ -106,7 +106,9 @@ export async function buildGraphGuest(repo: string, runnerRoot: string, operatio
  * deployment fact. The preparation goes through the product runner, which
  * restores the release's artifact copy from the release blobs into the fresh
  * preparation store (C05 "Prepare a release built outside the lifecycle",
- * W4H-32), and refuses unless the artifact digest matches the binding.
+ * W4H-32), and refuses unless the artifact digest matches the binding; the
+ * second and third references reuse the first one's restored, verified
+ * artifacts.
  */
 export async function installGraphGuest(options: {
   readonly repo: string;
