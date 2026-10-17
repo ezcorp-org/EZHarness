@@ -1,0 +1,54 @@
+$ bash scripts/typecheck.sh
+→ Typechecking backend (src/)...
+
+→ Typechecking web (SvelteKit)...
+
+→ Typechecking backend-tests (0 ratcheted file(s) excluded)...
+→ Typechecking web-e2e (0 ratcheted file(s) excluded)...
+✓ tests-typecheck passed (backend tests + web/e2e).
+
+→ Typechecking packages (src + tests)...
+  packages/@ezcorp/ai-kit/tsconfig.json
+  packages/@ezcorp/extension-contract/tsconfig.json
+  packages/@ezcorp/extension-runner/tsconfig.json
+  packages/@ezcorp/factory-orchestrator/tsconfig.json
+  packages/@ezcorp/factory-sdk/tsconfig.json
+  packages/@ezcorp/factory-transport/tsconfig.json
+  packages/@ezcorp/harness-client/tsconfig.json
+  packages/@ezcorp/sdk/tsconfig.json
+
+→ Typechecking the locked Python distribution (mypy --strict)...
+Using CPython 3.13.12
+Creating virtual environment at: src/factory/runner/python/.venv
+Resolved 14 packages in 8ms
+Installed 13 packages in 28ms
+ + attrs==26.1.0
+ + coverage==7.13.1
+ + jsonschema==4.25.1
+ + jsonschema-specifications==2025.9.1
+ + mypy==1.18.2
+ + mypy-extensions==1.1.0
+ + pathspec==1.1.1
+ + pyarrow==25.0.1
+ + referencing==0.37.0
+ + rpds-py==2026.6.3
+ + ruff==0.12.11
+ + types-jsonschema==4.26.0.20260518
+ + typing-extensions==4.16.0
+Using CPython 3.13.12
+Creating virtual environment at: src/factory/reference-image/python/.venv
+Resolved 7 packages in 0.67ms
+Installed 6 packages in 14ms
+ + coverage==7.13.1
+ + mypy==1.18.2
+ + mypy-extensions==1.1.0
+ + pathspec==1.1.1
+ + ruff==0.12.11
+ + typing-extensions==4.16.0
+→ mypy --strict (locked src/factory/runner/python)
+Success: no issues found in 21 source files
+→ mypy --strict (locked src/factory/reference-image/python)
+Success: no issues found in 16 source files
+✓ Python typecheck passed (2 locked project(s): src/factory/runner/python src/factory/reference-image/python; interpreter 3.13.12)
+
+✓ Typecheck passed.
