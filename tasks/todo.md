@@ -9048,3 +9048,19 @@ Current review: Both remaining test fixes reproduced RED and passed focused test
 Review evidence: original full stage native1 retained externally; actual full c686 archive consumer reproduces identical refusal. New real-stage fixture RED before repair, GREEN after. Focused suite25tests passes including23 unsafe archive/link cases; full actual c686 archive now extracts with both Python pin aliases regular and matching canonical bytes; no extracted source links. Independent review/normal commit pending.
 
 Independent review CLEAR: helper88feae6d5795b3f56ac9ef8b376c5ef61ed3ae5ae77c583e63f70e3b55245b63, test70e2d6a04b23e4d91914d70efbbf12f99e9ef436355905223c1456306358f1ac. Reviewer independently ran25tests and fullactualc686archive consumer with no links and matching pin bytes. Only extract_head changed in production; source/output/runtime guards preserved. A new integrated source SHA needs fresh canonical and stage bindings; no stale-pin full staging was attempted.
+
+## Hosted resource proof FD lifecycle repair (2026-10-17)
+
+- [x] Preserve actual CI artifact and reproduce FD26 to23 failure through actual consumer.
+- [x] Determine the lifecycle invariant and test ranked hypotheses before editing.
+- [x] Add regression and negative leak/process/socket cases, then implement minimal fix.
+- [x] Run bounded focused tests and actual receipt replay; inspect diff and request independent review before commit.
+- [ ] Obtain independent CLEAR and make normal scoped commit.
+
+Ownership: shipping-runtime-resource-accounting.ts, verify-shipping-runtime-resources.ts and focused regression fixtures. No full gate, live deployment, push or CI rerun. Other workers own sensitive-service and staging.
+
+### Resource repair review results
+
+Actual source-statement replay reproduced hosted FD26 to23 with no new identities. Native owned Bun Unix HTTP fixture confirmed healthy accepted-socket close FD9 to8; replacing that socket restored count9 but the new identity was correctly rejected. Focused24/0/82 assertions; helper LCOV63/63; strict targeted helper/test compiler0, scoped Biome3files0, consumer syntax build0. No whole gate/production deployment/CI rerun. Full CLI strict compile and actual owned production resource lane remain integration checks; no claim of those passing. Source hashes and immutable RED/GREEN evidence: .cache/resource-ci-repair/review-ready.json.
+
+Final resource review: 27 tests pass, 93 assertions; helper LCOV63/63. Only baseline socket closure is allowed; missing anonymous/file/pipe/other handles remain fail-closed. Independent reviewer reproduced23 tests/76 assertions and cleared exact source hashes after the anonymous-handle regression correction. Full CLI compiler attempt encountered307 transitive dependency/setup diagnostics in this uninstalled tree; no full CLI typecheck pass is claimed. Normal scoped commit follows independent CLEAR.
