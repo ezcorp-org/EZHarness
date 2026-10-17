@@ -9081,8 +9081,10 @@ Final resource review: 27 tests pass, 93 assertions; helper LCOV63/63. Only base
 
 ## Combined sensitive-service and resource-proof repair verification
 
-- [ ] Merge reviewed resource commit cb3ed9d55de847adfa9030fdc91769ad734331d1 into the sensitive repair branch, retaining both histories and task records.
-- [ ] Prepare exact isolated root/web/workspace/Python dependencies for the supported typecheck.
-- [ ] Run combined touched suites with pinned Bun under shared resource admission.
-- [ ] Run full supported typecheck (backend, web, test/e2e, packages, locked Python).
-- [ ] Preserve actual receipts and provide clean combined SHA for root FF and one canonical fast run.
+- [x] Merge reviewed resource commit cb3ed9d55de847adfa9030fdc91769ad734331d1 into the sensitive repair branch, retaining both histories and task records.
+- [x] Prepare exact isolated root/web/workspace/Python dependencies for the supported typecheck.
+- [x] Run combined touched suites with pinned Bun under shared resource admission.
+- [x] Run full supported typecheck (backend, web, test/e2e, packages, locked Python).
+- [x] Preserve actual receipts and prepare clean combined SHA handoff; final SHA is recorded in `.cache/combined-ci-repair/commit-result.json`.
+
+Review: merge6bb060484d3b5e10cd9326113098ec1cecd5f21a preserves sensitive2c8d0c and resourcecb3ed9 histories. Only tasknotes conflicted; common history and both appended plans/results retained byte-for-byte before the new combined section. Normal merge hook passed lint and23FDtests. Exact clean merge source passed48touched tests/202assertions and the full supported typecheck (actual0,82.19s): backend, web, backendtests/e2e0excluded, allpackages, strictmypy both lockedprojects on3.13.12. Isolated frozen web install, workspacebuild, and actual Python discovery completed0 first. Minimum available memory during fullcheck12,299,472KiB; no timeout/error/owned survivors; source unchanged. This final task-result update changes notes only, excluded by the compiler. Root owns FF, one source-bound canonicalfast run, CI, staging, and later live work; no duplicate whole gate or primary mutation occurred.
