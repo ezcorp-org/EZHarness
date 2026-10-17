@@ -25,7 +25,10 @@ services:
       ezcorp.factory.revision: ${EZCORP_FACTORY_REVISION:?}
     image: ${EZCORP_FACTORY_POOL_IMAGE:?}
     network_mode: ${EZCORP_FACTORY_POOL_NETWORK:?}
-    ports: ["127.0.0.1:${EZCORP_FACTORY_POOL_PORT:?}:${EZCORP_FACTORY_POOL_PORT:?}"]
+    ports:
+      - "127.0.0.1:${EZCORP_FACTORY_POOL_PORT:?}:${EZCORP_FACTORY_POOL_PORT:?}"
+      # C11 M4: /metrics, for the evaluator below on loopback; it answers only the scrape token.
+      - "127.0.0.1:${EZCORP_FACTORY_POOL_METRICS_PORT:?}:${EZCORP_FACTORY_POOL_METRICS_PORT:?}"
     command: ["bun", "src/factory/pool/process.ts", "/run/ezcorp/secrets/pool.json"]
     env_file: ["${EZCORP_FACTORY_POOL_ENV:?}"]
     volumes:
@@ -40,3 +43,41 @@ services:
     mem_limit: 512m
     cpus: 1.0
     pids_limit: 256
+
+  # The fleet's alert evaluator (C11; W4H-34). It scrapes every factory service's
+  # /metrics on host loopback, so it shares the host's network namespace and
+  # binds 127.0.0.1 alone, like the platform ingress. Its targets are the files
+  # the host rewrites on each admission and release; its rules are the shipped
+  # deploy/factory/prometheus/factory-alerts.yml. It runs as the fleet's own user
+  # (keep-id), like the pool, so it reads the private config, token and checkout,
+  # and writes its data to a host directory it owns. The image digest is the one
+  # scripts/test-images.json pins; a test keeps the two equal.
+  prometheus:
+    image: quay.io/prometheus/prometheus@sha256:87861b8cf91579109319ebc300f3f1060e6da9c05d6ae8ad15a20c879e84e32e
+    userns_mode: keep-id
+    user: "${EZCORP_FACTORY_UID:?}:${EZCORP_FACTORY_GID:?}"
+    network_mode: host
+    read_only: true
+    security_opt: ["no-new-privileges:true"]
+    cap_drop: ["ALL"]
+    restart: unless-stopped
+    labels:
+      ezcorp.factory.fleet: ${EZCORP_FACTORY_FLEET:?}
+      ezcorp.factory.host: prometheus
+    command:
+      - --config.file=/etc/ezcorp-prometheus/prometheus.yml
+      - --web.listen-address=127.0.0.1:${EZCORP_FACTORY_PROMETHEUS_PORT:?}
+      - --storage.tsdb.path=/prometheus
+      - --storage.tsdb.retention.time=15d
+    volumes:
+      - { type: bind, source: "${EZCORP_FACTORY_PROMETHEUS_DIR:?}", target: /etc/ezcorp-prometheus, read_only: true, bind: { create_host_path: false } }
+      - { type: bind, source: "${EZCORP_FACTORY_PROMETHEUS_RULES:?}", target: /etc/ezcorp-prometheus-rules, read_only: true, bind: { create_host_path: false } }
+      - { type: bind, source: "${EZCORP_FACTORY_PROMETHEUS_DATA:?}", target: /prometheus, bind: { create_host_path: false } }
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:${EZCORP_FACTORY_PROMETHEUS_PORT:?}/-/ready"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+    mem_limit: 512m
+    cpus: 0.5
+    pids_limit: 128

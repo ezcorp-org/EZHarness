@@ -34,7 +34,7 @@ import { FACTORY_INGRESS_PROOF_FILE } from "./ingress";
 import { FACTORY_HOST_FILES, type FactoryFleetHost, type FactoryFleetHostFacts } from "./host";
 import { factoryInstallationPorts, type FactoryInstallationPorts } from "./ports";
 // Re-exported: the port derivation lives in a leaf so the fleet host can use it without importing this module.
-export { factoryInstallationPorts, type FactoryInstallationPorts } from "./ports";
+export { FACTORY_FLEET_PORT_OFFSETS, factoryInstallationPorts, type FactoryInstallationPorts } from "./ports";
 import { FACTORY_HOST_KEY_ID, FACTORY_MESH_FILES, FACTORY_MESH_TOKEN_KEY_ID, FACTORY_PRIVATE_SERVICE_AUDIENCE, ensureFactoryMesh, factoryMeshIdentities, rotateFactoryMesh } from "./mesh";
 import { FACTORY_GUEST_BROKER_AUDIENCE } from "../runner/guest-broker-contract";
 import { FACTORY_APPLICATION_SECRET_FILES, FACTORY_KEY_FILES, factoryMasterKeyId } from "./secrets";
@@ -57,6 +57,9 @@ export const FACTORY_CONTAINER_PATHS = Object.freeze({
 });
 
 export const FACTORY_DEFAULT_DATABASE_POOL_MAX = Object.freeze({ harness: 4, gateway: 2 });
+
+/** The fleet's scrape token in each tenant process's delivery (C11 M4); copied from the fleet host's material. */
+export const FACTORY_METRICS_TOKEN_FILE = "metrics-scrape-token";
 
 /**
  * Each service's environment before its own settings: where its HOME is. The
@@ -255,6 +258,8 @@ export async function renderFactoryInstallationBundle(installation: FactoryInsta
   const masterKeyId = factoryMasterKeyId(installation);
   const release = factoryInstallationReleaseBlock(settings.release, { tenantId: installation.tenantId, ordinaryEndpoint: settings.network.ordinaryEndpoint });
 
+  // C11 M4: each tenant process serves /metrics on its own port, presenting nothing; the fleet's evaluator presents the token.
+  const metrics = (port: number) => ({ hostname: "0.0.0.0", port, scrapeTokenPath: secretPath(FACTORY_METRICS_TOKEN_FILE) });
   const startup = parseFactoryStartupConfig({
     schemaVersion: "factory.startup.v1",
     installationId: installation.installationId, tenantId: installation.tenantId, poolId: host.poolId, hostId: host.hostId,
@@ -304,6 +309,7 @@ export async function renderFactoryInstallationBundle(installation: FactoryInsta
     // holds (CN = its namespace); the gateway injects the read token.
     temporalHttp: { endpoint: settings.network.temporalHttpEndpoint, tls: { caPath: secretPath("temporal-ca.crt"), certificatePath: secretPath("temporal-client.crt"), privateKeyPath: secretPath("temporal-client.key") } },
     keyManagement: { kind: "operator-master-key" },
+    metrics: metrics(ports.harnessMetrics),
     ...(release === undefined ? {} : { release }),
   });
 
@@ -320,6 +326,7 @@ export async function renderFactoryInstallationBundle(installation: FactoryInsta
     },
     codec: { wrappedKeyFilePath: secretPath(FACTORY_KEY_FILES.wraps), masterKeyFilePath: secretPath(FACTORY_KEY_FILES.master), masterKeyId, grantableRoots: [FACTORY_CONTAINER_PATHS.projects] },
     readinessFilePath: readinessPath("orchestration"), readinessHeartbeatMs: 5_000,
+    metrics: metrics(ports.orchestratorMetrics),
   };
 
   const gateway = {
@@ -329,14 +336,17 @@ export async function renderFactoryInstallationBundle(installation: FactoryInsta
     attemptTokenSecretPath: secretPath(FACTORY_MESH_FILES.attemptTokenSecret),
     databaseUrlPath: secretPath("gateway-database-url"),
     interpreterCompatibility: settings.interpreterCompatibility,
+    metrics: metrics(ports.gatewayMetrics),
   };
 
   const mesh = (...names: string[]) => Object.fromEntries(names.map((name) => [name, source(name)]));
+  const scrapeToken = { [FACTORY_METRICS_TOKEN_FILE]: { source: host.metricsScrapeTokenPath } };
   const deliveries: Record<FactoryDeployedService, FactoryServiceDelivery> = {
     gateway: { service: "gateway", directory: factoryDeliveryDirectory(installation, "gateway"), files: {
       ...mesh(FACTORY_MESH_FILES.caCertificate, FACTORY_MESH_FILES.serverCertificate, FACTORY_MESH_FILES.serverKey, FACTORY_MESH_FILES.attemptTokenSecret),
       "gateway-database-url": { text: `${databaseUrl(settings.network, productPair!.database, productCredential)}\n` },
       "gateway.json": { document: gateway },
+      ...scrapeToken,
     } },
     harness: { service: "harness", directory: factoryDeliveryDirectory(installation, "harness"), files: {
       ...mesh(FACTORY_MESH_FILES.caCertificate, FACTORY_MESH_FILES.serverCertificate, FACTORY_MESH_FILES.serverKey, FACTORY_MESH_FILES.harnessCertificate, FACTORY_MESH_FILES.harnessKey,
@@ -356,6 +366,7 @@ export async function renderFactoryInstallationBundle(installation: FactoryInsta
       [FACTORY_INGRESS_PROOF_FILE]: { ...source(FACTORY_INGRESS_PROOF_FILE), optional: true },
       "harness-database-url": { text: `${databaseUrl(settings.network, productPair!.database, productCredential)}\n` },
       "factory-startup.json": { document: startup },
+      ...scrapeToken,
       "secret-env.json": { document: { schemaVersion: "factory.secret-env.v1", variables: {
         DATABASE_URL: secretPath("harness-database-url"),
         EZCORP_JWT_SECRET: secretPath(FACTORY_APPLICATION_SECRET_FILES.jwt),
@@ -368,6 +379,7 @@ export async function renderFactoryInstallationBundle(installation: FactoryInsta
         "temporal-ca.crt", "temporal-client.crt", "temporal-client.key", "temporal-token", FACTORY_KEY_FILES.wraps),
       [FACTORY_KEY_FILES.master]: { source: factoryPrivatePath(installation.operatorDirectory, FACTORY_KEY_FILES.master) },
       "orchestrator.json": { document: orchestrator },
+      ...scrapeToken,
     } },
   };
 

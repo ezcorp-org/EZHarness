@@ -42,6 +42,8 @@ import { FactoryS3PublicationProvenance, FactoryVerifiedAttemptMaterials } from 
 import { FactoryPublicationOutputReader } from "./release-publication-set";
 import { FactoryReleases, type FactoryCommandApprovalCurrentAuthority } from "./releases";
 import { FactoryNotificationDelivery } from "./notification-delivery";
+import { composeFactoryNotificationSender } from "./notification-sender";
+import { FactoryMetricCounters, composeFactoryInstallationMetrics } from "./observability/installation-metrics";
 import { FactoryTrustedValidators, type FactoryTrustedValidatorRuntime } from "./validator-materials";
 import { loadFactoryValidatorRuntimes } from "./validator-declaration";
 import { composeFactoryValidators, factoryTrustedValidatorsFromDeclaration, type FactoryComposedValidators } from "./validator-composition";
@@ -865,6 +867,8 @@ async function installationCollaborators(
   const settlement = await composeSettlement(config, host, stores, service, pool, stopper);
   const notificationInbox = release === undefined ? undefined
     : factoryNotificationInboxDriver(host.database, new FactoryNotificationDelivery(release.releases), config.tenantId);
+  // C11 N8 (W4H-34): the outbound sender, only where a destination is declared.
+  const notifications = await composeFactoryNotificationSender(config.notifications?.destinations, host.database, config.tenantId, host.report);
   // The caller's resolver wins, so a host that holds a provider this document
   // cannot describe is not overruled by it; otherwise the declared one serves.
   const resolver = releaseProviders ?? release?.destinations?.providers;
@@ -894,7 +898,12 @@ async function installationCollaborators(
   // the process that holds the tenant database. Its own listener, beside the
   // private service rather than inside it: a different peer set (hosts, not
   // the orchestrator) and a different credential (the attempt token).
-  const guestBroker = await composeFactoryGuestBroker({ database: host.database, config, application, blobs, report: host.report });
+  // One set of counters for this process: the guest broker counts, the metrics listener reads (C11 M3, A8).
+  const counters = new FactoryMetricCounters();
+  const guestBroker = await composeFactoryGuestBroker({ database: host.database, config, application, blobs, report: host.report, counters });
+  const metrics = await composeFactoryInstallationMetrics(config.metrics, {
+    database: host.database, tenantId: config.tenantId, interpreterBuild: host.runOptions.interpreterBuild, counters,
+  }, host.report);
   // ── end W01g ─────────────────────────────────────────────────────────
 
   return {
@@ -906,11 +915,13 @@ async function installationCollaborators(
       ...(notificationInbox === undefined ? {} : { notificationInbox }),
       ...(validation.composed === undefined ? {} : { validators: validation.composed.roles }),
       ...(validation.held === undefined ? {} : { validatorsHeld: validation.held }),
+      ...(notifications.held === undefined ? {} : { notificationSendHeld: notifications.held }),
       recovery,
     },
     seams: {
       childSettlement: factoryChildSettlementDriver(host.database, stores.children, service, host.report),
       ...(releaseOutcome === undefined ? {} : { releaseProviders: releaseOutcome }),
+      ...(notifications.sender === undefined ? {} : { notificationSender: notifications.sender }),
       ...(settlement === undefined ? {} : {
         physicalStopper: settlement.stopSettlement,
         usageReconciler: settlement.usageReconciliation,
@@ -919,6 +930,7 @@ async function installationCollaborators(
     listeners: [
       ...(privateService === undefined ? [] : [privateService]),
       ...(guestBroker.listener === undefined ? [] : [guestBroker.listener]),
+      ...(metrics === undefined ? [] : [metrics]),
     ],
     application: release === undefined ? {} : {
       createReleaseOperations: factoryReleaseOperations(config.tenantId, release, resolver),

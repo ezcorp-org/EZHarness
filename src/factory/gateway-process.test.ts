@@ -68,7 +68,7 @@ describe("parseFactoryGatewayProcessConfig", () => {
 
 interface Recorder { reads: string[]; starts: { config: FactoryGatewayProcessConfig; material: unknown }[]; stops: number; closes: number; waited: AbortSignal[] }
 
-function fakeDependencies(files: Record<string, string>, options: { onWait?: (signal: AbortSignal) => void; failStart?: Error } = {}): FactoryGatewayProcessDependencies & { recorder: Recorder } {
+function fakeDependencies(files: Record<string, string>, options: { onWait?: (signal: AbortSignal) => void; failStart?: Error; healthy?: () => Promise<void> } = {}): FactoryGatewayProcessDependencies & { recorder: Recorder } {
   const recorder: Recorder = { reads: [], starts: [], stops: 0, closes: 0, waited: [] };
   return {
     recorder,
@@ -80,7 +80,7 @@ function fakeDependencies(files: Record<string, string>, options: { onWait?: (si
     start: async (config, material) => {
       if (options.failStart) throw options.failStart;
       recorder.starts.push({ config, material });
-      return { url: "https://127.0.0.1:40012", stop: () => { recorder.stops++; }, close: async () => { recorder.closes++; } };
+      return { url: "https://127.0.0.1:40012", stop: () => { recorder.stops++; }, close: async () => { recorder.closes++; }, healthy: options.healthy ?? (async () => undefined) };
     },
     wait: (signal) => new Promise<void>((settle) => {
       recorder.waited.push(signal);
@@ -246,4 +246,62 @@ describe("startFactoryGatewayMain", () => {
       process.exitCode = previous ?? 0;
     }
   });
+});
+
+describe("the gateway's metrics endpoint (C11 M4)", () => {
+  const metrics = { hostname: "0.0.0.0", port: 9466, scrapeTokenPath: "/run/ezcorp/secrets/gateway-metrics-token" };
+
+  test("accepts a declared endpoint and refuses a malformed one", () => {
+    expect(parseFactoryGatewayProcessConfig({ ...CONFIG, metrics }).metrics).toEqual(metrics);
+    expect(refused({ ...CONFIG, metrics: { ...metrics, port: 0 } })).toBe("factory gateway config is invalid");
+  });
+
+  test("serves ready while its listener is up and not after, and stops the listener on the way out", async () => {
+    const controller = new AbortController();
+    const readings: boolean[] = [];
+    let stopped = false;
+    let ready: () => Promise<boolean> = async () => false;
+    const dependencies = fakeDependencies({ ...FILES, "/etc/gateway.json": JSON.stringify({ ...CONFIG, metrics }) }, { onWait: async () => { readings.push(await ready()); controller.abort(); } });
+    await runFactoryGatewayProcess("/etc/gateway.json", controller.signal, {
+      ...dependencies,
+      metrics: async (endpoint, isReady) => {
+        expect(endpoint).toEqual(metrics);
+        ready = isReady;
+        return { url: "http://0.0.0.0:9466", stop: async () => { stopped = true; } };
+      },
+    });
+    readings.push(await ready());
+    expect(readings).toEqual([true, false]);
+    expect(stopped).toBe(true);
+  });
+
+  test("reads not ready while its database is unreachable, with the listener still up (F7)", async () => {
+    const controller = new AbortController();
+    const readings: boolean[] = [];
+    let ready: () => Promise<boolean> = async () => true;
+    let reachable = false;
+    const dependencies = fakeDependencies({ ...FILES, "/etc/gateway.json": JSON.stringify({ ...CONFIG, metrics }) }, {
+      healthy: async () => { if (!reachable) throw new Error("connection refused"); },
+      onWait: async () => { readings.push(await ready()); reachable = true; readings.push(await ready()); controller.abort(); },
+    });
+    await runFactoryGatewayProcess("/etc/gateway.json", controller.signal, {
+      ...dependencies,
+      metrics: async (_endpoint, isReady) => { ready = isReady; return { url: "http://0.0.0.0:9466", stop: async () => undefined }; },
+    });
+    expect(readings).toEqual([false, true]);
+    expect(dependencies.recorder.stops).toBe(1);
+  });
+});
+
+test("a gateway whose metrics endpoint cannot start reports the code and keeps serving", async () => {
+  const controller = new AbortController();
+  const reports: string[] = [];
+  const dependencies = fakeDependencies({ ...FILES, "/etc/gateway.json": JSON.stringify({ ...CONFIG, metrics: { hostname: "0.0.0.0", port: 9466, scrapeTokenPath: "/x" } }) }, { onWait: () => controller.abort() });
+  await runFactoryGatewayProcess("/etc/gateway.json", controller.signal, {
+    ...dependencies,
+    metrics: async () => { throw Object.assign(new Error("cannot read /x"), { code: "factory_metrics_token_unreadable" }); },
+    report: (code) => { reports.push(code); },
+  });
+  expect(reports).toEqual(["factory_metrics_token_unreadable"]);
+  expect([dependencies.recorder.stops, dependencies.recorder.closes]).toEqual([1, 1]);
 });

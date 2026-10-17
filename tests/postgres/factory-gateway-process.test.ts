@@ -64,6 +64,8 @@ test("the production gateway migrates its database, binds mutual TLS, and refuse
   try {
     expect(Number(new URL(listener.url).port)).toBe(port);
     expect(await call(port, { key: client.privateKeyPem, cert: client.certificatePem, ca: authority.certificatePem })).toBe(401);
+    // The ready gauge's probe reaches the product database (F7).
+    await listener.healthy();
     const probe = new SQL(target.toString(), { max: 1 });
     try { expect((await probe`SELECT to_regclass('public.factory_executions') IS NOT NULL AS migrated`)[0]).toEqual({ migrated: true }); }
     finally { await probe.close(); }

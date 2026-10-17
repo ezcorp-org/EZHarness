@@ -335,7 +335,7 @@ type OperationRow = {
   stop_command_id: string | null; stop_requested_epoch: number | string | null; stop_requested_at_ms: number | string | null; stop_outcome: FactoryReleaseStopOutcome | null;
 };
 
-type NotificationRow = { payload: string; state: FactoryNotification["state"]; input_hash: string };
+export type NotificationRow = { payload: string; state: FactoryNotification["state"]; input_hash: string };
 type NotificationProjectionRow = NotificationRow & {
   notification_id: string;
   operation_state: FactoryReleaseState | null;
@@ -582,7 +582,8 @@ async function archiveAndVerify(archive: FactoryReleaseArchive, tenantId: string
 
 function notificationScope(tenantId: string, projectId: string): string { return `${tenantId}\0${projectId}`; }
 
-function decodeNotification(row: NotificationRow, tenantId: string, projectId: string): FactoryNotification {
+/** One stored notification, checked against its input hash; the outbound sender reads through this too (C11 N1). */
+export function decodeNotification(row: NotificationRow, tenantId: string, projectId: string): FactoryNotification {
   const notification = JSON.parse(row.payload) as FactoryNotification;
   const subject = notification.kind === "command_approval_requested" ? { approvalId: notification.approvalId } : { operationId: notification.operationId };
   if (notification.tenantId !== tenantId || notification.projectId !== projectId || !["approval_requested", "release_uncertain", "release_settled", "command_approval_requested"].includes(notification.kind) || notification.inputHash !== row.input_hash || durableInputHash({ kind: notification.kind, ...subject, payload: notification.payload }) !== row.input_hash) throw new FactoryReleaseError("factory_notification_corrupt");

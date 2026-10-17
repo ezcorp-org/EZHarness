@@ -231,6 +231,10 @@ jobs:
           ./tests/postgres/factory-key-rotation.test.ts
           ./tests/postgres/factory-pool-checkpoint.test.ts
           ./tests/postgres/factory-wal-backup.test.ts
+          ./tests/postgres/factory-installation-metrics.test.ts
+          ./tests/postgres/factory-metrics-scrape.test.ts
+          ./tests/postgres/factory-notification-sender.test.ts
+          ./tests/postgres/factory-pool-metrics.test.ts
 
       # The coverage gate downloads every lcov-cov-* artifact into ONE folder; a unique name keeps this file (W4H-15).
       - name: Name the LCOV for the merged coverage download

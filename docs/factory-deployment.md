@@ -359,10 +359,16 @@ harness never receives it.
 | Port | Use |
 | --- | --- |
 | `portBase + 10*n` to `+3` | Tenant `n`: harness, private service, gateway, guest-broker route, all on 127.0.0.1 |
+| `portBase + 10*n + 4` to `+6` | Tenant `n`: `/metrics` of the harness, the gateway and the orchestrator, on 127.0.0.1 |
 | `portBase + 1001` | Temporal gateway (gRPC, mTLS and token) |
 | `portBase + 1004` | Temporal gateway, read-only HTTP route for the checkpoint barrier |
 | `portBase + 1002`, `+1003` | The fleet host's shared pool and supervisor |
 | `portBase + 1005` | Ingress (HTTPS) |
+| `portBase + 1006`, `+1007` | `/metrics` of the shared pool and the supervisor |
+| `portBase + 1008` | The fleet's alert evaluator (Prometheus), on 127.0.0.1 |
+
+`FACTORY_FLEET_PORT_OFFSETS` in `src/factory/provisioning/ports.ts` is the one
+table of the fleet's own offsets; a test keeps them distinct.
 
 Each service runs in its own `pasta` network namespace and can reach only the
 host loopback ports it forwards. The shared pool and each gateway reach only
@@ -392,3 +398,85 @@ tenant with no entry is refused on the host as
 `factory_host_broker_tenant_unconfigured`. Admitting or releasing an
 installation re-renders the supervisor document and restarts it onto the new
 set.
+
+## C11 alerts and operator actions
+
+Every factory service serves Prometheus metrics at `/metrics` on its own port
+(the table above). A scrape must present the fleet's scrape token as a bearer
+token. The provisioner creates the token once per fleet host
+(`host-metrics-scrape.token`) and delivers a copy to every service. No metric
+label holds a run, attempt, operation, approval or notification identifier, a
+digest, a URL, or a credential. `src/factory/observability/metric-registry.ts`
+is the one list of families and their label sets.
+
+### The evaluator
+
+| Profile | Evaluator | Rules |
+| --- | --- | --- |
+| Self-hosted Compose | The `prometheus` service in `deploy/factory/compose/host.yml`, on host loopback. The host rewrites its target lists on each admission and release. | `deploy/factory/prometheus/factory-alerts.yml` |
+| Hosted Kubernetes | The platform's Prometheus operator. Each tenant namespace gets a `PodMonitor` and the `factory-metrics-scrape` Secret; the system namespace gets the `PrometheusRule` and the pool's `PodMonitor`. Set `monitoringNamespace` to the operator's namespace. | `PrometheusRule` `factory-c11-alerts` |
+
+`src/factory/observability/alert-rules.ts` renders both rule sets, so the two
+profiles have the same thresholds. A test pins the shipped file to it. Known
+gap: on the hosted profile the supervisor binds `/metrics` on host loopback
+(`hosted-supervisor-metrics-address`), so `FactoryMetricsTargetDown` names it
+until that gap closes.
+
+Each rule is verified by forcing its condition in a real evaluator:
+`src/factory/observability/alert-evaluator.integration.test.ts`, in the
+`Factory deployment and operations` lane.
+
+### The alerts
+
+| Alert | Condition | Operator action |
+| --- | --- | --- |
+| `FactoryReadyWorkStalled` | Ready work age over 30 seconds or no progress for 60 seconds with no declared wait | Inspect blocking resource/lease, queue fairness, and healthy spare capacity; never force-release an uncertain holder |
+| `FactoryProjectionLagging` | Projection gap/lag over 10 seconds for 60 seconds | Check audit/outbox consumer, recover missing sequence, rebuild from a verified cursor |
+| `FactoryValidatorDigestErroring` | Three consecutive validator errors for one digest | Quarantine that evaluator for new acceptance; repair/revalidate explicitly |
+| `FactoryUsageUnknownOrBudgetExhausted` | Unknown spend or exhausted budget | Stop paid dispatch; reconcile usage or obtain a new explicit allocation within authority |
+| `FactoryReleaseUncertain` | Uncertain release for over 60 seconds | Open the operator inbox with the exact request/receipt lookup; do not auto-retry |
+| `FactoryRequiredRunnerUnavailable` | Referenced interpreter/package runner unavailable for 60 seconds | Restore the pinned compatible deployment or fail/hold affected runs; never route to incompatible code |
+| `FactoryCheckpointStale` | Verified recovery checkpoint older than 15 minutes | Stop new external effect claims; repair backup/barrier/archive before enabling them |
+| `FactorySecurityDenial` | Any denied cross-tenant broker attempt or detected sandbox escape | Revoke affected attempt/host credentials, fence the host, investigate and recertify before reuse |
+| `FactoryNotificationSendStuck` | A send entered dead letter or an unknown outcome in the last 15 minutes, or a queued send is older than 5 minutes | Inspect the destination and its receiver; never re-drive a destination that does not deduplicate on the idempotency key |
+| `FactoryMetricsTargetDown` | A factory service's /metrics cannot be scraped, or the service reports itself not ready | Restore the service or its metrics endpoint; until then every alert above is blind for that service |
+
+For an uncertain release, the inbox lists it at
+`GET /api/factories/projects/:projectId/release/notifications`, and the
+reconciliation is `POST /api/factories/projects/:projectId/releases/:operationId/reconciliations`.
+
+### Outbound notifications
+
+An installation sends approval requests, command approval requests and
+uncertain releases to each destination it declares in its startup document:
+
+```json
+"notifications": { "destinations": [
+  { "name": "operators", "kind": "webhook", "url": "https://receiver.example/factory", "secretPath": "/run/ezcorp/secrets/notify-operators", "caPath": "/run/ezcorp/secrets/notify-ca.pem" }
+] }
+```
+
+The URL must be plain HTTPS with no user information, query or fragment.
+`smtp` is refused by name. Each request is a `factory.notification.v1` JSON
+body with these headers:
+
+| Header | Value |
+| --- | --- |
+| `x-ezcorp-signature` | `v1=` and HMAC-SHA256 of `<timestamp>.<body>` with the destination's secret |
+| `x-ezcorp-timestamp` | Unix seconds |
+| `x-ezcorp-delivery-id` | The send's stable ID |
+| `idempotency-key` | Stable for one notification and destination |
+
+The receiver must verify the signature and must deduplicate on
+`idempotency-key`. A sender that stops between a send and its settlement sends
+the same request again after its 30-second lease, so without deduplication the
+receiver can see one notification twice. A 2xx answer is delivered. A timeout,
+an unreachable receiver, 408, 429 and 5xx are retried with backoff, at most 8
+attempts. Any other answer goes to dead letter. A send expires at the
+approval's expiry, otherwise after 24 hours.
+
+`/api/ready` lists `notification-send` as held while no destination is
+declared, while a destination's secret or CA cannot be read, and until a
+receiver confirms the first delivery. It lists the role as running after that,
+also after a restart.
+

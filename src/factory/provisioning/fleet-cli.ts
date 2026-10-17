@@ -19,6 +19,7 @@ import { factoryHttpsIngressProbe, factoryIngressBootstrapObserver } from "./ing
 import type { FactoryBootstrapObserver, FactoryOperationActor, FactoryPurgeChecks } from "./local";
 import { factoryPlatformProject, startFactoryPlatform } from "./platform";
 import { factoryDatabasePurgeApprovals } from "./purge-approval";
+import { FACTORY_FLEET_PORT_OFFSETS } from "./ports";
 import { factoryScramVerifier } from "./scram";
 import { ensureFactoryPrivateFile, factoryPrivatePath, openFactoryPrivateDirectory, readFactoryPrivatePath, readFactoryPrivateText, replaceFactoryPrivateFile } from "./secret-files";
 import { FACTORY_PROVISIONING_STEP_NAMES, FactoryProvisioningError, type FactoryProvisioningStepName } from "./steps";
@@ -300,8 +301,8 @@ export async function writeFactoryLocalFleet(options: FactoryLocalFleetOptions):
       archive: { endpoint: "http://127.0.0.1:18334", prefix: "archive", issuer: { kind: "seeded", serverIdentityPath: resolve(options.storageSecretsDirectory, "archive.json") } },
       failureDomain: "same-host-not-independent",
     },
-    temporal: { port: options.portBase + 1_001, httpPort: options.portBase + 1_004, serverName: "temporal.local" },
-    ingress: { address: "127.0.0.1", port: options.portBase + 1_005, domain: `${options.fleetId}.factory.test` },
+    temporal: { port: options.portBase + FACTORY_FLEET_PORT_OFFSETS.temporal, httpPort: options.portBase + FACTORY_FLEET_PORT_OFFSETS.temporalHttp, serverName: "temporal.local" },
+    ingress: { address: "127.0.0.1", port: options.portBase + FACTORY_FLEET_PORT_OFFSETS.ingress, domain: `${options.fleetId}.factory.test` },
     installations: { portBase: options.portBase, cpuCapacity: 2, interpreterCompatibility: "factory-kernel.v1", runnerProfiles: options.runnerProfiles, ...(options.release === undefined ? {} : { release: options.release }), ...(options.modelProvider === undefined ? {} : { modelProvider: options.modelProvider }) },
     image: { reference: options.image, revision: options.revision },
     release: { directory: options.releaseDirectory, bun: options.bun, path: `${resolve(options.bun, "..")}:/run/current-system/sw/bin:/usr/bin:/bin` },

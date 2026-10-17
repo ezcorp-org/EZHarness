@@ -95,6 +95,52 @@ test("the Node launcher reloads private Temporal credentials and passes the encr
   }
 });
 
+test("the launcher serves ready on its declared metrics endpoint only while the process reports ready (C11 M4)", async () => {
+  const directory = await mkdtemp(join(runtimeRoot, "factory-process-metrics-"));
+  await chmod(directory, 0o700);
+  try {
+    const metrics = { hostname: "127.0.0.1", port: 9467, scrapeTokenPath: join(directory, "metrics-token") };
+    const value = { ...config(directory), metrics };
+    assert.deepEqual(parseFactoryOrchestratorProcessConfig(value).metrics, metrics);
+    assert.throws(() => parseFactoryOrchestratorProcessConfig({ ...value, metrics: { ...metrics, port: 0 } }), /config is invalid/);
+    const configPath = join(directory, "process.json");
+    await privateFile(configPath, JSON.stringify(value));
+    const readings: boolean[] = [];
+    let isReady: () => boolean = () => false;
+    let stopped = false;
+    await runConfiguredFactoryOrchestrator(configPath, new AbortController().signal, {
+      loadCodec: async () => codec,
+      metrics: async (endpoint, ready) => {
+        assert.deepEqual(endpoint, metrics);
+        isReady = ready;
+        return { url: "http://127.0.0.1:9467", stop: async () => { stopped = true; } };
+      },
+      run: async (options) => {
+        readings.push(isReady());
+        await options.readiness.write({ lifecycle: "ready", workerPolling: true, dispatcherLive: true, credentialGeneration: 1 });
+        readings.push(isReady());
+        await options.readiness.write({ lifecycle: "failed", workerPolling: false, dispatcherLive: false, credentialGeneration: 1, errorCode: "temporal_unavailable" });
+        readings.push(isReady());
+      },
+    });
+    assert.deepEqual(readings, [false, true, false]);
+    assert.equal(stopped, true);
+
+    const reports: string[] = [];
+    let ran = false;
+    await runConfiguredFactoryOrchestrator(configPath, new AbortController().signal, {
+      loadCodec: async () => codec,
+      metrics: async () => { throw Object.assign(new Error(`cannot read ${metrics.scrapeTokenPath}`), { code: "factory_metrics_token_unreadable" }); },
+      report: (code) => { reports.push(code); },
+      run: async () => { ran = true; },
+    });
+    assert.deepEqual(reports, ["factory_metrics_token_unreadable"]);
+    assert.equal(ran, true);
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
 test("private credential reads reject an empty API key", async () => {
   const directory = await mkdtemp(join(runtimeRoot, "factory-process-empty-token-"));
   await chmod(directory, 0o700);

@@ -23,6 +23,7 @@ import { factoryModelPinMatchesRunner } from "./native-runner-policy";
 import { wellFormedFactoryKeyManagement, type FactoryKeyManagement } from "./key-composition";
 import { isPlainRecord } from "./plain-values";
 import { readPrivatePath } from "./private-files";
+import { wellFormedFactoryMetricsEndpoint, type FactoryMetricsEndpoint } from "./observability/metrics-listener";
 import { exactKeys, httpsUrl, wellFormed, type FieldKind } from "./startup-values";
 import { FACTORY_GUEST_BROKER_AUDIENCE } from "./runner/guest-broker-contract";
 
@@ -226,6 +227,20 @@ export interface FactoryStartupConfig {
   };
   readonly workers?: FactoryWorkerTuning;
   /**
+   * Where approval requests and uncertain releases are sent off this host
+   * (C11 N2). Optional: absent, they reach the in-app inbox only, and the
+   * `notification-send` role holds by name. Every secret is by reference.
+   */
+  readonly notifications?: {
+    readonly destinations: readonly FactoryStartupNotificationDestination[];
+  };
+  /**
+   * Where this installation serves `/metrics` (C11 M4): an internal address,
+   * and the scrape token by reference. Optional; absent, no metrics listener
+   * binds and the evaluator's target-down alert names this installation.
+   */
+  readonly metrics?: FactoryMetricsEndpoint;
+  /**
    * The tenant namespace's Temporal HTTP API, for W15's checkpoint barrier.
    *
    * Every checkpoint records the Temporal position of each live workflow, so a
@@ -284,6 +299,21 @@ export interface FactoryStartupValidatorRuntime {
 
 /** The data-key wrapping service. Owned by `key-composition.ts`. */
 export type FactoryStartupKeyManagement = FactoryKeyManagement;
+
+/** One outbound notification destination (C11 N2). Only `webhook` exists; `smtp` is refused by name. */
+export interface FactoryStartupNotificationDestination {
+  readonly name: string;
+  readonly kind: "webhook";
+  /** Plain HTTPS: no user information, query, or fragment, so no credential can ride in it. */
+  readonly url: string;
+  /** The HMAC signing secret, 32 to 512 bytes, read by the private bounded reader. */
+  readonly secretPath: string;
+  /** A private CA bundle for the receiver's certificate. */
+  readonly caPath?: string;
+}
+
+/** At most this many destinations, so one fan-out pass stays bounded. */
+export const FACTORY_NOTIFICATION_DESTINATIONS_MAX = 16;
 
 /**
  * One place a release may publish, named so a profile can point at it.
@@ -663,7 +693,7 @@ function wellFormedValidatorRuntime(value: unknown): boolean {
 /** The set of leaf fields a valid document may carry, derived from the table. */
 const KNOWN_FIELDS: ReadonlySet<string> = new Set([
   "schemaVersion", "hostStopKeys", "privateService.tokens.publicKeyPaths", "runnerProfiles", "guestBroker.hosts", "guestBroker.tokens.publicKeyPaths",
-  "release.destinations", "release.profiles", "validators.runtimes", "repositories.sources", "keyManagement",
+  "release.destinations", "release.profiles", "validators.runtimes", "repositories.sources", "keyManagement", "notifications.destinations", "metrics",
   ...FACTORY_STARTUP_FIELDS.map((spec) => spec.field),
 ]);
 
@@ -686,7 +716,8 @@ function leaves(value: unknown, prefix = ""): string[] {
     // — so recursing into them would name a value as a field. Each is checked
     // by shape below instead.
     if (field === "hostStopKeys" || field === "runnerProfiles" || field === "privateService.tokens.publicKeyPaths" || field === "guestBroker.hosts" || field === "guestBroker.tokens.publicKeyPaths"
-      || field === "release.destinations" || field === "release.profiles" || field === "validators.runtimes" || field === "repositories.sources" || field === "keyManagement") { found.push(field); continue; }
+      || field === "release.destinations" || field === "release.profiles" || field === "validators.runtimes" || field === "repositories.sources" || field === "keyManagement"
+      || field === "notifications.destinations" || field === "metrics") { found.push(field); continue; }
     found.push(...(isPlainRecord(nested) ? leaves(nested, field) : [field]));
   }
   return found;
@@ -877,6 +908,46 @@ const checkRelease: StartupCheck = (value, { missing, invalid }) => {
   checkReleaseProfiles(read(value, "release.profiles").value, names, invalid);
 };
 
+/** A webhook URL that cannot carry a credential: HTTPS, a host, and nothing in user information, query, or fragment. */
+function plainHttpsUrl(value: unknown): boolean {
+  if (typeof value !== "string" || value.length > 2_048) return false;
+  let url: URL;
+  try { url = new URL(value); } catch { return false; }
+  return url.protocol === "https:" && url.hostname.length > 0 && url.username === "" && url.password === ""
+    && url.search === "" && url.hash === "" && !value.includes("?") && !value.includes("#");
+}
+
+function wellFormedNotificationDestination(value: unknown): boolean {
+  if (!isPlainRecord(value) || value.kind !== "webhook" || !wellFormed("identity", value.name)) return false;
+  const required = ["name", "kind", "url", "secretPath"];
+  if (!exactKeys(value, required) && !exactKeys(value, [...required, "caPath"])) return false;
+  return plainHttpsUrl(value.url) && wellFormed("path", value.secretPath) && (value.caPath === undefined || wellFormed("path", value.caPath));
+}
+
+// The outbound notification destinations, when the section is present. SMTP is
+// refused on its own field, so the operator reads why rather than "malformed".
+const checkNotifications: StartupCheck = (value, { missing, invalid }) => {
+  const section = read(value, "notifications.destinations");
+  if (!section.present) {
+    if (read(value, "notifications").present) missing.push("notifications.destinations");
+    return;
+  }
+  const destinations = section.value;
+  if (!Array.isArray(destinations) || destinations.length === 0 || destinations.length > FACTORY_NOTIFICATION_DESTINATIONS_MAX) { invalid.push("notifications.destinations"); return; }
+  for (const [index, entry] of destinations.entries()) {
+    if (isPlainRecord(entry) && entry.kind === "smtp") invalid.push(`notifications.destinations[${index}].kind`);
+    else if (!wellFormedNotificationDestination(entry)) invalid.push(`notifications.destinations[${index}]`);
+  }
+  const names = destinations.map((entry) => (entry as { name?: unknown }).name);
+  if (new Set(names).size !== names.length) invalid.push("notifications.destinations");
+};
+
+// The metrics endpoint, when declared, is one shape shared with every factory process.
+const checkMetrics: StartupCheck = (value, { invalid }) => {
+  const section = read(value, "metrics");
+  if (section.present && !wellFormedFactoryMetricsEndpoint(section.value)) invalid.push("metrics");
+};
+
 // The trusted validator runtimes, when the section is present.
 const checkValidatorRuntimes: StartupCheck = (value, { invalid }) => {
   invalid.push(...invalidValidatorRuntimes(value));
@@ -905,7 +976,7 @@ const checkRepositories: StartupCheck = (value, { missing, invalid }) => {
 // Run in this order; the error lists keep the order the problems are found in.
 const STARTUP_CHECKS: readonly StartupCheck[] = [
   checkDeclaredFields, checkModelPin, checkHostLaunch, checkGuestBroker, checkHostStopKeys, checkReadinessRetry, checkRecoverySections,
-  checkPrivateServiceTokens, checkRunnerProfiles, checkRelease, checkValidatorRuntimes, checkRepositories,
+  checkPrivateServiceTokens, checkRunnerProfiles, checkRelease, checkValidatorRuntimes, checkRepositories, checkNotifications, checkMetrics,
 ];
 
 /** Cross-field rules on a document whose every field is already well formed. */
