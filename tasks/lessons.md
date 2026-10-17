@@ -2593,3 +2593,5 @@ smokes under the lock, detached-job wake-ups) are not repeated.
 - When a transport guard adds a schema dependency, inspect real-caller integration fixtures. Prefer the existing isolated fully migrated DB helper over an obsolete hand-built subset. Reproduce the actual consumer failure; never suppress a missing-table authority error.
 
 - Put awaited denial assertions directly in the test body when the operation uses an imported callback helper. Runtime success alone does not prove the canonical assertion scanner sees the assertion. Reproduce its exact exported check before changing the fixture.
+
+- Before updating task notes in an isolated worktree, inspect existing tracked content. Append the scoped checklist and results; never replace existing task history. If a fresh-worktree note write replaced history, restore the exact HEAD bytes and append only the owned notes before proceeding.

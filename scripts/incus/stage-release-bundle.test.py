@@ -1,11 +1,13 @@
 """Focused release inventory and staging boundary tests."""
 
 import importlib.util
+import io
 import json
 import os
 import subprocess
 import sys
 import tempfile
+import tarfile
 import unittest
 from pathlib import Path
 from unittest.mock import patch
@@ -60,11 +62,15 @@ class ReleaseBundleTests(unittest.TestCase):
         (source / "bin/bun").unlink()
         (source / "bin").rmdir()
         (source / MODULE.RUNTIME_DIR).rmdir()
-        for argv in (["git", "init", "-q"], ["git", "add", "."],
-                     ["git", "-c", "core.hooksPath=/dev/null", "-c", "user.name=Fixture",
-                      "-c", "user.email=fixture@example.invalid", "commit", "-qm", "fixture"]):
-            subprocess.run(argv, cwd=source, check=True, capture_output=True, timeout=5)
+        subprocess.run(["git", "init", "-q"], cwd=source, check=True, capture_output=True, timeout=5)
+        self.commit_fixture(source)
         return source
+
+    def commit_fixture(self, source):
+        for argv in (["git", "add", "."], ["git", "-c", "core.hooksPath=/dev/null",
+                     "-c", "user.name=Fixture", "-c", "user.email=fixture@example.invalid",
+                     "commit", "-qm", "fixture"]):
+            subprocess.run(argv, cwd=source, check=True, capture_output=True, timeout=5)
 
     def bun_version_fixture(self, root, version):
         bun = root / "pinned-bun"
@@ -98,6 +104,101 @@ class ReleaseBundleTests(unittest.TestCase):
                 pin = next(row for row in manifest["files"] if row["path"] == MODULE.BUN_VERSION)
                 self.assertEqual(pin["type"], "file")
                 self.assertEqual(pin["sha256"], MODULE.sha256(output / MODULE.BUN_VERSION))
+
+    def test_real_stage_materializes_tracked_python_pin_links(self):
+        with tempfile.TemporaryDirectory(dir="/tmp") as directory:
+            root = Path(directory)
+            source = self.committed_source_fixture(root, "1.4.2")
+            (source / ".python-version").write_text("3.13.6\n")
+            links = [f"src/factory/{name}/python/.python-version"
+                     for name in ("reference-image", "runner")]
+            for name in links:
+                path = source / name
+                path.parent.mkdir(parents=True)
+                path.symlink_to("../../../../.python-version")
+            self.commit_fixture(source)
+            bun = self.bun_version_fixture(root, "1.4.2")
+            output = root / "release"
+            with patch.object(MODULE, "run", side_effect=self.dependency_build_fixture):
+                MODULE.stage(source, output, bun, MODULE.sha256(bun))
+            manifest = MODULE.verify(output)
+            for name in links:
+                with self.subTest(path=name):
+                    path = output / name
+                    self.assertFalse(path.is_symlink())
+                    self.assertEqual(path.read_bytes(), (output / ".python-version").read_bytes())
+                    self.assertEqual(path.stat().st_mode & 0o777,
+                                     (output / ".python-version").stat().st_mode & 0o777)
+                    row = next(row for row in manifest["files"] if row["path"] == name)
+                    self.assertEqual(row["type"], "file")
+                    self.assertEqual(row["sha256"], MODULE.sha256(output / ".python-version"))
+            self.assertTrue(all((source / name).is_symlink() for name in links))
+
+    def test_extract_uses_archived_bytes_and_modes_not_checkout_targets(self):
+        with tempfile.TemporaryDirectory(dir="/tmp") as directory:
+            root = Path(directory)
+            source = self.committed_source_fixture(root, "1.4.2")
+            pin = source / ".python-version"
+            pin.write_bytes(b"committed pin\n")
+            pin.chmod(0o640)
+            (source / "alias").symlink_to(".python-version")
+            self.commit_fixture(source)
+            pin.write_bytes(b"uncommitted checkout content\n")
+            (source / "alias").unlink()
+            (source / "alias").symlink_to("untracked-host-file")
+            (source / "untracked-host-file").write_bytes(b"host content\n")
+            output = root / "extract"
+            output.mkdir()
+            MODULE.extract_head(source, output)
+            self.assertEqual((output / "alias").read_bytes(), b"committed pin\n")
+            self.assertFalse((output / "alias").is_symlink())
+            self.assertEqual((output / "alias").stat().st_mode & 0o777,
+                             (output / ".python-version").stat().st_mode & 0o777)
+
+    def test_archive_rejects_unsafe_links_and_special_entries_before_extraction(self):
+        cases = {
+            "absolute": [("alias", tarfile.SYMTYPE, "/pin")],
+            "escape": [("alias", tarfile.SYMTYPE, "../pin")],
+            "nested escape": [("dir", tarfile.DIRTYPE, ""),
+                              ("dir/alias", tarfile.SYMTYPE, "../../pin")],
+            "dangling": [("alias", tarfile.SYMTYPE, "missing")],
+            "missing traversal": [("alias", tarfile.SYMTYPE, "missing/../pin")],
+            "file traversal": [("alias", tarfile.SYMTYPE, "pin/../pin")],
+            "trailing slash": [("alias", tarfile.SYMTYPE, "pin/")],
+            "trailing dot": [("alias", tarfile.SYMTYPE, "pin/.")],
+            "cycle": [("a", tarfile.SYMTYPE, "b"), ("b", tarfile.SYMTYPE, "a")],
+            "self cycle": [("alias", tarfile.SYMTYPE, "alias")],
+            "chain": [("a", tarfile.SYMTYPE, "b"), ("b", tarfile.SYMTYPE, "pin")],
+            "directory link": [("dir", tarfile.DIRTYPE, ""),
+                               ("alias", tarfile.SYMTYPE, "dir")],
+            "link ancestor": [("dir", tarfile.SYMTYPE, "pin"),
+                              ("dir/child", tarfile.REGTYPE, "")],
+            "regular ancestor": [("pin/child", tarfile.REGTYPE, "")],
+            "Bun pin link": [(MODULE.BUN_VERSION, tarfile.SYMTYPE, "pin")],
+            "reserved runtime": [(".ezcorp/alias", tarfile.SYMTYPE, "../pin")],
+            "archive traversal": [("../outside", tarfile.REGTYPE, "")],
+            "archive absolute": [("/outside", tarfile.REGTYPE, "")],
+            "duplicate": [("pin", tarfile.REGTYPE, "")],
+            "hard link": [("alias", tarfile.LNKTYPE, "pin")],
+            "fifo": [("special", tarfile.FIFOTYPE, "")],
+            "character device": [("special", tarfile.CHRTYPE, "")],
+            "block device": [("special", tarfile.BLKTYPE, "")],
+        }
+        for label, entries in cases.items():
+            with self.subTest(case=label), tempfile.TemporaryDirectory() as directory:
+                buffer = io.BytesIO()
+                with tarfile.open(fileobj=buffer, mode="w") as archive:
+                    for name, kind, link in [("pin", tarfile.REGTYPE, ""), *entries]:
+                        item = tarfile.TarInfo(name)
+                        item.type, item.linkname, item.mode = kind, link, 0o644
+                        data = b"archived pin\n" if item.isfile() else b""
+                        item.size = len(data)
+                        archive.addfile(item, io.BytesIO(data))
+                target = Path(directory)
+                with patch.object(MODULE.subprocess, "check_output", return_value=buffer.getvalue()):
+                    with self.assertRaises(ValueError):
+                        MODULE.extract_head(target, target)
+                self.assertEqual(list(target.iterdir()), [])
 
     def test_stage_refuses_runtime_and_archive_version_mismatch_before_build(self):
         with tempfile.TemporaryDirectory(dir="/tmp") as directory:

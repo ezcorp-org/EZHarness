@@ -2,6 +2,7 @@
 """Build and verify a relocatable qualification release; never install it."""
 
 import argparse
+import copy
 import hashlib
 import io
 import json
@@ -75,13 +76,49 @@ def git_head(source):
 def extract_head(source, target):
     archive = subprocess.check_output(["git", "archive", "--format=tar", "HEAD"], cwd=source)
     with tarfile.open(fileobj=io.BytesIO(archive), mode="r:") as members:
+        entries = {}
         for item in members.getmembers():
             name = Path(item.name)
             require(name.parts and not name.is_absolute() and ".." not in name.parts,
                     "archive path escapes release")
             require(name.parts[0] != RUNTIME_DIR, "tracked reserved runtime path is not allowed")
-            require(item.isfile() or item.isdir(), "tracked links or special files are not allowed")
-        members.extractall(target, filter="data")
+            require(item.isfile() or item.isdir() or item.issym(),
+                    "tracked hard links or special files are not allowed")
+            require(name != Path(BUN_VERSION) or item.isfile(), "tracked Bun version pin must be regular")
+            require(name not in entries, "duplicate archive path")
+            entries[name] = item
+        # Validate the complete tree before writing anything. A source link
+        # cannot act as a directory, even when its target is inside the archive.
+        for name in entries:
+            for parent in name.parents:
+                require(parent not in entries or entries[parent].isdir(),
+                        "archive parent must be a directory")
+        extracted = []
+        for name, item in entries.items():
+            if item.issym():
+                link = Path(item.linkname)
+                require(link.parts and not link.is_absolute(), "tracked link target must be relative")
+                require(not item.linkname.endswith(("/", "/.")),
+                        "tracked links must target regular archived files directly")
+                parts = list(name.parent.parts)
+                for index, part in enumerate(link.parts):
+                    if part == "..":
+                        require(parts, "tracked link target escapes release")
+                        parts.pop()
+                    else:
+                        parts.append(part)
+                        parent = entries.get(Path(*parts))
+                        require(index == len(link.parts) - 1 or parent is not None and parent.isdir(),
+                                "tracked link target traverses a non-directory")
+                referent = entries.get(Path(*parts))
+                require(referent is not None and referent.isfile(),
+                        "tracked links must target regular archived files directly")
+                # Read bytes and mode from that Git archive member, never from
+                # the checkout or a host link. No filesystem link is created.
+                item = copy.copy(referent)
+                item.name = name.as_posix()
+            extracted.append(item)
+        members.extractall(target, members=extracted, filter="data")
 
 
 def immutable_entries(root):

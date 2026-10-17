@@ -9035,3 +9035,16 @@ Integration review: Independent real-consumer rerun passed17/0; unchanged produc
 - [ ] Obtain required non-author review and report the exact merge/readiness state.
 
 Current review: Both remaining test fixes reproduced RED and passed focused tests, independent review, and normal author hooks. No production authentication or authority rule is relaxed. Installation bindings are preparation only. Provider0.1.6 approval remains active. No final live or whole-gate pass is claimed. Leave unrelated healthy TypeScript work alone.
+
+
+# Safe tracked-link release repair
+
+- [x] Reproduce actual c686 archive consumer refusal; preserve original stage RED evidence.
+- [x] Add real archive/stage regression and unsafe-link controls; demonstrate RED.
+- [x] Materialize only archive-relative direct links to regular tracked files, before filesystem extraction. Keep containment/runtime/special-file defenses.
+- [x] Run focused suite and actual full committed archive consumer; verify regular bytes and clean frozen source.
+- [x] Get independent source/result review and prepare normal commit; final SHA will be retained in `.cache/bundle-links-repair/commit-result.json`.
+
+Review evidence: original full stage native1 retained externally; actual full c686 archive consumer reproduces identical refusal. New real-stage fixture RED before repair, GREEN after. Focused suite25tests passes including23 unsafe archive/link cases; full actual c686 archive now extracts with both Python pin aliases regular and matching canonical bytes; no extracted source links. Independent review/normal commit pending.
+
+Independent review CLEAR: helper88feae6d5795b3f56ac9ef8b376c5ef61ed3ae5ae77c583e63f70e3b55245b63, test70e2d6a04b23e4d91914d70efbbf12f99e9ef436355905223c1456306358f1ac. Reviewer independently ran25tests and fullactualc686archive consumer with no links and matching pin bytes. Only extract_head changed in production; source/output/runtime guards preserved. A new integrated source SHA needs fresh canonical and stage bindings; no stale-pin full staging was attempted.
