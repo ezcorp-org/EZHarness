@@ -122,3 +122,10 @@ test("a raw runner is never a preparation builder: its fresh store's artifact_mi
   expect(JSON.parse(refusal.detail!)).toMatchObject({ code: "artifact_missing", errorCode: "ENOENT" });
   expect(fresh.builds).toBe(0);
 });
+
+test("the fresh store's build guard is live: a build is counted and refused, so the cases above prove that no build ran (W4H-32)", async () => {
+  const fresh = new FreshStore({ root: join(root, "guard") });
+  stores.push(fresh);
+  await expect(fresh.build()).rejects.toThrow("the preparation must not build");
+  expect(fresh.builds).toBe(1);
+});
