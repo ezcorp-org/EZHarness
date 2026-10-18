@@ -2478,3 +2478,119 @@ smokes under the lock, detached-job wake-ups) are not repeated.
   "a test file failed" must mean "failed WITH the mutant and loaded WITHOUT it".
 - Owner: a green nightly can measure nothing. The mutation nightly was green while 11772 of 18934 mutants ran zero tests;
   read the per-mutant test counts, not the exit code, before calling a quality gate green.
+
+#### The W4H-33b, W4H-32, W4H-32b and W4H-35 rounds (coverage, freeze legs, hold tools, records, rulings; 2026-10-16 to 2026-10-17)
+- Owner: a coverage red on a changed test line that is a class member means that no method of that test class ran. Fix
+  it with a case that calls the class's method and asserts the result, red first with a mutant, and read the hold's own
+  lcov line for that file before you name a cause, because the neighbouring line can be the one that runs. Trigger:
+  W4H-32's hold on 7de009ec4 went red on line 52 of src/factory/guest-package-harness-install.test.ts, a field
+  initializer of the test class FreshStore; the fix b4f0661a6 calls its build and asserts the refusal, 100 of 101 lines
+  to 107 of 107 (verdict-w4h-32.txt at b135ee6d9c1b22c0; validator-8 pending-lesson.md at 44faa0244efced94, the
+  correction of 01:52Z; ruled 2026-10-17).
+- Owner: a freeze includes the repository typecheck at the exact head, in the first gated job (a short lock slot when it
+  needs one), because a single-file test run is not a type check. Trigger: the W4H-33b merge commit's fast typecheck
+  refused 31ce24621 (TS2769 in scripts/test-skip-inventory.test.ts) after its ACCEPT (w4h-33b pending-lesson.md at
+  20c928239e455603, lesson 9); the W4H-32b ACCEPT waited one turn for its typecheck (w4h-32b report.txt at
+  a2115d5a4cf02e68, lesson 5).
+- Validator: an ACCEPT needs the owner's typecheck and lint at the exact head, read from logs that name that head; a
+  missing one is NOT OK, not a note. Trigger: the same TS2769 refusal; validator-8 withdrew its ACCEPT of 31ce24621
+  (validator-8 pending-lesson.md at 44faa0244efced94, 02:14:46Z).
+- Integrator: a proof on a scratch tree installs every package its lane needs (the root and web, then svelte-kit sync)
+  before the lane's command runs. Trigger: the first leg (c) proof installed only the root, svelte-kit sync failed
+  before Stryker, and the run was void; the re-run with the web install proved the leg (coordinator log 2026-10-17
+  02:10Z and 02:27Z).
+- Integrator: never write into a script that a running job executes. Stage the fix as a new file, and change the live
+  name only by mv when no job runs it. Trigger: proof.sh was rewritten in place while legs-cd-proof ran it; the launched
+  bytes were restored at once, and the loop-parse analysis judged it harmless (integrator-5 pending-lesson.md at
+  49618980fe0130b4, 02:0xZ).
+- Integrator: report a rename of records to the coordinator, with the hashes, before you make it, even when the rename
+  is correct. A proof driver writes into a new run folder and refuses an existing one. Trigger: the nine run-1 records
+  of legs-cd-proof went to .v1 names before the report; they stand because every hash was recorded
+  (renames-before-proof-c.log at ead97661b96cb384; ruled 2026-10-17 02:22Z).
+- Integrator: a shared hold tool in w00 references nothing under an owner's evidence folder; it ships what it needs
+  beside itself. "Reuse the owner's method" means the method, never a runtime dependency on the owner's file. Trigger:
+  leg (b) v5 called the owner's Podman stand-in under w4h-33b/nopodman/; v4 with its own stub was restored by hash
+  (validator-8 plan-gate.md at 8340baeac5bcc7ef; ruled 2026-10-17 02:40Z).
+- Integrator: read a stop or correction word before any further staging of that artifact. A staged version takes the
+  working names only after the validator's OK of that exact version; until then it keeps a distinct name. Trigger: v5
+  replaced v4 under the working names before the stop arrived, so the proof would have run code that nobody approved
+  (coordinator log 2026-10-17 02:38Z to 02:43Z).
+- Coordinator: before a ruling says "judge condition X on record Y", read what the tool that writes Y does with the
+  actual input. Trigger: leg (b) runs only changed test files; the W4H-33b merge did not change the price-chart test, so
+  the hold's (b) record had no price-chart row; the ruling was corrected before the judgment (coordinator log 2026-10-17
+  03:21Z).
+- Integrator: a stated hold is a hold: either hold until the ruling arrives, or write "proceeding under
+  pre-authorization <line>" before the launch, never both. Trigger: the W4H-33b hold launch at 02:52:44Z followed a
+  message that said the launch was held; it was inside the pre-authorization, so its records stand (integrator-5
+  pending-lesson.md at 49618980fe0130b4, 03:2xZ).
+- Owner and integrator: an owner freeze runs identity-check files over the owner's whole evidence folder, and a file
+  meant for receipts redacts a fixture address on a non-reserved domain as "<a non-noreply address>". Evidence is never
+  edited in place; a redacted copy carries a provenance record. Trigger: W4H-33b receipts try 1 refused on identity; the
+  report and three D5 logs entered try 2 as redacted copies (owner-redacted/PROVENANCE.txt at 4388e10d3abd853d), and the
+  originals stayed unchanged.
+- Validator: exclude test files from a code search by path, never by a word filter, and read the whole validator
+  function before you claim that a check is absent. Trigger: a grep -v on "test" dropped the product line with
+  CIDR.test( (validator-8 pending-lesson.md at 44faa0244efced94, 05:26:25Z).
+- Owner: a watch predicate names the ACCEPTED head and is checked again whenever that head changes; a stale sha in a
+  predicate is a silent stall. Trigger: W4H-34's watch waited on a head that the merge did not use (w4h-34 lessons.txt
+  at 677e40db7da0d115, lesson 22).
+- Owner: a template that ranges over a list prints a separator between entries. Write one entry per CIDR, and only IPv4
+  entries for the IPv4-only contract. Trigger: a dual-stack network gave one concatenated CIDR string (W4H-35 run 5;
+  team-lead, 2026-10-17).
+- Owner: a contract type change moves the trusted SDK digest, because the trusted SDK bundle digests the sdk and
+  extension-contract trees. Relock the S3 release adapter in the same package as the change. Trigger: W4H-32's fc1254003
+  changed the extension-contract types, and push16's hosted shards 4 and 6 went red on the stale lock (w4h-32b
+  report.txt at a2115d5a4cf02e68, lessons 1 and 2; validator-8's compare at ee512e9dffaef63d).
+- Integrator: a test that digests a package tree is selected by what it digests, not by what it imports. Trigger: the
+  adapter's lock tests import nothing from extension-contract but digest it, so the W4H-32 hold did not select them;
+  hold leg (e) now runs them when a locked tree changes (w4h-32b report.txt, lesson 3).
+- Owner: a launcher's "clear" check counts a queued gated-flock wrapper as busy, not only a held lock. Trigger:
+  W4H-32b's launch check (w4h-32b report.txt, lesson 4).
+- Owner: a test stub for an engine command is a binary first on PATH, never only a shell function, and a test that could
+  reach the real engine asserts first that its stub was hit. Trigger: code that ran the engine through xargs bypassed a
+  function stub, and the first try ran the real podman (w4h-35 pending-lesson.md at 2b7481a2f6a42da6, lesson 12).
+- Owner: an image exported from local container storage gets a new manifest digest, because export recompresses the
+  layers; a digest pinned from a registry resolves only from that registry's blobs. Trigger: W4H-35 runs 7 and 8: the
+  nginx export gave manifest 8ab48452 against the pinned index digest 2f4e1019 (w4h-35 pending-lesson.md, lesson 13;
+  w4h-35/logs/image-inventory.log at 5a316f01673d522f).
+- Coordinator: an exemption from a refusing check is a recorded coordinator ruling, hashed and copied into the run
+  folder, never an owner choice. Trigger: the W4H-35 ingress image exemption for run 8 (proof/known-unresolvable.txt;
+  ruling at 06:43Z, its record at 06:51Z, coordinator log 2026-10-17).
+- Owner: capture the fixture for an engine-command stub from the real tool; never type it. Trigger: node_image_ref
+  passed its typed crictl stub and refused in run 8, where the real node had no image-named repo digest (w4h-35
+  pending-lesson.md, lessons 14 and 15).
+- Owner: a named refusal writes the raw input it refused into the run folder, so a diagnosis needs no re-run. Trigger:
+  run 8's driver kept the crictl table, but the resolver parsed the JSON, which was never written (w4h-35
+  pending-lesson.md, lesson 16).
+- Owner: a stop class carries its own exit value, so a checklist keys on the exit record, not on log text. Trigger: the
+  run-8 stop at image-import exited 1, the generic value (team-lead, 2026-10-17).
+- Coordinator: a time filter on records names UTC explicitly (TZ=UTC, or a Z suffix), and an empty time-filtered list is
+  checked against one file known to be new before it is believed. Trigger: this host's clock is UTC-4, and a local-time
+  find -newermt returned an empty list for files that existed (team-lead, 2026-10-17).
+- Coordinator: in zsh a compound command stops at the first unmatched glob ("no matches found"), and the later checks
+  never run. An absence check lists with find or counts matches and prints an explicit end marker, never a bare glob.
+  Trigger: a check stopped at an unmatched glob, and its later lines never ran (team-lead, 2026-10-17).
+- Coordinator: one ruling per artifact per turn; a change of form waits for the owner's FINAL line before a new word.
+  Trigger: two rulings on the part-6 form crossed within one turn, and the owner's versions crossed with them
+  (coordinator log 2026-10-16 22:15Z).
+- Coordinator: check a tool's hash against the owner's latest report before a word that names it. Trigger: a launch word
+  named launch-rebase2.sh at 44201a94fffa3b4a while the owner's later reports named other hashes (coordinator log
+  2026-10-16 22:14Z to 22:19Z).
+- Owner: a kernel-dependent host path is read from /run/booted-system (the running kernel), never from
+  /run/current-system (the staged one). Trigger: the kind shim first read current-system, staged kernel 7.2.8, while the
+  running kernel was 7.0.3 (coordinator log 2026-10-16 23:11Z).
+- Integrator: a proof driver's exit is derived from every step's expected outcome, never from the last command, and a
+  mutant that accepts an unexpected failure proves it. Trigger: the first bundle-build proof exited 0 over failed parts
+  (proof.sh at 99419dcbe46d4723 before the fix; coordinator log 2026-10-16 23:16Z and 23:18Z).
+- Coordinator: a checker reads the verdict section that names the merge, never line 1, because a later top-insert moves
+  line 1. Trigger: the union checker read line 1 of the verdict file (coordinator log 2026-10-16 22:54Z).
+- Coordinator: a claim that no file carries a hash needs a hash search over the folder and its backups, never a list of
+  named paths. Trigger: the ledger FINAL 003040a0da118ac3 was called absent while its named backup held it (coordinator
+  log 2026-10-17 05:09Z and 05:11Z).
+- Docs owner: a FINAL line is written from the hash of the live file after the last write, never from a scratch copy or
+  an earlier step, and a superseding version names the backup that holds the old hash. Trigger: the same ledger case
+  (coordinator log 2026-10-17 05:09Z; ruled 2026-10-17).
+- Docs owner and owners: a report line that carries a hash is written only after the hash step has returned, and it
+  pastes from that output; a hash is never typed or remembered. Trigger: a w4h-36 report entry written in the same tool
+  round as its hash step carried two placeholder hashes, corrected by an appended entry; W4H-35 reported two wrong
+  16-hex prefixes (w4h-35 pending-lesson.md at 2b7481a2f6a42da6, lesson 17).
