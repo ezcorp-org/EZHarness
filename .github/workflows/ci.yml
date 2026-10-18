@@ -198,8 +198,10 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: ./.github/actions/setup
-      - name: Provision the rootless container runtime
-        run: bash scripts/setup-extension-runner-ci.sh --install
+      # The dedicated NixOS runner is provisioned declaratively; keep the same
+      # namespace, pinned-image and kernel checks without the Ubuntu installer.
+      - name: Verify the provisioned rootless container runtime
+        run: bash scripts/setup-extension-runner-ci.sh --probe
       - name: Prove CPU attempts see no device and the GPU attempt sees exactly one
         run: bash scripts/verify-factory-local-gpu.sh
       # The file list is the lane manifest (FACTORY_LANES in

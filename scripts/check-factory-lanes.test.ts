@@ -327,6 +327,28 @@ describe("lane manifest: one list names the lane-bound tests", () => {
 });
 
 describe("lane selection: the lane job runs the manifest", () => {
+  test("the declaratively provisioned GPU runner verifies prerequisites before its real observations", async () => {
+    const workflows = await realWorkflows();
+    const job = workflowJobBlock(workflows[CI_WORKFLOW]!, "factory-isolation")!;
+    const probe = job.indexOf("run: bash scripts/setup-extension-runner-ci.sh --probe\n");
+    expect(probe).toBeGreaterThan(-1);
+    expect(job).not.toContain("scripts/setup-extension-runner-ci.sh --install");
+    expect(probe).toBeLessThan(job.indexOf("run: bash scripts/verify-factory-local-gpu.sh\n"));
+    expect(probe).toBeLessThan(job.indexOf(`run: ${laneTestCommand("factory-isolation")}\n`));
+    expect(jobRunnerLabels(job)).toContain("factory-gpu");
+    // Hosted jobs still provision their ephemeral Ubuntu runtime.
+    expect(workflowJobBlock(workflows[CI_WORKFLOW]!, "residual-tests")).toContain("bash scripts/setup-extension-runner-ci.sh --install");
+  });
+
+  test("the GPU prerequisite probe cannot be removed or replaced by a comment", async () => {
+    const workflows = await realWorkflows();
+    const command = "bash scripts/setup-extension-runner-ci.sh --probe";
+    for (const replacement of ["echo omitted", `# ${command}`]) {
+      const changed = { ...workflows, [CI_WORKFLOW]: workflows[CI_WORKFLOW]!.replace(`run: ${command}`, `run: ${replacement}`) };
+      expect(factoryLaneIssues(changed)).toContain(`Factory isolation: job 'factory-isolation' never runs producer '${command}'`);
+    }
+  });
+
   test("the factory-gpu lane runs its shared container observations and then the device test", () => {
     expect(laneTestFiles("factory-isolation")).toEqual([...SHARED_GPU_TESTS, DEVICE_TEST]);
     expect(laneTestFiles("factory-deployment-operations")).toEqual([JOURNEY_TEST]);
