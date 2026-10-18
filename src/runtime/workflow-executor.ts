@@ -824,6 +824,16 @@ export class WorkflowExecutor {
     };
   }
 
+  private async resolveRunWorkspaceTarget(
+    projectId: string | undefined,
+    requestedTarget: WorkspaceTarget | undefined,
+  ): Promise<WorkspaceTarget | undefined> {
+    if (!projectId || isPureWorkflowExecutor(this)) return requestedTarget;
+    const project = await getProject(projectId);
+    if (!project) throw new Error("Project workspace is unavailable for workflow run");
+    return resolveProjectWorkspaceTarget(project, "workflow run", requestedTarget);
+  }
+
   async runWorkflow(
     workflow: WorkflowDefinition,
     input: Record<string, unknown>,
@@ -913,12 +923,7 @@ export class WorkflowExecutor {
       parentResolver?: HostWorkflowParentResolver;
     },
   ): Promise<WorkflowRun> {
-    let workspaceTarget = opts?.workspaceTarget;
-    if (projectId && !isPureWorkflowExecutor(this)) {
-      const project = await getProject(projectId);
-      if (!project) throw new Error("Project workspace is unavailable for workflow run");
-      workspaceTarget = await resolveProjectWorkspaceTarget(project, "workflow run", workspaceTarget);
-    }
+    const workspaceTarget = await this.resolveRunWorkspaceTarget(projectId, opts?.workspaceTarget);
     const idempotencyKey = opts?.idempotencyKey;
     const usesFactoryKey = idempotencyKey?.startsWith("factory:") === true;
     if (usesFactoryKey && !isFactoryIdempotencyKey(idempotencyKey)) {
