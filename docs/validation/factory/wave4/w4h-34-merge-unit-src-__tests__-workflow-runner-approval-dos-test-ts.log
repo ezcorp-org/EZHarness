@@ -1,0 +1,13 @@
+bun test v1.4.2 (744846f84)
+{"ts":"2026-10-17T23:44:14.662Z","level":"info","msg":"resumed a parked run","subsystem":"workflow.runner","runId":"cd6b1307-e9d8-4813-95b4-b975373fe3b8","status":"suspended"}
+{"ts":"2026-10-17T23:44:14.669Z","level":"info","msg":"resumed a parked run","subsystem":"workflow.runner","runId":"c9ffe420-126b-4033-be70-ddd9ca0a0cf0","status":"suspended"}
+{"ts":"2026-10-17T23:44:14.678Z","level":"info","msg":"resumed a parked run","subsystem":"workflow.runner","runId":"eec591be-a42a-40af-bb28-0e82b5d33781","status":"suspended"}
+{"ts":"2026-10-17T23:44:14.684Z","level":"info","msg":"resumed a parked run","subsystem":"workflow.runner","runId":"a51cce35-7cad-46c8-8dc4-905d8cde5c47","status":"suspended"}
+{"ts":"2026-10-17T23:44:14.686Z","level":"info","msg":"resumed a parked run","subsystem":"workflow.runner","runId":"a51cce35-7cad-46c8-8dc4-905d8cde5c47","status":"suspended"}
+{"ts":"2026-10-17T23:44:14.688Z","level":"info","msg":"resumed a parked run","subsystem":"workflow.runner","runId":"a51cce35-7cad-46c8-8dc4-905d8cde5c47","status":"suspended"}
+{"ts":"2026-10-17T23:44:14.707Z","level":"info","msg":"resumed a parked run","subsystem":"workflow.runner","runId":"no-approval-run","status":"success"}
+
+ 10 pass
+ 0 fail
+ 44 expect() calls
+Ran 10 tests across 1 file. [2.28s]

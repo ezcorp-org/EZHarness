@@ -1,0 +1,7 @@
+bun test v1.4.2 (744846f84)
+{"ts":"2026-10-17T23:42:13.916Z","level":"warn","msg":"live session append failed (catch-up will heal)","subsystem":"db.sessionSync","conversationId":"sync-conv-12","id":"ghost-not-in-messages","error":"Error: Failed query: insert into \"agent_session_entries\" (\"session_id\", \"entry_id\", \"seq\", \"type\", \"parent_id\", \"timestamp\", \"payload\", \"ez_message_id\") values ($1, $2, default, $3, $4, $5, $6, $7) on conflict do nothing\nparams: 418b7980-822a-43ff-a0ff-eb6151f0da40,ghost-not-in-messages,message,u1,2026-07-11T00:00:02.000Z,{\"message\":{\"role\":\"assistant\",\"content\":[{\"type\":\"text\",\"text\":\"x\"}],\"api\":\"unknown\",\"provider\":\"unknown\",\"model\":\"unknown\",\"usage\":{\"input\":0,\"output\":0,\"cacheRead\":0,\"cacheWrite\":0,\"totalTokens\":0,\"cost\":{\"input\":0,\"output\":0,\"cacheRead\":0,\"cacheWrite\":0,\"total\":0}},\"stopReason\":\"stop\",\"timestamp\":1783728002000}},ghost-not-in-messages"}
+
+ 24 pass
+ 0 fail
+ 58 expect() calls
+Ran 24 tests across 1 file. [7.52s]

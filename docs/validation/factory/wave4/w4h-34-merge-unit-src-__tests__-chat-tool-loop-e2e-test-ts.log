@@ -1,0 +1,30 @@
+bun test v1.4.2 (744846f84)
+{"ts":"2026-10-17T23:29:11.445Z","level":"info","msg":"skipped: model lacks image input capability","subsystem":"executor.loadHistory.rehydrate","branchLen":0}
+{"ts":"2026-10-17T23:29:11.461Z","level":"warn","msg":"Task-tracking wire failed — task tools unavailable this turn","subsystem":"executor.streamChat.setup","error":"TaskTrackingNotInstalledError: task-tracking extension not installed — did ensureBundledExtensions() run?"}
+{"ts":"2026-10-17T23:29:11.462Z","level":"warn","msg":"ask-user extension not installed — did ensureBundledExtensions() run?","subsystem":"ask-user-host"}
+{"ts":"2026-10-17T23:29:11.462Z","level":"info","msg":"briefing chat tools wired for turn","subsystem":"briefing.chat-tools","conversationId":"28c957d1-93d7-4092-98e0-2c2e94b489dd","userId":"2902f3a7-3e44-4828-a741-1d25900f8c53","registered":4,"expected":4}
+{"ts":"2026-10-17T23:29:11.463Z","level":"info","msg":"run_workflow wired for turn","subsystem":"workflow-tools-host","conversationId":"28c957d1-93d7-4092-98e0-2c2e94b489dd","userId":"2902f3a7-3e44-4828-a741-1d25900f8c53"}
+{"ts":"2026-10-17T23:29:11.485Z","level":"info","msg":"turn cache","subsystem":"executor.streamChat.subscribe","provider":"anthropic","model":"test-model","hitRate":0,"cachedTokens":0,"cacheWriteTokens":0,"cacheWrite1hTokens":0,"promptTokens":15}
+{"ts":"2026-10-17T23:29:11.493Z","level":"info","msg":"skipped: model lacks image input capability","subsystem":"executor.loadHistory.rehydrate","branchLen":0}
+{"ts":"2026-10-17T23:29:11.496Z","level":"warn","msg":"Task-tracking wire failed — task tools unavailable this turn","subsystem":"executor.streamChat.setup","error":"TaskTrackingNotInstalledError: task-tracking extension not installed — did ensureBundledExtensions() run?"}
+{"ts":"2026-10-17T23:29:11.497Z","level":"warn","msg":"ask-user extension not installed — did ensureBundledExtensions() run?","subsystem":"ask-user-host"}
+{"ts":"2026-10-17T23:29:11.497Z","level":"info","msg":"briefing chat tools wired for turn","subsystem":"briefing.chat-tools","conversationId":"582dbd0a-3319-48cb-a65d-1daf1f58acb6","userId":"2902f3a7-3e44-4828-a741-1d25900f8c53","registered":4,"expected":4}
+{"ts":"2026-10-17T23:29:11.497Z","level":"info","msg":"run_workflow wired for turn","subsystem":"workflow-tools-host","conversationId":"582dbd0a-3319-48cb-a65d-1daf1f58acb6","userId":"2902f3a7-3e44-4828-a741-1d25900f8c53"}
+{"ts":"2026-10-17T23:29:11.505Z","level":"info","msg":"turn cache","subsystem":"executor.streamChat.subscribe","provider":"anthropic","model":"test-model","hitRate":0,"cachedTokens":0,"cacheWriteTokens":0,"cacheWrite1hTokens":0,"promptTokens":15}
+{"ts":"2026-10-17T23:29:11.512Z","level":"info","msg":"skipped: model lacks image input capability","subsystem":"executor.loadHistory.rehydrate","branchLen":0}
+{"ts":"2026-10-17T23:29:11.515Z","level":"warn","msg":"Task-tracking wire failed — task tools unavailable this turn","subsystem":"executor.streamChat.setup","error":"TaskTrackingNotInstalledError: task-tracking extension not installed — did ensureBundledExtensions() run?"}
+{"ts":"2026-10-17T23:29:11.516Z","level":"warn","msg":"ask-user extension not installed — did ensureBundledExtensions() run?","subsystem":"ask-user-host"}
+{"ts":"2026-10-17T23:29:11.516Z","level":"info","msg":"briefing chat tools wired for turn","subsystem":"briefing.chat-tools","conversationId":"255c1abe-d435-442c-969c-9d5696c8b5cf","userId":"2902f3a7-3e44-4828-a741-1d25900f8c53","registered":4,"expected":4}
+{"ts":"2026-10-17T23:29:11.516Z","level":"info","msg":"run_workflow wired for turn","subsystem":"workflow-tools-host","conversationId":"255c1abe-d435-442c-969c-9d5696c8b5cf","userId":"2902f3a7-3e44-4828-a741-1d25900f8c53"}
+{"ts":"2026-10-17T23:29:11.524Z","level":"info","msg":"turn cache","subsystem":"executor.streamChat.subscribe","provider":"anthropic","model":"test-model","hitRate":0,"cachedTokens":0,"cacheWriteTokens":0,"cacheWrite1hTokens":0,"promptTokens":15}
+{"ts":"2026-10-17T23:29:11.531Z","level":"info","msg":"skipped: model lacks image input capability","subsystem":"executor.loadHistory.rehydrate","branchLen":0}
+{"ts":"2026-10-17T23:29:11.534Z","level":"warn","msg":"Task-tracking wire failed — task tools unavailable this turn","subsystem":"executor.streamChat.setup","error":"TaskTrackingNotInstalledError: task-tracking extension not installed — did ensureBundledExtensions() run?"}
+{"ts":"2026-10-17T23:29:11.534Z","level":"warn","msg":"ask-user extension not installed — did ensureBundledExtensions() run?","subsystem":"ask-user-host"}
+{"ts":"2026-10-17T23:29:11.534Z","level":"info","msg":"briefing chat tools wired for turn","subsystem":"briefing.chat-tools","conversationId":"f05bfcad-cc03-4efa-b446-c7b58a1f6c65","userId":"2902f3a7-3e44-4828-a741-1d25900f8c53","registered":4,"expected":4}
+{"ts":"2026-10-17T23:29:11.534Z","level":"info","msg":"run_workflow wired for turn","subsystem":"workflow-tools-host","conversationId":"f05bfcad-cc03-4efa-b446-c7b58a1f6c65","userId":"2902f3a7-3e44-4828-a741-1d25900f8c53"}
+{"ts":"2026-10-17T23:29:11.543Z","level":"info","msg":"turn cache","subsystem":"executor.streamChat.subscribe","provider":"anthropic","model":"test-model","hitRate":0,"cachedTokens":0,"cacheWriteTokens":0,"cacheWrite1hTokens":0,"promptTokens":15}
+
+ 4 pass
+ 0 fail
+ 17 expect() calls
+Ran 4 tests across 1 file. [1420.00ms]

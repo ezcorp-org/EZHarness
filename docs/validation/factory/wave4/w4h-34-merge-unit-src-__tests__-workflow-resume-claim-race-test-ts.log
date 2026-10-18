@@ -1,0 +1,8 @@
+bun test v1.4.2 (744846f84)
+{"ts":"2026-10-17T23:44:02.055Z","level":"info","msg":"run resumed by operator","subsystem":"workflow.run-control","runId":"22ec2e69-8482-40a2-a6f1-44ea7a169f12","status":"success","by":"user-1"}
+{"ts":"2026-10-17T23:44:02.081Z","level":"info","msg":"run cancelled by operator","subsystem":"workflow.run-control","runId":"87c6f6c5-e883-4327-9d12-90ecdc9f1c87","by":"user-1"}
+
+ 9 pass
+ 0 fail
+ 43 expect() calls
+Ran 9 tests across 1 file. [2.30s]

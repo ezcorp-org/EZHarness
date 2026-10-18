@@ -1,0 +1,7 @@
+bun test v1.4.2 (744846f84)
+{"ts":"2026-10-17T23:41:52.618Z","level":"warn","msg":"live session append failed (catch-up will heal)","subsystem":"db.sessionSync","conversationId":"char-conv-4","id":"ghost","error":"Error: Failed query: insert into \"agent_session_entries\" (\"session_id\", \"entry_id\", \"seq\", \"type\", \"parent_id\", \"timestamp\", \"payload\", \"ez_message_id\") values ($1, $2, default, $3, $4, $5, $6, $7) on conflict do nothing\nparams: 1d7d39bd-ec25-4fb3-92b6-caad29966bd2,ghost,message,,2026-03-01T12:00:01.000Z,{\"message\":{\"role\":\"user\",\"content\":\"x\",\"timestamp\":1772366401000}},ghost"}
+
+ 39 pass
+ 0 fail
+ 174 expect() calls
+Ran 39 tests across 1 file. [13.38s]

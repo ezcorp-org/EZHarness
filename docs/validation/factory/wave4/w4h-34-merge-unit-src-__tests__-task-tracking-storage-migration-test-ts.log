@@ -1,0 +1,10 @@
+bun test v1.4.2 (744846f84)
+{"ts":"2026-10-17T23:42:45.333Z","level":"info","msg":"Migrating built-in task-tracking storage rows","subsystem":"task-tracking-migration","count":2,"fromExtensionId":"builtin","toExtensionId":"ext-tt-mig"}
+{"ts":"2026-10-17T23:42:45.379Z","level":"info","msg":"Migrating built-in task-tracking storage rows","subsystem":"task-tracking-migration","count":3,"fromExtensionId":"builtin","toExtensionId":"ext-tt-mig"}
+{"ts":"2026-10-17T23:42:45.397Z","level":"info","msg":"Migrating built-in task-tracking storage rows","subsystem":"task-tracking-migration","count":1,"fromExtensionId":"builtin","toExtensionId":"ext-does-not-exist"}
+{"ts":"2026-10-17T23:42:45.399Z","level":"error","msg":"Task-tracking storage migration failed","subsystem":"task-tracking-migration","error":"Failed query: insert into \"extension_storage\" (\"id\", \"extension_id\", \"scope\", \"scope_id\", \"key\", \"value\", \"encrypted\", \"size_bytes\", \"expires_at\", \"created_at\", \"updated_at\") values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11) on conflict (\"extension_id\",\"scope\",\"scope_id\",\"key\") do update set \"value\" = $12, \"encrypted\" = $13, \"size_bytes\" = $14, \"expires_at\" = $15, \"updated_at\" = $16\nparams: ee76983f-a08f-4f70-8fdf-a308de91ec88,ext-does-not-exist,conversation,conv-bogus,__tasks_pre_migration,{\"tasks\":[{\"id\":\"b\",\"title\":\"B\",\"status\":\"pending\"}]},false,53,,2026-10-17T23:42:45.398Z,2026-10-17T23:42:45.398Z,{\"tasks\":[{\"id\":\"b\",\"title\":\"B\",\"status\":\"pending\"}]},false,53,,2026-10-17T23:42:45.398Z"}
+
+ 5 pass
+ 0 fail
+ 12 expect() calls
+Ran 5 tests across 1 file. [1129.00ms]

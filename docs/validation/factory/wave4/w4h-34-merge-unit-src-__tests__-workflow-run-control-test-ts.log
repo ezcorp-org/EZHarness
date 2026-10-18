@@ -1,0 +1,12 @@
+bun test v1.4.2 (744846f84)
+{"ts":"2026-10-17T23:44:06.908Z","level":"info","msg":"run resumed by operator","subsystem":"workflow.run-control","runId":"r1","status":"success","by":"stranger"}
+{"ts":"2026-10-17T23:44:06.912Z","level":"info","msg":"run resumed by operator","subsystem":"workflow.run-control","runId":"r1","status":"success","by":"stranger"}
+{"ts":"2026-10-17T23:44:06.930Z","level":"info","msg":"run resumed by operator","subsystem":"workflow.run-control","runId":"r1","status":"success","by":"owner"}
+{"ts":"2026-10-17T23:44:06.933Z","level":"info","msg":"run cancelled by operator","subsystem":"workflow.run-control","runId":"r1","by":"owner"}
+{"ts":"2026-10-17T23:44:06.934Z","level":"info","msg":"run cancelled by operator","subsystem":"workflow.run-control","runId":"live","by":"owner"}
+{"ts":"2026-10-17T23:44:06.941Z","level":"info","msg":"run cancelled by operator","subsystem":"workflow.run-control","runId":"r1","by":"stranger"}
+
+ 21 pass
+ 0 fail
+ 57 expect() calls
+Ran 21 tests across 1 file. [2.25s]

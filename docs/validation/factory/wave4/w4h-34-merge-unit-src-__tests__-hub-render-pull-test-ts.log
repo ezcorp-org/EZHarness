@@ -1,0 +1,15 @@
+bun test v1.4.2 (744846f84)
+{"ts":"2026-10-17T23:33:49.190Z","level":"warn","msg":"page-state invalidation wiring failed — will retry on the next render","subsystem":"hub.render-pull","error":"null is not an object (evaluating 'getBus().on')"}
+{"ts":"2026-10-17T23:33:49.191Z","level":"warn","msg":"extension page produced an invalid tree","subsystem":"hub.render-pull","extension":"cron-dashboard","pageId":"dashboard"}
+{"ts":"2026-10-17T23:33:49.202Z","level":"warn","msg":"extension page render failed","subsystem":"hub.render-pull","extension":"cron-dashboard","pageId":"dashboard","error":"subprocess gone"}
+{"ts":"2026-10-17T23:33:49.212Z","level":"warn","msg":"extension page render returned an error","subsystem":"hub.render-pull","extension":"cron-dashboard","pageId":"dashboard","code":-32602,"message":"Unknown page"}
+{"ts":"2026-10-17T23:33:49.212Z","level":"warn","msg":"extension page render failed","subsystem":"hub.render-pull","extension":"cron-dashboard","pageId":"dashboard","error":"spawn failed"}
+{"ts":"2026-10-17T23:33:49.242Z","level":"warn","msg":"extension page render failed","subsystem":"hub.render-pull","extension":"cron-dashboard","pageId":"dashboard","error":"page render timed out after 30ms"}
+{"ts":"2026-10-17T23:33:49.242Z","level":"warn","msg":"extension page produced an invalid tree","subsystem":"hub.render-pull","extension":"cron-dashboard","pageId":"dashboard"}
+{"ts":"2026-10-17T23:33:49.243Z","level":"warn","msg":"call-provenance resolve miss — token unknown or already released","subsystem":"ext.call-provenance","liveEntries":0}
+{"ts":"2026-10-17T23:33:49.244Z","level":"warn","msg":"background page refresh failed","subsystem":"hub.render-pull","extension":"cron-dashboard","pageId":"dashboard","error":"cache exploded"}
+
+ 27 pass
+ 0 fail
+ 77 expect() calls
+Ran 27 tests across 1 file. [565.00ms]

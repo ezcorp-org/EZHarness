@@ -1,0 +1,49 @@
+bun test v1.4.2 (744846f84)
+{"ts":"2026-10-17T23:44:17.198Z","level":"info","msg":"resumed a parked run","subsystem":"workflow.runner","runId":"release-denied","status":"suspended"}
+{"ts":"2026-10-17T23:44:17.227Z","level":"info","msg":"resumed a parked run","subsystem":"workflow.runner","runId":"r1","status":"success"}
+{"ts":"2026-10-17T23:44:17.231Z","level":"info","msg":"resumed a parked run","subsystem":"workflow.runner","runId":"r1","status":"success"}
+{"ts":"2026-10-17T23:44:17.235Z","level":"info","msg":"resumed a parked run","subsystem":"workflow.runner","runId":"a","status":"success"}
+{"ts":"2026-10-17T23:44:17.236Z","level":"info","msg":"resumed a parked run","subsystem":"workflow.runner","runId":"b","status":"success"}
+{"ts":"2026-10-17T23:44:17.240Z","level":"info","msg":"resumed a parked run","subsystem":"workflow.runner","runId":"p1-a","status":"success"}
+{"ts":"2026-10-17T23:44:17.241Z","level":"info","msg":"resumed a parked run","subsystem":"workflow.runner","runId":"p2-a","status":"success"}
+{"ts":"2026-10-17T23:44:17.244Z","level":"info","msg":"resumed a parked run","subsystem":"workflow.runner","runId":"n1","status":"success"}
+{"ts":"2026-10-17T23:44:17.247Z","level":"info","msg":"resumed a parked run","subsystem":"workflow.runner","runId":"r1","status":"success"}
+{"ts":"2026-10-17T23:44:17.249Z","level":"info","msg":"resumed a parked run","subsystem":"workflow.runner","runId":"r2","status":"success"}
+{"ts":"2026-10-17T23:44:17.251Z","level":"warn","msg":"resume-failed","subsystem":"workflow.runner","runId":"r1","error":"Error: executor blew up"}
+{"ts":"2026-10-17T23:44:17.253Z","level":"warn","msg":"resume-failed","subsystem":"workflow.runner","runId":"r2","error":"Error: executor blew up"}
+{"ts":"2026-10-17T23:44:17.256Z","level":"warn","msg":"claimed run has no definition; leaving for the recovery sweep","subsystem":"workflow.runner","runId":"r1","workflowName":"parked"}
+{"ts":"2026-10-17T23:44:17.262Z","level":"info","msg":"resumed a parked run","subsystem":"workflow.runner","runId":"r1","status":"success"}
+{"ts":"2026-10-17T23:44:17.264Z","level":"info","msg":"released claims on shutdown","subsystem":"workflow.runner","released":1}
+{"ts":"2026-10-17T23:44:17.268Z","level":"warn","msg":"workflow-runner refused to start (sibling alive)","subsystem":"workflow.runner","lockfile":"/tmp/ez-wf-runner-sibling-1516220.pid"}
+{"ts":"2026-10-17T23:44:17.281Z","level":"info","msg":"resumed a parked run","subsystem":"workflow.runner","runId":"r1","status":"success"}
+{"ts":"2026-10-17T23:44:17.285Z","level":"info","msg":"released claims on shutdown","subsystem":"workflow.runner","released":1}
+{"ts":"2026-10-17T23:44:17.291Z","level":"warn","msg":"tick-failed","subsystem":"workflow.runner","error":"Error: runtime registry exploded"}
+{"ts":"2026-10-17T23:44:17.296Z","level":"warn","msg":"tick-failed","subsystem":"workflow.runner","error":"Error: runtime registry exploded"}
+{"ts":"2026-10-17T23:44:17.301Z","level":"warn","msg":"tick-failed","subsystem":"workflow.runner","error":"Error: runtime registry exploded"}
+{"ts":"2026-10-17T23:44:17.309Z","level":"info","msg":"resumed a parked run","subsystem":"workflow.runner","runId":"r1","status":"success"}
+{"ts":"2026-10-17T23:44:17.318Z","level":"info","msg":"released claims on shutdown","subsystem":"workflow.runner","released":1}
+{"ts":"2026-10-17T23:44:17.332Z","level":"info","msg":"released claims on shutdown","subsystem":"workflow.runner","released":1}
+{"ts":"2026-10-17T23:44:17.337Z","level":"warn","msg":"lease-renew-failed","subsystem":"workflow.runner","error":"Error: clock unavailable"}
+{"ts":"2026-10-17T23:44:17.342Z","level":"warn","msg":"lease-renew-failed","subsystem":"workflow.runner","error":"Error: clock unavailable"}
+{"ts":"2026-10-17T23:44:17.347Z","level":"warn","msg":"lease-renew-failed","subsystem":"workflow.runner","error":"Error: clock unavailable"}
+{"ts":"2026-10-17T23:44:17.358Z","level":"info","msg":"resumed a parked run","subsystem":"workflow.runner","runId":"gated-1","status":"suspended"}
+{"ts":"2026-10-17T23:44:17.362Z","level":"info","msg":"resumed a parked run","subsystem":"workflow.runner","runId":"gated-2","status":"suspended"}
+{"ts":"2026-10-17T23:44:17.367Z","level":"info","msg":"resumed a parked run","subsystem":"workflow.runner","runId":"gated-3","status":"suspended"}
+{"ts":"2026-10-17T23:44:17.368Z","level":"info","msg":"resumed a parked run","subsystem":"workflow.runner","runId":"gated-3","status":"suspended"}
+{"ts":"2026-10-17T23:44:17.370Z","level":"info","msg":"resumed a parked run","subsystem":"workflow.runner","runId":"gated-3","status":"suspended"}
+{"ts":"2026-10-17T23:44:17.379Z","level":"info","msg":"resumed a parked run","subsystem":"workflow.runner","runId":"plain-1","status":"success"}
+{"ts":"2026-10-17T23:44:17.412Z","level":"info","msg":"resumed a parked run","subsystem":"workflow.runner","runId":"754f1861-3b45-4570-ab74-89e7b4121bf5","status":"suspended"}
+{"ts":"2026-10-17T23:44:17.415Z","level":"info","msg":"resumed a parked run","subsystem":"workflow.runner","runId":"a040e33c-fa7a-4629-86ba-c8f39bc626e7","status":"suspended"}
+{"ts":"2026-10-17T23:44:17.436Z","level":"info","msg":"resumed a parked run","subsystem":"workflow.runner","runId":"a040e33c-fa7a-4629-86ba-c8f39bc626e7","status":"suspended"}
+{"ts":"2026-10-17T23:44:17.451Z","level":"info","msg":"resumed a parked run","subsystem":"workflow.runner","runId":"a040e33c-fa7a-4629-86ba-c8f39bc626e7","status":"success"}
+{"ts":"2026-10-17T23:44:17.462Z","level":"info","msg":"resumed a parked run","subsystem":"workflow.runner","runId":"5f27de79-533a-440c-a24d-ff19e204aa32","status":"suspended"}
+{"ts":"2026-10-17T23:44:17.496Z","level":"info","msg":"resumed a parked run","subsystem":"workflow.runner","runId":"93a22791-8f89-4ffd-bbd1-a3648bd10d5f","status":"suspended"}
+{"ts":"2026-10-17T23:44:17.500Z","level":"info","msg":"resumed a parked run","subsystem":"workflow.runner","runId":"5f27de79-533a-440c-a24d-ff19e204aa32","status":"suspended"}
+{"ts":"2026-10-17T23:44:17.502Z","level":"info","msg":"resumed a parked run","subsystem":"workflow.runner","runId":"93a22791-8f89-4ffd-bbd1-a3648bd10d5f","status":"suspended"}
+{"ts":"2026-10-17T23:44:17.505Z","level":"info","msg":"resumed a parked run","subsystem":"workflow.runner","runId":"5f27de79-533a-440c-a24d-ff19e204aa32","status":"suspended"}
+{"ts":"2026-10-17T23:44:17.508Z","level":"info","msg":"resumed a parked run","subsystem":"workflow.runner","runId":"93a22791-8f89-4ffd-bbd1-a3648bd10d5f","status":"suspended"}
+
+ 47 pass
+ 0 fail
+ 191 expect() calls
+Ran 47 tests across 1 file. [2.59s]

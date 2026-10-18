@@ -1,0 +1,27 @@
+bun test v1.4.2 (744846f84)
+{"ts":"2026-10-17T23:31:07.715Z","level":"info","msg":"walked","subsystem":"executor.loadHistory.rehydrate","assistantsInBranch":0,"toolRowsFound":0,"urlsSeen":0,"statMisses":0,"imagesInjected":0,"totalBytes":0,"cwd":"/home/dev/work/EZCorp/EZHarness-worktrees/composable-factory-platform/.worktrees/w00-integration"}
+{"ts":"2026-10-17T23:31:07.730Z","level":"warn","msg":"Task-tracking wire failed — task tools unavailable this turn","subsystem":"executor.streamChat.setup","error":"TaskTrackingNotInstalledError: task-tracking extension not installed — did ensureBundledExtensions() run?"}
+{"ts":"2026-10-17T23:31:07.731Z","level":"warn","msg":"ask-user extension not installed — did ensureBundledExtensions() run?","subsystem":"ask-user-host"}
+{"ts":"2026-10-17T23:31:07.731Z","level":"info","msg":"briefing chat tools wired for turn","subsystem":"briefing.chat-tools","conversationId":"96e3ea46-b76f-44fa-8c34-2167f3b0ff06","userId":"eb88acbe-b96e-4725-a601-2152b7a6b5e2","registered":4,"expected":4}
+{"ts":"2026-10-17T23:31:07.732Z","level":"info","msg":"run_workflow wired for turn","subsystem":"workflow-tools-host","conversationId":"96e3ea46-b76f-44fa-8c34-2167f3b0ff06","userId":"eb88acbe-b96e-4725-a601-2152b7a6b5e2","projectId":"cf5ebac7-4e12-4db8-8a68-88f9f4cba9cc"}
+{"ts":"2026-10-17T23:31:07.736Z","level":"info","msg":"Agent orchestration resolution","subsystem":"executor.streamChat.setup","userMessage":"use the handle","agents":[],"teams":[],"depth":0}
+{"ts":"2026-10-17T23:31:07.758Z","level":"info","msg":"turn cache","subsystem":"executor.streamChat.subscribe","provider":"anthropic","model":"test-model","hitRate":0,"cachedTokens":0,"cacheWriteTokens":0,"cacheWrite1hTokens":0,"promptTokens":1}
+{"ts":"2026-10-17T23:31:07.766Z","level":"info","msg":"walked","subsystem":"executor.loadHistory.rehydrate","assistantsInBranch":0,"toolRowsFound":0,"urlsSeen":0,"statMisses":0,"imagesInjected":0,"totalBytes":0,"cwd":"/home/dev/work/EZCorp/EZHarness-worktrees/composable-factory-platform/.worktrees/w00-integration"}
+{"ts":"2026-10-17T23:31:07.770Z","level":"warn","msg":"Task-tracking wire failed — task tools unavailable this turn","subsystem":"executor.streamChat.setup","error":"TaskTrackingNotInstalledError: task-tracking extension not installed — did ensureBundledExtensions() run?"}
+{"ts":"2026-10-17T23:31:07.770Z","level":"warn","msg":"ask-user extension not installed — did ensureBundledExtensions() run?","subsystem":"ask-user-host"}
+{"ts":"2026-10-17T23:31:07.770Z","level":"info","msg":"briefing chat tools wired for turn","subsystem":"briefing.chat-tools","conversationId":"4ca793fc-4041-45f1-844f-5899f0a8a9c3","userId":"eb88acbe-b96e-4725-a601-2152b7a6b5e2","registered":4,"expected":4}
+{"ts":"2026-10-17T23:31:07.770Z","level":"info","msg":"run_workflow wired for turn","subsystem":"workflow-tools-host","conversationId":"4ca793fc-4041-45f1-844f-5899f0a8a9c3","userId":"eb88acbe-b96e-4725-a601-2152b7a6b5e2","projectId":"cf5ebac7-4e12-4db8-8a68-88f9f4cba9cc"}
+{"ts":"2026-10-17T23:31:07.771Z","level":"info","msg":"Agent orchestration resolution","subsystem":"executor.streamChat.setup","userMessage":"spoof","agents":[],"teams":[],"depth":0}
+{"ts":"2026-10-17T23:31:07.781Z","level":"info","msg":"turn cache","subsystem":"executor.streamChat.subscribe","provider":"anthropic","model":"test-model","hitRate":0,"cachedTokens":0,"cacheWriteTokens":0,"cacheWrite1hTokens":0,"promptTokens":1}
+{"ts":"2026-10-17T23:31:07.788Z","level":"info","msg":"walked","subsystem":"executor.loadHistory.rehydrate","assistantsInBranch":0,"toolRowsFound":0,"urlsSeen":0,"statMisses":0,"imagesInjected":0,"totalBytes":0,"cwd":"/home/dev/work/EZCorp/EZHarness-worktrees/composable-factory-platform/.worktrees/w00-integration"}
+{"ts":"2026-10-17T23:31:07.792Z","level":"warn","msg":"Task-tracking wire failed — task tools unavailable this turn","subsystem":"executor.streamChat.setup","error":"TaskTrackingNotInstalledError: task-tracking extension not installed — did ensureBundledExtensions() run?"}
+{"ts":"2026-10-17T23:31:07.792Z","level":"warn","msg":"ask-user extension not installed — did ensureBundledExtensions() run?","subsystem":"ask-user-host"}
+{"ts":"2026-10-17T23:31:07.792Z","level":"info","msg":"briefing chat tools wired for turn","subsystem":"briefing.chat-tools","conversationId":"d382875a-4217-4eed-b127-f7ec4a9a96dc","userId":"eb88acbe-b96e-4725-a601-2152b7a6b5e2","registered":4,"expected":4}
+{"ts":"2026-10-17T23:31:07.792Z","level":"info","msg":"run_workflow wired for turn","subsystem":"workflow-tools-host","conversationId":"d382875a-4217-4eed-b127-f7ec4a9a96dc","userId":"eb88acbe-b96e-4725-a601-2152b7a6b5e2","projectId":"cf5ebac7-4e12-4db8-8a68-88f9f4cba9cc"}
+{"ts":"2026-10-17T23:31:07.793Z","level":"info","msg":"Agent orchestration resolution","subsystem":"executor.streamChat.setup","userMessage":"no attachments","agents":[],"teams":[],"depth":0}
+{"ts":"2026-10-17T23:31:07.802Z","level":"info","msg":"turn cache","subsystem":"executor.streamChat.subscribe","provider":"anthropic","model":"test-model","hitRate":0,"cachedTokens":0,"cacheWriteTokens":0,"cacheWrite1hTokens":0,"promptTokens":1}
+
+ 3 pass
+ 0 fail
+ 7 expect() calls
+Ran 3 tests across 1 file. [1264.00ms]

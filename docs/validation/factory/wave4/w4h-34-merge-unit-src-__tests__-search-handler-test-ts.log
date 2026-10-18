@@ -1,0 +1,10 @@
+bun test v1.4.2 (744846f84)
+{"ts":"2026-10-17T23:40:46.343Z","level":"info","msg":"search call failed","subsystem":"ext.search-handler","extensionId":"fe810ca8-b8a7-49aa-af40-3aac7c9b1f9b","action":"web","error":"Error: Search failed via tavily: Tavily HTTP 401"}
+{"ts":"2026-10-17T23:40:46.343Z","level":"warn","msg":"search.web failed","subsystem":"ext.fe810ca8-b8a7-49aa-af40-3aac7c9b1f9b.capability","extensionId":"fe810ca8-b8a7-49aa-af40-3aac7c9b1f9b","onBehalfOf":"13ffc4b7-822d-49e4-8dbb-ad9583841a43","conversationId":"43232aa5-ec14-48b6-ab65-eb642574123e","errorCode":null,"errorMessage":"Search failed via tavily: Tavily HTTP 401","provider":null,"model":null,"durationMs":1}
+{"ts":"2026-10-17T23:40:46.346Z","level":"info","msg":"search call failed","subsystem":"ext.search-handler","extensionId":"fe810ca8-b8a7-49aa-af40-3aac7c9b1f9b","action":"web","error":"Error: Search failed via searxng: Egress blocked (private-ip): searxng → 10.0.0.7"}
+{"ts":"2026-10-17T23:40:46.346Z","level":"warn","msg":"search.web failed","subsystem":"ext.fe810ca8-b8a7-49aa-af40-3aac7c9b1f9b.capability","extensionId":"fe810ca8-b8a7-49aa-af40-3aac7c9b1f9b","onBehalfOf":"13ffc4b7-822d-49e4-8dbb-ad9583841a43","conversationId":"43232aa5-ec14-48b6-ab65-eb642574123e","errorCode":null,"errorMessage":"Search failed via searxng: Egress blocked (private-ip): searxng → 10.0.0.7","provider":null,"model":null,"durationMs":0}
+
+ 14 pass
+ 0 fail
+ 32 expect() calls
+Ran 14 tests across 1 file. [1136.00ms]

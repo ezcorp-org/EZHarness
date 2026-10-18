@@ -1,0 +1,11 @@
+bun test v1.4.2 (744846f84)
+{"ts":"2026-10-17T23:45:51.426Z","level":"warn","msg":"cron register write failed","subsystem":"ext.triggers.handler","key":"job:1","error":"Error: Failed query: insert into \"extension_schedules\" (\"id\", \"extension_id\", \"cron\", \"next_fire_at\", \"last_fire_at\", \"last_fire_status\", \"last_fire_id\", \"enabled\", \"consecutive_errors\", \"dynamic\", \"key\", \"timezone\", \"max_runs_per_day\", \"created_at\", \"updated_at\") values ($1, $2, $3, $4, default, default, default, $5, default, $6, $7, $8, $9, default, default) returning \"id\", \"extension_id\", \"cron\", \"next_fire_at\", \"last_fire_at\", \"last_fire_status\", \"last_fire_id\", \"enabled\", \"consecutive_errors\", \"dynamic\", \"key\", \"timezone\", \"max_runs_per_day\", \"created_at\", \"updated_at\"\nparams: 70797c8a-fffa-4ef1-9b52-e2fd4d8bcc01,00000000-0000-0000-0000-000000000000,0 9 * * 1,2026-08-03T09:00:00.000Z,true,true,job:1,,30"}
+{"ts":"2026-10-17T23:45:51.429Z","level":"warn","msg":"webhook register write failed","subsystem":"ext.triggers.handler","key":"job:1","error":"Error: Failed query: insert into \"extension_webhooks\" (\"id\", \"extension_id\", \"slug\", \"enabled\", \"last_delivery_at\", \"last_delivery_status\", \"dynamic\", \"key\", \"created_at\", \"updated_at\") values ($1, $2, $3, $4, default, default, $5, $6, default, default) returning \"id\", \"extension_id\", \"slug\", \"enabled\", \"last_delivery_at\", \"last_delivery_status\", \"dynamic\", \"key\", \"created_at\", \"updated_at\"\nparams: 45fa507a-a4ef-4bad-9549-493611284278,no-such-extension,factory-e7d7e230de99,true,true,job:1"}
+{"ts":"2026-10-17T23:45:51.432Z","level":"warn","msg":"webhook secret mint failed","subsystem":"ext.triggers.handler","key":"job:1","error":"Error: AEAD store down"}
+{"ts":"2026-10-17T23:45:51.437Z","level":"warn","msg":"webhook secret delete failed","subsystem":"ext.triggers.handler","key":"job:1","error":"Error: AEAD store down"}
+{"ts":"2026-10-17T23:45:51.452Z","level":"warn","msg":"trigger capability audit failed (non-fatal)","subsystem":"ext.triggers.handler","error":"Error: audit sink down"}
+
+ 47 pass
+ 0 fail
+ 137 expect() calls
+Ran 47 tests across 1 file. [1.59s]

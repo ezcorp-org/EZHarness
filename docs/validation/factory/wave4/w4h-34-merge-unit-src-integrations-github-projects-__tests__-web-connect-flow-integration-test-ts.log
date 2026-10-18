@@ -1,0 +1,7 @@
+bun test v1.4.2 (744846f84)
+{"ts":"2026-10-17T23:51:09.308Z","level":"info","msg":"refresh-columns: credential resolve failed","subsystem":"ext.github-projects.api.refresh-columns","projectId":"32adc590-4c39-4b3d-b33a-4917ffd27704","authMode":"pat","error":"no PAT stored for board or project"}
+
+ 23 pass
+ 0 fail
+ 140 expect() calls
+Ran 23 tests across 1 file. [7.57s]
