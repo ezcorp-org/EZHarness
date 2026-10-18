@@ -122,7 +122,7 @@ afterEach(async () => { await removeFactoryPrivateRoot(root); });
 
 describe("identity and paths", () => {
   test("the shared services name the fleet, and their ports sit beside the Temporal gateway's", () => {
-    expect(factoryFleetHostIdentity("w16", 31_000)).toEqual({ poolId: "pool.w16", hostId: "host.w16", supervisor: "supervisor.w16", issuer: "factory-host:w16", ports: { pool: 32_002, supervisor: 32_003 } });
+    expect(factoryFleetHostIdentity("w16", 31_000)).toEqual({ poolId: "pool.w16", hostId: "host.w16", supervisor: "supervisor.w16", issuer: "factory-host:w16", ports: { pool: 32_002, supervisor: 32_003, poolMetrics: 32_006, supervisorMetrics: 32_007, prometheus: 32_008 } });
     for (const base of [1_023, 64_600, 31_000.5]) {
       const error = (() => { try { factoryFleetHostIdentity("w16", base); } catch (thrown) { return thrown as FactoryProvisioningError; } throw new Error("expected a refusal"); })();
       expect(error.code).toBe("deployment_ports_invalid");
@@ -132,7 +132,7 @@ describe("identity and paths", () => {
   test("the host is one more context under the fleet's roots, with its own pool database names", () => {
     const paths = factoryFleetHostPaths("w16", { secretsRoot: "/s", operatorRoot: "/o", runtimeRoot: "/r" });
     expect(paths.context).toMatchObject({ tenantId: "host", fleetId: "w16", installationId: "host:w16", secretDirectory: "/s/host", operatorDirectory: "/o/host" });
-    expect(paths).toMatchObject({ runtimeDirectory: "/r/host", readinessDirectory: "/r/host/readiness", runnerRoot: "/r/host/runner", poolDelivery: "/s/host/deliver/pool", supervisorDelivery: "/s/host/deliver/supervisor" });
+    expect(paths).toMatchObject({ runtimeDirectory: "/r/host", readinessDirectory: "/r/host/readiness", runnerRoot: "/r/host/runner", poolDelivery: "/s/host/deliver/pool", supervisorDelivery: "/s/host/deliver/supervisor", prometheusDirectory: "/o/prometheus", prometheusDataDirectory: "/r/host/prometheus-data" });
     const [, pool] = factoryDatabasePairs(paths.context);
     expect(pool!.database).toMatch(/^factory_pool_[0-9a-f]{20}$/);
     expect(pool!.role).toMatch(/^factory_poolrole_[0-9a-f]{20}$/);
@@ -144,6 +144,7 @@ describe("identity and paths", () => {
       caCertificatePath: join(root, "secrets", "host", FACTORY_HOST_FILES.caCertificate),
       hostPublicKeyPath: join(root, "secrets", "host", FACTORY_HOST_FILES.hostPublicKey),
       tokenPublicKeyPath: join(root, "secrets", "host", FACTORY_HOST_FILES.tokenPublicKey),
+      metricsScrapeTokenPath: join(root, "secrets", "host", FACTORY_HOST_FILES.metricsScrapeToken),
       poolReadinessDirectory: join(root, "runtime", "host", "readiness", "pool"),
       supervisorReadinessDirectory: join(root, "runtime", "host", "readiness", "supervisor"),
     });
@@ -286,7 +287,7 @@ describe("the hosted supervisor document (W4H-35)", () => {
     const bundle = runtime.bundles.at(-1)!;
     const roots = [FACTORY_CONTAINER_PATHS.secrets, FACTORY_CONTAINER_PATHS.readiness, FACTORY_KUBERNETES_SUPERVISOR_PATHS.secrets, FACTORY_KUBERNETES_SUPERVISOR_PATHS.readinessDirectory];
     const system = renderFactoryKubernetesSystem({
-      fleetId: "w16", systemNamespace: "ezcorp-factory-w16", egressCidrs: ["10.0.0.0/24"], egressPorts: [5432], runAsUser: 10_001,
+      fleetId: "w16", systemNamespace: "ezcorp-factory-w16", monitoringNamespace: "monitoring", egressCidrs: ["10.0.0.0/24"], egressPorts: [5432], runAsUser: 10_001,
       runtimeSocketPath: "/run/podman/podman.sock", runnerRoot: "/srv/ezcorp-runner", nodeCidrs: [], nodeSelector: {},
     }, `registry.test/ezcorp@sha256:${"a".repeat(64)}`, bundle.identity.ports);
     const uid = process.getuid!();
@@ -307,7 +308,7 @@ describe("the hosted supervisor document (W4H-35)", () => {
     const bundle = runtime.bundles.at(-1)!;
     const state = factorySupervisorStatePaths(parseFactorySupervisorProcessConfig(bundle.supervisor));
     const system = renderFactoryKubernetesSystem({
-      fleetId: "w16", systemNamespace: "ezcorp-factory-w16", egressCidrs: ["10.0.0.0/24"], egressPorts: [5432], runAsUser: 10_001,
+      fleetId: "w16", systemNamespace: "ezcorp-factory-w16", monitoringNamespace: "monitoring", egressCidrs: ["10.0.0.0/24"], egressPorts: [5432], runAsUser: 10_001,
       runtimeSocketPath: "/run/podman/podman.sock", runnerRoot: "/srv/ezcorp-runner", nodeCidrs: [], nodeSelector: {},
     }, `registry.test/ezcorp@sha256:${"a".repeat(64)}`, bundle.identity.ports);
     const uses = [{ path: state.tombstones, write: true, durable: true }, { path: `${state.preparations}/host-preparation-x.json`, write: true, durable: true }];
@@ -375,10 +376,39 @@ describe("admission", () => {
     expect([url.hostname, url.port, url.pathname, url.username, url.password]).toEqual(["127.0.0.1", "55432", `/${poolPair!.database}`, poolPair!.role, "p".repeat(43)]);
     expect(JSON.parse(await text(join(host.paths.poolDelivery, "pool.json")))).toEqual(bundle.pool);
     expect(JSON.parse(await text(join(host.paths.supervisorDelivery, "supervisor.json")))).toEqual(bundle.supervisor);
-    expect((await readdir(host.paths.poolDelivery)).sort()).toEqual([FACTORY_HOST_FILES.serverCertificate, FACTORY_HOST_FILES.serverKey, FACTORY_HOST_FILES.tokenPublicKey, FACTORY_HOST_FILES.trustBundle, "pool-database.json", "pool.json"].sort());
+    expect((await readdir(host.paths.poolDelivery)).sort()).toEqual([FACTORY_HOST_FILES.serverCertificate, FACTORY_HOST_FILES.serverKey, FACTORY_HOST_FILES.tokenPublicKey, FACTORY_HOST_FILES.metricsScrapeToken, FACTORY_HOST_FILES.trustBundle, "pool-database.json", "pool.json"].sort());
     expect(await readdir(host.paths.supervisorDelivery)).not.toContain(FACTORY_HOST_FILES.tokenPublicKey);
     expect(await readdir(host.paths.supervisorDelivery)).toContain(FACTORY_HOST_FILES.hostKey);
     for (const directory of [join(host.paths.readinessDirectory, "pool"), join(host.paths.readinessDirectory, "supervisor"), host.paths.runnerRoot]) expect((await stat(directory)).mode & 0o777).toBe(0o700);
+  }, SLOW);
+
+  test("publishing serves metrics from the pool and the supervisor and gives the evaluator every admitted target (C11 M4)", async () => {
+    await host.admit(await installation("tenant-01"));
+    await host.admit(await installation("tenant-02"));
+    const bundle = runtime.bundles.at(-1)!;
+    expect((bundle.pool as { metrics: unknown }).metrics).toEqual({ hostname: "0.0.0.0", port: 32_006, scrapeTokenPath: `/run/ezcorp/secrets/${FACTORY_HOST_FILES.metricsScrapeToken}` });
+    expect((bundle.supervisor as { metrics: unknown }).metrics).toEqual({ hostname: "127.0.0.1", port: 32_007, scrapeTokenPath: join(host.paths.supervisorDelivery, FACTORY_HOST_FILES.metricsScrapeToken) });
+    const token = await text(hostSecret(FACTORY_HOST_FILES.metricsScrapeToken));
+    expect(token.trim()).toMatch(/^[0-9a-f]{64}$/);
+    for (const delivery of [host.paths.poolDelivery, host.paths.supervisorDelivery]) expect(await text(join(delivery, FACTORY_HOST_FILES.metricsScrapeToken))).toBe(token);
+    // The evaluator runs as the fleet's own user (keep-id), so its directory, its token and its data stay private.
+    const prometheus = host.paths.prometheusDirectory;
+    for (const directory of [prometheus, join(prometheus, "targets"), host.paths.prometheusDataDirectory]) expect((await stat(directory)).mode & 0o777).toBe(0o700);
+    expect(await text(join(prometheus, "scrape-token"))).toBe(token);
+    for (const name of ["scrape-token", "prometheus.yml", "targets/factory-harness.json"]) expect((await stat(join(prometheus, name))).mode & 0o777).toBe(0o600);
+    expect(await text(join(prometheus, "prometheus.yml"))).toContain("credentials_file: /etc/ezcorp-prometheus/scrape-token");
+    const targets = async (job: string) => JSON.parse(await text(join(prometheus, "targets", `${job}.json`))) as Array<{ targets: string[]; labels: Record<string, string> }>;
+    const ports = (tenant: string) => factoryInstallationPorts(tenant, 31_000);
+    expect(await targets("factory-harness")).toEqual([
+      { targets: [`127.0.0.1:${ports("tenant-01").harnessMetrics}`], labels: { tenant: "tenant-01" } },
+      { targets: [`127.0.0.1:${ports("tenant-02").harnessMetrics}`], labels: { tenant: "tenant-02" } },
+    ]);
+    expect((await targets("factory-gateway")).map((entry) => entry.targets[0])).toEqual([`127.0.0.1:${ports("tenant-01").gatewayMetrics}`, `127.0.0.1:${ports("tenant-02").gatewayMetrics}`]);
+    expect((await targets("factory-orchestrator")).map((entry) => entry.targets[0])).toEqual([`127.0.0.1:${ports("tenant-01").orchestratorMetrics}`, `127.0.0.1:${ports("tenant-02").orchestratorMetrics}`]);
+    expect(await targets("factory-pool")).toEqual([{ targets: ["127.0.0.1:32006"], labels: {} }]);
+    expect(await targets("factory-supervisor")).toEqual([{ targets: ["127.0.0.1:32007"], labels: {} }]);
+    await host.release({ tenantId: "tenant-02", installationId: "inst-tenant-02" });
+    expect((await targets("factory-harness")).map((entry) => entry.labels.tenant)).toEqual(["tenant-01"]);
   }, SLOW);
 
   test("each installation's pool token carries pool:restore for its own tenant and no other tenant's scope", async () => {

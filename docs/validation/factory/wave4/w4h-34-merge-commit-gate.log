@@ -1,0 +1,11 @@
+COORD_WORD=92b158db w4h-34-commit 2026-10-17T13:29:43Z
+lock condition: read1 mem=15.8 lock=free gated=0 holders=0 yield=no | read2 mem=15.7 lock=free gated=0 holders=0 yield=no
+gated-flock w4h-34-commit: start gate mem>=12GiB+3GiB margin 2026-10-17T13:30:43Z
+resource-gate 2026-10-17T13:30:43Z w4h-34-commit outside-lock disk=146G memAvailable=15GiB swapFreeKiB=4547768/17173956 floors disk>=104G mem>=15GiB mem+swap>=18350080KiB (swap component 2621440KiB)
+gated-flock w4h-34-commit: gate green outside the lock, queue for the lock (try 1) 2026-10-17T13:30:43Z
+resource-gate 2026-10-17T13:30:43Z commit-start disk=146G memAvailable=15GiB swapFreeKiB=4547768/17173956 floors disk>=100G mem>=12GiB mem+swap>=14680064KiB (swap component 2097152KiB)
+own-pg: w4h-34-commit-pg (docker.io/pgvector/pgvector@sha256:9a169499888c9d75ad14d0401be64839d2c325f32e399098261589faff93d65c 4b4956e2ab1f, server 15.19) on 127.0.0.1:33193
+hook full-run form: EZ_PRECOMMIT_TEST_MAX=34 (the list /tmp/factory-platform-evidence/w00/w4h-merge/w4h-34-w17-notifications-f9684edf3-on-cf1de889b/hook-mapped-f9684edf3.txt); PG_HOOK=1
+commit.sh exit=0 2026-10-17T13:38:26Z
+gated-flock w4h-34-commit: bun pin repo=/home/dev/work/EZCorp/EZHarness-worktrees/composable-factory-platform/.worktrees/w00-integration ok bun 1.4.2 /tmp/factory-tools/bun-1.4.2/bun-linux-x64 node v24.14.1 /tmp/factory-tools/node-24.14.1/bin
+gated-flock w4h-34-commit: command exit 0 2026-10-17T13:38:27Z

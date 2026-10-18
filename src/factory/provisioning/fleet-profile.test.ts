@@ -12,7 +12,7 @@ import { factoryInstallationPorts } from "./ports";
 
 const REPOSITORY = join(import.meta.dir, "..", "..", "..");
 const KUBERNETES = {
-  kubectl: "/nix/store/kubectl/bin/kubectl", kubeconfigPath: "/srv/operator/kubeconfig", systemNamespace: "ezcorp-factory-fleet-a",
+  kubectl: "/nix/store/kubectl/bin/kubectl", kubeconfigPath: "/srv/operator/kubeconfig", systemNamespace: "ezcorp-factory-fleet-a", monitoring: { namespace: "monitoring" },
   runAsUser: 10_001, runtimeSocketPath: "/run/podman/podman.sock", runnerRoot: "/srv/ezcorp-runner", nodeCidrs: ["10.89.1.0/24"], nodeSelector: { "kubernetes.io/os": "linux" }, ingress: { listenPort: 8443, nodePort: 30443 },
   egressCidrs: ["10.89.0.0/24"], egressPorts: [5432, 8333, 32001],
   services: { databaseHost: "10.89.0.2", databasePort: 5432, ordinaryEndpoint: "http://10.89.0.3:8333", archiveEndpoint: "http://10.89.0.4:8333", temporalAddress: "10.89.0.5:7233", temporalHttpEndpoint: "https://10.89.0.5:7244" },
@@ -75,6 +75,7 @@ test("factoryFleetKubernetesSettings is the renderer's view of the fleet's kuber
   expect(factoryFleetKubernetesSettings(hosted)).toEqual({
     fleetId: "fleet-a", systemNamespace: KUBERNETES.systemNamespace, egressCidrs: KUBERNETES.egressCidrs, egressPorts: KUBERNETES.egressPorts,
     runAsUser: KUBERNETES.runAsUser, runtimeSocketPath: KUBERNETES.runtimeSocketPath, runnerRoot: KUBERNETES.runnerRoot, nodeCidrs: KUBERNETES.nodeCidrs, nodeSelector: KUBERNETES.nodeSelector,
+    monitoringNamespace: KUBERNETES.monitoring.namespace,
   });
 });
 

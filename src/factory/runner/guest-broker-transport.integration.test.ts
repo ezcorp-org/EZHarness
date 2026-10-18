@@ -157,6 +157,8 @@ async function setup(options: { readonly model?: FactoryModelPin; readonly provi
   });
   // Which host holds the attempt's lease. The route asks; a test moves it.
   let lease: string | undefined = HOST;
+  // C11 A8: each refusal of a host forwarding for an attempt it does not hold.
+  let denials = 0;
   const service = startFactoryPrivateHttps({
     tls: { key: certs.serverKey, cert: certs.serverCert, ca: certs.ca },
     handle: createFactoryGuestBrokerRouteHandler({
@@ -164,6 +166,7 @@ async function setup(options: { readonly model?: FactoryModelPin; readonly provi
       tokens: async () => ({ issuer: TOKEN_ISSUER, audience: options.configuredAudience ?? FACTORY_GUEST_BROKER_AUDIENCE, publicKeys: { test: hostPublicKey } }),
       leaseHost: async () => lease,
       broker, model, jwtSecret: SECRET, installationId: INSTALLATION,
+      denied: () => { denials += 1; },
     }),
   });
   closing.push(async () => { service.stop(); });
@@ -174,7 +177,7 @@ async function setup(options: { readonly model?: FactoryModelPin; readonly provi
   const tokened = { ...request, broker: { ...request.broker, attemptToken: token } } as FactoryRunnerRequest;
   const paths = await clientSecrets(root, certs, hostToken());
   const setLease = (host: string | undefined) => { lease = host; };
-  return { db, artifacts, blobs, journal, service, certs, paths, hostToken, hostPublicKey, setLease, request: tokened, authority, attemptId, projectId, runId, operationId: `${runId}:node-a:0:0` };
+  return { db, artifacts, blobs, journal, service, certs, paths, hostToken, hostPublicKey, setLease, denials: () => denials, request: tokened, authority, attemptId, projectId, runId, operationId: `${runId}:node-a:0:0` };
 }
 
 test("a guest stages and promotes an output across a real host boundary", async () => {
@@ -334,6 +337,8 @@ test("the route authenticates the host and the attempt separately, and refuses e
     expect(JSON.parse(elsewhere.body.toString("utf8"))).toEqual({ error: "forbidden_host" });
   }
   fixture.setLease(HOST);
+  // Only those two were cross-tenant or cross-attempt; no earlier refusal counted.
+  expect(fixture.denials()).toBe(2);
 
   // The right host and the right token, but nothing to answer.
   for (const body of [{ attemptToken: token }, { payload: frame }, ["not", "an", "object"], "text"]) {

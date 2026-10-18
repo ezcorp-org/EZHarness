@@ -1,0 +1,47 @@
+{
+ "package": "w4h-34",
+ "kind": "package merge: W4H-34 (W17), the outbound notification sender, factory metrics and the C11 alerts, merged onto integ/w00 cf1de889b",
+ "branch": "wp/w4h-34-w17-notifications-metrics",
+ "head": "f9684edf3161ff65fe1ded740ae8f638606b1a0d",
+ "base": "cf1de889bd11c1aed1be6b8b303bc54f9ffdf02c",
+ "main": "934531e2e9e8fd0c3c97e48527d545ca3476eb5e",
+ "mergeSha": "9e1fef6faad2cf5665aa662568bfdae219ad22c3",
+ "treeEquality": {
+  "trialTree": "d1950713175b90af78303aee64fb4e0ae6488147",
+  "mergeTree": "d1950713175b90af78303aee64fb4e0ae6488147",
+  "equal": true
+ },
+ "validatorVerdict": "validator-8: ACCEPT of f9684edf3 (verdict-w4h-34.txt 6e9d501734823319); hold run 3 GREEN, OK to publish (verdict-w4h-34.txt 567935cff0e01312; copied as w4h-34-validation.txt)",
+ "gateChange": "none of W4H-34's own: merge-commit-gates status 0 (origin/main leg equals the expected set ea41e0e9a9bb5462; base leg clean; new-file and patch PASS)",
+ "identity": "R1 (merge-identity-lib.sh), package mode: fork point 39baed85a, 31 commits and 80 staged files clean; publish step 32 commits clean",
+ "commit": {
+  "form": "detached merge; the full-run hook EZ_PRECOMMIT_TEST_MAX=34 on an own pg15; PG_HOOK=1 derived from the mapped list (pg-hook-lib.sh); rerere off; archy noreply",
+  "try1": "commit word 54fa97c1: red in the hook (tests/postgres/factory-gateway-process.test.ts needs DATABASE_URL), nothing committed; records in attempt-1-54fa97c1/ (manifest 4ac7214d2c221c25)",
+  "try2": "commit word 92b158db: exit 0 after commit.sh ac8cae58ff5ca6a8 (DATABASE_URL with PG_HOOK=1, hook red files named, skips-only rule); 34/34 green, hook-zero empty"
+ },
+ "hold": {
+  "run1": "word 2702f5d9: 575 legs, 2 red (pg-pool-one: CI step env DB_POOL_MAX=1 missing; lane-forms: 9 lane-table gaps); records in attempt-1-2702f5d9/ (manifest 2e47896107406dde)",
+  "run2": "word 2a81193e: exit 3 at own-pg (readiness race), no leg ran; records in attempt-2-2a81193e/ (manifest b503725e96ffcc37)",
+  "run3": "word 9a43ee3e, 23:19:22Z-00:43:31Z: 575 legs, all exit 0, status 0; heavy-batch.log 5085a5f0df3cb037",
+  "legs": {
+   "a_bundle_build": "exit 0, EMPTY expected set",
+   "b_lane_forms_v7": "exit 0: 29 changed test files, 25 lane runs, 0 red (factory-deployment-operations ran here in CI's form: 17 pass)",
+   "c_mutation_lane": "exit 0",
+   "d_preview_hosted_conmon": "7/0",
+   "e_sdk_digest": "exit 0",
+   "w4h34": "delivery 2/0, Prometheus presence by digest (no pull), evaluator 4/0, pg-pool-one on its own leg 1/0"
+  }
+ },
+ "inRoundToolFixes": {
+  "lane-forms v7 (team-lead a8b7283108caee00 / 686fb66462899de1)": "lane-forms-leg.py b0b18b4779dc0534, lane-table.tsv f183e5e63edcfd29, ci-workflow-steps.ts 489d46c01f7b80b7, lane-forms-leg.test.sh 9492f6acb8de5428, hold-w4f.sh 2618e147d468c988",
+  "own-pg (team-lead e5deabfca19cd175)": "own-pg.sh 915a85ccefdb066a, own-pg.test.sh 67d8aa7e56eb5205",
+  "pool-one (team-lead ee7883b80733a728)": "extra-legs.sh v4 1e33e813998a66fb, pg.txt d26c8efc486b78b2",
+  "commit.sh (team-lead, DATABASE_URL + skips-only)": "detached-merge/commit.sh ac8cae58ff5ca6a8"
+ },
+ "published": "integ/w00 cf1de889b -> 9e1fef6fa at 2026-10-18T01:10:06Z by publish-if-main.sh on publish word c84e4bb7; remote main 934531e2e = expected",
+ "pushed": false,
+ "excludedFromReceipts": [
+  "heavy-build-* and heavy-web-build (standard)",
+  "the attempt folders (named here by manifest hash)"
+ ]
+}

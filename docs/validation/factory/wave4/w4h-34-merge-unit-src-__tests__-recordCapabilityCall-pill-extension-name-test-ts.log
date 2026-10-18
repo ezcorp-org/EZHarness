@@ -1,0 +1,7 @@
+bun test v1.4.2 (744846f84)
+{"ts":"2026-10-17T23:39:20.520Z","level":"warn","msg":"audit-write-failed","subsystem":"audit.recordCapabilityCall","which":"sdk_capability_calls","error":"Error: Failed query: insert into \"sdk_capability_calls\" (\"id\", \"extension_id\", \"on_behalf_of\", \"conversation_id\", \"parent_call_id\", \"capability\", \"action\", \"resource_type\", \"resource_id\", \"before\", \"after\", \"success\", \"duration_ms\", \"error_code\", \"error_message\", \"tokens_used\", \"cost_usd\", \"provider\", \"model\", \"created_at\") values ($1, $2, $3, $4, $5, $6, $7, $8, $9, default, default, $10, $11, $12, $13, $14, $15, $16, $17, default) returning \"id\", \"extension_id\", \"on_behalf_of\", \"conversation_id\", \"parent_call_id\", \"capability\", \"action\", \"resource_type\", \"resource_id\", \"before\", \"after\", \"success\", \"duration_ms\", \"error_code\", \"error_message\", \"tokens_used\", \"cost_usd\", \"provider\", \"model\", \"created_at\"\nparams: 2ecd2a31-760a-4195-94aa-47cd6a483bfd,00000000-0000-0000-0000-000000000000,u-pill-1792280360487,c-pill-1792280360494,,memory,read,,,true,5,,,,,,"}
+
+ 3 pass
+ 0 fail
+ 8 expect() calls
+Ran 3 tests across 1 file. [1033.00ms]

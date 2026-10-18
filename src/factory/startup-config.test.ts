@@ -293,6 +293,19 @@ describe("where the shared pool's and supervisor's readiness is read (W4H-35, ho
     expect(reject(document).missing).toEqual(["poolReadinessFilePath", "supervisorReadinessFilePath"]);
   });
 
+  // Merge of W4H-35 (checkHostReadiness) and W4H-34 (checkNotifications, checkMetrics): a hosted document that declares all three
+  // sections is accepted, and each check still refuses only its own bad field.
+  test("a network document with metrics and notifications is accepted; each check names only its own bad field (merge W4H-34 x W4H-35)", () => {
+    const metrics = { hostname: "0.0.0.0", port: 9466, scrapeTokenPath: "/run/ezcorp/secrets/metrics-token" };
+    const notifications = { destinations: [{ name: "operators", kind: "webhook", url: "https://receiver.test:8443/n", secretPath: "/run/ezcorp/secrets/notify" }] };
+    const all = () => ({ ...network(), metrics, notifications });
+    const config = parseFactoryStartupConfig(all());
+    expect([config.hostReadiness, config.metrics, config.notifications?.destinations.length]).toEqual(["network", metrics, 1]);
+    expect(reject({ ...all(), metrics: { ...metrics, port: 0 } }).invalid).toEqual(["metrics"]);
+    expect(reject({ ...all(), notifications: { destinations: [{ ...notifications.destinations[0]!, kind: "smtp" }] } }).invalid).toEqual(["notifications.destinations[0].kind"]);
+    expect(reject({ ...all(), hostReadiness: "other" }).invalid).toEqual(["hostReadiness"]);
+  });
+
   test("network: no file path, and the supervisor's record travels over the host launch transport", () => {
     const config = parseFactoryStartupConfig(network());
     expect(config.hostReadiness).toBe("network");
@@ -752,6 +765,71 @@ describe("the recovery sections: the Temporal HTTP API and the data-key wrapping
       { ...transit, token: "inline" }, { ...transit, endpoint: "not a url" }, { ...transit, mount: "bad mount" }, { ...transit, caPath: "" },
     ]) {
       expect(reject(valid({ keyManagement: refused })).invalid).toEqual(["keyManagement"]);
+    }
+  });
+});
+
+describe("the outbound notification destinations (C11 N2)", () => {
+  const webhook = { name: "operators", kind: "webhook", url: "https://receiver.test:8443/factory/notifications", secretPath: "/run/ezcorp/secrets/notify-operators" };
+
+  test("accepts a webhook with and without a private CA, and an absent section", () => {
+    expect(parseFactoryStartupConfig(valid({ notifications: { destinations: [webhook] } })).notifications?.destinations).toEqual([webhook] as never);
+    const withCa = { ...webhook, name: "second", caPath: "/run/ezcorp/secrets/notify-ca.pem" };
+    expect(parseFactoryStartupConfig(valid({ notifications: { destinations: [webhook, withCa] } })).notifications?.destinations).toHaveLength(2);
+    expect(parseFactoryStartupConfig(valid()).notifications).toBeUndefined();
+  });
+
+  test("refuses SMTP by name, because this package does not deliver it", () => {
+    const smtp = { name: "mail", kind: "smtp", host: "mail.test", secretPath: "/run/x" };
+    expect(reject(valid({ notifications: { destinations: [smtp] } })).invalid).toEqual(["notifications.destinations[0].kind"]);
+  });
+
+  test("refuses a URL that is not plain HTTPS, or that carries a credential", () => {
+    for (const url of [
+      "http://receiver.test/hook",
+      "ftp://receiver.test/hook",
+      "https://user:pass@receiver.test/hook",
+      "https://token@receiver.test/hook",
+      "https://receiver.test/hook?token=abc",
+      "https://receiver.test/hook#fragment",
+      "not a url",
+      `https://receiver.test/${"a".repeat(2_048)}`,
+    ]) {
+      expect(reject(valid({ notifications: { destinations: [{ ...webhook, url }] } })).invalid).toEqual(["notifications.destinations[0]"]);
+    }
+  });
+
+  test("refuses a malformed entry, an unknown key, a duplicate name, and an empty or oversized list", () => {
+    for (const broken of [
+      { ...webhook, name: "" },
+      { ...webhook, secretPath: "" },
+      { ...webhook, caPath: 7 },
+      { ...webhook, extra: true },
+      { name: "operators", kind: "webhook", url: webhook.url },
+      "operators",
+    ]) {
+      expect(reject(valid({ notifications: { destinations: [broken] } })).invalid).toEqual(["notifications.destinations[0]"]);
+    }
+    expect(reject(valid({ notifications: { destinations: [webhook, webhook] } })).invalid).toEqual(["notifications.destinations"]);
+    expect(reject(valid({ notifications: { destinations: [] } })).invalid).toEqual(["notifications.destinations"]);
+    const many = Array.from({ length: 17 }, (_, index) => ({ ...webhook, name: `d${index}` }));
+    expect(reject(valid({ notifications: { destinations: many } })).invalid).toEqual(["notifications.destinations"]);
+    expect(reject(valid({ notifications: { destinations: [webhook], other: 1 } })).invalid).toEqual(["notifications.other"]);
+    expect(reject(valid({ notifications: {} })).missing).toEqual(["notifications.destinations"]);
+  });
+});
+
+describe("the installation's metrics endpoint (C11 M4)", () => {
+  const metrics = { hostname: "0.0.0.0", port: 9464, scrapeTokenPath: "/run/ezcorp/secrets/metrics-token" };
+
+  test("accepts a declared endpoint and an absent one", () => {
+    expect(parseFactoryStartupConfig(valid({ metrics })).metrics).toEqual(metrics);
+    expect(parseFactoryStartupConfig(valid()).metrics).toBeUndefined();
+  });
+
+  test("refuses a malformed endpoint as one field", () => {
+    for (const broken of [{ ...metrics, port: 0 }, { ...metrics, extra: 1 }, { hostname: "0.0.0.0", port: 9464 }, "metrics"]) {
+      expect(reject(valid({ metrics: broken })).invalid).toEqual(["metrics"]);
     }
   });
 });

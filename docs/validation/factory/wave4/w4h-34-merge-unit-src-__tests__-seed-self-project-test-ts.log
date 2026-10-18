@@ -1,0 +1,17 @@
+bun test v1.4.2 (744846f84)
+{"ts":"2026-10-17T23:41:05.871Z","level":"warn","msg":"EZCORP_SELF_PROJECT_PATH does not exist — skipping self-project seed","subsystem":"db","path":"/tmp/ezcorp-self-project-hCUt70/does-not-exist"}
+{"ts":"2026-10-17T23:41:06.155Z","level":"info","msg":"Seeded self project","subsystem":"db","path":"/tmp/ezcorp-self-project-hCUt70","name":"EZCorp (this app)"}
+{"ts":"2026-10-17T23:41:06.470Z","level":"info","msg":"Seeded self project","subsystem":"db","path":"/tmp/ezcorp-self-project-hCUt70","name":"My EZCorp"}
+{"ts":"2026-10-17T23:41:06.754Z","level":"info","msg":"Seeded self project","subsystem":"db","path":"/tmp/ezcorp-self-project-hCUt70","name":"EZCorp (this app)"}
+{"ts":"2026-10-17T23:41:07.072Z","level":"info","msg":"Seeded self project","subsystem":"db","path":"/tmp/ezcorp-self-project-hCUt70","name":"EZCorp (this app)"}
+{"ts":"2026-10-17T23:41:07.073Z","level":"info","msg":"Self project updated","subsystem":"db","path":"/tmp/ezcorp-self-project-moved-8EkZRc"}
+{"ts":"2026-10-17T23:41:07.363Z","level":"info","msg":"Self project updated","subsystem":"db","path":"/tmp/ezcorp-self-project-hCUt70"}
+{"ts":"2026-10-17T23:41:07.365Z","level":"info","msg":"Self project updated","subsystem":"db","path":"/tmp/ezcorp-self-project-moved-8EkZRc"}
+{"ts":"2026-10-17T23:41:07.677Z","level":"info","msg":"Seeded self project","subsystem":"db","path":"/tmp/ezcorp-self-project-hCUt70","name":"EZCorp (this app)"}
+{"ts":"2026-10-17T23:41:07.679Z","level":"info","msg":"Self project updated","subsystem":"db","path":"/tmp/ezcorp-self-project-moved-8EkZRc"}
+{"ts":"2026-10-17T23:41:08.017Z","level":"info","msg":"Seeded self project","subsystem":"db","path":"/tmp/ezcorp-self-project-hCUt70","name":"EZCorp (this app)"}
+
+ 9 pass
+ 0 fail
+ 17 expect() calls
+Ran 9 tests across 1 file. [3.69s]

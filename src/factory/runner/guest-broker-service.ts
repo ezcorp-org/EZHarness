@@ -57,6 +57,11 @@ export interface FactoryGuestBrokerServiceOptions {
   readonly model: FactoryGuestModelFrameBroker;
   /** The repository-read half (W4H-28). Absent when the installation declares no repository sources. */
   readonly repository?: FactoryGuestRepositoryReadBroker;
+  /**
+   * Called each time a declared host forwards for an attempt its lease does
+   * not hold, which includes another tenant's attempt (C11 A8 counts these).
+   */
+  readonly denied?: () => void;
   readonly jwtSecret: string;
   readonly installationId: string;
 }
@@ -97,7 +102,10 @@ export function createFactoryGuestBrokerRouteHandler(options: FactoryGuestBroker
     // rather than reaching a broker that would have to invent a scope for it.
     if (!authority) return json(401, { error: "unauthorized" });
     // A host forwards only for the attempts its own lease holds.
-    if (await options.leaseHost(authority) !== hostId) return json(403, { error: "forbidden_host" });
+    if (await options.leaseHost(authority) !== hostId) {
+      options.denied?.();
+      return json(403, { error: "forbidden_host" });
+    }
 
     if (isFactoryGuestModelPayload(body.payload)) return json(200, await options.model.frame(authority, body.attemptToken, body.payload));
     if (isFactoryGuestMaterialRead(body.payload)) return json(200, await options.broker.read(authority, body.payload));

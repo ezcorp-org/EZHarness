@@ -39,6 +39,7 @@ import { createFactoryOneHopProvider } from "./runner/provider-one-hop";
 import { createFactoryGuestRepositoryReadBroker } from "./runner/guest-repository-read";
 import type { FactoryStartedListener } from "./runtime-composition";
 import { factoryProbeDetail } from "./service-probes";
+import type { FactoryMetricCounters } from "./observability/installation-metrics";
 import type { FactoryStartupConfig } from "./startup-config";
 
 const MAX_TLS_MATERIAL_BYTES = 64 * 1024;
@@ -60,6 +61,8 @@ export interface FactoryGuestBrokerCompositionOptions {
   readonly report: (role: string, error: unknown) => void;
   /** Replaces the installation's provider, so a test drives the route with no network. */
   readonly modelProvider?: (pin: FactoryProviderPin) => Promise<FactoryOneHopProvider>;
+  /** The process's metric counters; a refused cross-tenant forward counts here (C11 A8). */
+  readonly counters?: FactoryMetricCounters;
 }
 
 export const FACTORY_PROVIDER_NOT_CONFIGURED = "factory_provider_not_configured";
@@ -163,6 +166,7 @@ export async function composeFactoryGuestBroker(options: FactoryGuestBrokerCompo
         ...(repository === undefined ? {} : { repository }),
         jwtSecret,
         installationId: config.installationId,
+        denied: () => { options.counters?.securityDenial("cross_tenant_broker"); },
       }),
     });
     return Object.freeze({ readiness: Object.freeze({ state: "bound" }), listener });

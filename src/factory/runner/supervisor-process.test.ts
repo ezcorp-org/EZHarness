@@ -309,6 +309,63 @@ describe("runConfiguredFactorySupervisor", () => {
     expect(observed).toMatchObject({ service: "host-supervisor", instanceId: "host-01", lifecycle: "ready", facts: { hostKeyReady: true, runnerReady: true , hostServicesReady: false } });
   });
 
+  test("serves ready on its declared metrics endpoint exactly when its record is ready, and survives an endpoint that cannot start (C11 M4)", async () => {
+    const root = await privateRoot();
+    await writeHostKey(root);
+    const metrics = { hostname: "127.0.0.1", port: 9468, scrapeTokenPath: join(root, "metrics-token") };
+    expect(parseFactorySupervisorProcessConfig({ ...config(root), metrics }).metrics).toEqual(metrics);
+    expect(() => parseFactorySupervisorProcessConfig({ ...config(root), metrics: { ...metrics, port: 0 } })).toThrow("factory supervisor config is invalid");
+    const path = await writeConfig(root, { metrics } as never);
+    abortController = new AbortController();
+    const readings: Array<[string, boolean]> = [];
+    let ready: () => boolean = () => false;
+    let stopped = false;
+    await runConfiguredFactorySupervisor(path, abortController.signal, dependencies({
+      metrics: async (endpoint, isReady) => {
+        expect(endpoint).toEqual(metrics);
+        ready = isReady;
+        return { url: "http://127.0.0.1:9468", stop: async () => { stopped = true; } };
+      },
+      createReadiness: () => ({ write: async (update) => { readings.push([update.lifecycle, ready()]); return { ...update } as never; } }),
+    }));
+    // The gauge is the record's own verdict: ready exactly when a ready record is written, not while starting.
+    expect(readings).toContainEqual(["ready", true]);
+    expect(readings).toContainEqual(["starting", false]);
+    expect(ready()).toBe(false);
+    expect(stopped).toBe(true);
+
+    abortController = new AbortController();
+    const reports: string[] = [];
+    await runConfiguredFactorySupervisor(path, abortController.signal, dependencies({
+      metrics: async () => { throw Object.assign(new Error(`cannot read ${metrics.scrapeTokenPath}`), { code: "factory_metrics_token_unreadable" }); },
+      report: (code) => { reports.push(code); },
+    }));
+    expect(reports).toEqual(["factory_metrics_token_unreadable"]);
+  });
+
+  // Merge of W4H-34 (the ready gauge, C11 M4) and W4H-35 (the held runtime role, C12 "Container runtime readiness (hosted)", D1):
+  // with the runtime unreachable the record is ready and carries the held entry, and the gauge, the record's own verdict, reads ready.
+  // No metric repeats the held role here; FactoryServiceRoleHeld (a later commit) is its alert.
+  test("a held runtime role keeps the record ready with its held entry, and the ready gauge reads ready (merge W4H-34 x W4H-35)", async () => {
+    const root = await privateRoot();
+    await writeHostKey(root);
+    const metrics = { hostname: "127.0.0.1", port: 9469, scrapeTokenPath: join(root, "metrics-token") };
+    const path = await writeConfig(root, { metrics } as never);
+    abortController = new AbortController();
+    const readings: Array<[string, boolean, unknown]> = [];
+    let ready: () => boolean = () => false;
+    await runConfiguredFactorySupervisor(path, abortController.signal, dependencies({
+      runtimeReachable: async () => false,
+      metrics: async (_endpoint, isReady) => { ready = isReady; return { url: "http://127.0.0.1:9469", stop: async () => {} }; },
+      createReadiness: () => ({ write: async (update) => {
+        readings.push([update.lifecycle, ready(), update.held]);
+        if (update.lifecycle === "ready") abortController?.abort();
+        return { ...update } as never;
+      } }),
+    }));
+    expect(readings).toContainEqual(["ready", true, [{ role: "container-runtime", workPackage: "W16", reason: "container_runtime_unreachable" }]]);
+  });
+
   test("bounds the probe and names a timeout as its own failure", async () => {
     const root = await privateRoot();
     await writeHostKey(root);

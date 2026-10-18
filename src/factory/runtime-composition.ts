@@ -309,7 +309,7 @@ export async function startFactoryRuntime(
     admissionOpen,
     probes: results,
     seams: factorySeamStates(seams),
-    heldWorkers: workerSet.held,
+    heldWorkers: workerSet.readiness().held,
     workers: workerSet.workers.states(),
   });
 
@@ -373,10 +373,19 @@ export async function startFactoryRuntime(
     })();
   }
 
+  let stopListeningForReadiness: (() => void) | undefined;
   function openAdmission(): void {
     configureFactoryApplication(application);
     admissionOpen = true;
     workerSet.workers.start(signal);
+    publishReadiness();
+    // A role whose confirmation arrives later (C11 N8) moves from held to
+    // running in readiness at that moment, not at the next boot.
+    stopListeningForReadiness = workerSet.onReadinessChange(publishReadiness);
+  }
+
+  function publishReadiness(): void {
+    const roles = workerSet.readiness();
     // Readiness carries which roles are running and which are held, so "the
     // background work is live" is an answer an operator can read off
     // `/api/ready` rather than a claim they have to take from a log line. Names
@@ -398,11 +407,11 @@ export async function startFactoryRuntime(
         factory: {
           tenantId: config.tenantId,
           ...(barrierHeld && undeclared.length > 0 ? { recoveryNotDeclared: [...undeclared] } : {}),
-          running: workerSet.workers.names(),
+          running: [...roles.running],
           // The reason travels too: "held" alone cannot tell an operator whether
           // to declare something, repair something, or wait for a package.
           // A required shared service's held roles join this installation's own (C12 row "Container runtime readiness (hosted)").
-          held: [...workerSet.held.map(factoryHeldRoleEntry), ...heldFactoryServiceRoles(results)],
+          held: [...roles.held.map(factoryHeldRoleEntry), ...heldFactoryServiceRoles(results)],
           ...(dependencies.providerReadiness === undefined ? {} : { providerReadiness: dependencies.providerReadiness }),
           ...(dependencies.guestBrokerReadiness === undefined ? {} : { guestBroker: dependencies.guestBrokerReadiness }),
         },
@@ -418,6 +427,7 @@ export async function startFactoryRuntime(
     // the roles drain, then the roles drain, then the listeners close.
     configureFactoryApplication(null);
     admissionOpen = false;
+    stopListeningForReadiness?.();
     try {
       return await workerSet.workers.stop();
     } finally {

@@ -1,0 +1,7 @@
+bun test v1.4.2 (744846f84)
+{"ts":"2026-10-17T23:40:47.625Z","level":"warn","msg":"search.web failed","subsystem":"ext.1e672f37-e21a-4eb4-86ec-d90e0622539a.capability","extensionId":"1e672f37-e21a-4eb4-86ec-d90e0622539a","onBehalfOf":"670f3f44-7c2f-4a4c-9877-53836148e445","conversationId":"2240fcb4-0a92-4dd4-8a7c-dc06202eda10","errorCode":null,"errorMessage":"Search provider \"tavily\" is not in the policy allowlist.","provider":null,"model":null,"durationMs":1}
+
+ 8 pass
+ 0 fail
+ 25 expect() calls
+Ran 8 tests across 1 file. [1109.00ms]

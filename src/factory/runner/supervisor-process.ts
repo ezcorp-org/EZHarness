@@ -60,6 +60,7 @@ import { isFactoryHostPeerTenants, type FactoryHostPeerTenants } from "./host-pe
 import { FactoryHostBrokerUnavailableError, factoryHostBrokerUnavailable, startFactoryHostServices } from "./supervisor-services";
 import { FACTORY_HOST_TOMBSTONES_FILE, FactoryHostTombstones } from "./host-tombstones";
 import { loadFactoryStopHostKeys } from "../stop-host-keys";
+import { serveFactoryReadyMetrics, startDeclaredFactoryMetrics, wellFormedFactoryMetricsEndpoint, type FactoryMetricsEndpoint, type FactoryMetricsListener } from "../observability/metrics-listener";
 import { createFactorySupervisorPoolClient } from "./supervisor-pool-client";
 import {
   createFactoryServiceReadinessWriter,
@@ -109,6 +110,8 @@ export interface FactorySupervisorProcessConfig {
   readonly stateDirectory?: string;
   readonly readinessFilePath: string;
   readonly readinessHeartbeatMs?: number;
+  /** Where this supervisor serves `/metrics` (C11 M4); absent, it serves none. */
+  readonly metrics?: FactoryMetricsEndpoint;
   /**
    * Where this host publishes its launch and stop services.
    *
@@ -198,6 +201,10 @@ export interface FactorySupervisorProcessDependencies {
    * (`container_runtime_unreachable`) and the runner is never probed.
    */
   readonly runtimeReachable?: () => Promise<boolean>;
+  /** Serves the ready gauge on a declared endpoint (C11 M4). */
+  readonly metrics?: (endpoint: FactoryMetricsEndpoint, ready: () => boolean) => Promise<FactoryMetricsListener>;
+  /** Names a fault the supervisor survives, by code only. */
+  readonly report?: (code: string) => void;
 }
 
 /**
@@ -300,14 +307,15 @@ function endpointSection(value: unknown): boolean {
 /** Strict parser. The document names paths and identities, never a key value. */
 export function parseFactorySupervisorProcessConfig(value: unknown): FactorySupervisorProcessConfig {
   const required = ["schemaVersion", "installationId", "hostId", "hostKeyPath", "hostKeyId", "runnerRoot", "readinessFilePath"];
-  const allowed = new Set([...required, "readinessHeartbeatMs", "services", "stateDirectory"]);
+  const allowed = new Set([...required, "readinessHeartbeatMs", "services", "stateDirectory", "metrics"]);
   if (!record(value) || required.some((key) => !Object.hasOwn(value, key)) || Object.keys(value).some((key) => !allowed.has(key))
     || value.schemaVersion !== CONFIG_SCHEMA
     || !text(value.installationId) || !text(value.hostId) || !text(value.hostKeyPath) || !text(value.hostKeyId)
     || (value.stateDirectory !== undefined && !(text(value.stateDirectory) && value.stateDirectory.startsWith("/")))
     || !text(value.runnerRoot) || !text(value.readinessFilePath)
     || (value.readinessHeartbeatMs !== undefined && !integer(value.readinessHeartbeatMs, 1_000, 60_000))
-    || (value.services !== undefined && !serviceSection(value.services))) {
+    || (value.services !== undefined && !serviceSection(value.services))
+    || (value.metrics !== undefined && !wellFormedFactoryMetricsEndpoint(value.metrics))) {
     // The unbound peer list is gone. Naming its replacement tells an operator
     // with an old document what to write instead of a bare refusal.
     if (record(value) && record(value.services) && Object.hasOwn(value.services, "allowedPeers")) {
@@ -569,6 +577,8 @@ export const factorySupervisorProductionDependencies: FactorySupervisorProcessDe
     timer.unref?.();
     signal.addEventListener("abort", done, { once: true });
   }),
+  metrics: (endpoint, ready) => serveFactoryReadyMetrics(endpoint, "supervisor", ready),
+  report: (code) => { console.error(`[factory-supervisor] ${code}`); },
 };
 
 interface SupervisorObservation {
@@ -701,6 +711,12 @@ export async function runConfiguredFactorySupervisor(
     held: () => runtimeHeldCode(observation),
   });
   await publish({ lifecycle: "starting", facts: { hostKeyReady: false, runnerReady: false, hostServicesReady: false } });
+  // The gauge is the record's own verdict, computed when scraped, and 0 once this run is stopping.
+  let running = true;
+  const metrics = await startDeclaredFactoryMetrics(config.metrics,
+    (endpoint) => (dependencies.metrics ?? factorySupervisorProductionDependencies.metrics!)(endpoint,
+      () => running && factorySupervisorRecord(observation, dependencies.now(), stalenessMs).lifecycle === "ready"),
+    dependencies.report ?? factorySupervisorProductionDependencies.report!);
 
   const observing = (async () => {
     while (!signal.aborted) {
@@ -747,6 +763,8 @@ export async function runConfiguredFactorySupervisor(
     // Release every held resource before recording the stop, so a supervisor
     // that has said `stopped` really is holding nothing: the listener first, so
     // no launch arrives for a runner that is closing, then the store lease.
+    running = false;
+    await metrics?.stop();
     services?.stop();
     services = undefined;
     await runnerProbe.close();

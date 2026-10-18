@@ -16,7 +16,9 @@
  */
 import { basename, dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { sql } from "drizzle-orm";
 import { privateDirectory, readPrivateBounded } from "./private-files";
+import { serveFactoryReadyMetrics, startDeclaredFactoryMetrics, wellFormedFactoryMetricsEndpoint, type FactoryMetricsEndpoint, type FactoryMetricsListener } from "./observability/metrics-listener";
 
 export const FACTORY_GATEWAY_PROCESS_SCHEMA = "factory.gateway-process.v1";
 
@@ -30,6 +32,8 @@ export interface FactoryGatewayProcessConfig {
   readonly attemptTokenSecretPath: string;
   readonly databaseUrlPath: string;
   readonly interpreterCompatibility: string;
+  /** Where this gateway serves `/metrics` (C11 M4); absent, it serves none. */
+  readonly metrics?: FactoryMetricsEndpoint;
 }
 
 const IDENTITY = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,255}$/;
@@ -41,7 +45,9 @@ export function parseFactoryGatewayProcessConfig(value: unknown): FactoryGateway
   const record = value as Partial<FactoryGatewayProcessConfig> | null;
   const keys = record && typeof record === "object" ? Object.keys(record).sort().join(",") : "";
   const tls = record?.tls as Partial<FactoryGatewayProcessConfig["tls"]> | undefined;
-  if (keys !== "attemptTokenSecretPath,databaseUrlPath,hostname,installationId,interpreterCompatibility,port,schemaVersion,tenantId,tls" || record!.schemaVersion !== FACTORY_GATEWAY_PROCESS_SCHEMA
+  const required = "attemptTokenSecretPath,databaseUrlPath,hostname,installationId,interpreterCompatibility,port,schemaVersion,tenantId,tls";
+  const withMetrics = "attemptTokenSecretPath,databaseUrlPath,hostname,installationId,interpreterCompatibility,metrics,port,schemaVersion,tenantId,tls";
+  if ((keys !== required && keys !== withMetrics) || (record!.metrics !== undefined && !wellFormedFactoryMetricsEndpoint(record!.metrics)) || record!.schemaVersion !== FACTORY_GATEWAY_PROCESS_SCHEMA
     || !identity(record!.installationId) || !identity(record!.tenantId) || !identity(record!.interpreterCompatibility)
     || typeof record!.hostname !== "string" || !/^[A-Za-z0-9.:-]{1,253}$/.test(record!.hostname) || !Number.isSafeInteger(record!.port) || record!.port! < 1 || record!.port! > 65_535
     || !tls || Object.keys(tls).sort().join(",") !== "caPath,certificatePath,privateKeyPath" || !absolute(tls.caPath) || !absolute(tls.certificatePath) || !absolute(tls.privateKeyPath)
@@ -62,8 +68,16 @@ export interface FactoryGatewayListener { readonly url: string; stop(): void }
 export interface FactoryGatewayProcessDependencies {
   readonly readText: (path: string) => Promise<string>;
   /** Opens the product database the way the product does, and composes the journal over it. */
-  readonly start: (config: FactoryGatewayProcessConfig, material: { readonly databaseUrl: string; readonly attemptTokenSecret: string; readonly tls: { key: string; cert: string; ca: string } }) => Promise<FactoryGatewayListener & { close(): Promise<void> }>;
+  readonly start: (config: FactoryGatewayProcessConfig, material: { readonly databaseUrl: string; readonly attemptTokenSecret: string; readonly tls: { key: string; cert: string; ca: string } }) => Promise<FactoryGatewayListener & {
+    close(): Promise<void>;
+    /** Settles when the product database answers; the ready gauge reads it (F7). */
+    healthy(): Promise<void>;
+  }>;
   readonly wait: (signal: AbortSignal) => Promise<void>;
+  /** Serves the ready gauge on a declared endpoint (C11 M4). */
+  readonly metrics?: (endpoint: FactoryMetricsEndpoint, ready: () => Promise<boolean>) => Promise<FactoryMetricsListener>;
+  /** Names a fault the gateway survives, by code only. */
+  readonly report?: (code: string) => void;
 }
 
 export async function runFactoryGatewayProcess(configPath: string, signal: AbortSignal, dependencies: FactoryGatewayProcessDependencies): Promise<void> {
@@ -73,8 +87,15 @@ export async function runFactoryGatewayProcess(configPath: string, signal: Abort
     dependencies.readText(config.tls.privateKeyPath), dependencies.readText(config.tls.certificatePath), dependencies.readText(config.tls.caPath),
   ]);
   const listener = await dependencies.start(config, { databaseUrl: databaseUrl.trim(), attemptTokenSecret: attemptTokenSecret.trim(), tls: { key, cert, ca } });
+  let ready = true;
+  // Ready only while the listener is up and the database answers: a gateway that
+  // cannot reach its database serves no attempt, so the gauge must not say it can.
+  const probe = async () => ready && await listener.healthy().then(() => true, () => false);
+  const metrics = await startDeclaredFactoryMetrics(config.metrics,
+    (endpoint) => (dependencies.metrics ?? factoryGatewayProductionDependencies.metrics!)(endpoint, probe),
+    dependencies.report ?? factoryGatewayProductionDependencies.report!);
   try { await dependencies.wait(signal); }
-  finally { listener.stop(); await listener.close(); }
+  finally { ready = false; await metrics?.stop(); listener.stop(); await listener.close(); }
 }
 
 /** Refuses every call: this gateway serves no materials, so no path may reach a store. */
@@ -105,9 +126,14 @@ export const factoryGatewayProductionDependencies: FactoryGatewayProcessDependen
       jwtSecret: material.attemptTokenSecret, installationId: config.installationId,
       tls: material.tls, hostname: config.hostname, port: config.port,
     });
-    return { url: listener.url, stop: () => listener.stop(), close: () => connection.closeDb() };
+    return {
+      url: listener.url, stop: () => listener.stop(), close: () => connection.closeDb(),
+      healthy: async () => { await database.execute(sql`SELECT 1`); },
+    };
   },
   wait: (signal) => new Promise<void>((settle) => { if (signal.aborted) settle(); else signal.addEventListener("abort", () => settle(), { once: true }); }),
+  metrics: (endpoint, ready) => serveFactoryReadyMetrics(endpoint, "gateway", ready),
+  report: (code) => { console.error(`[gateway] ${code}`); },
 };
 
 export async function startFactoryGatewayMain(argv: readonly string[], moduleUrl: string, dependencies: FactoryGatewayProcessDependencies = factoryGatewayProductionDependencies, fail: (error: unknown) => void = (error) => { console.error(`[gateway] ${error instanceof Error ? error.message : String(error)}`); process.exitCode = 1; }): Promise<void> {

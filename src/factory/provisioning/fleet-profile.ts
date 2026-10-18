@@ -72,6 +72,7 @@ export function factoryFleetKubernetesSettings(settings: FactoryFleetSettings): 
   return Object.freeze({
     fleetId: settings.fleetId, systemNamespace: kubernetes.systemNamespace, egressCidrs: kubernetes.egressCidrs, egressPorts: kubernetes.egressPorts,
     runAsUser: kubernetes.runAsUser, runtimeSocketPath: kubernetes.runtimeSocketPath, runnerRoot: kubernetes.runnerRoot, nodeCidrs: kubernetes.nodeCidrs, nodeSelector: kubernetes.nodeSelector,
+    monitoringNamespace: kubernetes.monitoring.namespace,
     ...(kubernetes.runtimeGroups === undefined ? {} : { runtimeGroups: kubernetes.runtimeGroups }),
   });
 }

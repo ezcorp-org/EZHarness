@@ -1,0 +1,94 @@
+# Generated from src/factory/observability/alert-rules.ts (W4H-34, C11). Do not edit; the drift test pins it.
+groups:
+  - name: factory-c11
+    rules:
+      - alert: FactoryReadyWorkStalled
+        expr: factory_ready_work_oldest_age_seconds > 30 or factory_runs_without_progress > 0
+        for: 0s
+        labels:
+          severity: page
+        annotations:
+          summary: Ready work age over 30 seconds or no progress for 60 seconds with no declared wait
+          action: Inspect blocking resource/lease, queue fairness, and healthy spare capacity; never force-release an uncertain holder
+          runbook: docs/factory-deployment.md#c11-alerts-and-operator-actions
+      - alert: FactoryProjectionLagging
+        expr: factory_projection_lag_seconds > 10 or factory_projection_gap_runs > 0
+        for: 1m
+        labels:
+          severity: page
+        annotations:
+          summary: Projection gap/lag over 10 seconds for 60 seconds
+          action: Check audit/outbox consumer, recover missing sequence, rebuild from a verified cursor
+          runbook: docs/factory-deployment.md#c11-alerts-and-operator-actions
+      - alert: FactoryValidatorDigestErroring
+        expr: factory_validator_digests_erroring > 0
+        for: 0s
+        labels:
+          severity: page
+        annotations:
+          summary: Three consecutive validator errors for one digest
+          action: Quarantine that evaluator for new acceptance; repair/revalidate explicitly
+          runbook: docs/factory-deployment.md#c11-alerts-and-operator-actions
+      - alert: FactoryUsageUnknownOrBudgetExhausted
+        expr: factory_usage_unknown_reservations > 0 or factory_budget_exhausted_envelopes > 0
+        for: 0s
+        labels:
+          severity: page
+        annotations:
+          summary: Unknown spend or exhausted budget
+          action: Stop paid dispatch; reconcile usage or obtain a new explicit allocation within authority
+          runbook: docs/factory-deployment.md#c11-alerts-and-operator-actions
+      - alert: FactoryReleaseUncertain
+        expr: factory_release_uncertain_oldest_age_seconds > 60
+        for: 0s
+        labels:
+          severity: page
+        annotations:
+          summary: Uncertain release for over 60 seconds
+          action: Open the operator inbox with the exact request/receipt lookup; do not auto-retry
+          runbook: docs/factory-deployment.md#c11-alerts-and-operator-actions
+      - alert: FactoryRequiredRunnerUnavailable
+        expr: factory_interpreter_builds_unavailable > 0 or factory_runner_package_not_ready_attempts > 0
+        for: 1m
+        labels:
+          severity: page
+        annotations:
+          summary: Referenced interpreter/package runner unavailable for 60 seconds
+          action: Restore the pinned compatible deployment or fail/hold affected runs; never route to incompatible code
+          runbook: docs/factory-deployment.md#c11-alerts-and-operator-actions
+      - alert: FactoryCheckpointStale
+        expr: factory_checkpoint_sealed == 0 or factory_checkpoint_verified_age_seconds > 900
+        for: 0s
+        labels:
+          severity: page
+        annotations:
+          summary: Verified recovery checkpoint older than 15 minutes
+          action: Stop new external effect claims; repair backup/barrier/archive before enabling them
+          runbook: docs/factory-deployment.md#c11-alerts-and-operator-actions
+      - alert: FactorySecurityDenial
+        expr: increase(factory_security_denials_total[5m]) > 0
+        for: 0s
+        labels:
+          severity: page
+        annotations:
+          summary: Any denied cross-tenant broker attempt or detected sandbox escape
+          action: Revoke affected attempt/host credentials, fence the host, investigate and recertify before reuse
+          runbook: docs/factory-deployment.md#c11-alerts-and-operator-actions
+      - alert: FactoryNotificationSendStuck
+        expr: delta(factory_notification_sends{state=~"dead_letter|outcome_unknown"}[15m]) > 0 or factory_notification_send_oldest_queued_age_seconds > 300
+        for: 0s
+        labels:
+          severity: ticket
+        annotations:
+          summary: A send entered dead letter or an unknown outcome in the last 15 minutes, or a queued send is older than 5 minutes
+          action: Inspect the destination and its receiver; never re-drive a destination that does not deduplicate on the idempotency key
+          runbook: docs/factory-deployment.md#c11-alerts-and-operator-actions
+      - alert: FactoryMetricsTargetDown
+        expr: up{job=~"factory-.+"} == 0 or factory_service_ready == 0
+        for: 1m
+        labels:
+          severity: page
+        annotations:
+          summary: A factory service's /metrics cannot be scraped, or the service reports itself not ready
+          action: Restore the service or its metrics endpoint; until then every alert above is blind for that service
+          runbook: docs/factory-deployment.md#c11-alerts-and-operator-actions

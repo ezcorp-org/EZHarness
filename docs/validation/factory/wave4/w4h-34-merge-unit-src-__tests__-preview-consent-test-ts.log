@@ -1,0 +1,9 @@
+bun test v1.4.2 (744846f84)
+{"ts":"2026-10-17T23:38:16.328Z","level":"info","msg":"preview consent card surfaced","subsystem":"preview.consent","conversationId":"5d5add02-a6f0-4a96-ab44-344deb18a8de","port":5173}
+{"ts":"2026-10-17T23:38:16.331Z","level":"info","msg":"preview auto-exposed (always-expose preference)","subsystem":"preview.consent","conversationId":"5d5add02-a6f0-4a96-ab44-344deb18a8de","port":5173,"previewId":"2dtsr16r49nbwqq55rn41kd0k5"}
+{"ts":"2026-10-17T23:38:16.334Z","level":"info","msg":"preview consent card surfaced","subsystem":"preview.consent","conversationId":"5d5add02-a6f0-4a96-ab44-344deb18a8de","port":5173}
+
+ 11 pass
+ 0 fail
+ 37 expect() calls
+Ran 11 tests across 1 file. [1037.00ms]

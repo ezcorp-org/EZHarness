@@ -1,0 +1,346 @@
+lane-forms: base env without CI,COVERAGE_LEGS_ONLY,COV_OUT,CRITICAL_ONLY,DATABASE_URL,EZCORP_RUN_PODMAN_TESTS,FACTORY_ONLY,FACTORY_TEMPORAL_TEST_SERVER,FACTORY_TEST_POSTGRES_URL,RESIDUAL_ONLY
+lane-forms: vitest list by web/node_modules/.bin/vitest 5.0.3 (the web/package.json pin)
+MOVED src/factory/notification-sender.test.ts: base [] -> head ['coverage_host_files']
+MOVED src/factory/observability/alert-rules.test.ts: base [] -> head ['coverage_host_files']
+MOVED src/factory/observability/metric-registry.test.ts: base [] -> head ['coverage_host_files']
+MOVED src/factory/observability/metrics-listener.test.ts: base [] -> head ['coverage_host_files']
+MOVED src/factory/observability/prometheus-config.test.ts: base [] -> head ['coverage_host_files']
+lane moves: 5: src/factory/notification-sender.test.ts src/factory/observability/alert-rules.test.ts src/factory/observability/metric-registry.test.ts src/factory/observability/metrics-listener.test.ts src/factory/observability/prometheus-config.test.ts
+== factory-temporal (factory-temporal, env COV_OUT={covdir};FACTORY_TEMPORAL_TEST_SERVER=/tmp/factory-tools/temporal-test-server/temporal-test-server_1.38.0_linux_amd64/temporal-test-server): bash scripts/factory-orchestrator-coverage.sh  [cwd .] [no podman]
+0.00 | 
+ℹ     inbox.ts                          | 100.00 |    94.74 |  100.00 | 
+ℹ     index.ts                          | 100.00 |   100.00 |  100.00 | 
+ℹ     partition-plan.ts                 | 100.00 |    83.33 |  100.00 | 
+ℹ     process.ts                        | 100.00 |    82.86 |   95.83 | 
+ℹ     queue-client.ts                   | 100.00 |   100.00 |  100.00 | 
+ℹ     transition-pages.ts               | 100.00 |    98.61 |  100.00 | 
+ℹ     validation.ts                     | 100.00 |    89.68 |  100.00 | 
+ℹ     worker.ts                         | 100.00 |   100.00 |  100.00 | 
+ℹ     workflow-bundle-build.ts          | 100.00 |    66.67 |  100.00 | 
+ℹ     workflow-bundle.ts                | 100.00 |    96.43 |  100.00 | 
+ℹ   factory-transport                   |        |          |         | 
+ℹ    src                                |        |          |         | 
+ℹ     index.ts                          | 100.00 |    96.20 |  100.00 | 
+ℹ src                                   |        |          |         | 
+ℹ  factory                              |        |          |         | 
+ℹ   file-key-wraps.ts                   | 100.00 |    94.44 |  100.00 | 
+ℹ   orchestration-process.ts            | 100.00 |    92.41 |   87.50 | 
+ℹ   orchestration-readiness-writer.ts   | 100.00 |    87.50 |  100.00 | 
+ℹ --------------------------------------------------------------------------------------
+ℹ all files                             | 100.00 |    93.58 |   97.35 | 
+ℹ --------------------------------------------------------------------------------------
+ℹ end of coverage report
+ℹ tests 102
+ℹ pass 102
+ℹ fail 0
+ℹ cancelled 0
+2026-10-18T00:11:06.384Z [INFO] asset workflow-bundle-775308d0c2088f7af1ea.js 2.67 MiB [emitted] [immutable] (name: main)
+runtime modules 883 bytes 4 modules
+javascript modules 776 KiB
+  modules by path ./node_modules/.bun/ 462 KiB 79 modules
+  modules by path ./packages/@ezcorp/ 315 KiB 17 modules
+  optional modules 30 bytes [optional]
+    __temporal_custom_payload_converter (ignored) 15 bytes [optional] [built] [code generated]
+    __temporal_custom_failure_converter (ignored) 15 bytes [optional] [built] [code generated]
+json modules 233 KiB
+  ./node_modules/.bun/@temporalio+workflow@1.23.0/node_modules/@temporalio/workflo...(truncated) 1010 bytes [built] [code generated]
+  ./packages/@ezcorp/factory-sdk/dist/factory-definition.schema.json 18.5 KiB [built] [code generated]
+  ./packages/@ezcorp/factory-sdk/dist/compiled-factory.schema.json 21.6 KiB [built] [code generated]
+  ./packages/@ezcorp/factory-sdk/dist/compiled-execution-manifest.schema.json 3.13 KiB [built] [code generated]
+  ./packages/@ezcorp/factory-sdk/dist/compiled-partition-artifact.schema.json 17.4 KiB [built] [code generated]
+  ./packages/@ezcorp/factory-sdk/dist/factory-runner-request.schema.json 6.24 KiB [built] [code generated]
+  + 14 modules
+webpack 5.111.1 compiled successfully in 423 ms
+2026-10-18T00:11:06.388Z [INFO] Workflow bundle created { size: '2.67MB' }
+
+PASS factory-temporal packages/@ezcorp/factory-orchestrator/test/process-launcher.test.ts: 204 pass
+== cov-shard (cov-shard, env -): bun test --timeout 30000 --coverage --coverage-reporter=lcov --coverage-dir=/home/dev/work/EZCorp/EZHarness-worktrees/composable-factory-platform/.worktrees/w00-integration/coverage/w4h-34-w17-notifications-f9684edf3-on-cf1de889b/lane-forms/cov-shard-scripts-check-factory-lanes-test-ts ./scripts/check-factory-lanes.test.ts  [cwd .]
+bun test v1.4.2 (744846f84)
+
+ 44 pass
+ 0 fail
+ 168 expect() calls
+Ran 44 tests across 1 file. [1434.00ms]
+
+PASS cov-shard scripts/check-factory-lanes.test.ts: 44 pass
+== cov-shard (cov-shard, env -): bun test --timeout 30000 --coverage --coverage-reporter=lcov --coverage-dir=/home/dev/work/EZCorp/EZHarness-worktrees/composable-factory-platform/.worktrees/w00-integration/coverage/w4h-34-w17-notifications-f9684edf3-on-cf1de889b/lane-forms/cov-shard-scripts-test-images-registration-test-ts ./scripts/test-images-registration.test.ts  [cwd .]
+bun test v1.4.2 (744846f84)
+
+ 3 pass
+ 0 fail
+ 6 expect() calls
+Ran 3 tests across 1 file. [442.00ms]
+
+PASS cov-shard scripts/test-images-registration.test.ts: 3 pass
+== cov-shard (cov-shard, env -): bun test --timeout 30000 --coverage --coverage-reporter=lcov --coverage-dir=/home/dev/work/EZCorp/EZHarness-worktrees/composable-factory-platform/.worktrees/w00-integration/coverage/w4h-34-w17-notifications-f9684edf3-on-cf1de889b/lane-forms/cov-shard-src-delivery-queue-durable-delivery-queue-test-ts ./src/delivery-queue/durable-delivery-queue.test.ts  [cwd .]
+bun test v1.4.2 (744846f84)
+
+ 19 pass
+ 0 fail
+ 47 expect() calls
+Ran 19 tests across 1 file. [459.00ms]
+
+PASS cov-shard src/delivery-queue/durable-delivery-queue.test.ts: 19 pass
+== cov-shard (cov-shard, env -): bun test --timeout 30000 --coverage --coverage-reporter=lcov --coverage-dir=/home/dev/work/EZCorp/EZHarness-worktrees/composable-factory-platform/.worktrees/w00-integration/coverage/w4h-34-w17-notifications-f9684edf3-on-cf1de889b/lane-forms/cov-shard-src-factory-gateway-process-test-ts ./src/factory/gateway-process.test.ts  [cwd .]
+bun test v1.4.2 (744846f84)
+
+ 22 pass
+ 0 fail
+ 93 expect() calls
+Ran 22 tests across 1 file. [504.00ms]
+
+PASS cov-shard src/factory/gateway-process.test.ts: 22 pass
+== cov-shard (cov-shard, env -): bun test --timeout 30000 --coverage --coverage-reporter=lcov --coverage-dir=/home/dev/work/EZCorp/EZHarness-worktrees/composable-factory-platform/.worktrees/w00-integration/coverage/w4h-34-w17-notifications-f9684edf3-on-cf1de889b/lane-forms/cov-shard-src-factory-installation-startup-test-ts ./src/factory/installation-startup.test.ts  [cwd .]
+bun test v1.4.2 (744846f84)
+
+ 59 pass
+ 0 fail
+ 396 expect() calls
+Ran 59 tests across 1 file. [6.91s]
+
+PASS cov-shard src/factory/installation-startup.test.ts: 59 pass
+== factory-deployment-operations (factory-deployment-operations, env FACTORY_TEST_POSTGRES_URL={pg}): bash scripts/run-factory-lane-tests.sh factory-deployment-operations  [cwd .]
+lane factory-deployment-operations: 3 test file(s)
+bun test v1.4.2 (744846f84)
+
+ 17 pass
+ 0 fail
+ 165 expect() calls
+Ran 17 tests across 3 files. [283.37s]
+
+PASS factory-deployment-operations src/factory/notification-delivery.integration.test.ts: 17 pass
+== cov-shard (cov-shard, env -): bun test --timeout 30000 --coverage --coverage-reporter=lcov --coverage-dir=/home/dev/work/EZCorp/EZHarness-worktrees/composable-factory-platform/.worktrees/w00-integration/coverage/w4h-34-w17-notifications-f9684edf3-on-cf1de889b/lane-forms/cov-shard-src-factory-notification-sender-test-ts ./src/factory/notification-sender.test.ts  [cwd .] [moved]
+bun test v1.4.2 (744846f84)
+
+ 19 pass
+ 0 fail
+ 84 expect() calls
+Ran 19 tests across 1 file. [660.00ms]
+
+PASS cov-shard src/factory/notification-sender.test.ts: 19 pass
+== cov-shard (cov-shard, env -): bun test --timeout 30000 --coverage --coverage-reporter=lcov --coverage-dir=/home/dev/work/EZCorp/EZHarness-worktrees/composable-factory-platform/.worktrees/w00-integration/coverage/w4h-34-w17-notifications-f9684edf3-on-cf1de889b/lane-forms/cov-shard-src-factory-observability-alert-rules-test-ts ./src/factory/observability/alert-rules.test.ts  [cwd .] [moved]
+bun test v1.4.2 (744846f84)
+
+ 10 pass
+ 0 fail
+ 149 expect() calls
+Ran 10 tests across 1 file. [474.00ms]
+
+PASS cov-shard src/factory/observability/alert-rules.test.ts: 10 pass
+== cov-shard (cov-shard, env -): bun test --timeout 30000 --coverage --coverage-reporter=lcov --coverage-dir=/home/dev/work/EZCorp/EZHarness-worktrees/composable-factory-platform/.worktrees/w00-integration/coverage/w4h-34-w17-notifications-f9684edf3-on-cf1de889b/lane-forms/cov-shard-src-factory-observability-metric-registry-test-ts ./src/factory/observability/metric-registry.test.ts  [cwd .] [moved]
+bun test v1.4.2 (744846f84)
+
+ 12 pass
+ 0 fail
+ 235 expect() calls
+Ran 12 tests across 1 file. [452.00ms]
+
+PASS cov-shard src/factory/observability/metric-registry.test.ts: 12 pass
+== cov-shard (cov-shard, env -): bun test --timeout 30000 --coverage --coverage-reporter=lcov --coverage-dir=/home/dev/work/EZCorp/EZHarness-worktrees/composable-factory-platform/.worktrees/w00-integration/coverage/w4h-34-w17-notifications-f9684edf3-on-cf1de889b/lane-forms/cov-shard-src-factory-observability-metrics-listener-test-ts ./src/factory/observability/metrics-listener.test.ts  [cwd .] [moved]
+bun test v1.4.2 (744846f84)
+
+ 12 pass
+ 0 fail
+ 52 expect() calls
+Ran 12 tests across 1 file. [690.00ms]
+
+PASS cov-shard src/factory/observability/metrics-listener.test.ts: 12 pass
+== cov-shard (cov-shard, env -): bun test --timeout 30000 --coverage --coverage-reporter=lcov --coverage-dir=/home/dev/work/EZCorp/EZHarness-worktrees/composable-factory-platform/.worktrees/w00-integration/coverage/w4h-34-w17-notifications-f9684edf3-on-cf1de889b/lane-forms/cov-shard-src-factory-observability-prometheus-config-test-ts ./src/factory/observability/prometheus-config.test.ts  [cwd .] [moved]
+bun test v1.4.2 (744846f84)
+
+ 3 pass
+ 0 fail
+ 20 expect() calls
+Ran 3 tests across 1 file. [456.00ms]
+
+PASS cov-shard src/factory/observability/prometheus-config.test.ts: 3 pass
+== cov-shard (cov-shard, env -): bun test --timeout 30000 --coverage --coverage-reporter=lcov --coverage-dir=/home/dev/work/EZCorp/EZHarness-worktrees/composable-factory-platform/.worktrees/w00-integration/coverage/w4h-34-w17-notifications-f9684edf3-on-cf1de889b/lane-forms/cov-shard-src-factory-pool-process-test-ts ./src/factory/pool/process.test.ts  [cwd .]
+bun test v1.4.2 (744846f84)
+
+ 12 pass
+ 0 fail
+ 78 expect() calls
+Ran 12 tests across 1 file. [1.93s]
+
+PASS cov-shard src/factory/pool/process.test.ts: 12 pass
+== db-postgres (.github/workflows/db-postgres.yml external-postgres step 'Run pool service PostgreSQL and Node mTLS coverage producer' line 131): bash scripts/factory-pool-coverage.sh  [cwd .]
+bun test v1.4.2 (744846f84)
+bun test v1.4.2 (744846f84)
+bun test v1.4.2 (744846f84)
+bun test v1.4.2 (744846f84)
+bun test v1.4.2 (744846f84)
+bun test v1.4.2 (744846f84)
+bun test v1.4.2 (744846f84)
+bun test v1.4.2 (744846f84)
+bun test v1.4.2 (744846f84)
+merged 625 source files → /tmp/factory-pool-coverage.uaXXWL/merged.lcov
+kept 10 requested LCOV source records → /home/dev/work/EZCorp/EZHarness-worktrees/composable-factory-platform/.worktrees/w00-integration/coverage/w4h-34-w17-notifications-f9684edf3-on-cf1de889b/lane-forms/db-postgres-src-factory-pool-process-test-ts/lcov.info
+
+ 31 pass
+ 0 fail
+ 146 expect() calls
+Ran 31 tests across 1 file. [2.13s]
+
+ 31 pass
+ 0 fail
+ 146 expect() calls
+Ran 31 tests across 1 file. [3.90s]
+
+ 5 pass
+ 0 fail
+ 21 expect() calls
+Ran 5 tests across 1 file. [743.00ms]
+
+ 3 pass
+ 0 fail
+ 14 expect() calls
+Ran 3 tests across 1 file. [487.00ms]
+
+ 14 pass
+ 0 fail
+ 96 expect() calls
+Ran 14 tests across 2 files. [814.00ms]
+
+ 4 pass
+ 0 fail
+ 36 expect() calls
+Ran 4 tests across 1 file. [1110.00ms]
+
+ 17 pass
+ 0 fail
+ 108 expect() calls
+Ran 17 tests across 2 files. [1.94s]
+
+ 3 pass
+ 0 fail
+ 25 expect() calls
+Ran 3 tests across 1 file. [2.29s]
+
+ 1 pass
+ 0 fail
+ 12 expect() calls
+Ran 1 test across 1 file. [770.00ms]
+
+PASS db-postgres src/factory/pool/process.test.ts: 109 pass
+== cov-shard (cov-shard, env -): bun test --timeout 30000 --coverage --coverage-reporter=lcov --coverage-dir=/home/dev/work/EZCorp/EZHarness-worktrees/composable-factory-platform/.worktrees/w00-integration/coverage/w4h-34-w17-notifications-f9684edf3-on-cf1de889b/lane-forms/cov-shard-src-factory-provisioning-compose-profile-test-ts ./src/factory/provisioning/compose-profile.test.ts  [cwd .]
+bun test v1.4.2 (744846f84)
+
+ 56 pass
+ 0 fail
+ 233 expect() calls
+Ran 56 tests across 1 file. [701.00ms]
+
+PASS cov-shard src/factory/provisioning/compose-profile.test.ts: 56 pass
+== cov-shard (cov-shard, env -): bun test --timeout 30000 --coverage --coverage-reporter=lcov --coverage-dir=/home/dev/work/EZCorp/EZHarness-worktrees/composable-factory-platform/.worktrees/w00-integration/coverage/w4h-34-w17-notifications-f9684edf3-on-cf1de889b/lane-forms/cov-shard-src-factory-provisioning-deployment-test-ts ./src/factory/provisioning/deployment.test.ts  [cwd .]
+bun test v1.4.2 (744846f84)
+
+ 52 pass
+ 0 fail
+ 344 expect() calls
+Ran 52 tests across 1 file. [1.86s]
+
+PASS cov-shard src/factory/provisioning/deployment.test.ts: 52 pass
+== cov-shard (cov-shard, env -): bun test --timeout 30000 --coverage --coverage-reporter=lcov --coverage-dir=/home/dev/work/EZCorp/EZHarness-worktrees/composable-factory-platform/.worktrees/w00-integration/coverage/w4h-34-w17-notifications-f9684edf3-on-cf1de889b/lane-forms/cov-shard-src-factory-provisioning-host-test-ts ./src/factory/provisioning/host.test.ts  [cwd .]
+bun test v1.4.2 (744846f84)
+
+ 26 pass
+ 0 fail
+ 151 expect() calls
+Ran 26 tests across 1 file. [3.94s]
+
+PASS cov-shard src/factory/provisioning/host.test.ts: 26 pass
+== cov-shard (cov-shard, env -): bun test --timeout 30000 --coverage --coverage-reporter=lcov --coverage-dir=/home/dev/work/EZCorp/EZHarness-worktrees/composable-factory-platform/.worktrees/w00-integration/coverage/w4h-34-w17-notifications-f9684edf3-on-cf1de889b/lane-forms/cov-shard-src-factory-provisioning-kubernetes-profile-test-ts ./src/factory/provisioning/kubernetes-profile.test.ts  [cwd .]
+bun test v1.4.2 (744846f84)
+
+ 20 pass
+ 0 fail
+ 144 expect() calls
+Ran 20 tests across 1 file. [517.00ms]
+
+PASS cov-shard src/factory/provisioning/kubernetes-profile.test.ts: 20 pass
+== cov-shard (cov-shard, env -): bun test --timeout 30000 --coverage --coverage-reporter=lcov --coverage-dir=/home/dev/work/EZCorp/EZHarness-worktrees/composable-factory-platform/.worktrees/w00-integration/coverage/w4h-34-w17-notifications-f9684edf3-on-cf1de889b/lane-forms/cov-shard-src-factory-runner-guest-broker-transport-integration-test-ts ./src/factory/runner/guest-broker-transport.integration.test.ts  [cwd .]
+bun test v1.4.2 (744846f84)
+
+ 16 pass
+ 0 fail
+ 213 expect() calls
+Ran 16 tests across 1 file. [15.59s]
+
+PASS cov-shard src/factory/runner/guest-broker-transport.integration.test.ts: 16 pass
+== cov-shard (cov-shard, env -): bun test --timeout 30000 --coverage --coverage-reporter=lcov --coverage-dir=/home/dev/work/EZCorp/EZHarness-worktrees/composable-factory-platform/.worktrees/w00-integration/coverage/w4h-34-w17-notifications-f9684edf3-on-cf1de889b/lane-forms/cov-shard-src-factory-runner-supervisor-process-test-ts ./src/factory/runner/supervisor-process.test.ts  [cwd .]
+bun test v1.4.2 (744846f84)
+
+ 46 pass
+ 0 fail
+ 216 expect() calls
+Ran 46 tests across 1 file. [3.41s]
+
+PASS cov-shard src/factory/runner/supervisor-process.test.ts: 46 pass
+== cov-shard (cov-shard, env -): bun test --timeout 30000 --coverage --coverage-reporter=lcov --coverage-dir=/home/dev/work/EZCorp/EZHarness-worktrees/composable-factory-platform/.worktrees/w00-integration/coverage/w4h-34-w17-notifications-f9684edf3-on-cf1de889b/lane-forms/cov-shard-src-factory-runtime-composition-test-ts ./src/factory/runtime-composition.test.ts  [cwd .]
+bun test v1.4.2 (744846f84)
+
+ 34 pass
+ 0 fail
+ 121 expect() calls
+Ran 34 tests across 1 file. [821.00ms]
+
+PASS cov-shard src/factory/runtime-composition.test.ts: 34 pass
+== cov-shard (cov-shard, env -): bun test --timeout 30000 --coverage --coverage-reporter=lcov --coverage-dir=/home/dev/work/EZCorp/EZHarness-worktrees/composable-factory-platform/.worktrees/w00-integration/coverage/w4h-34-w17-notifications-f9684edf3-on-cf1de889b/lane-forms/cov-shard-src-factory-runtime-workers-test-ts ./src/factory/runtime-workers.test.ts  [cwd .]
+bun test v1.4.2 (744846f84)
+
+ 26 pass
+ 0 fail
+ 137 expect() calls
+Ran 26 tests across 1 file. [449.00ms]
+
+PASS cov-shard src/factory/runtime-workers.test.ts: 26 pass
+== cov-shard (cov-shard, env -): bun test --timeout 30000 --coverage --coverage-reporter=lcov --coverage-dir=/home/dev/work/EZCorp/EZHarness-worktrees/composable-factory-platform/.worktrees/w00-integration/coverage/w4h-34-w17-notifications-f9684edf3-on-cf1de889b/lane-forms/cov-shard-src-factory-startup-config-test-ts ./src/factory/startup-config.test.ts  [cwd .]
+bun test v1.4.2 (744846f84)
+
+ 64 pass
+ 0 fail
+ 314 expect() calls
+Ran 64 tests across 1 file. [528.00ms]
+
+PASS cov-shard src/factory/startup-config.test.ts: 64 pass
+== db-postgres (.github/workflows/db-postgres.yml external-postgres step 'Measure factory provisioning against real PostgreSQL' line 159): FACTORY_TEST_POSTGRES_URL="$DATABASE_URL" COV_OUT=/home/dev/work/EZCorp/EZHarness-worktrees/composable-factory-platform/.worktrees/w00-integration/coverage/w4h-34-w17-notifications-f9684edf3-on-cf1de889b/lane-forms/db-postgres-tests-postgres-factory-gateway-process-test-ts bash scripts/factory-provisioning-coverage.sh  [cwd .]
+bun test v1.4.2 (744846f84)
+bun test v1.4.2 (744846f84)
+{"ts":"2026-10-18T00:19:04.657Z","level":"info","msg":"Database mode: external Postgres","subsystem":"db"}
+{"ts":"2026-10-18T00:19:05.125Z","level":"info","msg":"jsonb double-encode repair already completed — skipping scan","subsystem":"db","marker":"db:jsonb-repair:done"}
+merged 761 source files → /tmp/factory-provisioning-coverage.LQKIYh/merged.info
+kept 8 requested LCOV source records → /home/dev/work/EZCorp/EZHarness-worktrees/composable-factory-platform/.worktrees/w00-integration/coverage/w4h-34-w17-notifications-f9684edf3-on-cf1de889b/lane-forms/db-postgres-tests-postgres-factory-gateway-process-test-ts/lcov.info
+
+ 64 pass
+ 0 fail
+ 377 expect() calls
+Ran 64 tests across 1 file. [27.85s]
+
+ 1 pass
+ 0 fail
+ 3 expect() calls
+Ran 1 test across 1 file. [1090.00ms]
+
+PASS db-postgres tests/postgres/factory-gateway-process.test.ts: 65 pass
+== db-postgres (.github/workflows/db-postgres.yml external-postgres step 'Run factory storage and private services on Postgres and S3' line 182): FACTORY_TEST_POSTGRES_URL="$DATABASE_URL" bun test --timeout 30000 --coverage --coverage-reporter=lcov --coverage-dir=/home/dev/work/EZCorp/EZHarness-worktrees/composable-factory-platform/.worktrees/w00-integration/coverage/w4h-34-w17-notifications-f9684edf3-on-cf1de889b/lane-forms/db-postgres-tests-postgres-factory-installation-metrics-test-ts ./tests/postgres/factory-artifacts.test.ts ./tests/postgres/factory-storage-cleanup.test.ts ./tests/postgres/factory-artifact-access.test.ts ./tests/postgres/factory-artifact-materials.test.ts ./tests/postgres/factory-guest-material-broker.test.ts ./tests/postgres/factory-lazy-input.test.ts ./tests/postgres/factory-lazy-commands.test.ts ./tests/postgres/factory-boot.test.ts ./tests/postgres/factory-run-lifecycle-s3.test.ts ./tests/postgres/factory-run-inputs.test.ts ./tests/postgres/factory-console.test.ts ./tests/postgres/factory-definitions.test.ts ./tests/postgres/factory-private-service.test.ts ./tests/postgres/factory-package-preparation.test.ts ./tests/postgres/factory-executions.test.ts ./tests/postgres/factory-attempt-queue.test.ts ./tests/postgres/factory-budgets.test.ts ./tests/postgres/factory-encryption-s3.test.ts ./tests/postgres/factory-inbox.test.ts ./tests/postgres/factory-project-creation.test.ts ./tests/postgres/factory-installation-bootstrap.test.ts ./tests/postgres/factory-records.test.ts ./tests/postgres/factory-tenant-projects.test.ts ./tests/postgres/factory-host-launch.test.ts ./tests/postgres/factory-execution-gateway.test.ts ./tests/postgres/factory-guest-model-journal.test.ts ./tests/postgres/factory-usage-epoch.test.ts ./tests/postgres/factory-guest-model-route.test.ts ./tests/postgres/factory-service-credentials.test.ts ./tests/postgres/factory-grants.test.ts ./tests/postgres/factory-task-stops.test.ts ./tests/postgres/factory-task-stop-dispatch-refused-migration.test.ts ./tests/postgres/factory-stop-lock-order.test.ts ./tests/postgres/factory-release-stop-migration.test.ts ./tests/postgres/factory-release-stop-race.test.ts ./tests/postgres/factory-admission-stop.test.ts ./tests/postgres/factory-usage-basis-migration.test.ts ./tests/postgres/factory-package-fence.test.ts ./tests/postgres/factory-migration-restart.test.ts ./tests/postgres/factory-schema.test.ts ./tests/postgres/migrate-lock.test.ts ./tests/postgres/factory-retention.test.ts ./tests/postgres/factory-checkpoint.test.ts ./tests/postgres/factory-restore.test.ts ./tests/postgres/factory-key-rotation.test.ts ./tests/postgres/factory-pool-checkpoint.test.ts ./tests/postgres/factory-wal-backup.test.ts ./tests/postgres/factory-installation-metrics.test.ts ./tests/postgres/factory-metrics-scrape.test.ts ./tests/postgres/factory-notification-sender.test.ts ./tests/postgres/factory-pool-metrics.test.ts  [cwd .]
+llation","factory_projects","factory_run_lifecycle","factory_runs"]},"second":{"pid":3608,"blockedBy":[3606],"tables":["factory_child_runs","factory_installation","factory_projects","factory_runs"]}}
+[W09h] R5 stop then grant: {"stop":{"settled":{"state":"stopped","event":{"atMs":1893456000000,"attempt":1,"candidateGeneration":0,"commandId":"879d178a-a034-404f-a7c7-f794c0a13ed3:snapshot-repository:request-admission:2","id":"879d178a-a034-404f-a7c7-f794c0a13ed3:snapshot-repository:cancel-node:4:stopped","kind":"attempt-stopped","nodeId":"snapshot-repository","stoppedBefore":"admission"}}},"grant":{"ok":true,"value":{"status":"cancelled","reservationId":"factory-reservation:4ee6c9ed0ea58c8cd317f7141c3df6ae7c37ceb0910b43d1aab5b0781","refused":"factory_compute_admission_attempt_stopped"}},"cancellations":[["factory-reservation:4ee6c9ed0ea58c8cd317f7141c3df6ae7c37ceb0910b43d1aab5b0781",1]],"admission":{"state":"cancelled","stop_command_id":"879d178a-a034-404f-a7c7-f794c0a13ed3:snapshot-repository:cancel-node:4","stop_requested_epoch":"1"},"hold":"settled","kinds":["cancel","usage-settled","attempt-stopped"],"status":"cancelled","settlements":[{"source":"no-operations","basis":"no-operations: nothing launched, all zero"}],"stopRows":[],"launchRows":[]}
+[W09h] R5 grant then stop: lock waits: {"gatePid":3608,"first":{"pid":3607,"blockedBy":[3608],"tables":["factory_child_runs","factory_installation","factory_projects","factory_run_lifecycle","factory_runs"]},"second":{"pid":3609,"blockedBy":[3607],"tables":["factory_installation","factory_projects","factory_runs"]}}
+[W09h] R5 grant then stop: {"stop":{"settled":{"state":"stopped","event":{"atMs":1893456000000,"attempt":1,"candidateGeneration":0,"commandId":"14c048ab-889d-438d-bda5-95b125ca90b9:snapshot-repository:request-admission:2","id":"14c048ab-889d-438d-bda5-95b125ca90b9:snapshot-repository:cancel-node:4:stopped","kind":"attempt-stopped","nodeId":"snapshot-repository","stoppedBefore":"admission"}}},"grant":{"ok":true,"value":{"status":"cancelled","reservationId":"factory-reservation:8bdbd6772979544741fc5ddc9949474df7309869bcbeb218de38126dd"}},"cancellations":[["factory-reservation:8bdbd6772979544741fc5ddc9949474df7309869bcbeb218de38126dd",1]],"admission":{"state":"cancelled","stop_command_id":"14c048ab-889d-438d-bda5-95b125ca90b9:snapshot-repository:cancel-node:4","stop_requested_epoch":"1"},"hold":"settled","kinds":["cancel","usage-settled","attempt-stopped"],"status":"cancelled","settlements":[{"source":"no-operations","basis":"no-operations: nothing launched, all zero"}],"stopRows":[],"launchRows":[]}
+{"ts":"2026-10-18T00:35:05.543Z","level":"warn","msg":"waiting for migrate lock held by pid 3744","subsystem":"db","holderPid":3744,"waitMs":300}
+
+tests/postgres/factory-retention.test.ts:
+
+tests/postgres/factory-checkpoint.test.ts:
+
+tests/postgres/factory-restore.test.ts:
+
+tests/postgres/factory-key-rotation.test.ts:
+
+ 567 pass
+ 0 fail
+ 8997 expect() calls
+Ran 567 tests across 51 files. [1083.96s]
+
+PASS db-postgres tests/postgres/factory-installation-metrics.test.ts: 567 pass
+lane-forms: 29 changed test file(s), 25 lane run(s), 0 red

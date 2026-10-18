@@ -113,6 +113,9 @@ export function factoryComposeEnvironment(bundle: FactoryInstallationBundle, opt
     EZCORP_FACTORY_HARNESS_PORT: String(ports.harness),
     EZCORP_FACTORY_PRIVATE_SERVICE_PORT: String(ports.privateService),
     EZCORP_FACTORY_GUEST_BROKER_PORT: String(ports.guestBroker),
+    EZCORP_FACTORY_HARNESS_METRICS_PORT: String(ports.harnessMetrics),
+    EZCORP_FACTORY_GATEWAY_METRICS_PORT: String(ports.gatewayMetrics),
+    EZCORP_FACTORY_ORCHESTRATOR_METRICS_PORT: String(ports.orchestratorMetrics),
     EZCORP_FACTORY_GATEWAY_NETWORK: factoryPastaNetwork([options.databasePort]),
     EZCORP_FACTORY_HARNESS_NETWORK: factoryPastaNetwork([options.databasePort, ...options.storagePorts, host.ports.pool, ports.gateway, host.ports.supervisor, options.temporalHttpPort]),
     EZCORP_FACTORY_ORCHESTRATOR_NETWORK: factoryPastaNetwork([options.temporalPort, ports.privateService]),
@@ -303,6 +306,12 @@ export class FactoryComposeHostTarget implements FactoryFleetHostRuntime {
       EZCORP_FACTORY_DELIVER_POOL: paths.poolDelivery,
       EZCORP_FACTORY_READINESS_POOL: resolve(paths.readinessDirectory, "pool"),
       EZCORP_FACTORY_POOL_ENV: poolEnv,
+      EZCORP_FACTORY_POOL_METRICS_PORT: String(bundle.identity.ports.poolMetrics),
+      // The fleet's evaluator (C11): its config directory the host writes, the shipped rules beside this template, its loopback port.
+      EZCORP_FACTORY_PROMETHEUS_DIR: paths.prometheusDirectory,
+      EZCORP_FACTORY_PROMETHEUS_DATA: paths.prometheusDataDirectory,
+      EZCORP_FACTORY_PROMETHEUS_RULES: resolve(this.options.templatePath, "..", "..", "prometheus"),
+      EZCORP_FACTORY_PROMETHEUS_PORT: String(bundle.identity.ports.prometheus),
     }));
     // Recreated every time: the pool reads its trust and identities once, at start.
     await this.check(this.compose(paths, ["up", "--detach", "--no-build", "--force-recreate", "--remove-orphans"]), [0], "host_compose_failed", "host compose up");

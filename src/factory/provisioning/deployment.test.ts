@@ -16,6 +16,8 @@ import {
 } from "../../__tests__/helpers/factory-private-root";
 import { factoryTemporalPositionsFromConfig } from "../recovery-composition";
 import { parseFactoryStartupConfig } from "../startup-config";
+import { parseFactoryGatewayProcessConfig } from "../gateway-process";
+import { parseFactoryOrchestratorProcessConfig } from "../orchestration-process";
 import { FactoryTemporalHttpPositions } from "../temporal-retention";
 import { composeFactoryReleaseDestinations } from "../release-declaration";
 import { S3FactoryManifestReleaseProvider } from "../release-s3-publication";
@@ -30,8 +32,10 @@ import {
   FACTORY_RELEASE_S3_PREFIX,
   FACTORY_DEFAULT_DATABASE_POOL_MAX,
   FACTORY_DEPLOYED_SERVICES,
+  FACTORY_METRICS_TOKEN_FILE,
   FactoryDeploymentStep,
   factoryDeploymentHandle,
+  FACTORY_FLEET_PORT_OFFSETS,
   factoryInstallationPorts,
   renderFactoryInstallationBundle,
   writeFactoryDeliveries,
@@ -88,13 +92,26 @@ async function filesIn(directory: string): Promise<Record<string, string>> {
 const mode = async (path: string) => (await stat(path)).mode & 0o777;
 
 describe("factoryInstallationPorts", () => {
-  test("derives four consecutive ports ten apart per tenant number", () => {
-    expect(factoryInstallationPorts("tenant-01", 40_000)).toEqual({ harness: 40_010, privateService: 40_011, gateway: 40_012, guestBroker: 40_013 });
-    // The highest tenant's guest-broker port stays below the fleet host's pool port (base + 1002).
-    expect(factoryInstallationPorts("tenant-99", 40_000).guestBroker).toBeLessThan(factoryFleetHostIdentity("fleet-a", 40_000).ports.pool);
+  test("derives seven consecutive ports ten apart per tenant number", () => {
+    expect(factoryInstallationPorts("tenant-01", 40_000)).toEqual({
+      harness: 40_010, privateService: 40_011, gateway: 40_012, guestBroker: 40_013,
+      harnessMetrics: 40_014, gatewayMetrics: 40_015, orchestratorMetrics: 40_016,
+    });
+    // The highest tenant's last port stays below the fleet host's pool port (base + 1002).
+    expect(factoryInstallationPorts("tenant-99", 40_000).orchestratorMetrics).toBeLessThan(factoryFleetHostIdentity("fleet-a", 40_000).ports.pool);
     expect(factoryInstallationPorts("tenant-00", 1_024).harness).toBe(1_024);
     expect(factoryInstallationPorts("tenant-99", 64_535).gateway).toBe(64_535 + 990 + 2);
     expect(Object.isFrozen(factoryInstallationPorts("tenant-02", 40_000))).toBe(true);
+  });
+
+  test("the fleet's own ports are distinct, above every tenant's, and inside the host's bound (C11 added three)", () => {
+    const offsets = Object.values(FACTORY_FLEET_PORT_OFFSETS);
+    expect(new Set(offsets).size).toBe(offsets.length);
+    expect(Math.min(...offsets)).toBeGreaterThan(99 * 10 + 6);
+    expect(Math.max(...offsets)).toBeLessThanOrEqual(1_010);
+    const host = factoryFleetHostIdentity("fleet-a", 40_000).ports;
+    expect([host.pool, host.supervisor, host.poolMetrics, host.supervisorMetrics, host.prometheus]).toEqual(
+      [FACTORY_FLEET_PORT_OFFSETS.pool, FACTORY_FLEET_PORT_OFFSETS.supervisor, FACTORY_FLEET_PORT_OFFSETS.poolMetrics, FACTORY_FLEET_PORT_OFFSETS.supervisorMetrics, FACTORY_FLEET_PORT_OFFSETS.prometheus].map((offset) => 40_000 + offset));
   });
 
   test("two tenants never share a port", () => {
@@ -129,7 +146,7 @@ describe("renderFactoryInstallationBundle", () => {
   test("names the installation's ports, the fleet host, directories and origin", () => {
     expect(bundle.ports).toEqual(factoryInstallationPorts("tenant-01", 40_000));
     expect(bundle.host).toEqual(makeFactoryTestHostFacts(join(root, "runtime")));
-    expect([bundle.host.poolId, bundle.host.hostId, bundle.host.ports]).toEqual(["pool.fleet-a", "host.fleet-a", { pool: 41_002, supervisor: 41_003 }]);
+    expect([bundle.host.poolId, bundle.host.hostId, bundle.host.ports]).toEqual(["pool.fleet-a", "host.fleet-a", { pool: 41_002, supervisor: 41_003, poolMetrics: 41_006, supervisorMetrics: 41_007, prometheus: 41_008 }]);
     expect(bundle.runtimeDirectory).toBe(join(root, "runtime", "tenant-01"));
     expect(bundle.readinessDirectory).toBe(join(bundle.runtimeDirectory, "readiness"));
     expect(bundle.dataDirectory).toBe(join(bundle.runtimeDirectory, "harness-data"));
@@ -202,6 +219,20 @@ describe("renderFactoryInstallationBundle", () => {
     expect(json).toContain(`/run/ezcorp/secrets/${FACTORY_HOST_FILES.hostPublicKey}`);
   });
 
+  test("the harness, the gateway and the orchestrator each serve /metrics on their own port with the fleet's scrape token (C11 M4)", () => {
+    const document = (service: "harness" | "gateway" | "orchestrator", file: string) => (bundle.deliveries[service].files[file] as { document: { metrics?: unknown } }).document;
+    const token = `/run/ezcorp/secrets/${FACTORY_METRICS_TOKEN_FILE}`;
+    expect(document("harness", "factory-startup.json").metrics).toEqual({ hostname: "0.0.0.0", port: bundle.ports.harnessMetrics, scrapeTokenPath: token });
+    expect(document("gateway", "gateway.json").metrics).toEqual({ hostname: "0.0.0.0", port: bundle.ports.gatewayMetrics, scrapeTokenPath: token });
+    expect(document("orchestrator", "orchestrator.json").metrics).toEqual({ hostname: "0.0.0.0", port: bundle.ports.orchestratorMetrics, scrapeTokenPath: token });
+    for (const service of ["harness", "gateway", "orchestrator"] as const) {
+      expect(bundle.deliveries[service].files[FACTORY_METRICS_TOKEN_FILE]).toEqual({ source: bundle.host.metricsScrapeTokenPath });
+    }
+    expect(parseFactoryGatewayProcessConfig(JSON.parse(JSON.stringify(document("gateway", "gateway.json")))).metrics).toEqual(document("gateway", "gateway.json").metrics as never);
+    // Each rendered process document is one its own process accepts.
+    expect(parseFactoryOrchestratorProcessConfig(JSON.parse(JSON.stringify(document("orchestrator", "orchestrator.json")))).metrics).toEqual(document("orchestrator", "orchestrator.json").metrics as never);
+  });
+
   test("the harness delivery holds no master key, no wrapped key, and no operator material", () => {
     const harness = Object.keys(bundle.deliveries.harness.files);
     for (const forbidden of [FACTORY_KEY_FILES.master, FACTORY_KEY_FILES.wraps, FACTORY_HOST_FILES.hostKey, ...Object.values(FACTORY_MESH_OPERATOR_FILES).filter((name) => name !== FACTORY_MESH_FILES.caCertificate)]) {
@@ -235,8 +266,9 @@ describe("renderFactoryInstallationBundle", () => {
     const second = await renderFactoryInstallationBundle(other, makeFactoryTestDeploymentSettings(join(root, "runtime")));
     const paths = (value: FactoryInstallationBundle) => Object.values(value.deliveries).flatMap((delivery) => [delivery.directory, ...Object.values(delivery.files).flatMap((entry) => "source" in entry ? [entry.source] : [])]);
     const firstPaths = new Set(paths(bundle));
-    // Only the fleet host's public material is common to both.
-    expect(paths(second).filter((path) => firstPaths.has(path)).sort()).toEqual([bundle.host.caCertificatePath, bundle.host.hostPublicKeyPath, bundle.host.tokenPublicKeyPath].sort());
+    // Only the fleet host's public material is common to both, and the fleet's scrape token, once per tenant process.
+    const scrapeToken = bundle.host.metricsScrapeTokenPath;
+    expect(paths(second).filter((path) => firstPaths.has(path)).sort()).toEqual([bundle.host.caCertificatePath, bundle.host.hostPublicKeyPath, bundle.host.tokenPublicKeyPath, scrapeToken, scrapeToken, scrapeToken].sort());
     expect(second.ports.harness).toBe(40_020);
   });
 

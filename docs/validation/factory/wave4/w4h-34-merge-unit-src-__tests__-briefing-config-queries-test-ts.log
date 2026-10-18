@@ -1,0 +1,7 @@
+bun test v1.4.2 (744846f84)
+{"ts":"2026-10-17T23:28:46.713Z","level":"warn","msg":"briefing config has unparseable cron — disabling","subsystem":"db.queries.briefing-configs","userId":"9eeb36d0-0020-4e64-af1f-11261748955b","cron":"not a cron","error":"Error: invalid cron: expected 5 fields, got 3"}
+
+ 23 pass
+ 0 fail
+ 70 expect() calls
+Ran 23 tests across 1 file. [1173.00ms]

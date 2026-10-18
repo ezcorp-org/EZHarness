@@ -76,6 +76,8 @@ export interface FactoryFleetKubernetes {
    * container-runtime socket's group, given to the supervisor pod alone as supplementalGroups. Optional; 1 to 8 distinct positive ids.
    */
   readonly runtimeGroups?: readonly number[];
+  /** The platform Prometheus's namespace, the only source allowed to reach a `/metrics` port (C11). */
+  readonly monitoring: { readonly namespace: string };
   readonly ingress: { readonly listenPort: number; readonly nodePort: number };
   readonly egressCidrs: readonly string[];
   readonly egressPorts: readonly number[];
@@ -144,9 +146,10 @@ function kubernetesValid({ profile, kubernetes, resources }: FactoryFleetSetting
   const nodeSelector = k?.nodeSelector as unknown;
   const runtimeGroups = k?.runtimeGroups as unknown;
   return (runtimeGroups === undefined
-    ? keys(k, "egressCidrs,egressPorts,ingress,kubeconfigPath,kubectl,nodeCidrs,nodeSelector,runAsUser,runnerRoot,runtimeSocketPath,services,systemNamespace")
-    : keys(k, "egressCidrs,egressPorts,ingress,kubeconfigPath,kubectl,nodeCidrs,nodeSelector,runAsUser,runnerRoot,runtimeGroups,runtimeSocketPath,services,systemNamespace") && runtimeGroupsValid(runtimeGroups))
+    ? keys(k, "egressCidrs,egressPorts,ingress,kubeconfigPath,kubectl,monitoring,nodeCidrs,nodeSelector,runAsUser,runnerRoot,runtimeSocketPath,services,systemNamespace")
+    : keys(k, "egressCidrs,egressPorts,ingress,kubeconfigPath,kubectl,monitoring,nodeCidrs,nodeSelector,runAsUser,runnerRoot,runtimeGroups,runtimeSocketPath,services,systemNamespace") && runtimeGroupsValid(runtimeGroups))
     && absolute(k!.kubectl) && absolute(k!.kubeconfigPath) && absolute(k!.runtimeSocketPath) && absolute(k!.runnerRoot) && NAMESPACE.test(k!.systemNamespace)
+    && keys(k!.monitoring, "namespace") && NAMESPACE.test(k!.monitoring.namespace)
     && Array.isArray(k!.nodeCidrs)
     && Number.isSafeInteger(k!.runAsUser) && k!.runAsUser > 0
     && typeof nodeSelector === "object" && nodeSelector !== null && !Array.isArray(nodeSelector) && Object.values(nodeSelector).every((value) => typeof value === "string")

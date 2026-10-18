@@ -1,0 +1,10 @@
+bun test v1.4.2 (744846f84)
+{"ts":"2026-10-17T23:44:04.513Z","level":"info","msg":"resumed a parked run","subsystem":"workflow.runner","runId":"6f30c235-013b-4a85-a849-2f46f5a24d94","status":"suspended"}
+{"ts":"2026-10-17T23:44:04.525Z","level":"info","msg":"resumed a parked run","subsystem":"workflow.runner","runId":"8af94447-3c0d-48f6-b72d-22414e6e0608","status":"suspended"}
+{"ts":"2026-10-17T23:44:04.536Z","level":"warn","msg":"claimed run has no definition; leaving for the recovery sweep","subsystem":"workflow.runner","runId":"1690bcf1-eb35-4d2e-b283-916e823ef4b8","workflowName":"needs-a-human"}
+{"ts":"2026-10-17T23:44:04.541Z","level":"info","msg":"resumed a parked run","subsystem":"workflow.runner","runId":"8ab22898-1750-408e-8b97-d914fc5ed940","status":"suspended"}
+
+ 4 pass
+ 0 fail
+ 26 expect() calls
+Ran 4 tests across 1 file. [2.30s]

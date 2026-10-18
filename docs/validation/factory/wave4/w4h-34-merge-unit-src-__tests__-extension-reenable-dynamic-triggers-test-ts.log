@@ -1,0 +1,7 @@
+bun test v1.4.2 (744846f84)
+{"ts":"2026-10-17T23:31:43.403Z","level":"info","msg":"dynamic triggers revoked with the capability","subsystem":"ext.triggers.sweep","extensionId":"a9a07997-4f64-4cd5-873c-90aaa2850f75","disabled":2}
+
+ 4 pass
+ 0 fail
+ 5 expect() calls
+Ran 4 tests across 1 file. [1189.00ms]

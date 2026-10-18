@@ -22,11 +22,14 @@ import {
   type FactoryKubernetesObject,
   type FactoryKubernetesSettings,
 } from "./kubernetes-profile";
+import { factoryPrometheusRuleResource } from "../observability/alert-rules";
+import { FACTORY_PROMETHEUS_JOBS } from "../observability/prometheus-config";
 
 const SETTINGS: FactoryKubernetesSettings = {
   fleetId: "fleet-a", systemNamespace: "ezcorp-factory-system",
   egressCidrs: ["10.0.0.0/24", "10.0.1.0/24"], egressPorts: [5432, 7233, 9000], runAsUser: 10_001,
   runtimeSocketPath: "/run/containerd/containerd.sock", runnerRoot: "/srv/ezcorp-runner", nodeCidrs: ["172.18.0.0/16"], nodeSelector: { "ezcorp.io/runner": "true" },
+  monitoringNamespace: "monitoring",
 };
 
 /** The ingress fixture: the Compose platform's nginx, pinned, with one file in each of its three places. */
@@ -34,7 +37,7 @@ const NGINX = `docker.io/library/nginx@sha256:${"2".repeat(64)}`;
 const files = { "nginx.conf": "events {}\n", "conf/ezcorp-factory.conf": "server {}\n", "certs/tenant-01.crt": "crt", "certs/tenant-01.key": "key" };
 const ingress = () => renderFactoryKubernetesIngress(SETTINGS, { image: NGINX, listenPort: 8443, nodePort: 30443, files });
 
-interface Container { name: string; image: string; command: string[]; env: { name: string; value: string }[]; securityContext: Record<string, unknown>; volumeMounts: { name: string; mountPath: string; subPath?: string; readOnly?: boolean }[] }
+interface Container { name: string; image: string; command: string[]; env: { name: string; value: string }[]; securityContext: Record<string, unknown>; volumeMounts: { name: string; mountPath: string; subPath?: string; readOnly?: boolean }[]; ports?: { name: string; containerPort: number }[] }
 interface PodSpec { containers: Container[]; initContainers?: Container[]; volumes: Record<string, unknown>[]; hostNetwork?: boolean; securityContext?: Record<string, unknown>; automountServiceAccountToken?: boolean }
 
 const kind = (objects: readonly FactoryKubernetesObject[], name: string) => objects.filter((object) => object.kind === name);
@@ -107,7 +110,7 @@ describe("renderFactoryKubernetesInstallation", () => {
 
   test("Secret objects carry no data: they are created from the delivery files", () => {
     const secrets = kind(objects, "Secret");
-    expect(secrets.map((secret) => (secret.metadata as { name: string }).name).sort()).toEqual(FACTORY_CONTAINER_SERVICES.map(factoryKubernetesSecretName).sort());
+    expect(secrets.map((secret) => (secret.metadata as { name: string }).name).sort()).toEqual([...FACTORY_CONTAINER_SERVICES.map(factoryKubernetesSecretName), "factory-metrics-scrape"].sort());
     for (const secret of [...secrets, ...kind(system, "Secret")]) {
       expect(secret.data).toBeUndefined();
       expect(secret.stringData).toBeUndefined();
@@ -173,11 +176,13 @@ describe("renderFactoryKubernetesInstallation", () => {
     const policies = kind(objects, "NetworkPolicy");
     expect(policies.map((policy) => (policy.metadata as { name: string }).name)).toEqual(["default-deny", "installation"]);
     const policy = policies[1]!.spec as { ingress: unknown[]; egress: { to: unknown[]; ports: { port: number }[] }[] };
-    // The node-address rule (W4H-35 C3) is the third entry, tested on its own below.
-    expect(policy.ingress.slice(0, 2)).toEqual([
+    // The node-address rule (W4H-35 C3) is the fourth entry, tested on its own below.
+    expect(policy.ingress.slice(0, 3)).toEqual([
       { from: [{ namespaceSelector: { matchLabels: { "kubernetes.io/metadata.name": "ezcorp-factory-system" } }, podSelector: { matchLabels: { "app.kubernetes.io/name": "factory-ingress" } } }], ports: [{ protocol: "TCP", port: bundle.ports.harness }] },
       // Only the fleet host's supervisor, in the system namespace, reaches W01g's guest-broker route.
       { from: [{ namespaceSelector: { matchLabels: { "kubernetes.io/metadata.name": "ezcorp-factory-system" } } }], ports: [{ protocol: "TCP", port: bundle.ports.guestBroker }] },
+      // C11 M4: only the platform's Prometheus reaches the three /metrics ports.
+      { from: [{ namespaceSelector: { matchLabels: { "kubernetes.io/metadata.name": "monitoring" } } }], ports: [bundle.ports.gatewayMetrics, bundle.ports.harnessMetrics, bundle.ports.orchestratorMetrics].map((port) => ({ protocol: "TCP", port })) },
     ]);
     expect(policy.egress[1]).toEqual({ to: [{ ipBlock: { cidr: "10.0.0.0/24" } }, { ipBlock: { cidr: "10.0.1.0/24" } }], ports: [5432, 7233, 9000].map((port) => ({ protocol: "TCP", port })) });
     // The fleet host's shared pool and supervisor, both in the system namespace.
@@ -186,12 +191,12 @@ describe("renderFactoryKubernetesInstallation", () => {
 
   test("the supervisor runs on the host network, so the nodes' addresses reach the guest-broker route and are reached on the supervisor port (W4H-35 C3)", () => {
     const policy = kind(objects, "NetworkPolicy")[1]!.spec as { ingress: unknown[]; egress: unknown[] };
-    expect(policy.ingress[2]).toEqual({ from: [{ ipBlock: { cidr: "172.18.0.0/16" } }], ports: [{ protocol: "TCP", port: bundle.ports.guestBroker }] });
+    expect(policy.ingress[3]).toEqual({ from: [{ ipBlock: { cidr: "172.18.0.0/16" } }], ports: [{ protocol: "TCP", port: bundle.ports.guestBroker }] });
     expect(policy.egress[3]).toEqual({ to: [{ ipBlock: { cidr: "172.18.0.0/16" } }], ports: [{ protocol: "TCP", port: 41_003 }] });
     // No node addresses declared: no rule (an empty peer list would admit everything).
     const none = renderFactoryKubernetesInstallation(bundle, { ...SETTINGS, nodeCidrs: [] });
     const bare = kind(none, "NetworkPolicy")[1]!.spec as { ingress: unknown[]; egress: unknown[] };
-    expect([bare.ingress.length, bare.egress.length]).toEqual([2, 3]);
+    expect([bare.ingress.length, bare.egress.length]).toEqual([3, 3]);
   });
 
   test("the rendered list is frozen", () => {
@@ -267,6 +272,17 @@ describe("renderFactoryKubernetesSystem", () => {
     // the kubelet creating it root-owned (W4H-35 run 12).
     expect(spec.volumes).toContainEqual({ name: "runner-root", hostPath: { path: "/srv/ezcorp-runner", type: "Directory" } });
     expect(spec.containers[0]!.volumeMounts).toContainEqual({ name: "runner-root", mountPath: "/srv/ezcorp-runner" });
+  });
+
+  // Merge of W4H-34 (the /metrics ports, C11 M4) and W4H-35 (the supervisor's host-services port, its delivered config, HOME): the
+  // pool and the supervisor each carry both ports, and the supervisor keeps its delivered config path and base environment.
+  test("the pool and the supervisor carry their service port and their /metrics port, and the supervisor keeps its delivered config (merge W4H-34 x W4H-35)", () => {
+    const pool = podSpec(kind(system, "Deployment")[0]!);
+    expect(pool.containers[0]!.ports).toEqual([{ name: "pool", containerPort: bundle.host.ports.pool }, { name: "pool-metrics", containerPort: bundle.host.ports.poolMetrics }]);
+    const supervisor = podSpec(kind(system, "DaemonSet")[0]!);
+    expect(supervisor.containers[0]!.ports).toEqual([{ name: "supervisor", containerPort: bundle.host.ports.supervisor }, { name: "supervisor-metrics", containerPort: bundle.host.ports.supervisorMetrics }]);
+    expect(supervisor.containers[0]!.command).toEqual(["bun", "src/factory/runner/supervisor-process.ts", "/run/ezcorp/host-identity/supervisor.json"]);
+    expect(supervisor.containers[0]!.env).toContainEqual({ name: "HOME", value: "/tmp" });
   });
 
   test("each system workload has HOME on its own writable /tmp, because the image's user has no home (W4H-35 kind proof)", () => {
@@ -451,7 +467,7 @@ describe("image pins (deployment locks)", () => {
 
   test("the renderer refuses an unpinned image instead of returning objects", () => {
     for (const image of ["registry.test/ezcorp:latest", "registry.test/ezcorp@sha256:short", ""]) {
-      expect(() => renderFactoryKubernetesSystem(SETTINGS, image, { pool: 41_002, supervisor: 41_003 })).toThrow(expect.objectContaining({ code: "deployment_image_unpinned" }));
+      expect(() => renderFactoryKubernetesSystem(SETTINGS, image, { pool: 41_002, supervisor: 41_003, poolMetrics: 41_004, supervisorMetrics: 41_005 })).toThrow(expect.objectContaining({ code: "deployment_image_unpinned" }));
       expect(() => renderFactoryKubernetesInstallation({ ...bundle, image: { ...bundle.image, reference: image } }, SETTINGS)).toThrow(expect.objectContaining({ code: "deployment_image_unpinned" }));
     }
   });
@@ -468,5 +484,56 @@ describe("factoryKubernetesManifestStream", () => {
 
   test("an empty object list is an empty stream", () => {
     expect(factoryKubernetesManifestStream([])).toBe("\n");
+  });
+});
+
+describe("the hosted evaluator's objects (C11, W4H-34)", () => {
+  test("each tenant container names its /metrics port, and only the monitoring namespace may reach those ports", () => {
+    const pod = podSpec(kind(objects, "Deployment")[0]!) as unknown as { containers: Array<{ name: string; ports?: Array<{ name: string; containerPort: number }> }> };
+    const metricsPort = (name: string) => pod.containers.find((container) => container.name === name)!.ports!.find((port) => port.name.endsWith("-metrics"))!;
+    expect(metricsPort("harness")).toEqual({ name: "harness-metrics", containerPort: bundle.ports.harnessMetrics });
+    expect(metricsPort("gateway")).toEqual({ name: "gateway-metrics", containerPort: bundle.ports.gatewayMetrics });
+    expect(metricsPort("orchestrator")).toEqual({ name: "orch-metrics", containerPort: bundle.ports.orchestratorMetrics });
+    const policy = kind(objects, "NetworkPolicy").find((object) => (object.metadata as { name: string }).name === "installation")!;
+    const rule = (policy.spec as { ingress: Array<{ from: Array<{ namespaceSelector: { matchLabels: Record<string, string> } }>; ports: Array<{ port: number }> }> }).ingress
+      .find((entry) => entry.from[0]!.namespaceSelector.matchLabels["kubernetes.io/metadata.name"] === "monitoring")!;
+    expect(rule.ports.map((port) => port.port)).toEqual([bundle.ports.gatewayMetrics, bundle.ports.harnessMetrics, bundle.ports.orchestratorMetrics]);
+  });
+
+  test("a PodMonitor scrapes the three tenant processes with the scrape-token Secret, under the jobs the rules watch", () => {
+    const [monitor] = kind(objects, "PodMonitor");
+    expect(monitor).toMatchObject({ apiVersion: "monitoring.coreos.com/v1", metadata: { name: "installation", namespace: factoryKubernetesNamespace(bundle) } });
+    const endpoints = (monitor!.spec as { podMetricsEndpoints: Array<{ port: string; path: string; bearerTokenSecret: unknown; relabelings: Array<{ targetLabel: string; replacement: string }> }> }).podMetricsEndpoints;
+    expect(endpoints.map((endpoint) => [endpoint.port, endpoint.relabelings.find((label) => label.targetLabel === "job")!.replacement])).toEqual([
+      ["gateway-metrics", "factory-gateway"], ["harness-metrics", "factory-harness"], ["orch-metrics", "factory-orchestrator"],
+    ]);
+    for (const endpoint of endpoints) {
+      expect(endpoint.path).toBe("/metrics");
+      expect(endpoint.bearerTokenSecret).toEqual({ name: "factory-metrics-scrape", key: "token" });
+      expect(endpoint.relabelings).toContainEqual({ targetLabel: "tenant", replacement: bundle.installation.tenantId });
+    }
+    // The token arrives as a Secret created from the fleet's file, never inside a manifest.
+    expect(kind(objects, "Secret").find((object) => (object.metadata as { name: string }).name === "factory-metrics-scrape")).toEqual({ apiVersion: "v1", kind: "Secret", metadata: expect.objectContaining({ name: "factory-metrics-scrape" }), type: "Opaque" });
+  });
+
+  test("the system namespace carries the C11 rules and scrapes the shared pool", () => {
+    const [rules] = kind(system, "PrometheusRule");
+    expect(rules).toEqual(factoryPrometheusRuleResource(SETTINGS.systemNamespace, { "app.kubernetes.io/part-of": "ezcorp-factory", "ezcorp.io/fleet": "fleet-a" }) as never);
+    const pool = podSpec(kind(system, "Deployment")[0]!) as unknown as { containers: Array<{ ports: Array<{ name: string; containerPort: number }> }> };
+    expect(pool.containers[0]!.ports).toContainEqual({ name: "pool-metrics", containerPort: bundle.host.ports.poolMetrics });
+    const [monitor] = kind(system, "PodMonitor");
+    const endpoint = (monitor!.spec as { podMetricsEndpoints: Array<{ port: string; bearerTokenSecret: unknown; relabelings: Array<{ targetLabel: string; replacement: string }> }> }).podMetricsEndpoints[0]!;
+    expect([endpoint.port, endpoint.relabelings.find((label) => label.targetLabel === "job")!.replacement]).toEqual(["pool-metrics", "factory-pool"]);
+    expect(kind(system, "Secret").map((object) => (object.metadata as { name: string }).name)).toContain("factory-metrics-scrape");
+  });
+
+  test("every factory service has exactly one scrape job, the supervisor included (F3)", () => {
+    const jobs = [...kind(objects, "PodMonitor"), ...kind(system, "PodMonitor")].flatMap((monitor) => (monitor.spec as { podMetricsEndpoints: Array<{ relabelings: Array<{ targetLabel: string; replacement: string }> }> }).podMetricsEndpoints
+      .map((endpoint) => endpoint.relabelings.find((label) => label.targetLabel === "job")!.replacement));
+    expect(jobs.sort()).toEqual([...FACTORY_PROMETHEUS_JOBS].sort());
+    const supervisor = kind(system, "PodMonitor").find((monitor) => (monitor.metadata as { name: string }).name === "factory-supervisor")!;
+    expect((supervisor.spec as { selector: unknown }).selector).toEqual({ matchLabels: { "app.kubernetes.io/name": "factory-supervisor" } });
+    const daemon = podSpec(kind(system, "DaemonSet")[0]!) as unknown as { containers: Array<{ ports?: Array<{ name: string; containerPort: number }> }> };
+    expect(daemon.containers[0]!.ports).toContainEqual({ name: "supervisor-metrics", containerPort: bundle.host.ports.supervisorMetrics });
   });
 });

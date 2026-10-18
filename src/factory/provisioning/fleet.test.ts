@@ -107,7 +107,7 @@ describe("parseFactoryFleetSettings", () => {
 
   test("the hosted profile names its cluster by reference and how its pods see the fleet's services (W4H-35)", () => {
     const kubernetes = {
-      kubectl: "/nix/store/kubectl/bin/kubectl", kubeconfigPath: "/srv/operator/kubeconfig", systemNamespace: "ezcorp-factory-fleet-a",
+      kubectl: "/nix/store/kubectl/bin/kubectl", kubeconfigPath: "/srv/operator/kubeconfig", systemNamespace: "ezcorp-factory-fleet-a", monitoring: { namespace: "monitoring" },
       runAsUser: 10_001, runtimeSocketPath: "/run/podman/podman.sock", runnerRoot: "/srv/ezcorp-runner", nodeCidrs: ["10.89.1.0/24"], nodeSelector: {}, ingress: { listenPort: 8443, nodePort: 30443 },
       egressCidrs: ["10.89.0.0/24"], egressPorts: [5432, 8333, 32001],
       services: { databaseHost: "10.89.0.2", databasePort: 5432, ordinaryEndpoint: "http://10.89.0.3:8333", archiveEndpoint: "http://10.89.0.4:8333", temporalAddress: "10.89.0.5:7233", temporalHttpEndpoint: "https://10.89.0.5:7244" },
@@ -142,7 +142,7 @@ describe("parseFactoryFleetSettings", () => {
   // group) is a setting, optional, 1 to 8 distinct positive group ids; a bad one is refused as the kubernetes block.
   test("the hosted supervisor's runtime groups are optional distinct positive group ids (W4H-35 run 12)", () => {
     const kubernetes = {
-      kubectl: "/nix/store/kubectl/bin/kubectl", kubeconfigPath: "/srv/operator/kubeconfig", systemNamespace: "ezcorp-factory-fleet-a",
+      kubectl: "/nix/store/kubectl/bin/kubectl", kubeconfigPath: "/srv/operator/kubeconfig", systemNamespace: "ezcorp-factory-fleet-a", monitoring: { namespace: "monitoring" },
       runAsUser: 10_001, runtimeSocketPath: "/run/podman/podman.sock", runnerRoot: "/srv/ezcorp-runner", nodeCidrs: ["10.89.1.0/24"], nodeSelector: {}, ingress: { listenPort: 8443, nodePort: 30443 },
       egressCidrs: ["10.89.0.0/24"], egressPorts: [5432],
       services: { databaseHost: "10.89.0.2", databasePort: 5432, ordinaryEndpoint: "http://10.89.0.3:8333", archiveEndpoint: "http://10.89.0.4:8333", temporalAddress: "10.89.0.5:7233", temporalHttpEndpoint: "https://10.89.0.5:7244" },

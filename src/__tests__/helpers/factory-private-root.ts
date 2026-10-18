@@ -126,6 +126,7 @@ export function makeFactoryTestHostFacts(runtimeRoot: string, portBase = 40_000)
     caCertificatePath: join(paths.context.secretDirectory, FACTORY_HOST_FILES.caCertificate),
     hostPublicKeyPath: join(paths.context.secretDirectory, FACTORY_HOST_FILES.hostPublicKey),
     tokenPublicKeyPath: join(paths.context.secretDirectory, FACTORY_HOST_FILES.tokenPublicKey),
+    metricsScrapeTokenPath: join(paths.context.secretDirectory, FACTORY_HOST_FILES.metricsScrapeToken),
     poolReadinessDirectory: join(paths.readinessDirectory, "pool"),
     supervisorReadinessDirectory: join(paths.readinessDirectory, "supervisor"),
   });
@@ -139,6 +140,7 @@ export async function writeFactoryTestHostMaterial(facts: FactoryFleetHostFacts)
   await writeModeFile(facts.caCertificatePath, `marker:${FACTORY_HOST_FILES.caCertificate}\n`);
   await writeModeFile(facts.hostPublicKeyPath, `marker:${FACTORY_HOST_FILES.hostPublicKey}\n`);
   await writeModeFile(facts.tokenPublicKeyPath, `marker:${FACTORY_HOST_FILES.tokenPublicKey}\n`);
+  await writeModeFile(facts.metricsScrapeTokenPath, `marker:${FACTORY_HOST_FILES.metricsScrapeToken}\n`);
 }
 
 export function makeFactoryTestDeploymentSettings(runtimeRoot: string, overrides: Partial<FactoryDeploymentSettings> = {}): FactoryDeploymentSettings {
