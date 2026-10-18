@@ -9153,3 +9153,11 @@ Root original stack RED fe384a/099320/43a582/367ad1: supervisor refuses owned no
 Review evidence: actual old stack-root expression reaches original supervisor private reader refusal f2c8d8. Corrected placement passes real reader/schema under HOME0750 and0755 without changing HOME; first injected readiness constructor stops before keys/listeners/runner/DB. Unchanged private-files negative suite plus regression26tests/63assertions PASS023d58, Biome2filesclean. Focused strict compiler for changed stack+test PASS original7683/c6e317 under existing heavylock/120s bound. No full real stack replay claimed; root owns retainedguest startup after commit. Existing helper, guard, cwd, runners, timeouts and cleanup unchanged.
 
 Independent source/control CLEAR: actual0e34c6 26tests/63assertions; exactstack81607438/test3993586e, HOME0750/0755 and unchanged guard verified. Root alone owns corrected original stack startup.
+
+## Backup verification migration markers (2026-10-18)
+
+- [x] Reproduce original real PGlite backup verification failure.
+- [x] Compare exact baseline key/value state before and after restore and recovery.
+- [x] Run real consumer, focused denial controls, type/lint, and independent review.
+
+Review: original real backup verifier RED a13829 (two migration markers broke fixed counts); exact key+JSONvalue baseline repair passes full consumer9e17cc and4 real consumer controls/16 assertions48d9bb. Changed-value, extra-row and lost-marker restore controls all refuse. Focused strict TypeScript47ab17 and Biome254c4e pass. Independent SOURCE/CONTROL CLEAR exactscriptb35e49c2/test243123ea; reviewer replay a1c1554PASS/16. No production, schema, dependency, timeout or gate changes.
