@@ -33,7 +33,7 @@ beforeEach(() => {
   workflow = new WorkflowExecutor(agents, bus, {
     toolRunnerFactory: (_pending, target) => {
       received = target;
-      return { setCurrentUserId() {}, async executeToolCall() { order.push("tool"); return { content: [{ type: "text", text: "read" }] }; } };
+      return { setCurrentUserId() {}, async executeToolCall() { order.push("tool"); return { content: [{ type: "text", text: "read" }], isError: false }; } };
     },
   });
 });

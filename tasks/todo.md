@@ -9097,3 +9097,11 @@ Review: merge6bb060484d3b5e10cd9326113098ec1cecd5f21a preserves sensitive2c8d0c 
 - [x] Normal commit with hooks; exact SHA handoff prepared. No push or runtime changes.
 
 Review: Hosted real-auth job 117588508903 fails because the status locator matches two elements. The browser and per-file jobs then refuse incomplete producer data. The old assertion failed in real Chromium for both operation states. All five fixed cases passed, including missing or wrong completion refusal and the retained capacity indicator. Scoped Biome 2.5.14 passed. The full authenticated suite and build were not repeated. No runtime source changed. Independent review passed: native f6a9c1, real Chromium 153, all five cases.
+
+## Workflow mock contract repair
+- [x] Reproduce canonical TS2322 with supported typecheck in isolated3f9.
+- [x] Supply realistic ToolCallResult without weakening contracts/assertions.
+- [x] Run focused tests, full supported typecheck, Biome.
+- [x] Independent source/control review; normal commit next.
+
+Review: exact missing-isError TS2322 reproduced; only successful mock result corrected. Focused5tests/19assertions, full supported typecheck(all legs), Biome and diff-check pass. Independent factory review cbed29a3668d5bb67f7276cdbddc35e3192ec038ea576302991272395e2ca261 CLEAR.
