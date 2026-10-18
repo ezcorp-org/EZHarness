@@ -1,0 +1,34 @@
+W4H-26 REPORT — R7 integration merge (FROZEN, sixth freeze)
+
+Branch wp/w4h-26-runner-wiring. FROZEN head 27c946050. Merge commit 7e320fcb4 (parents 89716018f, integ/w00 1f63311fb);
+27c946050 adds only the gate file tasks/factory/w4h-26-GATES.md (a47315c3c10520f9) and tasks/todo.md lines. The 30 earlier
+commits are unchanged (no rebase). Earlier report kept: report-89716018f.txt (934ab5577ffb913e).
+Identity: all 32 commits in 1f63311fb..HEAD, the merge included, are archy 281643943+EZArchy@users.noreply.github.com as author
+and committer; the personal address occurs 0 times in the diff.
+
+R7 conflicts, resolved as ruled:
+- src/factory/provisioning/fleet.ts: both checks. parseFactoryFleetSettings calls the exported parseFactoryFleetRunnerProfiles
+  (runner profiles) and then W4H-27's installations.release check (factoryInstallationReleaseBlock + parseFactoryStartupConfig);
+  one probe document, startupProbeDocument (my runnerProbeDocument folded into it).
+- scripts/factory-fleet-init-local.test.ts: both import sets, all test bodies (W4H-27's localFleetRelease/LOCAL_RELEASE/
+  FACTORY_INSTALLATION_S3_RELEASE_DESTINATION/parseFactoryFleetSettings; mine parseFactoryFleetRunnerProfiles/referenceCodeV1).
+  W4H-27's fleet-init declares no default release profile; the runner-profile test holds with it.
+- tasks/todo.md: union. scripts/factory-fleet-init-local.ts and scripts/coverage-thresholds.json merged cleanly.
+
+LEGS at the merge: pre-commit hook (with the PostgreSQL URL exported, never printed): 10 mapped suites, 0 fail
+(logs/commit-merge-2.log); fleet 14/0, fleet-cli 11/0, fleet-init 5/0, startup-config 55/0; typecheck 0 (tc-gate lock-free,
+after build:packages; the gated hold was stopped by the 104 GB disk floor at 103 GB and cancelled by its pid); lint 0;
+gate-integrity 0 findings on both legs (BASE_REF=origin/main and default).
+Proof not re-run: no file the proof uses changed in the merge. The proof reads LOCAL_RUNNER_PROFILES directly (unchanged by the
+merge), not the fleet settings parser; W4H-27 changed no runner, package-preparation, staging, startup or proof-stack file.
+The R6 proof (proof/final-5.json 5fb3603cc20143ec) stands.
+
+Unchanged leftovers: generateCandidate fleet profile (placeholder pin); G7 Compose proof; G8d blocked; N1; N3.
+
+EVIDENCE (sha256, first 16; earlier entries in the earlier reports still hold)
+8c1a6f8edd6bc225 logs/commit-merge-2.log
+56f7b328a74378b7 legs/merge-typecheck.out
+72ea6774d3ff36c1 legs/merge-lint.log
+b1a0297506aab4a1 legs/merge-gi-main.log
+b1a0297506aab4a1 legs/merge-gi-default.log
+72b797b3083a1df4 commit-with-postgres.sh

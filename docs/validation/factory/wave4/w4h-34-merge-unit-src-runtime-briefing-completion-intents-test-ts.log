@@ -1,0 +1,7 @@
+bun test v1.4.2 (744846f84)
+{"ts":"2026-10-17T23:53:54.834Z","level":"info","msg":"briefing delivered","subsystem":"briefing.run","userId":"36cd8bb8-fc1b-4013-be16-7913187889d0","conversationId":"6adfda99-b1ec-4c9d-99e1-94483975ff77"}
+
+ 9 pass
+ 0 fail
+ 36 expect() calls
+Ran 9 tests across 1 file. [3.89s]

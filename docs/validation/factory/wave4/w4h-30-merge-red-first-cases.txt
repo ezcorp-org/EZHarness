@@ -1,0 +1,2 @@
+every call asks the runner to close its connection when the response ends
+the one-shot catalog fetch keeps no connection open after it (W4H-30)

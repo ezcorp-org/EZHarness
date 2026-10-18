@@ -15,7 +15,7 @@ import { serverModule } from "../../../src/__tests__/helpers/mock-cleanup";
 
 let mockUser: { id: string; role: string } | null = {
   id: "user-1",
-  email: "u@u.com",
+  email: "u@u.example",
   name: "U",
   role: "member",
 } as never;
@@ -242,7 +242,7 @@ describe("extension settings API", () => {
   beforeEach(() => {
     mockUser = {
       id: "user-1",
-      email: "u@u.com",
+      email: "u@u.example",
       name: "U",
       role: "member",
     } as never;

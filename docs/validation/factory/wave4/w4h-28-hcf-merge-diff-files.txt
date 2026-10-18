@@ -1,0 +1,8 @@
+.github/actionlint.yaml
+.github/workflows/ci.yml
+scripts/merge-lcov.ts
+src/__tests__/coverage-gate.test.ts
+src/__tests__/coverage-outside-repo.test.ts
+src/__tests__/gate-scripts.test.ts
+src/__tests__/merge-lcov-shard-vote.test.ts
+src/__tests__/quality-report-producers.test.ts

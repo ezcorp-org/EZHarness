@@ -1,0 +1,7 @@
+bun test v1.4.2 (744846f84)
+{"ts":"2026-10-17T04:30:02.473Z","level":"info","msg":"reconciled bundled conversation wiring","subsystem":"auto-wire-bundled","extensionId":"48ab4022-250e-47e3-962e-47dee6224b34","unwired":2,"inserted":2}
+
+ 3 pass
+ 0 fail
+ 9 expect() calls
+Ran 3 tests across 1 file. [1063.00ms]

@@ -28,9 +28,10 @@
       "type": "object"
     },
     "FactoryGuestModelRefusal": {
-      "description": "Why a model call was refused. A refusal is never a quiet substitution.\n\nThree codes name a provider that answered with an error: `provider_auth_failed` (it refused the credential), `provider_rate_limited` (it refused for rate), and `provider_unavailable` (anything else, including every error the host cannot classify; a narrower code is never guessed).",
+      "description": "Why a model call was refused. A refusal is never a quiet substitution.\n\nThree codes name a provider that answered with an error: `provider_auth_failed` (it refused the credential), `provider_rate_limited` (it refused for rate), and `provider_unavailable` (anything else, including every error the host cannot classify; a narrower code is never guessed). `budget_exceeded` is decided before any claim: the call's bound (its output bound plus its input at four bytes a token) does not fit what the attempt's token budget has left.",
       "enum": [
         "model_pin_mismatch",
+        "budget_exceeded",
         "input_too_large",
         "operation_busy",
         "operation_settled",

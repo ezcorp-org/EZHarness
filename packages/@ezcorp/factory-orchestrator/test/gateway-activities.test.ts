@@ -205,9 +205,13 @@ describe("authenticated factory gateway activities", () => {
     for (const path of [`${origin}/x`, "//localhost/x", "/\\\\localhost/x", "/x#fragment", "/x y", "/x\r\nheader", "relative"]) {
       await assert.rejects(transport.request("GET", path), /path/);
     }
-    for (const limit of [0, -1, 0.5, NaN, Infinity, 16 * 1024 * 1024 + 1]) {
+    // The ceiling is the host preparation reply's 64 MiB (GATEWAY_MAX_RESPONSE_LIMIT_BYTES, W4H-28 ruling B): one byte
+    // more is refused, and a limit above the old 16 MiB ceiling is accepted.
+    const ceiling = 64 * 1024 * 1024;
+    for (const limit of [0, -1, 0.5, NaN, Infinity, ceiling + 1]) {
       await assert.rejects(transport.request("GET", "/x", undefined, limit), /byte limit/);
     }
+    assert.equal((await transport.request("GET", "/internal/factory/v1/outbox/claim", undefined, ceiling)).statusCode, 204);
     await assert.rejects(transport.request("POST", "/x", { value: "large" }, 1), /request exceeds/);
     mode = "large";
     await assert.rejects(transport.request("GET", "/x", undefined, 10), /response exceeds/);

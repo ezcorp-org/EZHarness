@@ -1,0 +1,42 @@
+{
+ "package": "w4h-33",
+ "kind": "package merge: W4H-33 test hygiene on main (never-running tests run or carry a tracked reason, Docker-only tests get a Podman lane, fixtures move to reserved domains, measured timeouts are declared)",
+ "branch": "wp/w4h-33-test-hygiene",
+ "head": "e50aedefd96576ea4e72abb5e73e555540b77193",
+ "base": "b0b7bedf1c0de65af84febe7811171021f573b1c",
+ "main": "934531e2e9e8fd0c3c97e48527d545ca3476eb5e",
+ "mergeSha": "b6414ec0b137272e413da5e0db9b4421bc7ac386",
+ "treeEquality": {
+  "trialTree": "ba1726d7348662d09d9ab48eb9acfdc3d68e2b94",
+  "mergeTree": "ba1726d7348662d09d9ab48eb9acfdc3d68e2b94",
+  "equal": true
+ },
+ "validatorVerdict": "validator-8 hold UNION OK naming b6414ec0b (verdict-w4h-33.txt 3123dab932aab470; copied as w4h-33-validation.txt)",
+ "ownerReport": {
+  "w4h-33/report.txt": "c303c1793bbad473",
+  "w4h-33/red-on-base.txt": "f156134e8f67c89d"
+ },
+ "gateChange": "RULED: gate-integrity flags exactly the two deleted describe.skip files (task-stack- and todo-tracker-sdk-integration.test.ts) on both legs, plus scripts/merge-lcov.ts on the origin/main leg (the base's ruled W4H-28 follow-up change); checked once at the prep and in the hold; both legs PASS by the folder's expected sets",
+ "commit": {
+  "form": "detached merge, full-run hook, EZ_PRECOMMIT_TEST_MAX=154 (list-bound word), PG_HOOK=0, in the heavy lock; rerere off; archy noreply",
+  "try1": "19:12:24-19:14:11Z exit 1: fast checks typecheck exit 75 (another typecheck held the slot), nothing committed (.try1 receipts)",
+  "try2": "19:31:28-19:38:42Z exit 0; hook 127 bun files 1953 pass 0 fail + 27 vitest files 540 passed"
+ },
+ "r2": "tracked-skip-lines.txt e7672cd176fa4fd2 written from the in-lock pre-run w4h-33-r2-prerun (real child lcov at b6414ec0b); ruling T (enclosing describe.skipIf) installed before the hold",
+ "hold": {
+  "original": "19:50-20:39:38Z, HEAVY DONE status=1: 393 legs, 375 exit 0, 17 ruled list-bound not-runnable records (exit 97), 1 red: the case leg (case-web-junit ran a bun:test web file with vitest: a harness defect)",
+  "rerun": "21:16:05-21:20:49Z at the same merge, fresh out dir, tool-hash header: the case leg (case-web-junit v3) and web-bunleg-changed (N=11) only; HEAVY DONE status=0",
+  "union": "union-exit.py: union.exit 0, union-check.log (a-e); published with config.union.sh (HEAVY_EXIT/HEAVY_LOG/REVIEW)"
+ },
+ "identity": "publish identity step: identity-check commits b0b7bedf1..b6414ec0b, 28 commits, clean",
+ "published": "integ/w00 b0b7bedf1 -> b6414ec0b at 2026-10-16T21:46:54Z by publish-if-main.sh with config.union.sh in the gated job w4h-33-publish (margin 3); remote main 934531e2e = expected",
+ "pushed": false,
+ "excludedFromReceipts": [],
+ "deviations": [
+  "commit try 1 refused by the typecheck slot before any commit (.try1 receipts)",
+  "the hold's one red leg was a harness defect; ruled partial re-run and a derived union gate (team-lead 2026-10-16)",
+  "the re-run launched before validator-8's installed-hash check (crossed messages); the validator ruled the result stands",
+  "publish try 1 at 21:23:19Z refused by publish.sh (hold not green) before the union gate existed; kept as publish.try1-refused-not-green.out",
+  "the proof-ref switch record reattach.log renamed by ruled mv to reattach-proof-ref.log before the publish"
+ ]
+}

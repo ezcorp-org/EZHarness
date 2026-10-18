@@ -1,0 +1,12 @@
+Checked 1 file in 7ms. No fixes applied.
+── Tests (staged) ─────────────────────────────────
+  bun: src/__tests__/extension-lifecycle-service-trusted-local.test.ts
+bun test v1.4.2 (744846f84)
+{"ts":"2026-10-15T23:44:11.240Z","level":"error","msg":"Extension recovery requires attention","subsystem":"ext.author.lifecycle","installationId":"152604af-5f48-44c3-9792-2fbcc8cd7fb4","code":"recovery_failed"}
+{"ts":"2026-10-15T23:44:11.240Z","level":"error","msg":"Extension recovery requires attention","subsystem":"ext.author.lifecycle","installationId":"62e7299e-71bd-4332-a2c0-4408606b2d00","code":"recovery_failed"}
+{"ts":"2026-10-15T23:44:11.240Z","level":"error","msg":"Extension recovery requires attention","subsystem":"ext.author.lifecycle","code":"recovery_failed"}
+
+ 6 pass
+ 0 fail
+ 19 expect() calls
+Ran 6 tests across 1 file. [1250.00ms]

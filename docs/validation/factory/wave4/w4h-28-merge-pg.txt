@@ -1,0 +1,9 @@
+./tests/postgres/factory-admission-stop.test.ts
+./tests/postgres/factory-artifact-materials.test.ts
+./tests/postgres/factory-compute-admissions.test.ts
+./tests/postgres/factory-console.test.ts
+./tests/postgres/factory-guest-material-broker.test.ts
+./tests/postgres/factory-guest-model-journal.test.ts
+./tests/postgres/factory-provisioning.test.ts
+./tests/postgres/factory-restore.test.ts
+./tests/postgres/factory-stop-lock-order.test.ts

@@ -4,8 +4,10 @@ import type { FactoryAttemptAuthority } from "../executions";
 import { verifyPoolToken, type PoolTokenVerifierOptions } from "../pool/service-token";
 import { FACTORY_GUEST_BROKER_AUDIENCE, FACTORY_GUEST_BROKER_MAX_BODY_BYTES, FACTORY_GUEST_BROKER_PATH, FACTORY_GUEST_BROKER_SCOPE } from "./guest-broker-contract";
 import type { FactoryGuestMaterialFrameBroker } from "./guest-material-broker";
+import { isFactoryGuestMaterialRead, isFactoryGuestRepositoryRead } from "@ezcorp/factory-sdk";
 import { isFactoryGuestModelPayload } from "./guest-model-broker";
 import type { FactoryGuestModelFrameBroker } from "./guest-model-route";
+import { factoryGuestRepositoryUnconfigured, type FactoryGuestRepositoryReadBroker } from "./guest-repository-read";
 
 /**
  * The product-side route a runner host forwards a guest's staging frame or
@@ -53,6 +55,13 @@ export interface FactoryGuestBrokerServiceOptions {
    * handed to the staging broker, which would call it an invalid frame.
    */
   readonly model: FactoryGuestModelFrameBroker;
+  /** The repository-read half (W4H-28). Absent when the installation declares no repository sources. */
+  readonly repository?: FactoryGuestRepositoryReadBroker;
+  /**
+   * Called each time a declared host forwards for an attempt its lease does
+   * not hold, which includes another tenant's attempt (C11 A8 counts these).
+   */
+  readonly denied?: () => void;
   readonly jwtSecret: string;
   readonly installationId: string;
 }
@@ -93,9 +102,14 @@ export function createFactoryGuestBrokerRouteHandler(options: FactoryGuestBroker
     // rather than reaching a broker that would have to invent a scope for it.
     if (!authority) return json(401, { error: "unauthorized" });
     // A host forwards only for the attempts its own lease holds.
-    if (await options.leaseHost(authority) !== hostId) return json(403, { error: "forbidden_host" });
+    if (await options.leaseHost(authority) !== hostId) {
+      options.denied?.();
+      return json(403, { error: "forbidden_host" });
+    }
 
     if (isFactoryGuestModelPayload(body.payload)) return json(200, await options.model.frame(authority, body.attemptToken, body.payload));
+    if (isFactoryGuestMaterialRead(body.payload)) return json(200, await options.broker.read(authority, body.payload));
+    if (isFactoryGuestRepositoryRead(body.payload)) return json(200, options.repository === undefined ? factoryGuestRepositoryUnconfigured(body.payload) : await options.repository.frame(authority, body.payload));
     return json(200, await options.broker.frame(authority, body.payload));
   };
 }

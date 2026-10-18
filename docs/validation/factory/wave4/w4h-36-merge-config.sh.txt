@@ -1,0 +1,7 @@
+# W4H-36-docs-v10-7cac5837c-on-c8ae394ca detached-merge config (integrator-3, prep.sh 2026-10-16T14:01:58Z). Base c8ae394ca (integ/w00 when prepared); trial tree 978ee8e5f.
+D=/tmp/factory-platform-evidence/w00/w4h-merge/w4h-36-docs-v10-7cac5837c-on-c8ae394ca
+BRANCH=wp/w4h-36-docs-v10 HEADSHA=7cac5837c09502f387f6b2b405d0bcc273f8e615
+BASE=c8ae394cac9d801fd1ef4ea8627f5bebe485c86f TREE=978ee8e5f5e561c98f891a55d928f47a2d0da8d0
+LIST=/tmp/factory-platform-evidence/w00/w4h-merge/w4h-36-docs-v10-7cac5837c-on-c8ae394ca/hook-mapped-7cac5837c.txt MSG=/tmp/factory-platform-evidence/w00/w4h-merge/w4h-36-docs-v10-7cac5837c-on-c8ae394ca/commit-msg.txt FOCUSED=/tmp/factory-platform-evidence/w00/w4h-merge/w4h-36-docs-v10-7cac5837c-on-c8ae394ca/focused.txt
+SKIP=0 GATE_APPROVED=0 PG_HOOK=0
+HEAVY_EXIT=/tmp/factory-platform-evidence/w00/w4h-merge/w4h-36-docs-v10-7cac5837c-on-c8ae394ca/heavy.exit REVIEW=

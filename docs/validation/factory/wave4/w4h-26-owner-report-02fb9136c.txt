@@ -1,0 +1,33 @@
+W4H-26 REPORT — N5 (FROZEN, fourth freeze)
+
+Branch wp/w4h-26-runner-wiring from origin/main 1981febd2. FROZEN head 02fb9136c (code head 264fb7914; 02fb9136c adds only the
+gate file tasks/factory/w4h-26-GATES.md 012040e9dd3c8149 and tasks/todo.md lines). Earlier reports kept: report-d2d78d98e.txt,
+report-fa15418c4.txt, report-9326252cc.txt (953e677f28e543a3). G1 and H4 as fixed at 9326252cc stay unchanged.
+Identity: every commit author and committer is 281643943+EZArchy@users.noreply.github.com. No model call.
+
+N5 (ruled): 9fd90638f — /api/ready publishes each staging failure as code factory_builtin_runner_stage_failed with a reason
+(source_missing, invalid_source, runner_unconfigured, lifecycle_refused, owner_inactive, unexpected) and its fixed text; the
+raw error stays in the server log. Red first: a planted error naming a path; the readiness detail carries the code and the
+reason and neither the path nor "ENOENT"; per-package failures carry only manifestName, code, reason, message.
+264fb7914 — the test's ContractError takes its code (typecheck).
+
+LEGS: at 9fd90638f (final.log): patch PASS (25 files); new-file PASS (5); CRAP none over 30; guard 42 files 524/0; proof passed
+(proof/final-4.json: /api/ready staged both, failed none; snapshot executed in the pinned guest; content equal). At 264fb7914
+(one test line changed): typecheck 0 (in the lock, after build:packages; tc-only.log); lint 0; gate-integrity 0 findings on
+both legs; red-first 17 of 17 red on 1981febd2; D6 mutants 4 of 4 killed.
+
+Unchanged leftovers: generateCandidate fleet profile (placeholder pin); G7 Compose proof after W4H-27; G8d blocked; N1; N3.
+
+EVIDENCE (sha256, first 16; earlier entries in the earlier reports still hold)
+754e28dc5ceda600 proof/final-4.json
+cb083aac7fcb45a5 red/red-on-base.txt
+a5b764c6810f38e4 mutants/d6-mutants.txt
+7fa3f4f75dd7cb1a legs/final.log
+e51fc1b99ccaf416 legs/final-focused-5.out
+2a6d2c4b4bf7856b legs/focused/patch.log
+00f5980c88a2a319 legs/focused/crap.log
+b5e492cbc010fbce legs/final-guard-4.out
+b9e42b54ca9c4b3b legs/final-typecheck-7.out
+af3766b50dbd1f37 legs/tc-only.log
+70064ec6236a6a5f legs/final-lint-4.log
+b1a0297506aab4a1 legs/final-gi-main-4.log

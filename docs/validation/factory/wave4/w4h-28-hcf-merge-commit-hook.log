@@ -1,0 +1,38 @@
+Checked 6 files in 36ms. No fixes applied.
+── Tests (staged) ─────────────────────────────────
+  bun: src/__tests__/coverage-gate.test.ts
+bun test v1.4.2 (744846f84)
+
+ 18 pass
+ 0 fail
+ 88 expect() calls
+Ran 18 tests across 1 file. [2.03s]
+  bun: src/__tests__/coverage-outside-repo.test.ts
+bun test v1.4.2 (744846f84)
+
+ 5 pass
+ 0 fail
+ 13 expect() calls
+Ran 5 tests across 1 file. [1.59s]
+  bun: src/__tests__/gate-scripts.test.ts
+bun test v1.4.2 (744846f84)
+
+ 254 pass
+ 0 fail
+ 652 expect() calls
+Ran 254 tests across 1 file. [4.09s]
+  bun: src/__tests__/merge-lcov-shard-vote.test.ts
+bun test v1.4.2 (744846f84)
+
+ 18 pass
+ 0 fail
+ 138 expect() calls
+Ran 18 tests across 1 file. [3.76s]
+  bun: src/__tests__/quality-report-producers.test.ts
+bun test v1.4.2 (744846f84)
+
+ 4 pass
+ 0 fail
+ 18 expect() calls
+Ran 4 tests across 1 file. [376.00ms]
+[detached HEAD ec092aa75] merge: wp/w4h-28-hosted-coverage-fix 38ec686d8 into integ/w00 (the hosted coverage fix: a test's /tmp bundle never enters coverage, and the coverage merge keeps repository sources only (W4H-28 follow-up))

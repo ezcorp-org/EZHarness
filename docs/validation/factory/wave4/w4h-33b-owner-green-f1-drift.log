@@ -1,0 +1,27 @@
+bun test v1.4.2 (744846f84)
+
+src/__tests__/ci-test-set-drift.test.ts:
+(pass) CI test-set drift > every set function yields a non-empty set (a broken find must not silently empty a CI set) [0.07ms]
+(pass) CI test-set drift > sweep sanity floor — the union covers the known population size [0.01ms]
+(pass) CI test-set drift > every src/ + packages/ + scripts/ test file belongs to >=1 CI-executed set [0.34ms]
+(pass) CI test-set drift > documented exceptions stay honest (exist on disk, still uncovered) [0.11ms]
+(pass) CI test-set drift > every script test belongs to passfail_files [39.61ms]
+(pass) CI test-set drift > every script test belongs to coverage_host_files [41.27ms]
+(pass) examples tree pass/fail gating > sweep floor — the examples tree still has its known population [0.03ms]
+(pass) examples tree pass/fail gating > every examples test file is in the pass/fail set P [0.10ms]
+(pass) examples tree pass/fail gating > ...and in the coverage set C, so the cov shards are their gating home (P∩C) [0.08ms]
+(pass) web/src pass/fail gating > isolated Hub worker suite runs in prepared root host lanes, not web orphans [94.54ms]
+(pass) web/src pass/fail gating > isolated price-chart release suite runs in prepared root host lanes, not web orphans [97.78ms]
+(pass) web/src pass/fail gating > invite limiter isolation runs in prepared root host lanes, not web orphans [94.87ms]
+(pass) web/src pass/fail gating > nested extension uploads runs in prepared root host lanes, not web orphans [100.02ms]
+(pass) web/src pass/fail gating > direct Bun utility producers run in their coverage leg once [136.00ms]
+(pass) web/src pass/fail gating > sweep floor — the scoped web host set still has its known population [0.04ms]
+(pass) web/src pass/fail gating > every web/src file that runs under coverage is in the pass/fail set P [0.09ms]
+(pass) web/src pass/fail gating > C \ P is empty overall — no file is coverage-measured without gating [0.26ms]
+(pass) web/src pass/fail gating > web gating exceptions stay honest (exist on disk, still ungated) [10.84ms]
+
+ 18 pass
+ 0 fail
+ 177 expect() calls
+Ran 18 tests across 1 file. [1464.00ms]
+exit=0

@@ -1,0 +1,16 @@
+bun test v1.4.2 (744846f84)
+{"ts":"2026-10-16T01:18:40.215Z","level":"warn","msg":"call-provenance resolve called with no ezCallId on the reverse-RPC","subsystem":"ext.call-provenance"}
+{"ts":"2026-10-16T01:18:40.215Z","level":"error","msg":"reverse-RPC provenance unresolved — no valid host-issued ezCallId; failing fast","subsystem":"ext.tool-executor","method":"ezcorp/api.request","extensionId":"untrusted","tokenActorExtensionId":null}
+{"ts":"2026-10-16T01:18:40.215Z","level":"warn","msg":"call-provenance resolve called with no ezCallId on the reverse-RPC","subsystem":"ext.call-provenance"}
+{"ts":"2026-10-16T01:18:40.215Z","level":"error","msg":"reverse-RPC provenance unresolved — no valid host-issued ezCallId; failing fast","subsystem":"ext.tool-executor","method":"ezcorp/project.openPr","extensionId":"untrusted","tokenActorExtensionId":null}
+{"ts":"2026-10-16T01:18:40.215Z","level":"warn","msg":"call-provenance resolve called with no ezCallId on the reverse-RPC","subsystem":"ext.call-provenance"}
+{"ts":"2026-10-16T01:18:40.215Z","level":"error","msg":"reverse-RPC provenance unresolved — no valid host-issued ezCallId; failing fast","subsystem":"ext.tool-executor","method":"ezcorp/project.git","extensionId":"untrusted","tokenActorExtensionId":null}
+{"ts":"2026-10-16T01:18:40.216Z","level":"warn","msg":"call-provenance resolve called with no ezCallId on the reverse-RPC","subsystem":"ext.call-provenance"}
+{"ts":"2026-10-16T01:18:40.216Z","level":"error","msg":"reverse-RPC provenance unresolved — no valid host-issued ezCallId; failing fast","subsystem":"ext.tool-executor","method":"ezcorp/network.fetch","extensionId":"untrusted","tokenActorExtensionId":null}
+{"ts":"2026-10-16T01:18:40.216Z","level":"warn","msg":"call-provenance resolve called with no ezCallId on the reverse-RPC","subsystem":"ext.call-provenance"}
+{"ts":"2026-10-16T01:18:40.216Z","level":"error","msg":"reverse-RPC provenance unresolved — no valid host-issued ezCallId; failing fast","subsystem":"ext.tool-executor","method":"ezcorp/env.get","extensionId":"untrusted","tokenActorExtensionId":null}
+
+ 6 pass
+ 0 fail
+ 24 expect() calls
+Ran 6 tests across 1 file. [452.00ms]

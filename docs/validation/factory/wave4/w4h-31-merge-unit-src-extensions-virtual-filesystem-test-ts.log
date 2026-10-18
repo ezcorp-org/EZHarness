@@ -1,0 +1,10 @@
+bun test v1.4.2 (744846f84)
+{"ts":"2026-10-16T01:20:03.930Z","level":"warn","msg":"call-provenance resolve called with no ezCallId on the reverse-RPC","subsystem":"ext.call-provenance"}
+{"ts":"2026-10-16T01:20:03.930Z","level":"error","msg":"reverse-RPC provenance unresolved — no valid host-issued ezCallId; failing fast","subsystem":"ext.tool-executor","method":"ezcorp/fs.read","extensionId":"fixture","tokenActorExtensionId":null}
+{"ts":"2026-10-16T01:20:03.930Z","level":"warn","msg":"call-provenance resolve called with no ezCallId on the reverse-RPC","subsystem":"ext.call-provenance"}
+{"ts":"2026-10-16T01:20:03.930Z","level":"error","msg":"reverse-RPC provenance unresolved — no valid host-issued ezCallId; failing fast","subsystem":"ext.tool-executor","method":"ezcorp/fs.read","extensionId":"fixture","tokenActorExtensionId":null}
+
+ 7 pass
+ 0 fail
+ 39 expect() calls
+Ran 7 tests across 1 file. [460.00ms]

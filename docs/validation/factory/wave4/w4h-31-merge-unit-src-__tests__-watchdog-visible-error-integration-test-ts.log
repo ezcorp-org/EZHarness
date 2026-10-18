@@ -1,0 +1,8 @@
+bun test v1.4.2 (744846f84)
+{"ts":"2026-10-16T01:16:57.317Z","level":"warn","msg":"Watchdog: process may have been suspended","subsystem":"executor.watchdog","runId":"run-vis-1","conversationId":"conv-vis-1","suspendedMs":80000}
+{"ts":"2026-10-16T01:16:57.317Z","level":"error","msg":"Watchdog tripped, interrupting run","subsystem":"executor.watchdog","runId":"run-vis-1","conversationId":"conv-vis-1","idleMs":130000,"reason":"Tool extension-author__create_extension exceeded its 30000ms call timeout — the computer may have been asleep or suspended for about 1 min during this run, which can interrupt the model connection. Send your message again to retry."}
+
+ 2 pass
+ 0 fail
+ 19 expect() calls
+Ran 2 tests across 1 file. [486.00ms]

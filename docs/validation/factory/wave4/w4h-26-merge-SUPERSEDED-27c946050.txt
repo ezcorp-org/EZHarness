@@ -1,0 +1,1 @@
+SUPERSEDED: W4H-26 27c946050 committed as 2aebea941 (never published); its hold was RED (the patch gate on bundled.ts = integrator-5's hold-set gap; two dead stub lines in supervisor-process.test.ts = the owner's R8). Re-prep at the R8 head with the importers rule. integrator-5 2026-10-14T05:18:54Z

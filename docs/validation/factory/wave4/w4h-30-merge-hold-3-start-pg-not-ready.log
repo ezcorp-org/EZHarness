@@ -1,0 +1,4 @@
+resource-gate 2026-10-14T14:21:21Z w4h-30-hold-3 outside-lock disk=112G memAvailable=13GiB swapFreeKiB=6125060/17173956 floors disk>=104G swap>=2621440KiB mem>=12GiB
+gated-flock w4h-30-hold-3: gate green outside the lock, queue for the lock (try 1) 2026-10-14T14:21:21Z
+own-pg: STOP: not ready
+gated-flock w4h-30-hold-3: command exit 3 2026-10-14T14:28:38Z

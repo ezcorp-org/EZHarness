@@ -1,7 +1,7 @@
 import { closeSync, constants, fstatSync, openSync, readSync } from "node:fs";
 import { isAbsolute } from "node:path";
 import type { Runner } from "@ezcorp/extension-contract";
-import { RunnerClient } from "@ezcorp/extension-runner";
+import { RunnerClient, RunnerError } from "@ezcorp/extension-runner";
 import { LifecycleError } from "./v4/types";
 import { getExtensionRunnerMode } from "./runner-mode";
 import { resolveTrustedLocalRunner } from "./trusted-local-runner";
@@ -70,6 +70,12 @@ export function createLazyExtensionRunner(resolve: () => Runner | Promise<Runner
     async cancel(id) { return (await resolve()).cancel(id); },
     async inspect(id) { return (await resolve()).inspect(id); },
     async collectArtifacts(digest) { return (await resolve()).collectArtifacts(digest); },
+    // A runner without restore answers as an older runner service does, unknown_method (W4H-32).
+    async restoreArtifact(digest, files) {
+      const runner = await resolve();
+      if (!runner.restoreArtifact) throw new RunnerError("unknown_method", "The extension runner cannot restore an artifact");
+      return runner.restoreArtifact(digest, files);
+    },
     async capabilities() { return await (await resolve()).capabilities?.() ?? { processSpawnEnforcement: false }; },
   };
 }

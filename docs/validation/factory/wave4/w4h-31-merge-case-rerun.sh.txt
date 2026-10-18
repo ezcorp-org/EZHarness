@@ -1,0 +1,17 @@
+#!/usr/bin/env bash
+# W4H-31 case-check re-run (team-lead ruling (b), 2026-10-15): ONLY the w4h26-invariant-cases leg, in the lock (called by gated-flock), with the fixed
+# tracer (bash-trace-env.sh 5bd68174bcace71c). Appends to heavy-batch.log under a new leg name; keeps the first run's case-check/ as case-check.run1/.
+# Writes NO "HEAVY DONE" line and never touches heavy.exit: the hold's recorded result stays; the judgment file names this re-run.
+# case-rerun.sh <label> (rerun1, rerun2, ...): the leg is w4h26-invariant-cases-<label>; the case-check/ found at the start is kept as
+# case-check.before-<label>/ (rerun1 kept the hold's run as case-check.run1/). SYNC_BASE_MAIN in the environment selects case-check v8's W-SYNC mode.
+set -u; LBL=${1:?label}
+E=/tmp/factory-platform-evidence/w00; D=/tmp/factory-platform-evidence/w00/w4h-merge/w4h-31-sync-main-934531e2e
+. $E/heavy-lib.sh
+M=$(cat $D/merge-sha.txt)
+[ "$(git rev-parse HEAD)" = "$M" ] && [ -z "$(git branch --show-current)" ] && [ -z "$(git status --porcelain)" ] || { echo "REFUSED: not at the clean detached merge $M" >> "$S"; exit 3; }
+[ -d $D/case-check.run1 ] || cp -a $D/case-check $D/case-check.run1
+[ -d $D/case-check.before-$LBL ] || cp -a $D/case-check $D/case-check.before-$LBL
+echo "--- CASE-CHECK RE-RUN (team-lead ruling (b), 2026-10-15) $LBL SYNC_BASE_MAIN=${SYNC_BASE_MAIN:-unset} case-check $(sha256sum $E/w4h-merge/w4h-24-web-shard-timeout/case-check.sh | cut -c1-16) tracer $(sha256sum $E/w4h-merge/w4h-24-web-shard-timeout/bash-trace-env.sh | cut -c1-16) $(date -u +%FT%TZ)" >> "$S"
+NOTEST=1 leg w4h26-invariant-cases-$LBL bash $E/w4h-merge/w4h-24-web-shard-timeout/case-check.sh "$M" "$D"
+echo "--- CASE-CHECK RE-RUN END $LBL status=$st (not a HEAVY DONE) $(date -u +%FT%TZ)" >> "$S"
+exit $st

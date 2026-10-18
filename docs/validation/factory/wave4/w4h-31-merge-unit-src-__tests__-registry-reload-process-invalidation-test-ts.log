@@ -1,0 +1,7 @@
+bun test v1.4.2 (744846f84)
+{"ts":"2026-10-16T00:55:09.506Z","level":"info","msg":"extension subprocess invalidated mid-call — kill deferred until it settles","subsystem":"extensions/registry","extensionId":"self","inFlightCalls":1}
+
+ 6 pass
+ 0 fail
+ 15 expect() calls
+Ran 6 tests across 1 file. [471.00ms]

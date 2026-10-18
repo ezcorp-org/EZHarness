@@ -16,9 +16,10 @@
  * `FactoryPackagePreparations` takes a container runner, and the product
  * process does not hold one for attempts. The tempting shape is a local stub
  * whose `build` throws. The correct one is the runner the product already
- * holds: `createLazyExtensionRunner` resolves the configured runner socket per
+ * holds: `productExtensionRunner` resolves the configured runner socket per
  * call and refuses by name when none is configured, which is the same seam the
- * extension lifecycle uses (C13 — no second runner path). Nothing on the
+ * extension lifecycle uses (C13 — no second runner path), and it restores an
+ * artifact the runner's store lost from the release blobs (W4H-32). Nothing on the
  * dispatch path calls it: `assertDispatchReady` is a database read.
  *
  * **The attempt token secret is read, never generated.** A generated secret
@@ -30,10 +31,11 @@
  */
 import type { FactoryRunnerRequest } from "@ezcorp/factory-sdk";
 import { factoryRunnerRequestDigest } from "@ezcorp/factory-sdk/compiler";
+import type { Runner } from "@ezcorp/extension-contract";
 import { buildLimits } from "@ezcorp/extension-runner";
 import type { TransactionalDb } from "../db/migrations/types";
 import { DatabaseLifecycleRepository } from "../db/queries/extension-releases";
-import { createLazyExtensionRunner } from "../extensions/runner-connection";
+import { productExtensionRunner } from "../extensions/runner-rehydration";
 import type { BlobStore } from "../extensions/v4/types";
 import { signFactoryAttemptToken } from "./attempt-token";
 import type { FactoryAttemptQueue } from "./attempt-queue";
@@ -97,6 +99,11 @@ export function factoryPackageReadiness(
   tenantId: string,
   grants: FactoryGrants,
   blobs: BlobStore,
+  /**
+   * The builder `prepare` goes through: the host supervisor's preparation client where one is composed (W4H-26),
+   * else the product's runner, which restores an artifact its store lost from these release blobs (W4H-32).
+   */
+  builder: Pick<Runner, "build" | "collectArtifacts"> = productExtensionRunner(blobs, database),
 ): FactoryPackagePreparations {
   return new FactoryPackagePreparations(
     database,
@@ -104,7 +111,7 @@ export function factoryPackageReadiness(
     grants,
     new FactoryPackageTrusts(database, tenantId, grants),
     new FactoryV4PackageCatalog(new DatabaseLifecycleRepository(database as never), blobs),
-    createLazyExtensionRunner(),
+    builder,
     buildLimits,
   );
 }

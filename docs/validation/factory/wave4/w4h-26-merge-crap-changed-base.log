@@ -1,0 +1,24 @@
+CRAP: --changed against 1f63311fb730722a6750695fc22884e3590fb81e → 24 measured file(s) in diff
+
+CRAP: 123 functions in 24 files (max 30, warn 15)
+
+Worst 15:
+     23.0  cc= 23 cov=100%  src/factory/installation-startup.ts:783 installationCollaborators
+     22.0  cc= 22 cov=100%  src/factory/runner/host-launch-service.ts:157 <anonymous@157>
+     19.0  cc= 19 cov=100%  src/factory/startup-config.ts:498 wellFormedRunnerProfile
+     17.0  cc= 17 cov=100%  src/factory/startup-config.ts:781 checkRunnerProfiles
+     16.0  cc= 16 cov=100%  src/extensions/bundled-bootstrap.ts:116 stageBundledExtensionSources
+     16.0  cc= 16 cov=100%  src/factory/package-preparation.ts:259 hydrate
+     16.0  cc= 16 cov=100%  src/factory/runtime-workers.ts:138 registerFactoryRuntimeWorkers
+     11.0  cc= 11 cov=100%  src/factory/host-preparation-client.ts:35 build
+     11.0  cc= 11 cov=100%  src/factory/provisioning/fleet.ts:102 parseFactoryFleetSettings
+     10.0  cc= 10 cov=100%  src/factory/installation-startup.ts:1012 composeAttemptDispatch
+     10.0  cc= 10 cov=100%  src/factory/runner/host-launch-service.ts:215 hostRefusalFor
+     10.0  cc= 10 cov=100%  src/factory/runner/host-launch-service.ts:244 factoryHostPreparationFromWire
+      9.0  cc=  9 cov=100%  src/factory/package-preparation.ts:237 loadForBindingInTransaction
+      8.0  cc=  8 cov=100%  src/factory/reference-code/runner-install.ts:33 referenceCodeRunnerStageFailure
+      7.0  cc=  7 cov=100%  src/factory/package-preparation.ts:226 projectScoped
+
+7 function(s) above the warn line (not failing).
+
+✓ no touched function exceeds CRAP 30

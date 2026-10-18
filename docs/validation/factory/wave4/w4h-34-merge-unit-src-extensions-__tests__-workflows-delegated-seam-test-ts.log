@@ -1,0 +1,17 @@
+PROVENANCE: redacted copy for the wave4 receipts (team-lead's ruling 263c60814c6fbad0/8862df7d0b720148). Original: /tmp/factory-platform-evidence/w00/w4h-merge/w4h-34-w17-notifications-f9684edf3-on-cf1de889b/heavy-unit-src-extensions-__tests__-workflows-delegated-seam-test-ts.log (sha256/16 f7bb2078075e467e). The digest-pinned gitleaks rule generic-api-key flags the value of tokenActorExtensionId, a run-generated extension id (a false positive on the field name, judged by team-lead and validator-8); each such value is replaced by <redacted run-generated extension id> (1 replaced). The leg's exit 0 is also in w4h-34-merge-batch.log.
+bun test v1.4.2 (744846f84)
+{"ts":"2026-10-17T23:45:58.290Z","level":"warn","msg":"call-provenance resolve miss — token unknown or already released","subsystem":"ext.call-provenance","liveEntries":0}
+{"ts":"2026-10-17T23:45:58.290Z","level":"error","msg":"reverse-RPC provenance unresolved — no valid host-issued ezCallId; failing fast","subsystem":"ext.tool-executor","method":"ezcorp/workflows-delegated","extensionId":"0fb5a3a2-a477-4fa6-913f-6c3cb8b9feda","tokenActorExtensionId":null}
+{"ts":"2026-10-17T23:45:58.294Z","level":"warn","msg":"call-provenance resolve called with no ezCallId on the reverse-RPC","subsystem":"ext.call-provenance"}
+{"ts":"2026-10-17T23:45:58.294Z","level":"error","msg":"reverse-RPC provenance unresolved — no valid host-issued ezCallId; failing fast","subsystem":"ext.tool-executor","method":"ezcorp/workflows-delegated","extensionId":"0fb5a3a2-a477-4fa6-913f-6c3cb8b9feda","tokenActorExtensionId":null}
+{"ts":"2026-10-17T23:45:58.296Z","level":"error","msg":"reverse-RPC provenance unresolved — no valid host-issued ezCallId; failing fast","subsystem":"ext.tool-executor","method":"x","extensionId":"a-different-extension","tokenActorExtensionId":"<redacted run-generated extension id>"}
+{"ts":"2026-10-17T23:45:58.299Z","level":"info","msg":"reverse-RPC from a background fire with no resolvable owner — capability call skipped","subsystem":"ext.tool-executor","method":"ezcorp/workflows","extensionId":"0fb5a3a2-a477-4fa6-913f-6c3cb8b9feda","kind":"event"}
+{"ts":"2026-10-17T23:45:58.302Z","level":"info","msg":"reverse-RPC from a background fire with no resolvable owner — capability call skipped","subsystem":"ext.tool-executor","method":"ezcorp/workflows","extensionId":"0fb5a3a2-a477-4fa6-913f-6c3cb8b9feda","kind":"event"}
+{"ts":"2026-10-17T23:45:58.311Z","level":"warn","msg":"call-provenance resolve miss — token unknown or already released","subsystem":"ext.call-provenance","liveEntries":0}
+{"ts":"2026-10-17T23:45:58.311Z","level":"error","msg":"reverse-RPC provenance unresolved — no valid host-issued ezCallId; failing fast","subsystem":"ext.tool-executor","method":"ezcorp/workflows-delegated","extensionId":"0fb5a3a2-a477-4fa6-913f-6c3cb8b9feda","tokenActorExtensionId":null}
+{"ts":"2026-10-17T23:45:58.433Z","level":"info","msg":"extension-triggered workflow finished","subsystem":"ext.workflows.handler","extension":"wf-delegated-ext","workflow":"wf-delegated-ext:deploy","workflowRunId":"run-d1","status":"success"}
+
+ 12 pass
+ 0 fail
+ 40 expect() calls
+Ran 12 tests across 1 file. [1151.00ms]

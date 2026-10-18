@@ -1,0 +1,11 @@
+bun test v1.4.2 (744846f84)
+{"ts":"2026-10-16T01:23:09.132Z","level":"info","msg":"postTicketComment: comment posted","subsystem":"ext.github-projects.progress","proposalId":"prop-1"}
+{"ts":"2026-10-16T01:23:09.132Z","level":"warn","msg":"postTicketComment: failed (swallowed)","subsystem":"ext.github-projects.progress","proposalId":"prop-1","error":"Error: no PAT"}
+{"ts":"2026-10-16T01:23:09.132Z","level":"warn","msg":"postTicketComment: failed (swallowed)","subsystem":"ext.github-projects.progress","proposalId":"prop-1","error":"Error: network error"}
+{"ts":"2026-10-16T01:23:09.132Z","level":"info","msg":"moveCardOnDone: card moved","subsystem":"ext.github-projects.progress","proposalId":"prop-1","doneStatusOptionId":"opt-done"}
+{"ts":"2026-10-16T01:23:09.132Z","level":"warn","msg":"moveCardOnDone: failed (swallowed)","subsystem":"ext.github-projects.progress","proposalId":"prop-1","error":"Error: api down"}
+
+ 37 pass
+ 0 fail
+ 60 expect() calls
+Ran 37 tests across 1 file. [462.00ms]

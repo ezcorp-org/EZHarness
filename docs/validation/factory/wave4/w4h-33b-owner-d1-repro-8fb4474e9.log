@@ -1,0 +1,23 @@
+snapshot tests: test/integration/extension.test.ts test/integration/install.test.ts test/integration/on-behalf-of.test.ts test/integration/tool-handlers.test.ts test/shape.test.ts test/unit/cli-doctor.test.ts test/unit/cli-install.test.ts test/unit/client.test.ts test/unit/deployed-preconditions.test.ts test/unit/e2e-poll.test.ts test/unit/extension-bridge.test.ts test/unit/mcp-server.test.ts test/unit/tool-responses-links.test.ts test/unit/tools-agents.test.ts test/unit/tools-chat.test.ts test/unit/tools-discover.test.ts test/unit/tools-error-branches.test.ts test/unit/tools-orchestrate.test.ts test/unit/urls.test.ts
+bun test v1.4.2 (744846f84)
+
+test/unit/deployed-preconditions.test.ts:
+45 | describe("bundled: precondition 'ai-kit installed'", () => {
+46 |   test("present, behaviour wrong: the suite FAILS and does not skip", async () => {
+47 |     world.extensions = [{ name: "ai-kit" }];
+48 |     const { code, output } = await runSuite("bundled");
+49 |     expect(code).not.toBe(0);
+50 |     expect(output).toMatch(/\(fail\) e2e: bundled ai-kit > ai-kit's tools are reachable/);
+                        ^
+error: expect(received).toMatch(expected)
+
+Expected substring or pattern: /\(fail\) e2e: bundled ai-kit > ai-kit's tools are reachable/
+Received: "bun test v1.4.2 (744846f84)\nTest filter \"./test/e2e/bundled.test.ts\" had no matches\n"
+
+      at <anonymous> (/tmp/w4h33b-d1-snapshot-iIQ5iB/test/unit/deployed-preconditions.test.ts:50:20)
+(fail) bundled: precondition 'ai-kit installed' > present, behaviour wrong: the suite FAILS and does not skip [54.73ms]
+Ran 1 test across 1 file. [109.00ms]
+Bailed out after 1 failure
+
+exit=1
+script-exit=1

@@ -1,0 +1,10 @@
+bun test v1.4.2 (744846f84)
+{"ts":"2026-10-16T01:04:48.586Z","level":"warn","msg":"hub action subprocess dispatch failed","subsystem":"ext-events","extensionId":"ext-cron","name":"cron-dashboard","event":"clear-log","error":"Worker rejected action"}
+{"ts":"2026-10-16T01:04:48.586Z","level":"warn","msg":"hub action subprocess dispatch failed","subsystem":"ext-events","extensionId":"ext-cron","name":"cron-dashboard","event":"clear-log","error":"Worker rejected action"}
+{"ts":"2026-10-16T01:04:48.587Z","level":"warn","msg":"hub action subprocess dispatch failed","subsystem":"ext-events","extensionId":"ext-cron","name":"cron-dashboard","event":"clear-log","error":"db down"}
+{"ts":"2026-10-16T01:04:48.589Z","level":"warn","msg":"hub action subprocess dispatch failed","subsystem":"ext-events","extensionId":"ext-cron","name":"cron-dashboard","event":"clear-log","error":"spawn exploded"}
+
+ 19 pass
+ 0 fail
+ 69 expect() calls
+Ran 19 tests across 1 file. [486.00ms]

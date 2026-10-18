@@ -1,0 +1,33 @@
+bun test v1.4.2 (744846f84)
+{"ts":"2026-10-17T23:28:50.773Z","level":"info","msg":"briefing delivered","subsystem":"briefing.run","userId":"2a9da498-81e7-4a04-b59d-556f6684683f","conversationId":"97c26a29-1932-46b0-b340-c34d3cc77b90"}
+{"ts":"2026-10-17T23:28:50.791Z","level":"info","msg":"briefing delivered","subsystem":"briefing.run","userId":"87bab4af-df7d-4e3d-ba29-af189195bd96","conversationId":"1d441b7d-04c5-4b83-a17f-e4f12e96412e"}
+{"ts":"2026-10-17T23:28:50.805Z","level":"info","msg":"briefing delivered","subsystem":"briefing.run","userId":"72573b13-9256-40f4-8290-d20e78f48a6f","conversationId":"7800404f-f28e-49de-97d5-13db52f6984e"}
+{"ts":"2026-10-17T23:28:50.818Z","level":"info","msg":"briefing delivered","subsystem":"briefing.run","userId":"6b90e14d-730f-47af-81a2-9687a5d3eaf5","conversationId":"b85a8100-2b57-4e71-9cab-e1edcdb7d4cb"}
+{"ts":"2026-10-17T23:28:50.832Z","level":"info","msg":"briefing delivered","subsystem":"briefing.run","userId":"de8be4e8-5ceb-40ea-8643-07c20e5e7611","conversationId":"20ebc89b-5260-4a12-be25-00e0ca309310"}
+{"ts":"2026-10-17T23:28:50.836Z","level":"info","msg":"briefing skipped — no resolvable project","subsystem":"briefing.run","userId":"deac1b25-8c0f-4ec3-bdf0-0ff651c96e34"}
+{"ts":"2026-10-17T23:28:50.848Z","level":"warn","msg":"briefing run failed","subsystem":"briefing.run","userId":"73582e9a-2675-4058-be06-7541f5b094d6","runId":"9a71bb7b-245d-42af-be64-b30bcd72cf02","error":"provider key missing","deleted":true}
+{"ts":"2026-10-17T23:28:50.860Z","level":"warn","msg":"briefing run failed","subsystem":"briefing.run","userId":"542222e1-db85-4de6-9de6-43db75343342","runId":"78da8720-50d5-4e5e-ae13-1d76168635c7","error":"provider exploded","deleted":false}
+{"ts":"2026-10-17T23:28:50.873Z","level":"warn","msg":"briefing run failed","subsystem":"briefing.run","userId":"6149470f-1070-4c2b-98ca-b9c41b454c35","runId":"c62bc6a4-06b3-49bc-a8f5-e1d826541e76","error":"boom","deleted":false}
+{"ts":"2026-10-17T23:28:50.886Z","level":"warn","msg":"briefing run failed","subsystem":"briefing.run","userId":"b478739d-3cf5-40e0-8a7a-dafe55988fb7","runId":"4d7fa047-ecc2-456e-9208-bb11ee13a652","error":"{\"code\":\"cancelled\",\"message\":\"run cancelled\"}","deleted":true}
+{"ts":"2026-10-17T23:28:50.924Z","level":"warn","msg":"briefing run timed out","subsystem":"briefing.run","userId":"e5433551-d4e8-4108-9eab-846b45ea6f70","runId":"c3a5ffab-20cb-4442-b3f5-726cded6ae4f","timeoutMs":20,"deleted":true}
+{"ts":"2026-10-17T23:28:50.955Z","level":"warn","msg":"cancelRun after timeout failed","subsystem":"briefing.run","runId":"85737129-f85b-452f-bc2b-41147b742561","error":"Error: cancel exploded"}
+{"ts":"2026-10-17T23:28:50.957Z","level":"warn","msg":"briefing run timed out","subsystem":"briefing.run","userId":"817c289b-6a45-4d13-aed1-ad15d5075ef4","runId":"85737129-f85b-452f-bc2b-41147b742561","timeoutMs":20,"deleted":true}
+{"ts":"2026-10-17T23:28:50.990Z","level":"warn","msg":"briefing pipeline error","subsystem":"briefing.run","userId":"176106b8-878a-41fe-be22-9fafb5b2d314","error":"connection refused"}
+{"ts":"2026-10-17T23:28:51.001Z","level":"info","msg":"briefing delivered","subsystem":"briefing.run","userId":"c1489ed0-0d26-4af4-b10c-c18be044d559","conversationId":"bf17e398-fed1-4831-ba2f-e14c71329fd1"}
+{"ts":"2026-10-17T23:28:51.017Z","level":"warn","msg":"delete-if-empty failed","subsystem":"briefing.run","conversationId":{},"error":"Error: boom id"}
+{"ts":"2026-10-17T23:28:51.040Z","level":"info","msg":"auto-disable notification posted","subsystem":"briefing.run","userId":"189846eb-a842-4f34-94a7-feb237fe9547","conversationId":"83446736-f4ed-4e27-9d76-127ad7037ead"}
+{"ts":"2026-10-17T23:28:51.045Z","level":"warn","msg":"auto-disable notification skipped — no resolvable project","subsystem":"briefing.run","userId":"204678fe-6f53-4282-a1f6-4feafbbc4f6b"}
+{"ts":"2026-10-17T23:28:51.052Z","level":"info","msg":"auto-disable notification posted","subsystem":"briefing.run","userId":"14c06c78-8fc1-44f9-977f-db413b9a05f7","conversationId":"08f880e5-d35c-4c1c-a444-425eb3b58170"}
+{"ts":"2026-10-17T23:28:51.059Z","level":"warn","msg":"auto-disable notification failed","subsystem":"briefing.run","userId":"3ca2359d-9365-4082-a721-d3af9da167ce","error":"Error: bus exploded"}
+{"ts":"2026-10-17T23:28:51.066Z","level":"info","msg":"briefing agent web-search reference synced","subsystem":"briefing.web-search","extensionId":"bdf14e7e-c6a8-4d5c-9af5-7e22b39c4b39"}
+{"ts":"2026-10-17T23:28:51.072Z","level":"info","msg":"briefing delivered","subsystem":"briefing.run","userId":"91c82945-f42d-4596-8af0-26e56451c5d9","conversationId":"a0123312-f7bd-4fb1-9378-05b5e2f15d73"}
+{"ts":"2026-10-17T23:28:51.083Z","level":"info","msg":"briefing delivered","subsystem":"briefing.run","userId":"0e8aae06-a567-445f-98e4-04991cafea4b","conversationId":"2d6d8f3e-4dbc-45bc-a753-8de51f0ba552"}
+{"ts":"2026-10-17T23:28:51.090Z","level":"info","msg":"briefing agent web-search reference removed (extension disabled)","subsystem":"briefing.web-search","extensionId":"735e79d8-6581-46b0-9c86-a965c6e02f8e"}
+{"ts":"2026-10-17T23:28:51.096Z","level":"info","msg":"briefing delivered","subsystem":"briefing.run","userId":"56ca5afa-2670-4b87-adbb-6656c4d6b69e","conversationId":"2f2f460f-cd4e-446c-9cbb-0eb4966fc5d9"}
+{"ts":"2026-10-17T23:28:51.103Z","level":"info","msg":"briefing agent web-search reference synced","subsystem":"briefing.web-search","extensionId":"bf15353a-3328-4b42-ab43-65aba1a943ec"}
+{"ts":"2026-10-17T23:28:51.108Z","level":"info","msg":"briefing delivered","subsystem":"briefing.run","userId":"cca67fbd-8933-4d5e-99a8-dd23c3e2d94f","conversationId":"ab7b27f2-8c86-4f51-ba7c-ed386cbc12f0"}
+
+ 41 pass
+ 0 fail
+ 148 expect() calls
+Ran 41 tests across 1 file. [1451.00ms]

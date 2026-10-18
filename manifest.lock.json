@@ -89,8 +89,8 @@
       "directory": "docs/extensions/examples/file-organizer",
       "entrypoint": "extension.ts",
       "files": 26,
-      "bytes": 205533,
-      "sourceDigest": "31b8d5a5eea0aa048b68a9a5f1c7b2d6a041b604f66a477f3ed2c57e7e33ff23"
+      "bytes": 205537,
+      "sourceDigest": "f0564814f5d87cbf14c968be5129e9c6b0b4fa65f12ca2ccd3aa49fcd315bf48"
     },
     "file-refactor": {
       "directory": "docs/extensions/examples/file-refactor",
@@ -354,9 +354,9 @@
     "ai-kit": {
       "directory": "packages/@ezcorp/ai-kit",
       "entrypoint": "extension.ts",
-      "files": 53,
-      "bytes": 404414,
-      "sourceDigest": "be4fc6487d601f12283b0785604d5e002b310d9434b7d8863840d2ab552c78a5"
+      "files": 55,
+      "bytes": 407265,
+      "sourceDigest": "37a77c4a38f355923527e0a8539f7ea9a0fae834f270cadba9078feaaa0b49a8"
     }
   }
 }

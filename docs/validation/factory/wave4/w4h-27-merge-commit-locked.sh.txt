@@ -1,0 +1,13 @@
+#!/usr/bin/env bash
+# W4H-27 merge commit under the heavy lock (integrator-5; called by gated-flock). The hook maps 11 (9 root suites, tests/postgres/factory-
+# provisioning.test.ts and the orchestrator package line: under the cap 12). PG_HOOK=1 (config.sh): the hook's PostgreSQL suite runs on an OWN
+# fresh pg15 for this one commit (own-pg.sh; never the shared proof server); commit.sh builds the URL in memory. The orchestrator package's
+# package.json changes, so commit.sh runs the fresh frozen install first. TC_IN_LOCK=1 (the 12 GiB in-lock rule).
+set -u
+E=/tmp/factory-platform-evidence/w00; D=$E/w4h-merge/w4h-27-compose-comes-up
+. $E/lock-veto.sh; lock_veto integrator-2
+. $E/resource-gate.sh; RESOURCE_GATE_MAX_WAIT_S=0 RESOURCE_GATE_MEM_GIB=12 resource_gate commit-start $D/commit-gate.log || { echo "gate red inside the lock: exit 75" >> $D/commit-gate.log; exit 75; }
+. $E/own-pg.sh; own_pg_start w4h-27-commit-pg >> $D/commit-gate.log 2>&1 || exit 3
+export TC_IN_LOCK=1
+bash $E/detached-merge/commit.sh $D/config.sh; rc=$?
+echo "commit.sh exit=$rc $(date -u +%FT%TZ)" >> $D/commit-gate.log; exit $rc

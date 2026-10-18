@@ -3,7 +3,7 @@ import { rm } from "node:fs/promises";
 import { connect } from "node:tls";
 import { certificates, rawTls, type Certificates } from "../__tests__/helpers/factory-certificates";
 import { privateHttpsCall } from "../__tests__/helpers/factory-private-https-client";
-import { FACTORY_PRIVATE_MAX_ENVELOPE_BYTES, startFactoryPrivateHttps } from "./private-https";
+import { FACTORY_PRIVATE_MAX_ENVELOPE_BYTES, FACTORY_PRIVATE_MAX_ROUTE_RESPONSE_BYTES, startFactoryPrivateHttps } from "./private-https";
 
 const directories: string[] = [];
 let certs: Certificates;
@@ -222,4 +222,29 @@ test("a peer that keeps its write side open cannot retain a completed server con
     expect(code, stderr).toBe(0);
     expect(JSON.parse(stdout)).toEqual({ received: true, closedByServer: true });
   } finally { server.stop(); }
+});
+
+test("a named route may reply up to its own bound; every other route keeps the listener's, and both refuse above it by name (W4H-28)", async () => {
+  const server = startFactoryPrivateHttps({
+    tls: { key: certs.serverKey, cert: certs.serverCert, ca: certs.ca },
+    maxResponseBytes: 1_024,
+    routeResponseBytes: { "/large": 4_096 },
+    // The reply size is the request body's number, so each case asks for exactly the bytes it tests.
+    async handle(request) { return { status: 200, body: Buffer.alloc(Number(request.body.toString()), 120) }; },
+  });
+  try {
+    const call = (path: string, bytes: number) => privateHttpsCall(`${server.url}${path}`, certs, { method: "POST", body: Buffer.from(String(bytes)) });
+    expect(await call("/large", 4_096)).toMatchObject({ status: 200 });
+    expect(await call("/large", 4_097)).toMatchObject({ status: 500, body: Buffer.from('{"error":"invalid_response"}') });
+    expect(await call("/other", 1_024)).toMatchObject({ status: 200 });
+    expect(await call("/other", 1_025)).toMatchObject({ status: 500, body: Buffer.from('{"error":"invalid_response"}') });
+  } finally { server.stop(); }
+});
+
+test("a route bound is refused at start when it is not a positive integer within the route ceiling", () => {
+  const tls = { key: certs.serverKey, cert: certs.serverCert, ca: certs.ca };
+  const handle = async () => ({ status: 200, body: Buffer.alloc(0) });
+  for (const bound of [0, 1.5, FACTORY_PRIVATE_MAX_ROUTE_RESPONSE_BYTES + 1]) {
+    expect(() => startFactoryPrivateHttps({ tls, routeResponseBytes: { "/large": bound }, handle })).toThrow("Invalid private HTTPS limits.");
+  }
 });

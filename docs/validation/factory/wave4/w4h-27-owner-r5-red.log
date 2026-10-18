@@ -1,0 +1,70 @@
+bun test v1.4.2 (744846f84)
+
+tests/postgres/factory-provisioning.test.ts:
+612 |     expect(await Bun.file(join(names("tenant-63").operatorDirectory, "escrow-wraps.json")).bytes()).toEqual(wraps);
+613 |     expect((await factoryRejection(run.purge("tenant-63", { approvalId: "7c1e2d3f-0000-4c6d-8e7f-9a0b1c2d3e4f", reason: "x" }, census({ active: 0, uncertain: 0 })))).code).toBe("purge_approval_invalid");
+614 |     expect((await factoryRejection(run.purge("tenant-63", { approvalId: APPROVAL_63, reason: "x" }, census({ active: 1, uncertain: 0 })))).code).toBe("purge_work_open");
+615 |     expect((await factoryRejection(run.purge("tenant-63", { approvalId: APPROVAL_63, reason: "x" }, census({ active: 0, uncertain: 2 })))).code).toBe("purge_work_open");
+616 |     // The purge measures its own work: the only suite database on the cluster is this case's (W4H-27 R5).
+617 |     expect((await presentSuiteResources()).databases).toEqual([installation.productDatabase]);
+                                                            ^
+error: expect(received).toEqual(expected)
+
+  [
++   "factory_pool_c39edca1f4c5c946d667",
++   "factory_pool_e6a2ba344737bb09db36",
++   "factory_product_024603f5c424664dece2",
++   "factory_product_03885594c3c22a6ea9b8",
++   "factory_product_0aa8f574f9a43fdec2b8",
++   "factory_product_0bcddcca827f04793d91",
++   "factory_product_0d17fb51b3f336c3060b",
++   "factory_product_0ee65aa3ee86877632e4",
++   "factory_product_0f60220a6cb44e99de8e",
++   "factory_product_1185103dac93bfe48b09",
++   "factory_product_138cf1c6575e3ab98ebc",
++   "factory_product_17834831aa9e2274b606",
++   "factory_product_26cd0af5df6685113e8b",
++   "factory_product_319769292f7931b56320",
++   "factory_product_37a2eff08c1305f95db3",
++   "factory_product_41cb6db7cd8ad57e2313",
++   "factory_product_42ba9e7fa559917d9d21",
++   "factory_product_45417688205c793fe9fb",
++   "factory_product_5102b4f051dd4310babe",
++   "factory_product_67b6978965d8308b304d",
++   "factory_product_6f0a0859bf58e99e71c5",
+    "factory_product_70495dc37f5c49b97558",
++   "factory_product_7080acf9e37073a4870a",
++   "factory_product_76e72ec8ac56a5056b83",
++   "factory_product_7824e404741e3b0e238b",
++   "factory_product_788c875ed68c131e8f04",
++   "factory_product_7e0116c84fb6e795740e",
++   "factory_product_7e626e273d04af93e84e",
++   "factory_product_7f10b50acd3d9ee8c384",
++   "factory_product_8490afbb56b306a7d71e",
++   "factory_product_8cfc01fb8b1423cb31e9",
++   "factory_product_90dc39d879540f121e42",
++   "factory_product_92545ec6bcfdd23e813e",
++   "factory_product_a12f8e51c110916cbdd0",
++   "factory_product_b63ff365c10794af4c42",
++   "factory_product_b7f63a2938113f1d5848",
++   "factory_product_b9de3723cee9b7cfed90",
++   "factory_product_bfd4a8d381e1fe008848",
++   "factory_product_c6fb6ce76d24c4d91478",
++   "factory_product_d3fe00cbfe936a18bcce",
++   "factory_product_d8d28d2b1e22101be630",
++   "factory_product_dc9aa5c89c57a4fa5fd1",
++   "factory_product_e149a232be7c58b01d30",
++   "factory_product_e65b7dca0ef83aa8eb4c",
++   "factory_product_f3db736a815ecd146b5a",
+  ]
+
+- Expected  - 0
++ Received  + 44
+
+      at <anonymous> (/home/dev/work/EZCorp/EZHarness/.worktrees/w4h-27/tests/postgres/factory-provisioning.test.ts:617:55)
+(fail) teardown and purge > purge needs an installation-issued approval and closed work, drops the databases, and keeps the archive key [245.62ms]
+
+ 62 pass
+ 1 fail
+ 365 expect() calls
+Ran 63 tests across 1 file. [35.28s]

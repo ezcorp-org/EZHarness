@@ -1,0 +1,131 @@
+changed source files 30; root tests importing them: 130 (unit 127, pg 3)
+  docs/extensions/examples/extension-author/e2e-server-pipeline.test.ts <- src/extensions/extension-lifecycle-service.ts
+  packages/@ezcorp/factory-sdk/src/guest-materials.test.ts <- packages/@ezcorp/factory-sdk/src/guest-materials.ts
+  scripts/check-factory-boundaries.test.ts <- scripts/check-factory-boundaries.ts
+  scripts/factory-c13-inventory.test.ts <- scripts/check-factory-boundaries.ts
+  scripts/factory-fleet-init-local.test.ts <- scripts/factory-fleet-init-local.ts, src/factory/provisioning/fleet.ts
+  scripts/factory-graph-proof/guest-package.test.ts <- scripts/factory-graph-proof/guest-package.ts
+  scripts/lib/shipping-bootstrap-state.test.ts <- src/extensions/bundled-bootstrap.ts, src/extensions/bundled.ts
+  src/__tests__/ai-kit-bundled-install.test.ts <- src/extensions/bundled.ts
+  src/__tests__/assert-critical-extensions-ceiling-exceeds.test.ts <- src/extensions/bundled.ts
+  src/__tests__/assert-critical-extensions-error-branches.test.ts <- src/extensions/bundled.ts
+  src/__tests__/assert-critical-extensions.test.ts <- src/extensions/bundled.ts
+  src/__tests__/bundled-bootstrap-policy-change.test.ts <- src/extensions/bundled-bootstrap.ts
+  src/__tests__/bundled-ceiling.test.ts <- src/extensions/bundled.ts
+  src/__tests__/bundled-drift-reapprove.test.ts <- src/extensions/extension-lifecycle-service.ts
+  src/__tests__/bundled-extensions-boot-spawn.test.ts <- src/extensions/bundled.ts
+  src/__tests__/bundled-manifests-installable.test.ts <- src/extensions/bundled.ts
+  src/__tests__/bundled-presentation-fields-never-strand.test.ts <- src/extensions/bundled.ts
+  src/__tests__/bundled-source-registration.test.ts <- src/extensions/bundled.ts
+  src/__tests__/bundled-v2-tools-hash-shape.test.ts <- src/extensions/extension-lifecycle-service.ts
+  src/__tests__/bundled-v4-bootstrap.test.ts <- src/extensions/bundled-bootstrap.ts
+  src/__tests__/bundled-wiring-activation.test.ts <- src/extensions/extension-lifecycle-service.ts
+  src/__tests__/city-conditions-extension.test.ts <- src/extensions/bundled.ts
+  src/__tests__/compose-extension-state-root.test.ts <- src/extensions/bundled.ts
+  src/__tests__/cov-fix-connection-postgres.test.ts <- src/readiness.ts
+  src/__tests__/critical-consequence.test.ts <- src/extensions/bundled.ts
+  src/__tests__/datadir-upgrade.test.ts <- src/readiness.ts
+  src/__tests__/db-backup.test.ts <- src/readiness.ts
+  src/__tests__/db-connection.test.ts <- src/readiness.ts
+  src/__tests__/entities-e2e.test.ts <- src/extensions/extension-lifecycle-service.ts
+  src/__tests__/ext-bundled.test.ts <- src/extensions/bundled.ts
+  src/__tests__/extension-candidate-lock-podman.test.ts <- src/extensions/extension-lifecycle-service.ts
+  src/__tests__/extension-dependency-audit.test.ts <- src/extensions/bundled.ts
+  src/__tests__/extension-lifecycle-service-trusted-local.test.ts <- src/extensions/extension-lifecycle-service.ts
+  src/__tests__/extension-permissions.test.ts <- src/extensions/bundled.ts
+  src/__tests__/extension-reenable-dynamic-triggers.test.ts <- src/extensions/extension-lifecycle-service.ts
+  src/__tests__/extension-reserved-paths.test.ts <- src/extensions/bundled.ts
+  src/__tests__/extension-toggle-agent-gating.test.ts <- src/extensions/extension-lifecycle-service.ts
+  src/__tests__/ez-code-bundled-install.test.ts <- src/extensions/bundled.ts
+  src/__tests__/ez-drafts-project-root-anchor.test.ts <- src/extensions/bundled.ts
+  src/__tests__/ez-drafts-queries.test.ts <- src/extensions/bundled.ts
+  src/__tests__/ez-factory-agents-bundled-wiring.test.ts <- src/extensions/extension-lifecycle-service.ts
+  src/__tests__/ez-factory-bundled-install.test.ts <- src/extensions/bundled.ts
+  src/__tests__/factory-boot.test.ts <- src/readiness.ts
+  src/__tests__/factory-process-boundaries.test.ts <- scripts/check-factory-boundaries.ts
+  src/__tests__/fs-reserved-carveout-not-a-violation.test.ts <- src/extensions/bundled.ts
+  src/__tests__/git-install.test.ts <- src/extensions/extension-lifecycle-service.ts
+  src/__tests__/grant-user-segment.test.ts <- src/extensions/bundled.ts
+  src/__tests__/installer-idempotent-local.test.ts <- src/extensions/extension-lifecycle-service.ts
+  src/__tests__/lessons-distiller-host-integration.test.ts <- src/extensions/extension-lifecycle-service.ts
+  src/__tests__/list-flags.test.ts <- src/extensions/bundled.ts
+  src/__tests__/migrate-normalizes-extension-state-root.test.ts <- src/extensions/bundled.ts
+  src/__tests__/orchestration-bundled-install.test.ts <- src/extensions/bundled.ts
+  src/__tests__/phase-2b-e2e.test.ts <- src/extensions/extension-lifecycle-service.ts
+  src/__tests__/production-bootstrap-preflight.test.ts <- src/extensions/bundled.ts
+  src/__tests__/readiness.test.ts <- src/readiness.ts
+  src/__tests__/reopen-extension.test.ts <- src/extensions/extension-lifecycle-service.ts
+  src/__tests__/scratchpad-bundled-install.test.ts <- src/extensions/bundled.ts
+  src/__tests__/scratchpad-e2e.test.ts <- src/extensions/bundled.ts, src/extensions/extension-lifecycle-service.ts
+  src/__tests__/substack-pilot-installer.test.ts <- src/extensions/extension-lifecycle-service.ts
+  src/__tests__/task-tracking-bundled-install.test.ts <- src/extensions/bundled.ts
+  src/__tests__/verify-extension.test.ts <- src/extensions/extension-lifecycle-service.ts
+  src/__tests__/web-search-bundled-install.test.ts <- src/extensions/bundled.ts
+  src/db/queries/__tests__/ez-drafts-sweep.test.ts <- src/extensions/bundled.ts
+  src/extensions/__tests__/bundled-bootstrap-v4.test.ts <- src/extensions/bundled-bootstrap.ts
+  src/extensions/__tests__/bundled-getProjectRoot.test.ts <- src/extensions/bundled.ts
+  src/extensions/__tests__/bundled-lock-project-root.test.ts <- src/extensions/bundled.ts
+  src/extensions/__tests__/extension-author-bundled.test.ts <- src/extensions/bundled.ts
+  src/extensions/__tests__/project-root.test.ts <- src/extensions/bundled.ts
+  src/extensions/candidate-verification-broker.test.ts <- src/extensions/extension-lifecycle-service.ts
+  src/extensions/entity-publication.test.ts <- src/extensions/extension-lifecycle-service.ts
+  src/extensions/extension-lifecycle-service.test.ts <- src/extensions/extension-lifecycle-service.ts
+  src/extensions/lifecycle-blob-audit.test.ts <- src/extensions/extension-lifecycle-service.ts
+  src/extensions/runtime-transaction-read.test.ts <- src/extensions/extension-lifecycle-service.ts
+  src/factory/attempt-composition.test.ts <- src/factory/attempt-composition.ts, src/factory/package-preparation.ts, src/factory/startup-config.ts
+  src/factory/dispatch-composition.test.ts <- src/factory/startup-config.ts
+  src/factory/graph-proof-definition.test.ts <- src/factory/startup-config.ts
+  src/factory/graph-proof-diagnostics.test.ts <- src/factory/runner/supervisor-process.ts, src/factory/startup-config.ts
+  src/factory/guest-package-build.test.ts <- src/factory/guest-package-build.ts
+  src/factory/host-launch-client.test.ts <- src/factory/runner/host-launch-service.ts
+  src/factory/host-launch-lost-result.integration.test.ts <- src/factory/runner/host-launch-service.ts, src/factory/runner/host-launch-supervisor.ts
+  src/factory/host-launch-transport.integration.test.ts <- src/factory/runner/host-launch-service.ts, src/factory/runner/host-launch-supervisor.ts
+  src/factory/host-preparation-client.integration.test.ts <- src/factory/host-preparation-client.ts, src/factory/runner/host-launch-service.ts, src/factory/runner/host-launch-supervisor.ts
+  src/factory/installation-startup.test.ts <- src/factory/installation-startup.ts, src/factory/runtime-workers.ts, src/factory/startup-config.ts, src/readiness.ts
+  src/factory/package-preparation.integration.test.ts <- src/__tests__/helpers/factory-package-preparation-suite.ts
+  src/factory/package-preparation.podman.integration.test.ts <- src/factory/package-preparation.ts
+  src/factory/private-service-composition.test.ts <- src/factory/package-preparation.ts, src/factory/startup-config.ts
+  src/factory/provisioning/deployment.test.ts <- src/factory/startup-config.ts
+  src/factory/provisioning/fleet-cli.test.ts <- src/factory/provisioning/fleet.ts
+  src/factory/provisioning/fleet.test.ts <- src/factory/provisioning/fleet.ts
+  src/factory/recovery-composition.test.ts <- src/factory/startup-config.ts
+  src/factory/reference-catalog/catalog.test.ts <- src/factory/reference-code/snapshot.ts
+  src/factory/reference-code/checks.integration.test.ts <- src/factory/reference-code/freeze.ts, src/factory/reference-code/snapshot.ts
+  src/factory/reference-code/checks.test.ts <- src/factory/reference-code/freeze.ts, src/factory/reference-code/snapshot.ts
+  src/factory/reference-code/freeze.test.ts <- src/factory/reference-code/freeze.ts, src/factory/reference-code/snapshot.ts
+  src/factory/reference-code/generate.test.ts <- src/factory/reference-code/snapshot.ts
+  src/factory/reference-code/git-reader.test.ts <- src/factory/reference-code/freeze.ts, src/factory/reference-code/snapshot.ts
+  src/factory/reference-code/guest.podman.integration.test.ts <- src/factory/package-preparation.ts, src/factory/reference-code/guest-entry.ts, src/factory/reference-code/guest.ts, src/factory/reference-code/snapsho
+  src/factory/reference-code/guest.test.ts <- src/factory/reference-code/guest-entry.ts, src/factory/reference-code/guest.ts, src/factory/reference-code/snapshot.ts
+  src/factory/reference-code/pack.test.ts <- src/factory/reference-code/freeze.ts, src/factory/reference-code/guest-entry.ts, src/factory/reference-code/snapshot.ts
+  src/factory/reference-code/repair.integration.test.ts <- src/factory/reference-code/freeze.ts, src/factory/reference-code/snapshot.ts
+  src/factory/reference-code/review.test.ts <- src/factory/reference-code/freeze.ts, src/factory/reference-code/snapshot.ts
+  src/factory/reference-code/runner-install.test.ts <- src/factory/reference-code/guest.ts, src/factory/reference-code/runner-install.ts, src/readiness.ts
+  src/factory/reference-code/runner-packages.test.ts <- src/__tests__/helpers/factory-guest-material-host.ts, src/factory/reference-code/guest.ts, src/factory/reference-code/runner-entry.ts, src/factory/ref
+  src/factory/reference-code/scans.test.ts <- src/factory/reference-code/snapshot.ts
+  src/factory/reference-code/snapshot.test.ts <- src/factory/reference-code/snapshot.ts
+  src/factory/reference-code/workspace.test.ts <- src/factory/reference-code/snapshot.ts
+  src/factory/release-composition.test.ts <- src/factory/startup-config.ts
+  src/factory/release-declaration.test.ts <- src/factory/startup-config.ts
+  src/factory/restore-command.test.ts <- src/factory/startup-config.ts
+  src/factory/restore-composition.test.ts <- src/factory/startup-config.ts
+  src/factory/runner/attempt-dispatch-driver.test.ts <- src/factory/package-preparation.ts
+  src/factory/runner/attempt-recovery.test.ts <- src/factory/package-preparation.ts
+  src/factory/runner/attempt-runtime.integration.test.ts <- src/factory/package-preparation.ts
+  src/factory/runner/guest-broker-transport.integration.test.ts <- src/factory/runner/supervisor-process.ts, src/factory/startup-config.ts
+  src/factory/runner/guest-model.podman.integration.test.ts <- src/factory/package-preparation.ts
+  src/factory/runner/host-launch-service.test.ts <- src/factory/runner/host-launch-service.ts
+  src/factory/runner/host-launch-supervisor.test.ts <- src/factory/runner/host-launch-supervisor.ts
+  src/factory/runner/supervisor-process.podman.integration.test.ts <- src/factory/runner/supervisor-process.ts
+  src/factory/runner/supervisor-process.test.ts <- src/factory/runner/host-launch-service.ts, src/factory/runner/supervisor-process.ts
+  src/factory/runner/supervisor-services.test.ts <- src/factory/runner/host-launch-service.ts, src/factory/runner/supervisor-services.ts
+  src/factory/runner/validator-guest.podman.integration.test.ts <- src/factory/package-preparation.ts
+  src/factory/runtime-composition.test.ts <- src/factory/startup-config.ts, src/readiness.ts
+  src/factory/runtime-workers.test.ts <- src/factory/runtime-workers.ts
+  src/factory/startup-config.test.ts <- src/factory/startup-config.ts
+  src/factory/validator-declaration.test.ts <- src/factory/startup-config.ts
+  src/integrations/github-projects/__tests__/resolve-runtime.test.ts <- src/extensions/bundled.ts
+  src/runtime/ez-actions/__tests__/resolve-bundled.test.ts <- src/extensions/bundled.ts
+  tests/postgres/factory-package-preparation.test.ts <- src/__tests__/helpers/factory-package-preparation-suite.ts
+  tests/postgres/factory-provisioning.test.ts <- src/factory/provisioning/fleet.ts
+  tests/postgres/factory-restore.test.ts <- src/factory/installation-startup.ts, src/factory/startup-config.ts

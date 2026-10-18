@@ -1,0 +1,50 @@
+{
+ "package": "w4h-32",
+ "kind": "package merge: W4H-32 runner store resilience (a missing release artifact is rehydrated from the product's own copy; artifact_unrecoverable refusals; readiness warnings), re-merged at 13c439661 onto integ/w00 after the W4H-33b chain",
+ "branch": "wp/w4h-32-runner-rehydrate",
+ "head": "13c439661d3d1a414b0669943f29fa151267838f",
+ "base": "e8d996d72da811069e84aaa8518bbe861d282d72",
+ "main": "934531e2e9e8fd0c3c97e48527d545ca3476eb5e",
+ "mergeSha": "ba9acd166ed4711b9c2523fc6071485ebcdcbe78",
+ "treeEquality": {
+  "trialTree": "2a450a18496e553862dec1e07df0310abd4abdfd",
+  "mergeTree": "2a450a18496e553862dec1e07df0310abd4abdfd",
+  "equal": true
+ },
+ "validatorVerdict": "validator-8 hold OK, plain green, naming ba9acd166ed4711b9c2523fc6071485ebcdcbe78 (verdict-w4h-32.txt b135ee6d9c1b22c0; copied as w4h-32-validation.txt)",
+ "ownerReport": {
+  "w4h-32/report.txt": "e89b206a9f04f318"
+ },
+ "gateChange": "none of W4H-32's own: origin/main leg equals the expected set ea41e0e9a9bb5462; base leg clean (empty); new-file and patch coverage PASS",
+ "identity": {
+  "form": "R1 (team-lead 2026-10-17): detached-merge/merge-identity-lib.sh 8751666e5039ccd8, package mode; commits from the fork point 8fb4474e9 (17 commits, clean) + the merge's 32 staged files from TREE (clean); prep- and commit- records; publish step: 18 commits e8d996d72..ba9acd166 clean",
+  "prepTry1": "reprep identity base passed as the integ head by mistake: STOP (identity-check-13c439661.try1-wrong-base.txt); rerun with the fork point clean",
+  "commitTry1": "refused by the old commit.sh identity step (BASE..HEAD content read files W4H-32 never changed); fixed at the root by R1; nothing committed (commit.try1.*)"
+ },
+ "commit": {
+  "form": "detached merge, full-run hook, EZ_PRECOMMIT_TEST_MAX=13 (team-lead's list-bound word over hook-mapped-13c439661.txt 18061787cb2a51f4), PG_HOOK=0, in the heavy lock (margin 3); rerere off; archy noreply",
+  "try2": "04:11:17Z exit 0; hook 13 bun files, all 0 fail; fast checks green"
+ },
+ "hold": {
+  "run": "04:16:57-04:57:00Z in the lock with an own pg15: 181 legs, all exit 0, status=0 dirty=0",
+  "legs": {
+   "a_bundle_build": "28 of 28, expected set EMPTY (W4H-33b fixed D1)",
+   "b_lane_forms_v6": "hold-w4f.sh c0edd64bd3b7da9c --base: 11 changed test files, 3 lane moves (new files), 11 runs, 0 red",
+   "c_mutation_lane": "PASS, 23 mutants tested (the hosted command's scope vs origin/main: web files)",
+   "d_preview_hosted_conmon": "7/0"
+  },
+  "cases": "28 red-first names PASS"
+ },
+ "published": "integ/w00 e8d996d72 -> ba9acd166 at 2026-10-17T04:59:28Z by publish-if-main.sh with config.sh; remote main 934531e2e = expected",
+ "pushed": false,
+ "excludedFromReceipts": [
+  "owner report.txt backups and the rebase/ and coverage/ trees (sizes; the report and the red/green/mutant logs are carried)",
+  "heavy-build-* and heavy-web-build (standard)"
+ ],
+ "deviations": [
+  "prep try1 identity STOP on a wrong identity-base argument (integrator error); rerun clean",
+  "commit try1 refused by the old identity step; R1 identity fix installed (validator OK), then try2 green",
+  "the expected bundle set went from ai-kit (W4H-33 D1) to EMPTY by team-lead's ruling",
+  "extra-legs gained (c) and (d) in W4H-33b's v4 form (team-lead's ruling)"
+ ]
+}

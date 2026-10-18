@@ -90,7 +90,7 @@ beforeEach(async () => {
   await setupTestDb();
   blobs.clear();
   runnerImageDigest = "runner-image-a";
-  await createUser({ email: "bundled-policy-admin@test.com", passwordHash: "h", name: "Admin", role: "admin" });
+  await createUser({ email: "bundled-policy-admin@test.example", passwordHash: "h", name: "Admin", role: "admin" });
 });
 afterAll(async () => {
   for (const release of parkedBuilds.splice(0)) release(new Error("test file ended"));

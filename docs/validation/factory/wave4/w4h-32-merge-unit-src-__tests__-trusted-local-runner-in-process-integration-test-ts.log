@@ -1,0 +1,8 @@
+bun test v1.4.2 (744846f84)
+{"ts":"2026-10-17T04:33:07.311Z","level":"warn","msg":"No live trusted-local approval — the runner will refuse","subsystem":"ext.trusted-local.runner","phase":"build","digest":"30632b3abbdf7a2e10a5a8d9e456c6f863ca557b5360c52bc831a3da19aaa4d3"}
+{"ts":"2026-10-17T04:33:08.947Z","level":"warn","msg":"No live trusted-local approval — the runner will refuse","subsystem":"ext.trusted-local.runner","phase":"execute","digest":"370c3c2f338ff30f004c9d365c8be081495d1de3da2cec3f0325a8480a5bbcef"}
+
+ 3 pass
+ 0 fail
+ 16 expect() calls
+Ran 3 tests across 1 file. [3.04s]

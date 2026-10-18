@@ -1,0 +1,148 @@
+a package the source locks itself replaces the provisioned copy of that package, and only that one (W4H-28)
+the trusted SDK bundle is the same whatever the builder's NODE_ENV, and none of the builder's value reaches it
+in this process too, the bundle keeps the runtime read and carries none of this builder's NODE_ENV
+an unclassified error answers 500 runner_internal_error with its class and code, is reported once, and is never retried
+a genuine validation refusal keeps HTTP 400 and its own text
+by default an unclassified error goes to the runner's stderr as one JSON line with its class, code and bounded message
+a 500 on a non-idempotent start reaches the runner exactly once: the client never retries it
+two boots on one kept store: the second runner serves the release the first one built
+a store that lacks the release's artifact refuses by name, artifact_missing, naming the cause ENOENT (real-8)
+a read names an artifact, a content digest and a page, and nothing else
+a page must be exactly its slice of a bounded whole
+reads a whole across pages and proves its digest
+refuses bytes that are not the digest it asked for
+raises the host's refusal by its own name
+refuses to send a frame the contract refuses
+an input port's material value is the address
+a read names its operation, a declared source and one full commit id
+an answer is the sealed tree's handle, or a named refusal
+the client follows the handle with the material read, and raises refusals by name
+one call, its journal-shaped operation, and the output built from the answer
+a task's own refusal after the answer fails by name and still mirrors the call
+any other error is not a task refusal and propagates
+a refusal before the claim leaves no row; a claimed failure copies the settled operation
+an attempt with no pin asks with the named unpinned model, so the broker refuses it
+a checkpoint the host will not recover stops the task loudly
+the pin's digests are the digests of its own configuration and policy
+generateCandidate and supervisedReview name the pin's model and configuration digest
+protectedChecks calls no model, so neither its task nor its nine claims name one
+its defaults are reference.code.v1 exactly
+another model pin changes the two model runners and nothing else
+the S3 release destination is a parameter: the release adapter changes, the inputs do not
+no reference definition names the S3 adapter with a placeholder digest
+every task node declares its cost; none falls back to the allocation's whole cost
+the declared costs together stay well under the run's 1,000,000 cost micros
+the release destination and the model pin change no declared cost
+the reference S3 publication adapter is a published, locked artifact, so the local fleet declares the default S3 release profile (W4H-28)
+the local fleet declares every reference.code.v1 task runner, generateCandidate pinned to the installation's model, and the startup parser admits them (W4H-26, W4H-28)
+KEY=VALUE lines; a value keeps every character after the first =; comments and blanks are skipped
+no --deployment: no environment
+the secret, the salt and the database password round-trip unchanged, whatever characters they hold
+a missing option, a bad port, a folder outside /run/user, or an unreadable file is refused by name
+the environment is set before the import loads, and a local secrets folder or database path cannot win
+without --deployment the import runs on the environment it was given
+while the import waits on its database, /proc/<pid>/cmdline and /proc/<pid>/environ hold no secret
+the expected digest is the digest of the bundled runner source, exactly as the boot stages it
+the newest release WITH the expected source digest is picked; a newer release of other bytes never is
+no release with the expected digest is a named failure, never another release
+by default it is loopback on a free port, and the proof calls loopback
+a named tailnet address is listened on and called on, with the origin the browser sends
+the wildcard is listened on, the proof calls loopback, and the origin defaults to loopback
+a host that is not an IPv4 address, a port out of range, and an origin that is not a bare http origin are refused
+the request reads PROOF_WEB_HOST, PROOF_WEB_PORT and PROOF_WEB_ORIGIN and leaves each absent one out
+rebuilds, writes the lock and the SDK literal, and prints each digest old -> new
+a dirty tree is refused before any build or write
+an SDK that does not name the locked artifact exactly once is refused before any build
+a failed build is not a refusal: it propagates and nothing is written
+the real dependencies read this repository's lock and report the tree state
+a package whose artifacts exceed 4 MiB prepares, and the product still recomputes their digest (W4H-28)
+the preparation reply bound still exists, on both sides, and only for the preparation route (W4H-28)
+a named route may reply up to its own bound; every other route keeps the listener's, and both refuse above it by name (W4H-28)
+a route bound is refused at start when it is not a positive integer within the route ceiling
+the deployer writes the fleet's model pin into the startup document, and writes none when the fleet declares none
+an installation model pin is carried for the profiles that pin it, and judged by the startup parser (W4H-28)
+generate's model spend leaves freeze and the protected checks admissible
+a task that declares no cost holds the allocation's whole cost, so any earlier spend refuses it by name
+a declared cost above the allocation is held at the allocation, never above it
+links every package of a read-only toolchain, scoped ones included, and each declared binary
+the validator package locks exactly the fixture's toolchain, by version and SHA-512
+a validator is handed the frozen node's output by reference and reads the whole subject from it
+a subject that is not a frozen candidate of its snapshot is refused by name
+as a validator it answers the nine-claim report; with no toolchain the frozen install fails by name, never a pass
+as the protected-checks task it seals the report and the command record as one evidence material
+supervisedReview makes one call and reports the rubric's verdict as its one claim
+the registered protectedChecks tool is the lane over the working directory
+the guest names the source and the commit; the host's sealed tree becomes the same snapshot a recording gives
+a tree of another commit or shape, or one whose bytes are not its tree id, is refused by name
+both facts are required, and the policy is checked field by field
+a snapshot output whose digest is not its files', or that is not a snapshot, is refused
+reads the sealed snapshot, makes exactly one call, and seals the complete resulting tree
+a repair names the findings it must fix, and a fenced answer is accepted
+an answer the rules refuse fails the attempt by name, its one call still accounted
+an input that is not a request, a remediation and a snapshot port is refused before any call
+freezes the exact commit a release creates, its policy and time from the snapshot alone
+an S3 release resolves from the accepted publication of the frozen record, sealed by the freeze itself
+a snapshot of another base, or a generation that is not this snapshot's, is refused by name
+a title is the request's first sentence, bounded
+a guest reads its run's sealed material across the host boundary, and another run's is refused by name (W4H-28)
+a repository read crosses the host boundary, and an installation with no sources refuses it by name (W4H-28)
+the composed route reads a declared repository source for a guest, sealed in the guest's own attempt (W4H-28)
+a call whose bound does not fit the attempt's token budget is refused before any claim (W4H-28)
+a guest reads one commit of a declared source: the complete tree, sealed in its own attempt, token by reference
+an undeclared source, an unknown commit, an unreachable source and a malformed frame are refused by name
+an expired attempt reads nothing, and a tree above the guest's read bound is refused before it is sealed
+the staged source is the locked source
+the provided SDK bundle and toolchain are the locked ones: a change to either moves the artifact, so it goes red here first
+the SDK's reference S3 adapter names this package and its locked artifact
+a guest call never publishes
+a build gives the lock: the staged source, the provided SDK and toolchain, the artifact and the image
+a failed build names its diagnostics, and the builder is still closed and its folder removed
+accepts reference.code.v1's unpinned task runners, which carry a configuration digest and no model (W4H-26, W4H-28)
+accepts declared sources, by handle, URL and token reference, and keeps them
+refuses a section without its cache, an empty or duplicate list, and each malformed source by index
+accepts reference.code.v1's generateCandidate pinned to the C10 model, whose digest is now a real configuration's (W4H-28)
+access, refresh and the account id map; the expiry is the access token's own exp
+the account id comes from the token's claim when the file does not carry it
+an unexpected file shape names the key NAMES it found, never a value
+an access token that is not a JWT is refused by name with its segment count
+a missing JWT claim is refused by its claim path
+the account id is masked to its last four characters
+the stored row is what the sign-in flow writes, the provider reads connected, and the summary holds no token
+a secret and salt holding $, a backtick, a backslash and both quotes store a login that decrypts unchanged
+a missing file is refused by name and nothing is stored
+a missing web encryption secret or salt is refused by its variable name before any connection
+no DATABASE_URL is refused as unreachable by its variable name; it never falls back to an embedded database
+a failed connection names host:port, the database, and the deepest error's class and code, never the password
+a failed store write names the error's class and code and the import reports no success
+a stored login the given secret cannot decrypt is refused as a secret mismatch and left untouched
+no stored login: the secret is proved by a round trip, the summary says dryRun, nothing is stored
+a stored login: the secret is proved by reading it, and the stored row is unchanged
+a dry run refuses the same causes as the import
+no --from prints the usage and exits 64 without connecting
+--dry-run prints the summary with dryRun:true, exits 0, and closes the database
+an import prints the summary without dryRun and stores the login
+a refusal prints its code and detail on stderr and exits 2; the database is still closed
+a failed close does not change the answer
+an error outside every named step prints its class and code only and exits 2
+the script runs the command line with its own arguments
+a stored login that cannot be used is named as unusable, with its error class, never as not configured (W4H-28)
+a key derivation error carries its class and code into the readiness, and nothing else of it
+an error reading the credential is a readiness error with its deepest class and code, never "not configured" (W4H-28, C10)
+the broker's call-time read names a readiness error the same way, and sends nothing
+P-F3a: an explicit access mode with nothing stored is not configured, by the typed refusal with the same message
+P-F3b: a stored OAuth row the secret cannot decrypt is unusable, never not configured
+P-F3b: a database error on the OAuth-row read alone is a readiness error, at readiness, in the record and at the call
+an unreadable OAuth row with a valid key: ready on the key, with the broken login as one warning
+a database error on the OAuth-row read with a valid key refuses at once; the key is not consulted
+a failed Google project discovery with no key is unusable, never a readiness error
+a failed Google project discovery with a valid key: ready on the key, with one warning
+S-2: a stored API key that cannot be decrypted, with no env key, is unusable
+S-1: the same with an env key: ready on the env key, with the unreadable row as one warning
+a broken OAuth row AND an unreadable stored key with an env key: two warnings, one per broken row
+a login with no usable OAuth key and nothing else configured still reads not configured, and a healthy pin carries no warnings
+getApiKey refuses when getSetting throws: a database error is not "no key", even with an env key (C10, P-F3)
+a stored key that cannot be decrypted and no env key is never "no key": it refuses with the cause kept (C10, P-F3)
+a bundled credential store derives a ChatGPT-subscription key from a stored OAuth credential
+the pinned image builds the locked source into the artifact the SDK names
+a build that fails in the pinned image is refused by name, never turned into a lock
+one snapshot carries every section, bounded and scoped to its own tenant

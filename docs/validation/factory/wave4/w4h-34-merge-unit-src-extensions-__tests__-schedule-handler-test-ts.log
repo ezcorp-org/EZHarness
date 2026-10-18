@@ -1,0 +1,13 @@
+bun test v1.4.2 (744846f84)
+{"ts":"2026-10-17T23:45:35.821Z","level":"warn","msg":"schedule fire not dispatched — no live subprocess to deliver to; fire dropped (NOT completed ok)","subsystem":"ext.schedule-daemon","extensionId":"59f1706e-6702-40ea-8ba5-f4608abb339b","cron":"*/5 * * * *","fireId":"83ba16e3-1bab-46e2-a2f4-fffc1c75c476","reason":"no-registry"}
+{"ts":"2026-10-17T23:45:35.832Z","level":"warn","msg":"fireNow-without-daemon","subsystem":"ext.schedule-handler","extensionId":"59f1706e-6702-40ea-8ba5-f4608abb339b"}
+{"ts":"2026-10-17T23:45:35.837Z","level":"warn","msg":"fireNow-without-daemon","subsystem":"ext.schedule-handler","extensionId":"59f1706e-6702-40ea-8ba5-f4608abb339b"}
+{"ts":"2026-10-17T23:45:35.846Z","level":"warn","msg":"schedule fire not dispatched — no live subprocess to deliver to; fire dropped (NOT completed ok)","subsystem":"ext.schedule-daemon","extensionId":"59f1706e-6702-40ea-8ba5-f4608abb339b","cron":"*/5 * * * *","fireId":"5ad7a446-8d17-496f-9173-40e07379e28d","reason":"no-registry"}
+{"ts":"2026-10-17T23:45:35.849Z","level":"warn","msg":"schedule.fire-now failed","subsystem":"ext.59f1706e-6702-40ea-8ba5-f4608abb339b.capability","extensionId":"59f1706e-6702-40ea-8ba5-f4608abb339b","onBehalfOf":"d2111846-1241-44c4-b37f-ae60297118c3","conversationId":null,"errorCode":"max-runs-per-day-exceeded","errorMessage":"max-runs-per-day-exceeded","provider":null,"model":null,"durationMs":1}
+{"ts":"2026-10-17T23:45:35.856Z","level":"warn","msg":"schedule.fire-now failed","subsystem":"ext.59f1706e-6702-40ea-8ba5-f4608abb339b.capability","extensionId":"59f1706e-6702-40ea-8ba5-f4608abb339b","onBehalfOf":"d2111846-1241-44c4-b37f-ae60297118c3","conversationId":null,"errorCode":"schedule-disabled","errorMessage":"schedule-disabled","provider":null,"model":null,"durationMs":0}
+{"ts":"2026-10-17T23:45:35.862Z","level":"warn","msg":"schedule.fire-now failed","subsystem":"ext.59f1706e-6702-40ea-8ba5-f4608abb339b.capability","extensionId":"59f1706e-6702-40ea-8ba5-f4608abb339b","onBehalfOf":"d2111846-1241-44c4-b37f-ae60297118c3","conversationId":null,"errorCode":"SCHEDULE_CRON_NOT_DECLARED","errorMessage":"cron not in manifest","provider":null,"model":null,"durationMs":0}
+
+ 9 pass
+ 0 fail
+ 20 expect() calls
+Ran 9 tests across 1 file. [1057.00ms]

@@ -1,0 +1,11 @@
+bun test v1.4.2 (744846f84)
+{"ts":"2026-10-17T23:33:32.805Z","level":"info","msg":"tick: workflow version retention sweep","subsystem":"perm-expiry.daemon","scanned":52,"deleted":2,"retained":50}
+{"ts":"2026-10-17T23:33:32.875Z","level":"warn","msg":"tick: workflow version sweep skipped","subsystem":"perm-expiry.daemon","error":"Failed query: select \"id\", \"workflow_definition_id\", \"version\" from \"workflow_definition_versions\" order by \"workflow_definition_versions\".\"version\" desc\nparams: ","tickCount":24}
+{"ts":"2026-10-17T23:33:33.236Z","level":"info","msg":"tick: workflow version retention sweep","subsystem":"perm-expiry.daemon","scanned":52,"deleted":1,"retained":51}
+{"ts":"2026-10-17T23:33:33.329Z","level":"info","msg":"tick: workflow version retention sweep","subsystem":"perm-expiry.daemon","scanned":52,"deleted":1,"retained":51}
+{"ts":"2026-10-17T23:33:33.384Z","level":"info","msg":"tick: workflow version retention sweep","subsystem":"perm-expiry.daemon","scanned":51,"deleted":1,"retained":50}
+
+ 8 pass
+ 0 fail
+ 36 expect() calls
+Ran 8 tests across 1 file. [1.76s]

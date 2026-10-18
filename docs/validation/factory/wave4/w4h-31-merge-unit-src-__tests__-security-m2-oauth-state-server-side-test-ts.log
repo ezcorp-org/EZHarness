@@ -1,0 +1,12 @@
+bun test v1.4.2 (744846f84)
+{"ts":"2026-10-16T01:14:27.993Z","level":"info","msg":"callback server started","subsystem":"api.auth.oauth","port":1455,"appCallbackUrl":"http://localhost:1455/auth/callback"}
+{"ts":"2026-10-16T01:14:27.993Z","level":"info","msg":"callback server started","subsystem":"api.auth.oauth","port":1455,"appCallbackUrl":"http://localhost:1455/auth/callback"}
+{"ts":"2026-10-16T01:14:27.994Z","level":"info","msg":"callback server started","subsystem":"api.auth.oauth","port":1455,"appCallbackUrl":"http://localhost:1455/auth/callback"}
+{"ts":"2026-10-16T01:14:27.994Z","level":"info","msg":"callback server started","subsystem":"api.auth.oauth","port":1456,"appCallbackUrl":"http://localhost:1455/auth/callback"}
+{"ts":"2026-10-16T01:14:27.994Z","level":"info","msg":"callback server started","subsystem":"api.auth.oauth","port":1455,"appCallbackUrl":"http://localhost:1455/auth/callback"}
+{"ts":"2026-10-16T01:14:27.994Z","level":"info","msg":"callback server started","subsystem":"api.auth.oauth","port":1455,"appCallbackUrl":"http://localhost:1455/auth/callback"}
+
+ 9 pass
+ 0 fail
+ 43 expect() calls
+Ran 9 tests across 1 file. [500.00ms]

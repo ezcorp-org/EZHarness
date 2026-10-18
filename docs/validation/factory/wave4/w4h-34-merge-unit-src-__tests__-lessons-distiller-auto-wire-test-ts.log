@@ -1,0 +1,13 @@
+bun test v1.4.2 (744846f84)
+{"ts":"2026-10-17T23:34:00.494Z","level":"info","msg":"reconciled bundled conversation wiring","subsystem":"auto-wire-bundled","extensionId":"ef0992e5-2261-4f93-b29b-de9255e99b58","unwired":3,"inserted":3}
+{"ts":"2026-10-17T23:34:00.497Z","level":"info","msg":"reconciled bundled conversation wiring","subsystem":"auto-wire-bundled","extensionId":"7a33b906-6c70-4d3c-8bfe-dce535d1ee00","unwired":3,"inserted":3}
+{"ts":"2026-10-17T23:34:00.570Z","level":"info","msg":"reconciled bundled conversation wiring","subsystem":"auto-wire-bundled","extensionId":"d3e7c9f6-a37c-4585-ad32-e253a8a4ddcc","unwired":501,"inserted":501}
+{"ts":"2026-10-17T23:34:00.626Z","level":"info","msg":"reconciled bundled conversation wiring","subsystem":"auto-wire-bundled","extensionId":"75654cbe-4066-4f28-a790-aeb6ecd45748","unwired":2,"inserted":2}
+{"ts":"2026-10-17T23:34:00.635Z","level":"info","msg":"reconciled bundled conversation wiring","subsystem":"auto-wire-bundled","extensionId":"ca35d113-155f-4ef5-a839-703300bb7380","unwired":2,"inserted":2}
+{"ts":"2026-10-17T23:34:00.643Z","level":"info","msg":"reconciled bundled conversation wiring","subsystem":"auto-wire-bundled","extensionId":"5cf24439-5152-40b7-a1c8-38031edfe4f5","unwired":1,"inserted":1}
+{"ts":"2026-10-17T23:34:00.644Z","level":"info","msg":"reconciled bundled conversation wiring","subsystem":"auto-wire-bundled","extensionId":"9d7c3fbc-7a62-4188-9c6a-e07dfc42c360","unwired":1,"inserted":1}
+
+ 9 pass
+ 0 fail
+ 33 expect() calls
+Ran 9 tests across 1 file. [1196.00ms]

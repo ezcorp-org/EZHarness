@@ -1,0 +1,10 @@
+bun test v1.4.2 (744846f84)
+{"ts":"2026-10-16T01:05:37.641Z","level":"info","msg":"extension-author tools wired for Ez turn","subsystem":"executor.streamChat.setup","conversationId":"conv-ez","extensionId":"ext-author-1","wired":1}
+{"ts":"2026-10-16T01:05:37.642Z","level":"info","msg":"extension-author auto-wire skipped: not installed or disabled","subsystem":"executor.streamChat.setup","exists":false,"enabled":false}
+{"ts":"2026-10-16T01:05:37.642Z","level":"info","msg":"extension-author auto-wire skipped: not installed or disabled","subsystem":"executor.streamChat.setup","exists":true,"enabled":false}
+{"ts":"2026-10-16T01:05:37.642Z","level":"warn","msg":"extension-author wire failed — authoring tools unavailable this turn","subsystem":"executor.streamChat.setup","error":"Error: db unavailable"}
+
+ 10 pass
+ 0 fail
+ 14 expect() calls
+Ran 10 tests across 1 file. [455.00ms]

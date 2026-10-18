@@ -1,0 +1,38 @@
+# 2026-10-16T03:45:11.065436+00:00 mutant m8-join-removed in src/extensions/runner-rehydration.ts
+# cmd: bun test --timeout 30000 ./src/extensions/runner-rehydration.test.ts
+bun test v1.4.2 (744846f84)
+
+src/extensions/runner-rehydration.test.ts:
+162 |     const wrapped = createRehydratingRunner(runner, rehydration);
+163 |     const starts = Array.from({ length: 5 }, (_, index) => wrapped.start(request(`worker-${index}`), noReverse));
+164 |     while (calls.start < 5) await Bun.sleep(0);
+165 |     open();
+166 |     expect(await Promise.all(starts)).toEqual(Array(5).fill(execution));
+167 |     expect({ restores: calls.restore.length, lookups: lookups.length, reads: reads.length, rehydrated: rehydrated.length, starts: calls.start }).toEqual({ restores: 1, lookups: 1, reads: 1, rehydrated: 1, starts: 10 });
+                                                                                                                                                       ^
+error: expect(received).toEqual(expected)
+
+@@ -1,6 +1,6 @@
+  {
+-   "lookups": 1,
+-   "reads": 1,
+-   "rehydrated": 1,
+-   "restores": 1,
++   "lookups": 5,
++   "reads": 5,
++   "rehydrated": 5,
++   "restores": 5,
+    "starts": 10,
+
+- Expected  - 4
++ Received  + 4
+
+      at <anonymous> (/home/dev/work/EZCorp/EZHarness/.worktrees/w4h-32/src/extensions/runner-rehydration.test.ts:167:146)
+(fail) rehydration of a missing runner artifact (W4H-32) > concurrent starts of one release join one rehydration [0.35ms]
+
+ 14 pass
+ 1 fail
+ 48 expect() calls
+Ran 15 tests across 1 file. [1.95s]
+
+# exit=1

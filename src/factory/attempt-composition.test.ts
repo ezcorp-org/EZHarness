@@ -1,4 +1,5 @@
-import { afterAll, describe, expect, test } from "bun:test";
+import { afterAll, describe, expect, spyOn, test } from "bun:test";
+import * as rehydration from "../extensions/runner-rehydration";
 import { chmod, mkdir, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { factoryRunnerRequestDigest } from "@ezcorp/factory-sdk/compiler";
@@ -174,6 +175,16 @@ describe("factoryIntentPhysicalStop", () => {
 });
 
 describe("factoryPackageReadiness", () => {
+  test("its default builder is the product's rehydrating runner over the same release blobs and database (W4H-32)", () => {
+    const db = fakeDatabase();
+    const blobs = { async put() { return "d"; }, async get() { return new Uint8Array(); } } as unknown as BlobStore;
+    const product = spyOn(rehydration, "productExtensionRunner");
+    try {
+      factoryPackageReadiness(db, "tenant-readiness", new FactoryGrants(db, "tenant-readiness"), blobs);
+      expect(product).toHaveBeenCalledTimes(1);
+      expect(product.mock.calls[0]!.slice(0, 2)).toEqual([blobs, db]);
+    } finally { product.mockRestore(); }
+  });
   test("composes over the shared configured runner client rather than a local stub", () => {
     const db = fakeDatabase();
     const readiness = factoryPackageReadiness(db, "tenant-readiness", new FactoryGrants(db, "tenant-readiness"), { async put() { return "d"; }, async get() { return new Uint8Array(); } } as unknown as BlobStore);

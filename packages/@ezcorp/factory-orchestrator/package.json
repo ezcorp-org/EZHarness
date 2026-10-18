@@ -15,7 +15,8 @@
   },
   "scripts": {
     "build": "bun run --cwd ../factory-transport build && tsc -b tsconfig.build.json",
-    "test": "tsc -b tsconfig.build.json --force && node --test --experimental-strip-types test/*.test.ts",
+    "build:workflow-bundle": "node --experimental-strip-types src/workflow-bundle-build.ts",
+    "test": "tsc -b tsconfig.build.json --force && bun run build:workflow-bundle && node --test --experimental-strip-types test/*.test.ts",
     "test:coverage": "../../../scripts/factory-orchestrator-coverage.sh"
   },
   "dependencies": {

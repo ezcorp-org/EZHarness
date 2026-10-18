@@ -34,7 +34,7 @@ describe("createUserCommand race-on-23505", () => {
   beforeEach(async () => {
     await setupTestDb();
     const u = await createUser({
-      email: "race@test.com",
+      email: "race@test.example",
       passwordHash: "h",
       name: "Race",
     });

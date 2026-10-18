@@ -83,7 +83,7 @@ describe("Login page load", () => {
     // session. Historically this test only signed a JWT; now it must also
     // persist the row, otherwise the sec-C2 loop-guard in /login's loader
     // (which bounces row-less JWTs to the login form) would fire instead.
-    const admin = await createUser({ email: "admin@test.com", passwordHash: "hash", name: "Admin", role: "admin" });
+    const admin = await createUser({ email: "admin@test.example", passwordHash: "hash", name: "Admin", role: "admin" });
 
     const token = await makeValidSessionCookie();
     await persistSessionFor(token, admin.id);
@@ -96,7 +96,7 @@ describe("Login page load", () => {
   });
 
   test("returns default returnTo when no session and users exist", async () => {
-    await createUser({ email: "user@test.com", passwordHash: "hash", name: "User" });
+    await createUser({ email: "user@test.example", passwordHash: "hash", name: "User" });
 
     const event = createMockEvent({ url: "http://localhost/login" });
     const result = await loginLoad(event);
@@ -104,7 +104,7 @@ describe("Login page load", () => {
   });
 
   test("returns default returnTo when session cookie is invalid and users exist", async () => {
-    await createUser({ email: "user@test.com", passwordHash: "hash", name: "User" });
+    await createUser({ email: "user@test.example", passwordHash: "hash", name: "User" });
 
     const event = createMockEvent({
       url: "http://localhost/login",
@@ -119,7 +119,7 @@ describe("Login page load", () => {
 
 describe("Setup page load", () => {
   test("redirects to /login when users already exist", async () => {
-    await createUser({ email: "existing@test.com", passwordHash: "hash", name: "Existing" });
+    await createUser({ email: "existing@test.example", passwordHash: "hash", name: "Existing" });
 
     const event = createMockEvent({ url: "http://localhost/setup" });
     expect(await captureRedirect(() => setupLoad(event))).toEqual({ status: 302, location: "/login" });
@@ -142,7 +142,7 @@ describe("Signup page load", () => {
     await db.delete(invites);
     await db.delete(settings);
     await db.delete(users);
-    const creator = await createUser({ email: "admin@test.com", passwordHash: "hash", name: "Admin", role: "admin" });
+    const creator = await createUser({ email: "admin@test.example", passwordHash: "hash", name: "Admin", role: "admin" });
     creatorId = creator.id;
   });
 
@@ -172,7 +172,7 @@ describe("Signup page load", () => {
   });
 
   test("returns invite data and token when token is valid", async () => {
-    const invite = await createInvite({ email: "new@test.com", role: "member", createdBy: creatorId });
+    const invite = await createInvite({ email: "new@test.example", role: "member", createdBy: creatorId });
 
     const event = createMockEvent({
       url: `http://localhost/signup/${invite.token}`,
@@ -181,7 +181,7 @@ describe("Signup page load", () => {
 
     const result = await signupLoad(event);
     expect(result?.token).toBe(invite.token);
-    expect(result?.invite.email).toBe("new@test.com");
+    expect(result?.invite.email).toBe("new@test.example");
     expect(result?.invite.role).toBe("member");
   });
 
@@ -250,7 +250,7 @@ describe("Hooks auth enforcement", () => {
     expect(await getUserCount()).toBe(0);
 
     // With users -> should redirect to /login
-    await createUser({ email: "user@test.com", passwordHash: "hash", name: "User" });
+    await createUser({ email: "user@test.example", passwordHash: "hash", name: "User" });
     expect(await getUserCount()).toBeGreaterThan(0);
   });
 
@@ -304,7 +304,7 @@ describe("Hooks auth enforcement", () => {
   test("expired session token is rejected", async () => {
     const secret = await getJwtSecret();
     const token = await signJWT(
-      { id: "u1", email: "test@test.com", name: "Test", role: "member" as const },
+      { id: "u1", email: "test@test.example", name: "Test", role: "member" as const },
       secret,
       -1, // already expired
     );

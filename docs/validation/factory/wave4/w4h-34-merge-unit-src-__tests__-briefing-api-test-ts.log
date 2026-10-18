@@ -1,0 +1,23 @@
+bun test v1.4.2 (744846f84)
+{"ts":"2026-10-17T23:28:43.854Z","level":"info","msg":"briefing delivered","subsystem":"briefing.run","userId":"96f2d9da-798c-4880-a2e8-90cd5458cb45","conversationId":"6954ab65-c2ad-4601-8252-0a1a64c217bf"}
+{"ts":"2026-10-17T23:28:43.876Z","level":"info","msg":"briefing delivered","subsystem":"briefing.run","userId":"bc764e65-1803-42e8-b67c-f3fe82014eb7","conversationId":"e1e90b15-c76c-470e-b758-3ce119faedf9"}
+{"ts":"2026-10-17T23:28:43.895Z","level":"info","msg":"briefing delivered","subsystem":"briefing.run","userId":"aeb61d27-5fbf-4d49-a755-b29698dd0137","conversationId":"ddb794d6-028d-4143-95c1-68cffa57f5a3"}
+{"ts":"2026-10-17T23:28:43.904Z","level":"info","msg":"briefing skipped — no resolvable project","subsystem":"briefing.run","userId":"d15d3d1a-30ae-496d-bb89-531c479cab40"}
+{"ts":"2026-10-17T23:28:43.920Z","level":"info","msg":"briefing delivered","subsystem":"briefing.run","userId":"ca114e68-3238-4855-a2c1-89ff873d1ba4","conversationId":"4251f02f-d26d-4342-bdea-e6a4ace74002"}
+{"ts":"2026-10-17T23:28:43.940Z","level":"info","msg":"briefing delivered","subsystem":"briefing.run","userId":"fdaccb15-512a-4ebe-b97f-2494e0861461","conversationId":"900d0e27-24dc-445f-82ff-9caa791a8e8e"}
+{"ts":"2026-10-17T23:28:43.956Z","level":"info","msg":"briefing delivered","subsystem":"briefing.run","userId":"a909fcad-bf92-45d1-911e-2c0d31248bd9","conversationId":"3885adf4-b6ca-4682-adcc-eb589585295e"}
+{"ts":"2026-10-17T23:28:43.970Z","level":"info","msg":"briefing delivered","subsystem":"briefing.run","userId":"c47bcd67-bebc-4a03-b622-dac2ec1906d7","conversationId":"f8b8f317-aec5-4264-9eea-d860562d5738"}
+{"ts":"2026-10-17T23:28:43.981Z","level":"info","msg":"briefing delivered","subsystem":"briefing.run","userId":"c47bcd67-bebc-4a03-b622-dac2ec1906d7","conversationId":"ba033283-a760-44fa-9d82-bb2608447ff6"}
+{"ts":"2026-10-17T23:28:43.998Z","level":"info","msg":"briefing delivered","subsystem":"briefing.run","userId":"2ab82617-29fa-49a4-b28b-bcdd415f91db","conversationId":"fea5030b-b49e-4aef-8351-8a17aa617761"}
+{"ts":"2026-10-17T23:28:44.020Z","level":"info","msg":"briefing delivered","subsystem":"briefing.run","userId":"9411079a-cf1d-460e-9fec-84708bce8d73","conversationId":"873101a5-ccf1-4471-b521-b0499ee21deb"}
+{"ts":"2026-10-17T23:28:44.030Z","level":"info","msg":"briefing delivered","subsystem":"briefing.run","userId":"32d4bebc-a1e5-43bc-963a-971c1e59fd6d","conversationId":"ed418f2e-b086-4d5e-b885-a0ba0b6bef9a"}
+{"ts":"2026-10-17T23:28:44.046Z","level":"warn","msg":"briefing pipeline error","subsystem":"briefing.run","userId":"e59ca599-ce43-4930-821b-7fe3e88dabd1","error":"provider exploded"}
+{"ts":"2026-10-17T23:28:44.061Z","level":"info","msg":"briefing delivered","subsystem":"briefing.run","userId":"94e1fc1f-213a-45d9-a819-76fb55f8e935","conversationId":"e1f3e4a5-794d-4c76-ad68-879a7eab2477"}
+{"ts":"2026-10-17T23:28:44.062Z","level":"warn","msg":"run-now briefing failed","subsystem":"briefing.run-now","userId":"94e1fc1f-213a-45d9-a819-76fb55f8e935","error":"Failed query: update \"briefing_configs\" set \"last_fire_status\" = $1, \"consecutive_errors\" = $2, \"updated_at\" = $3 where \"briefing_configs\".\"user_id\" = $4 returning \"user_id\", \"enabled\", \"cron\", \"timezone\", \"project_id\", \"instructions\", \"watchlist\", \"model\", \"provider\", \"last_fire_at\", \"last_fire_status\", \"consecutive_errors\", \"next_fire_at\", \"created_at\", \"updated_at\"\nparams: ok,0,2026-10-17T23:28:44.061Z,94e1fc1f-213a-45d9-a819-76fb55f8e935"}
+{"ts":"2026-10-17T23:28:44.077Z","level":"warn","msg":"briefing pipeline error","subsystem":"briefing.run","userId":"0339a844-c6a9-499b-814e-a6eb128b92cd","error":"provider exploded"}
+{"ts":"2026-10-17T23:28:44.095Z","level":"info","msg":"auto-disable notification posted","subsystem":"briefing.run","userId":"0339a844-c6a9-499b-814e-a6eb128b92cd","conversationId":"7e6cf3e8-8db2-46fa-a578-fb35386d0174"}
+
+ 29 pass
+ 0 fail
+ 95 expect() calls
+Ran 29 tests across 1 file. [1357.00ms]

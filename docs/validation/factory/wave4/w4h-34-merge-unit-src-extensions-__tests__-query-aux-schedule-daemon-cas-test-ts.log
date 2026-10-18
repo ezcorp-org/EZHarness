@@ -1,0 +1,8 @@
+bun test v1.4.2 (744846f84)
+{"ts":"2026-10-17T23:45:26.883Z","level":"warn","msg":"schedule fire not dispatched — no live subprocess to deliver to; fire dropped (NOT completed ok)","subsystem":"ext.schedule-daemon","extensionId":"f1b5c199-6aa6-45c5-9cff-385c06552497","cron":"0 * * * *","fireId":"0ff075f8-d38c-4d5d-bd2f-88beedd44923","reason":"no-registry"}
+{"ts":"2026-10-17T23:45:27.223Z","level":"warn","msg":"schedule fire not dispatched — no live subprocess to deliver to; fire dropped (NOT completed ok)","subsystem":"ext.schedule-daemon","extensionId":"a39b5370-c50b-4051-a927-839aebcb9914","cron":"0 * * * *","fireId":"1e0d3881-9184-47a4-a7d3-a915729c921f","reason":"no-registry"}
+
+ 2 pass
+ 0 fail
+ 6 expect() calls
+Ran 2 tests across 1 file. [1352.00ms]

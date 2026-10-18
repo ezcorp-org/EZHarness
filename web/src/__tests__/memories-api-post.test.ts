@@ -43,7 +43,7 @@ const realAuthMiddleware = serverModule("auth/middleware", {});
 beforeAll(() => {
 	mock.module("$server/auth/middleware", () => ({
 		...realAuthMiddleware,
-		requireAuth: () => ({ id: "user-1", email: "test@test.com", name: "Test", role: "member" }),
+		requireAuth: () => ({ id: "user-1", email: "test@test.example", name: "Test", role: "member" }),
 	}));
 });
 afterAll(() => {
@@ -69,7 +69,7 @@ function makeRequest(body: unknown) {
 			headers: { "Content-Type": "application/json" },
 			body: JSON.stringify(body),
 		}),
-		locals: { user: { id: "user-1", email: "test@test.com", name: "Test", role: "member" } },
+		locals: { user: { id: "user-1", email: "test@test.example", name: "Test", role: "member" } },
 	} as any;
 }
 

@@ -1,0 +1,22 @@
+bun test v1.4.2 (744846f84)
+
+packages/@ezcorp/ai-kit/test/unit/deployed-preconditions.test.ts:
+38 | }
+39 | 
+40 | test("precondition present, behaviour wrong: the deployed-service suite FAILS and does not skip", async () => {
+41 |   installed = true;
+42 |   const { code, output } = await runBundled();
+43 |   expect(code).not.toBe(0);
+                        ^
+error: expect(received).not.toBe(expected)
+
+Expected: not 0
+
+      at <anonymous> (/home/dev/work/EZCorp/EZHarness/.worktrees/w4h-33/packages/@ezcorp/ai-kit/test/unit/deployed-preconditions.test.ts:43:20)
+(fail) precondition present, behaviour wrong: the deployed-service suite FAILS and does not skip [20.21ms]
+
+ 1 pass
+ 1 fail
+ 5 expect() calls
+Ran 2 tests across 1 file. [431.00ms]
+exit=1

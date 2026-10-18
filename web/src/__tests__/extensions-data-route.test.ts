@@ -33,7 +33,7 @@ const realAuthMiddleware = serverModule("auth/middleware", {});
 beforeAll(() => {
   mock.module("$server/auth/middleware", () => ({
     ...realAuthMiddleware,
-    requireAuth: () => ({ id: "user-1", email: "t@t.com", name: "T", role: "member" }),
+    requireAuth: () => ({ id: "user-1", email: "t@t.example", name: "T", role: "member" }),
   }));
 });
 
@@ -100,7 +100,7 @@ function makeEvent(params: { name?: string; path?: string }): unknown {
     url: null,
     request: undefined,
     locals: {
-      user: { id: "user-1", email: "t@t.com", name: "T", role: "member" },
+      user: { id: "user-1", email: "t@t.example", name: "T", role: "member" },
     },
     params,
   });

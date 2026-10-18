@@ -64,10 +64,17 @@ describe("Sub-Conversation Lifecycle (SUBC-01, SUBC-03, SUBC-04)", () => {
     expect(results.length).toBe(2);
   });
 
-  test.todo("only triggering message passes as initial context", () => {});
-  test.todo("sub-conversation uses agent's own system prompt only", () => {});
-  test.todo("return to main inserts last agent message as summary", () => {});
-  test.todo("sub-conversation has separate message scope", () => {});
+  // Four placeholders stood here and never ran. Each behaviour is asserted where it lives (W4H-33):
+  // - initial context: src/__tests__/start-assignment-plumbing.test.ts, "the sub-agent's first run is on its own
+  //   sub-conversation, and its one input is the brief built from the task"
+  // - the agent's own system prompt: same file, "no overrides → streamChat options omit override-specific keys"
+  // - return to main: web/src/lib/chat/page-handlers/__tests__/send-message.test.ts, "handleSubConvoReturn: the summary
+  //   is the LAST assistant message, not the first or a later user turn" (handleSubConvoReturn posts
+  //   "[Sub-conversation summary]: <last assistant message>" into the parent); the parent's hydrated view also carries
+  //   it (src/__tests__/sub-conversation-integration.test.ts, "SubConversationSummary includes messageCount and
+  //   lastMessagePreview")
+  // - separate message scope: same file, "create parent → add messages → create sub linked to message → fetch subs →
+  //   hydrate summaries" (the parent's messages exclude the sub's)
 });
 
 // ── Client Store Tests ──────────────────────────────────────────────

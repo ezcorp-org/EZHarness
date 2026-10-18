@@ -1,0 +1,56 @@
+packages/@ezcorp/extension-runner/tests/service.test.ts: Ran 12 tests across 1 file. [2.93s]
+packages/@ezcorp/extension-runner/tests/store-reuse.test.ts: Ran 6 tests across 1 file. [542.00ms]
+scripts/factory-graph-proof/guest-package.test.ts: Ran 1 test across 1 file. [448.00ms]
+src/extensions/extension-lifecycle-service.test.ts: Ran 10 tests across 1 file. [463.00ms]
+src/extensions/runner-connection.test.ts: Ran 9 tests across 1 file. [470.00ms]
+src/extensions/runner-rehydration.test.ts: Ran 15 tests across 1 file. [2.10s]
+src/factory/attempt-composition.test.ts: Ran 15 tests across 1 file. [3.68s]
+src/factory/guest-package-build.test.ts: Ran 8 tests across 1 file. [449.00ms]
+src/factory/guest-package-harness-install.test.ts: Ran 3 tests across 1 file. [4.78s]
+src/factory/host-preparation-client.test.ts: Ran 1 test across 1 file. [650.00ms]
+src/factory/package-preparation.integration.test.ts: Ran 30 tests across 1 file. [10.38s]
+src/factory/package-preparation.podman.integration.test.ts: Ran 1 test across 1 file. [12.63s]
+src/__tests__/extension-lifecycle-service-trusted-local.test.ts: Ran 6 tests across 1 file. [1196.00ms]
+src/__tests__/readiness.test.ts: Ran 11 tests across 1 file. [455.00ms]
+case-web-junit: no web red-first file
+CASE PASS: restore: the client hands an artifact to the runner through the service, and a runner without restore answers unknown_method (W4H-32)
+CASE PASS: restore carries one store-bounded artifact: a 129 MiB artifact restores and a 161 MiB one refuses request_limit (W4H-32)
+CASE PASS: a kept installation whose runner store is fresh takes the release back through restoreArtifact, and the next boot serves it (W4H-32)
+CASE PASS: restoring an artifact the store already holds is a no-op: the stored file is not rewritten (W4H-32)
+CASE PASS: restore refuses files that do not digest to the key, artifact_corrupt, and stores nothing (W4H-32)
+CASE PASS: a start refused for a missing artifact registers no worker, so the same start goes past the artifact after a restore (W4H-32)
+CASE PASS: the lazy runner passes an artifact restore to the resolved runner, and a runner without restore answers unknown_method (W4H-32)
+CASE PASS: a start that misses its artifact restores it from the product's blob copy, retries once, and succeeds
+CASE PASS: an artifact read that misses is restored the same way and answers the files
+CASE PASS: by default a rehydration is a non-blocking readiness warning with its code, digest and count, never a message
+CASE PASS: a digest no release record names is refused release_unknown before the blob copy is read
+CASE PASS: a missing blob copy is refused blob_missing, and nothing is restored or retried
+CASE PASS: blob bytes that do not hash to the digest are refused digest_mismatch and never reach the runner
+CASE PASS: a blob store that reports corrupt content, or a runner that refuses the files, is digest_mismatch
+CASE PASS: a runner that cannot restore is refused runner_unsupported: one without the operation, and an older service that answers unknown_method
+CASE PASS: the retry is exactly one: a runner that still misses after the restore answers its own refusal, with two calls in all
+CASE PASS: concurrent starts of one release join one rehydration
+CASE PASS: a failed rehydration is not remembered: the next miss tries again
+CASE PASS: any other error passes through unchanged and starts no rehydration, including the blob store's own artifact_missing
+CASE PASS: every other runner operation is delegated as it is, and optional ones exist only when the runner has them
+CASE PASS: the release records name the artifact digests they hold, and no other
+CASE PASS: boot 1 builds into the store; the store is lost; boot 2 rehydrates lazily from the product's copy, warns once, and starts the worker
+CASE PASS: its default builder is the product's rehydrating runner over the same release blobs and database (W4H-32)
+CASE PASS: a fresh real Podman runner store is restored from the product's blob copy, never rebuilt, and the preparation keeps a durable receipt (W4H-32)
+CASE PASS: the runner every lifecycle path uses restores a missing artifact from the release blobs it writes (W4H-32)
+CASE PASS: a warning is non-blocking: readiness keeps its state, and one entry per code and digest counts its occurrences
+CASE PASS: warnings survive the next readiness write and ride beside the named diagnostics
+CASE PASS: without a warning the document has no warnings field, and a reset clears them with the process's readiness
+packages/@ezcorp/extension-runner/tests/service.test.ts: file 257/257 lines hit; added lines 50, instrumented 47, uncovered 0
+packages/@ezcorp/extension-runner/tests/store-reuse.test.ts: file 68/68 lines hit; added lines 52, instrumented 44, uncovered 0
+src/__tests__/extension-lifecycle-service-trusted-local.test.ts: file 136/137 lines hit; added lines 25, instrumented 22, uncovered 0
+src/__tests__/readiness.test.ts: file 102/102 lines hit; added lines 34, instrumented 30, uncovered 0
+src/extensions/runner-connection.test.ts: file 157/157 lines hit; added lines 9, instrumented 8, uncovered 0
+src/extensions/runner-rehydration.test.ts: file 231/231 lines hit; added lines 275, instrumented 231, uncovered 0
+src/factory/attempt-composition.test.ts: file 224/225 lines hit; added lines 12, instrumented 12, uncovered 0
+src/factory/guest-package-build.test.ts: file 76/76 lines hit; added lines 43, instrumented 36, uncovered 0
+src/factory/guest-package-harness-install.test.ts: file 107/107 lines hit; added lines 131, instrumented 107, uncovered 0
+src/factory/host-preparation-client.test.ts: file 24/24 lines hit; added lines 27, instrumented 24, uncovered 0
+src/factory/package-preparation.podman.integration.test.ts: file 91/91 lines hit; added lines 23, instrumented 20, uncovered 0
+bash line cover: merge ba9acd166 vs base e8d996d72; trace /tmp/factory-platform-evidence/w00/w4h-merge/w4h-32-runner-rehydrate-13c439661-on-e8d996d72/case-check/bash-trace.txt
+no changed *.sh file

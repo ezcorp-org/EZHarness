@@ -81,6 +81,22 @@ export interface FactoryMaterialService {
   list(scope: FactoryMaterialScope, signal?: AbortSignal): Promise<readonly FactoryMaterialRecord[]>;
 }
 
+/** One run, as a verified attempt names it. */
+export interface FactoryRunContentScope {
+  readonly tenantId: string;
+  readonly projectId: string;
+  readonly runId: string;
+}
+
+/** The verified content of one artifact of a run, with the media type it was sealed under. */
+export interface FactoryRunContent {
+  readonly content: Uint8Array;
+  readonly mediaType: string;
+}
+
+/** A candidate output is canonical I-JSON; it has no stored media type of its own. */
+export const FACTORY_CANDIDATE_OUTPUT_MEDIA_TYPE = "application/json";
+
 /** The one reader for validators, release profiles, and previews. */
 export interface FactoryScopedArtifactReader {
   read(scope: FactoryMaterialScope, artifactReference: FactoryArtifactReference, signal?: AbortSignal): Promise<Uint8Array>;
@@ -644,6 +660,43 @@ export class FactoryScopedMaterials extends FactoryMaterialStore implements Fact
       if (!Number.isSafeInteger(index) || index < 0 || index >= chunks.length) unavailable();
       return await this.readChunkBytes(stored, chunks[index]!);
     } catch (error) { throw abortOr(error); }
+  }
+
+  /**
+   * Reads one sealed material or candidate output of ONE run by what a port value names: the
+   * artifact id and the digest of its content (W4H-28, the guest read frame).
+   *
+   * The run is the caller's verified scope, never the reader's request. An artifact of another run,
+   * of another kind, or not sealed is the shared opaque denial. A material is read through the same
+   * verified path as {@link read}, under its producer's own scope as the row records it; a
+   * candidate output through the artifact store's verified load. A whole above `maximumBytes` is
+   * refused before a byte of it is read.
+   */
+  async readInRun(run: FactoryRunContentScope, artifactId: string, contentDigest: string, maximumBytes: number, signal?: AbortSignal): Promise<FactoryRunContent> {
+    if (run.tenantId !== this.tenantId) unavailable();
+    signal?.throwIfAborted();
+    const found = await this.database.transaction(async transaction => {
+      const artifact = rows<{ kind: string; digest: string; encoded_bytes: number | string }>(await transaction.execute(sql`SELECT kind, digest, encoded_bytes FROM factory_artifacts
+        WHERE tenant_id=${run.tenantId} AND project_id=${run.projectId} AND run_id=${run.runId} AND object_id=${artifactId}`))[0];
+      if (artifact?.kind === "candidate_output") {
+        if (artifact.digest !== contentDigest) throw new FactoryMaterialError("factory_material_digest_mismatch");
+        if (Number(artifact.encoded_bytes) > maximumBytes) throw new FactoryMaterialError("factory_material_bytes_invalid");
+        const loaded = await this.artifacts.loadInTransaction(transaction, { tenantId: run.tenantId, projectId: run.projectId, logicalRunId: run.runId },
+          { objectId: artifactId, digest: artifact.digest, encodedBytes: Number(artifact.encoded_bytes) }, ["candidate_output"]);
+        return { content: loaded.content, mediaType: FACTORY_CANDIDATE_OUTPUT_MEDIA_TYPE } as FactoryRunContent;
+      }
+      if (artifact?.kind !== "material") unavailable();
+      const material = rows<MaterialRow>(await transaction.execute(sql`${MATERIAL_SELECT}
+        WHERE material.tenant_id=${run.tenantId} AND material.project_id=${run.projectId} AND material.run_id=${run.runId}
+          AND material.object_id=${artifactId} AND material.sealed=TRUE`));
+      if (material.length !== 1) unavailable();
+      const stored = materialRecord(material[0]!);
+      if (stored.digest !== contentDigest) throw new FactoryMaterialError("factory_material_digest_mismatch");
+      if (stored.totalBytes > maximumBytes) throw new FactoryMaterialError("factory_material_bytes_invalid");
+      return stored;
+    });
+    if ("content" in found) return Object.freeze(found);
+    return Object.freeze({ content: await this.read(found, found.artifact!, signal), mediaType: found.mediaType });
   }
 
   /** Resolves one sealed material and proves its manifest still describes it. */

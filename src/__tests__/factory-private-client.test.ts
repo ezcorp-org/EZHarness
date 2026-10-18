@@ -1,7 +1,7 @@
 import { afterAll, expect, test } from "bun:test";
 import { rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import { createGatewayTransport } from "@ezcorp/factory-transport";
+import { createGatewayTransport, GATEWAY_MAX_RESPONSE_LIMIT_BYTES } from "@ezcorp/factory-transport";
 import { certificates } from "./helpers/factory-certificates";
 import { startFactoryPrivateHttps } from "../factory/private-https";
 
@@ -26,6 +26,9 @@ test("the Bun client uses the shared mTLS transport against the production priva
     const response = await client.request("POST", "/v1/pool/requests", { reservationId: "reservation-1" });
     expect(JSON.parse(response.body.toString("utf8"))).toEqual({ path: "/v1/pool/requests", method: "POST", body: { reservationId: "reservation-1" } });
     await expect(client.request("POST", `${server.url}/foreign`, {})).rejects.toThrow("path");
+    // A caller may ask for up to the named ceiling (the host preparation reply, W4H-28) and no more.
+    expect(JSON.parse((await client.request("POST", "/v1/pool/requests", { reservationId: "reservation-1" }, GATEWAY_MAX_RESPONSE_LIMIT_BYTES)).body.toString("utf8")).path).toBe("/v1/pool/requests");
+    await expect(client.request("POST", "/v1/pool/requests", {}, GATEWAY_MAX_RESPONSE_LIMIT_BYTES + 1)).rejects.toThrow("factory gateway byte limit is invalid");
     const foreign = await createGatewayTransport({ baseUrl: server.url, tls: { ...tls, certificatePath: join(directory, "foreign.pem"), privateKeyPath: join(directory, "foreign.key") }, serverName: "localhost" });
     await expect(foreign.request("POST", "/v1/pool/requests", {})).rejects.toThrow("HTTP 403");
     await writeFile(tokenPath, "revoked-token", { mode: 0o600 });

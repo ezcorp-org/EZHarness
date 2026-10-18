@@ -21,7 +21,7 @@
  */
 import { FactoryBackgroundWorkers, type FactoryWorkerProgress } from "./background-workers";
 import type { FactoryWorkerTuning } from "./startup-config";
-import { factoryReleaseSeamsPresent, type FactoryRoleDriver, type FactoryRuntimeSeams } from "./runtime-seams";
+import { factoryReleaseSeamsPresent, type FactoryRoleConfirmation, type FactoryRoleDriver, type FactoryRuntimeSeams } from "./runtime-seams";
 import type { TrustedFactoryServiceIdentity } from "./trusted-command-gateway";
 import type { FactoryRecoveryRoles } from "./recovery-composition";
 
@@ -66,6 +66,8 @@ export interface FactoryRuntimeWorkerCollaborators {
   /** Absent when this process cannot build it; the role then holds by name. */
   readonly compute?: FactoryComputeAdmissionDriver;
   readonly attempts?: FactoryAttemptDispatchDriver;
+  /** Prepares bound, trusted runner packages on the supervisor (C05, W4H-26); absent without a host launch endpoint. */
+  readonly packagePreparation?: FactoryRoleDriver;
   readonly projections?: FactoryProjectionDriver;
   /** Present only once the release store is composable. */
   readonly notificationInbox?: FactoryNotificationInboxDriver;
@@ -79,6 +81,8 @@ export interface FactoryRuntimeWorkerCollaborators {
    * Absent means nothing was declared, which has its own reason below.
    */
   readonly validatorsHeld?: string;
+  /** Why `notification-send` holds when a destination was declared and did not compose (C11 N8). */
+  readonly notificationSendHeld?: string;
   readonly tuning?: FactoryWorkerTuning;
   readonly report: (role: string, error: unknown) => void;
   /** Runs per projector pass. Bounded so one pass cannot hold the pool. */
@@ -98,12 +102,20 @@ export interface FactoryRuntimeWorkerSet {
   readonly workers: FactoryBackgroundWorkers;
   /** Roles that exist in the plan and cannot run yet, each naming its owner. */
   readonly held: readonly FactoryHeldWorker[];
+  /**
+   * What readiness reports now: a registered role whose confirmation is still
+   * pending is held under its pending reason, not running (C11 N8).
+   */
+  readiness(): { readonly running: readonly string[]; readonly held: readonly FactoryHeldWorker[] };
+  /** Called when a pending role becomes confirmed. Returns the unsubscribe. */
+  onReadinessChange(listener: () => void): () => void;
 }
 
 /** The plan's roles, in start order. Stop order is its reverse. */
 export const FACTORY_WORKER_ROLES = Object.freeze([
   "compute-admission-dispatch",
   "compute-admission-poll",
+  "package-preparation",
   "attempt-dispatch",
   "run-projection",
   "notification-inbox-delivery",
@@ -135,6 +147,7 @@ function progress(idle: boolean): FactoryWorkerProgress {
 export function registerFactoryRuntimeWorkers(collaborators: FactoryRuntimeWorkerCollaborators): FactoryRuntimeWorkerSet {
   const workers = new FactoryBackgroundWorkers();
   const held: FactoryHeldWorker[] = [];
+  const awaiting: Array<FactoryHeldWorker & { readonly confirmation: FactoryRoleConfirmation }> = [];
   const tuning = collaborators.tuning ?? {};
   const projectionRuns = collaborators.projectionRuns ?? 8;
 
@@ -180,6 +193,13 @@ export function registerFactoryRuntimeWorkers(collaborators: FactoryRuntimeWorke
     compute && (async (signal) => progress((await compute.pollNext(collaborators.service, signal)).status === "idle")),
     "compute-admissions", "W09",
     "the composition could not build FactoryComputeAdmissions; it needs a pool admission client");
+
+  // Prepares each bound package whose trust is active before an attempt can
+  // need it, so dispatch's readiness check (a database read) finds a receipt.
+  const preparation = collaborators.packagePreparation;
+  role("package-preparation", preparation && (async (signal) => progress(!(await preparation.step(signal)))),
+    "package-preparation", "W4H-26",
+    "this installation declares no hostLaunch endpoint, so no supervisor can build a bound package and none is prepared");
 
   // Claims a durable attempt and dispatches it to a trusted runner.
   //
@@ -233,6 +253,8 @@ export function registerFactoryRuntimeWorkers(collaborators: FactoryRuntimeWorke
     const seam = collaborators.seams[key];
     const driver = seam.optional() as FactoryRoleDriver | undefined;
     role(name, driver && (async (signal) => progress(!(await driver.step(signal)))), seam.seam, seam.workPackage, reason);
+    const confirmation = driver?.confirmation;
+    if (confirmation) awaiting.push(Object.freeze({ role: name, seam: seam.seam, workPackage: seam.workPackage, reason: confirmation.pendingReason, confirmation }));
   };
 
   seamRole("child-settlement", "childSettlement",
@@ -268,8 +290,8 @@ export function registerFactoryRuntimeWorkers(collaborators: FactoryRuntimeWorke
     : "a release outcome needs the release store itself, which did not compose; the composition reports the exact cause under the release-store role");
   seamRole("usage-reconciliation", "usageReconciler",
     "the reconciler composes with the stop settlement it shares a settlement authority with; both need the pool, the hostLaunch endpoint, and the configured hostStopKeys");
-  seamRole("notification-send", "notificationSender",
-    "a notification is not delivered until a sender confirms it left this host");
+  seamRole("notification-send", "notificationSender", collaborators.notificationSendHeld
+    ?? "the startup document declares no notification destination under `notifications.destinations`, so approval requests and uncertain releases reach the in-app inbox only");
   seamRole("stop-settlement", "physicalStopper",
     "FactoryTaskStops needs the pool admission client, this installation's hostLaunch endpoint to reach the host stop service, and at least one configured hostStopKeys entry");
 
@@ -296,5 +318,19 @@ export function registerFactoryRuntimeWorkers(collaborators: FactoryRuntimeWorke
       ? `recovery is not declared: the startup document has no ${undeclared.join(", ")}, so no checkpoint is sealed and effect claims stay closed`
       : "the recovery archive or the pool checkpoint client did not compose, so no compatible checkpoint is sealed and effect claims stay closed");
 
-  return Object.freeze({ workers, held: Object.freeze(held) });
+  const readiness = () => {
+    const pending = awaiting.filter((entry) => !entry.confirmation.confirmed());
+    const pendingRoles = new Set(pending.map((entry) => entry.role));
+    return {
+      running: workers.names().filter((name) => !pendingRoles.has(name)),
+      // In the plan's role order, so a pending role reads where a held one would.
+      held: [...held, ...pending.map(({ role: name, seam, workPackage, reason }) => Object.freeze({ role: name, seam, workPackage, reason }))]
+        .sort((left, right) => FACTORY_WORKER_ROLES.indexOf(left.role as FactoryWorkerRole) - FACTORY_WORKER_ROLES.indexOf(right.role as FactoryWorkerRole)),
+    };
+  };
+  const onReadinessChange = (listener: () => void) => {
+    const unsubscribe = awaiting.map((entry) => entry.confirmation.onConfirmed(listener));
+    return () => { for (const stop of unsubscribe) stop(); };
+  };
+  return Object.freeze({ workers, held: Object.freeze(held), readiness, onReadinessChange });
 }

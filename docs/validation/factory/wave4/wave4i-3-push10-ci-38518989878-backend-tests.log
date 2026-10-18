@@ -1,0 +1,58 @@
+Current runner version: '2.337.0'
+##[group]Runner Image Provisioner
+Hosted Compute Agent
+Version: 20261002.596
+Commit: c3d12f3313a95f25162a1503be624f3b0617f8c0
+Build Date: 2026-10-02T22:28:27Z
+Worker ID: {3e2680aa-468b-49d7-96c7-031106f38753}
+Region: westus
+Cloud: Azure
+##[endgroup]
+##[group]Operating System
+Ubuntu
+24.04.5
+LTS
+##[endgroup]
+##[group]Runner Image
+Image: ubuntu-24.04
+Version: 20261004.327.1
+Included Software: https://github.com/actions/runner-images/blob/ubuntu24/20261004.327/images/ubuntu/Ubuntu2404-Readme.md
+Image Release: https://github.com/actions/runner-images/releases/tag/ubuntu24%2F20261004.327
+##[endgroup]
+##[group]GITHUB_TOKEN Permissions
+Contents: read
+Metadata: read
+##[endgroup]
+Secret source: Actions
+Cache mode: write
+Prepare workflow directory
+Prepare all required actions
+Complete job name: Backend tests
+##[group]Run echo "cov-shard:       failure"
+echo "cov-shard:       failure"
+echo "residual-tests:  success"
+echo "external-postgres: success"
+echo "setup-podman-bash32: success"
+echo "sandbox-arm64: success"
+if [ "failure" != "success" ] || \
+   [ "success" != "success" ] || \
+   [ "success" != "success" ] || \
+   [ "success" != "success" ] || \
+   [ "success" != "success" ]; then
+  echo "::error::A backend or arm64 sandbox lane failed. See the failing job's log."
+  exit 1
+fi
+echo "All backend and arm64 sandbox lanes succeeded."
+shell: /usr/bin/bash -e {0}
+env:
+  BUN_FEATURE_FLAG_DISABLE_SQL_AUTO_PIPELINING: 1
+  BUN_RUNTIME_TRANSPILER_CACHE_PATH: 0
+##[endgroup]
+cov-shard:       failure
+residual-tests:  success
+external-postgres: success
+setup-podman-bash32: success
+sandbox-arm64: success
+##[error]A backend or arm64 sandbox lane failed. See the failing job's log.
+##[error]Process completed with exit code 1.
+Cleaning up orphan processes

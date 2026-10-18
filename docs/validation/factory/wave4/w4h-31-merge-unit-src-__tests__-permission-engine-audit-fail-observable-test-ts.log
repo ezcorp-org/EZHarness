@@ -1,0 +1,8 @@
+bun test v1.4.2 (744846f84)
+{"ts":"2026-10-16T01:11:17.392Z","level":"error","msg":"PermissionEngine: audit-write failure","action":"ext:perm:allowed","extensionId":"ext-audit-obs","capabilityKind":"storage","error":"audit-table not found (simulated)"}
+{"ts":"2026-10-16T01:11:17.697Z","level":"error","msg":"PermissionEngine: audit-write failure","action":"ext:perm:allowed","extensionId":"ext-audit-obs","capabilityKind":"storage","error":"audit-table not found (simulated)"}
+
+ 2 pass
+ 0 fail
+ 8 expect() calls
+Ran 2 tests across 1 file. [1263.00ms]

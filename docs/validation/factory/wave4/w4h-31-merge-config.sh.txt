@@ -1,0 +1,10 @@
+# W4H-31-sync-main-934531e2e detached-merge config (integrator-3, prep.sh 2026-10-14T20:40:44Z). Base b80a00f47 = integ/w00 when prepared; trial tree 9da7bea9c.
+D=/tmp/factory-platform-evidence/w00/w4h-merge/w4h-31-sync-main-934531e2e
+BRANCH=wp/w4h-31-sync-main-934531e2e HEADSHA=9cc6fed782d18d265d539fa52664a36fd157802b
+BASE=b80a00f4785628ec5f6017ae884aed32f225a2dd TREE=9da7bea9c3875a4d7b76d21749f9af9517674219
+LIST=/tmp/factory-platform-evidence/w00/w4h-merge/w4h-31-sync-main-934531e2e/hook-mapped-9cc6fed78.txt MSG=/tmp/factory-platform-evidence/w00/w4h-merge/w4h-31-sync-main-934531e2e/commit-msg.txt FOCUSED=/tmp/factory-platform-evidence/w00/w4h-merge/w4h-31-sync-main-934531e2e/focused.txt
+SKIP=0 GATE_APPROVED=0 PG_HOOK=1
+HEAVY_EXIT=/tmp/factory-platform-evidence/w00/w4h-merge/w4h-31-sync-main-934531e2e/heavy.exit REVIEW=
+# W-SYNC identity rule (team-lead 2026-10-15): every identity step of this sync (commit.sh, publish-if-main.sh, merge-receipts.sh) judges only
+# lines that are not main's own and skips main's commits in the per-commit email check.
+export SYNC_BASE_MAIN=934531e2e9e8fd0c3c97e48527d545ca3476eb5e IDENTITY_EXCLUDE=934531e2e9e8fd0c3c97e48527d545ca3476eb5e

@@ -35,11 +35,11 @@ import type { SQL } from "bun";
 import { openBunSql } from "../../src/db/bun-sql-pipelining";
 import type { JsonValue } from "@ezcorp/factory-sdk";
 import { collectSecretValues, openProcessLog, preserveStackDiagnostics, redactStreamedLogs, type PassDiagnostics, type ProcessLog } from "./diagnostics";
-import { GUEST_BROKER_ISSUER, INSTALLATION, distinctPortPicker, MASTER_KEY_ID, NAMESPACE, SUPERVISOR_SUBJECT, TENANT, orchestratorDocument, poolDatabaseDocument, poolDocument, startupDocument, supervisorDocument, wrapsDocument, type StackLayout } from "./stack-documents";
+import { GUEST_BROKER_ISSUER, INSTALLATION, distinctPortPicker, MASTER_KEY_ID, NAMESPACE, SUPERVISOR_SUBJECT, TENANT, orchestratorDocument, poolDatabaseDocument, poolDocument, startupDocument, supervisorDocument, webBinding, wrapsDocument, type StackLayout } from "./stack-documents";
 import { FACTORY_GUEST_BROKER_AUDIENCE } from "../../src/factory/runner/guest-broker-contract";
 import { openDeployment, recordDeployment, type PersistentDeployment } from "./deployment";
 
-export { HOST_ID, INSTALLATION, TENANT } from "./stack-documents";
+export { HOST_ID, INSTALLATION, TENANT, webBindingRequest } from "./stack-documents";
 /** How often the streamed logs are redacted while a pass runs. */
 const REDACT_INTERVAL_MS = 2_000;
 const TEMPORAL_CLI = process.env.W19A_TEMPORAL_CLI ?? "/tmp/factory-tools/temporal-cli/temporal";
@@ -52,6 +52,8 @@ export interface StackOptions {
   readonly runnerProfiles: (guestBuild: unknown) => Record<string, JsonValue>;
   /** The installation's `modelProvider`. Absent, no guest may call a model. */
   readonly modelProvider?: { readonly provider: string; readonly model: string };
+  /** Startup sections beside the stack's own (`validators`, `release`, `repositories`); see `StackLayout`. */
+  readonly startupExtras?: (secrets: string) => Readonly<Record<string, JsonValue>> | Promise<Readonly<Record<string, JsonValue>>>;
   /** Builds the guest into the supervisor's runner store before the supervisor takes its lease. */
   readonly buildGuest: (runnerRoot: string) => Promise<unknown>;
   /** Extra environment for the web server only (the mock mode opens the test surface). */
@@ -65,6 +67,8 @@ export interface StackOptions {
    * both, and the product database is never dropped. Absent, every start is a new installation.
    */
   readonly deploymentDir?: string;
+  /** The web server's address, port and origin (`webBinding`); absent, loopback on a free port. */
+  readonly web?: { readonly host?: string; readonly port?: number; readonly origin?: string };
 }
 
 interface Child { readonly name: string; child: ReturnType<typeof spawn>; log: string[]; readonly file: ProcessLog; readonly closed: Promise<void> }
@@ -84,6 +88,12 @@ export interface Stack {
    * first; it defaults to `keepProduct`, so a failed pass keeps both.
    */
   stop(keepProduct: boolean, keepDiagnostics?: boolean): Promise<void>;
+  /**
+   * Stop the web server and start it again on the same database, secrets and port; resolves with its first
+   * 200 readiness, or null. The boot reads what only the running application can record (a provider an
+   * administrator connected in Settings), so a proof that needs it restarts the web server, never the stack.
+   */
+  restartWeb(): Promise<{ status: number; body: unknown } | null>;
 }
 
 function anyFreePort(): number {
@@ -127,11 +137,11 @@ function rs256(privateKey: import("node:crypto").KeyObject, kid: string, claims:
 }
 
 /** One session's worth of real HTTP, cookies included: the product's own auth, never around it. */
-export function session(port: number) {
+export function session(port: number, host = "127.0.0.1") {
   let cookie = "";
   return {
     async call(method: string, path: string, body?: unknown, headers: Record<string, string> = {}): Promise<{ method: string; path: string; status: number; body: unknown }> {
-      const response = await fetch(`http://127.0.0.1:${port}${path}`, {
+      const response = await fetch(`http://${host}:${port}${path}`, {
         method,
         redirect: "manual",
         headers: { ...(body === undefined ? {} : { "content-type": "application/json" }), ...(cookie ? { cookie } : {}), ...headers },
@@ -345,6 +355,7 @@ export async function startStack(options: StackOptions): Promise<Stack> {
     ports: { pool: freePort(), hostService: freePort(), guestBroker: freePort(), temporalTls: freePort(), temporalHttp: freePort(), gateway: freePort(), privateService: freePort() },
     runnerProfiles: options.runnerProfiles(guestBuild),
     ...(options.modelProvider === undefined ? {} : { modelProvider: options.modelProvider }),
+    ...(options.startupExtras === undefined ? {} : { startupExtras: await options.startupExtras(secrets) }),
   };
   const { temporalTls: temporalTlsPort, temporalHttp: temporalHttpPort, gateway: gatewayPort, privateService: privateServicePort, guestBroker: guestBrokerPort } = layout.ports;
 
@@ -387,26 +398,29 @@ export async function startStack(options: StackOptions): Promise<Stack> {
   record.hostProcesses = Object.fromEntries(await Promise.all(["pool", "supervisor"].map(async (name) => [name, JSON.parse(await readFile(join(root, "readiness", `${name}.json`), "utf8").catch(() => "null"))?.lifecycle ?? null])));
 
   // ── The web server ──
-  const port = freePort();
-  web = start("web", bun, ["build/index.js"], {
-    cwd: join(repo, "web"),
-    env: {
-      PORT: String(port), HOST: "127.0.0.1", ORIGIN: `http://127.0.0.1:${port}`,
-      EZCORP_FACTORY_ENABLED: "1", EZCORP_INSTALLATION_ID: INSTALLATION,
-      EZCORP_FACTORY_INTERPRETER_COMPATIBILITY: "factory-kernel.v1",
-      // One class per node; the startup document keys admission by class.
-      EZCORP_FACTORY_RESOURCE_CLASSES: "cpu,cpu-infer,cpu-combine",
-      EZCORP_PERM_SWEEP_INTERVAL_MS: "30000",
-      EZCORP_SECRETS_DIR: secrets, EZCORP_PROJECT_ROOT: join(root, "project"),
-      DATABASE_URL: productUrl.toString(),
-      EZCORP_JWT_SECRET: webSecrets.jwt,
-      EZCORP_ENCRYPTION_SECRET: webSecrets.encryption,
-      // Per start the salt is generated beside the secrets; a persistent deployment must keep its own.
-      ...(webSecrets.salt === undefined ? {} : { EZCORP_ENCRYPTION_SALT: webSecrets.salt }),
-      EZCORP_FACTORY_STORAGE_SECRETS_DIR: process.env.EZCORP_FACTORY_STORAGE_SECRETS_DIR!,
-      ...options.webEnv,
-    },
-  });
+  const binding = webBinding(options.web ?? {}, freePort);
+  const port = binding.port;
+  record.webBinding = { host: binding.host, port: binding.port, origin: binding.origin };
+  const webEnvironment: Record<string, string> = {
+    PORT: String(port), HOST: binding.host, ORIGIN: binding.origin,
+    EZCORP_FACTORY_ENABLED: "1", EZCORP_INSTALLATION_ID: INSTALLATION,
+    EZCORP_FACTORY_INTERPRETER_COMPATIBILITY: "factory-kernel.v1",
+    // One class per node; the startup document keys admission by class.
+    EZCORP_FACTORY_RESOURCE_CLASSES: "cpu,cpu-infer,cpu-combine",
+    EZCORP_PERM_SWEEP_INTERVAL_MS: "30000",
+    EZCORP_SECRETS_DIR: secrets, EZCORP_PROJECT_ROOT: join(root, "project"),
+    DATABASE_URL: productUrl.toString(),
+    EZCORP_JWT_SECRET: webSecrets.jwt,
+    EZCORP_ENCRYPTION_SECRET: webSecrets.encryption,
+    // Per start the salt is generated beside the secrets; a persistent deployment must keep its own.
+    ...(webSecrets.salt === undefined ? {} : { EZCORP_ENCRYPTION_SALT: webSecrets.salt }),
+    EZCORP_FACTORY_STORAGE_SECRETS_DIR: process.env.EZCORP_FACTORY_STORAGE_SECRETS_DIR!,
+    ...options.webEnv,
+  };
+  // A restarted server streams to its own log ("web-restart-1", ...): a process log is opened afresh by name.
+  let webStarts = 0;
+  const startWeb = () => start(webStarts++ === 0 ? "web" : `web-restart-${webStarts - 1}`, bun, ["build/index.js"], { cwd: join(repo, "web"), env: webEnvironment });
+  web = startWeb();
 
   // ── The orchestrator, once the private service accepts ──
   for (let attempt = 0; attempt < 180 && !await reachable(privateServicePort); attempt++) await sleep(1_000);
@@ -419,16 +433,24 @@ export async function startStack(options: StackOptions): Promise<Stack> {
   }
   record.orchestration = orchestration?.lifecycle ?? null;
 
-  let ready: { status: number; body: unknown } | null = null;
-  const api = session(port);
-  for (let attempt = 0; attempt < 180; attempt++) {
-    const probe = await api.call("GET", "/api/ready").catch((error: unknown) => ({ status: 0, body: String(error) }));
-    if (probe.status === 200) { ready = probe; break; }
-    await sleep(1_000);
-  }
-  record.ready = ready;
+  const api = session(port, binding.apiHost);
+  const waitReady = async (): Promise<{ status: number; body: unknown } | null> => {
+    for (let attempt = 0; attempt < 180; attempt++) {
+      const probe = await api.call("GET", "/api/ready").catch((error: unknown) => ({ status: 0, body: String(error) }));
+      if (probe.status === 200) return probe;
+      await sleep(1_000);
+    }
+    return null;
+  };
+  record.ready = await waitReady();
+  const restartWeb = async () => {
+    stopGroup(web!.child.pid, "SIGTERM");
+    await web!.closed;
+    web = startWeb();
+    return waitReady();
+  };
 
-  return { root, port, productUrl: productUrl.toString(), productDatabase, runnerRoot, session: api, children, stop };
+  return { root, port, productUrl: productUrl.toString(), productDatabase, runnerRoot, session: api, children, stop, restartWeb };
   } catch (error) {
     // Nothing a failed start made may outlive it: not a child, not a
     // database on the shared server, not a private directory.

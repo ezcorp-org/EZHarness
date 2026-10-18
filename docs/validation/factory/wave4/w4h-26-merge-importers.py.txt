@@ -1,0 +1,33 @@
+#!/usr/bin/env python3
+"""importers.py <repo> <base> <tree-or-commit> [--out-unit F] [--out-pg F] (integrator-5, 2026-10-14; the coordinator's rule after the W4H-26 hold's
+patch red): every ROOT test file (*.test.ts outside web/) at <tree> that imports a CHANGED non-test source file (base..tree, *.ts outside web/ and
+outside tests) joins the hold's set: tests/postgres/* -> the pg list, the rest -> the unit list. Imports are read from the test's text (static
+`from "…"`, side-effect `import "…"`, dynamic `import("…")`, `require("…")`) and resolved RELATIVE to the test's folder (spec, spec.ts,
+spec.tsx, spec/index.ts); package and alias specifiers are not resolved (the package legs cover packages). Prints counts and the lists."""
+import re, subprocess, sys, posixpath as pp
+R, B, T = sys.argv[1:4]; a = sys.argv[4:]
+opt = lambda k: a[a.index(k) + 1] if k in a else None
+git = lambda *x: subprocess.check_output(["git", "-C", R, *x], text=True)
+changed = {f for f in git("diff", "--name-only", "--diff-filter=AM", B, T).split()
+           if f.endswith((".ts", ".tsx")) and not re.search(r"\.test\.tsx?$", f) and not f.startswith(("web/", "tests/"))}
+files = set(git("ls-tree", "-r", "--name-only", T).split())
+tests = [f for f in files if re.search(r"\.test\.ts$", f) and not f.startswith("web/")]
+SPEC = re.compile(r"""(?:\bfrom\s+|\bimport\s+|\bimport\(\s*|\brequire\(\s*)["']([^"']+)["']""")
+def resolve(test, spec):
+    if not spec.startswith("."): return None
+    base = pp.normpath(pp.join(pp.dirname(test), spec))
+    for c in (base, base + ".ts", base + ".tsx", base + "/index.ts"):
+        if c in files: return c
+    return None
+hits = {}
+for t in tests:
+    try: src = git("show", f"{T}:{t}")
+    except subprocess.CalledProcessError: continue
+    got = {r for s in SPEC.findall(src) if (r := resolve(t, s)) in changed}
+    if got: hits[t] = sorted(got)
+unit = sorted("./" + t for t in hits if not t.startswith("tests/postgres/"))
+pg = sorted("./" + t for t in hits if t.startswith("tests/postgres/"))
+print(f"changed source files {len(changed)}; root tests importing them: {len(hits)} (unit {len(unit)}, pg {len(pg)})")
+if opt("--out-unit"): open(opt("--out-unit"), "w").write("".join(x + "\n" for x in unit))
+if opt("--out-pg"): open(opt("--out-pg"), "w").write("".join(x + "\n" for x in pg))
+for t in sorted(hits): print(f"  {t} <- {', '.join(hits[t])[:150]}")

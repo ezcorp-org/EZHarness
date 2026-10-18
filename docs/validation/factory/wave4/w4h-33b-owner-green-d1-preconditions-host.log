@@ -1,0 +1,15 @@
+bun test v1.4.2 (744846f84)
+
+packages/@ezcorp/ai-kit/test/unit/deployed-preconditions.test.ts:
+(pass) bundled: precondition 'ai-kit installed' > present, behaviour wrong: the suite FAILS and does not skip [23.16ms]
+(pass) bundled: precondition 'ai-kit installed' > missing: the suite skips with the tracked reason and nothing fails [18.39ms]
+(pass) quickstart: precondition 'EZCORP_E2E_MODEL' > present, behaviour wrong: the suite runs and FAILS, and does not skip [18.70ms]
+(pass) quickstart: precondition 'EZCORP_E2E_MODEL' > missing: the suite skips with the tracked reason and nothing fails [18.20ms]
+(pass) fanout: preconditions 'agents researcher and writer', 'autoSpinUp team', 'an agent' > present, behaviour wrong: each of the three cases runs and FAILS, and none skips [20.12ms]
+(pass) fanout: preconditions 'agents researcher and writer', 'autoSpinUp team', 'an agent' > missing: each of the three cases skips with its tracked reason [21.20ms]
+
+ 6 pass
+ 0 fail
+ 24 expect() calls
+Ran 6 tests across 1 file. [469.00ms]
+exit=0

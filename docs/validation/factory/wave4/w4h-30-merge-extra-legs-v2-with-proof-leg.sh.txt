@@ -1,0 +1,16 @@
+# W4H-30 (integrator-5; the coordinator's plan form 2026-10-14): the root-cause fix of the E-class resources red. The runner
+# client (packages/@ezcorp/extension-runner/src/client.ts) sends each call with agent:false; fetchKiloCatalog (src/providers/kilo.ts) uses
+# keepalive:false. Legs beyond hold-w4f.sh's unit legs (the extension-runner package test files as the main pool runs them, the
+# importers of the two changed sources, the standing invariant list), the guard set and merge-commit-gates (origin/main leg = 0):
+# - typecheck (in the lock; the package build first, as the owner's tc did);
+tc_leg typecheck-all bun run typecheck
+# - the extension-runner package suite as its own package script runs it (bun test in the package folder), pass/fail;
+NOTEST=1 leg extension-runner-package-test bash -c 'cd packages/@ezcorp/extension-runner && exec bun run test'
+# - the owner's two red-first cases BY NAME (warn-cases.txt), through W4H-24's case-check.sh (the hook maps both files), with the test files'
+#   changed lines bound to their own lcov;
+NOTEST=1 leg red-first-cases bash /tmp/factory-platform-evidence/w00/w4h-merge/w4h-24-web-shard-timeout/case-check.sh "$M" /tmp/factory-platform-evidence/w00/w4h-merge/w4h-30-resources-sockets
+# - the PROOF LEG (the coordinator's plan 2026-10-14), BINDING green: the resources shard (EZ_SHIPPING_SHARD=resources, 10 cycles) in the
+#   W4H-18 runner-shaped container (integrator-5's copy under proof/, image localhost/integrator-5-runner:24.04, own container, volume and
+#   snapshot of the merge commit), then the per-sample socket counts recorded and bound (every pass complete, no failure record).
+NOTEST=1 leg resources-proof bash /tmp/factory-platform-evidence/w00/w4h-merge/w4h-30-resources-sockets/proof/heavy.sh "$M" hold resources
+NOTEST=1 leg resources-socket-counts python3 /tmp/factory-platform-evidence/w00/w4h-merge/w4h-30-resources-sockets/proof/socket-counts.py /tmp/factory-platform-evidence/w00/w4h-merge/w4h-30-resources-sockets/proof/hold

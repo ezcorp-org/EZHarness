@@ -1,0 +1,9 @@
+bun test v1.4.2 (744846f84)
+
+src/providers/codex-login-import.test.ts:
+usage: bun scripts/import-codex-login.ts [--dry-run] --from <path to auth.json> [--deployment <dir> --postgres-env <file> --postgres-port <port>]
+
+ 24 pass
+ 0 fail
+ 185 expect() calls
+Ran 24 tests across 1 file. [1140.00ms]

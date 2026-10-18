@@ -6,7 +6,8 @@ import { join } from "node:path";
 import { sql } from "drizzle-orm";
 import { createAssistantMessageEventStream, type Api, type AssistantMessage, type Model } from "@earendil-works/pi-ai";
 import { canonicalizeJson, sha256Hex, type FactoryModelPin, type FactoryRunnerRequest, type JsonValue } from "@ezcorp/factory-sdk";
-import { createFactoryGuestStaging, FactoryGuestMaterialError } from "@ezcorp/factory-sdk/guest-materials";
+import { createFactoryGuestStaging, FactoryGuestMaterialError, readFactoryGuestMaterial, readFactoryGuestRepository } from "@ezcorp/factory-sdk/guest-materials";
+import { referenceCodeGitRepository } from "../../__tests__/helpers/git-repository-fixture";
 import { closeTestDb, setupTestDb } from "../../__tests__/helpers/test-pglite";
 import { certificates, nodeHttpsRequest, signedServiceToken, type Certificates } from "../../__tests__/helpers/factory-certificates";
 import { digestObject, FileBlobStore } from "../../extensions/v4/blobs";
@@ -156,6 +157,8 @@ async function setup(options: { readonly model?: FactoryModelPin; readonly provi
   });
   // Which host holds the attempt's lease. The route asks; a test moves it.
   let lease: string | undefined = HOST;
+  // C11 A8: each refusal of a host forwarding for an attempt it does not hold.
+  let denials = 0;
   const service = startFactoryPrivateHttps({
     tls: { key: certs.serverKey, cert: certs.serverCert, ca: certs.ca },
     handle: createFactoryGuestBrokerRouteHandler({
@@ -163,6 +166,7 @@ async function setup(options: { readonly model?: FactoryModelPin; readonly provi
       tokens: async () => ({ issuer: TOKEN_ISSUER, audience: options.configuredAudience ?? FACTORY_GUEST_BROKER_AUDIENCE, publicKeys: { test: hostPublicKey } }),
       leaseHost: async () => lease,
       broker, model, jwtSecret: SECRET, installationId: INSTALLATION,
+      denied: () => { denials += 1; },
     }),
   });
   closing.push(async () => { service.stop(); });
@@ -173,7 +177,7 @@ async function setup(options: { readonly model?: FactoryModelPin; readonly provi
   const tokened = { ...request, broker: { ...request.broker, attemptToken: token } } as FactoryRunnerRequest;
   const paths = await clientSecrets(root, certs, hostToken());
   const setLease = (host: string | undefined) => { lease = host; };
-  return { db, artifacts, blobs, journal, service, certs, paths, hostToken, hostPublicKey, setLease, request: tokened, authority, attemptId, projectId, runId, operationId: `${runId}:node-a:0:0` };
+  return { db, artifacts, blobs, journal, service, certs, paths, hostToken, hostPublicKey, setLease, denials: () => denials, request: tokened, authority, attemptId, projectId, runId, operationId: `${runId}:node-a:0:0` };
 }
 
 test("a guest stages and promotes an output across a real host boundary", async () => {
@@ -203,6 +207,29 @@ test("a guest stages and promotes an output across a real host boundary", async 
     transaction, { tenantId: TENANT, projectId: fixture.projectId, logicalRunId: fixture.runId },
     { objectId: promoted.output.artifactId, digest: promoted.output.digest, encodedBytes: promoted.output.encodedBytes }, ["candidate_output"]));
   expect(new TextDecoder().decode(loaded.content)).toBe(canonicalizeJson(value));
+}, 120_000);
+
+test("a guest reads its run's sealed material across the host boundary, and another run's is refused by name (W4H-28)", async () => {
+  const fixture = await setup();
+  const host = await createFactoryGuestBrokerClient({ baseUrl: fixture.service.url, tls: fixture.paths, serverName: "localhost" });
+  const call = async (payload: JsonValue) => host.invoke(fixture.request, payload);
+  const bytes = new Uint8Array(40_000);
+  for (let index = 0; index < bytes.byteLength; index += 1) bytes[index] = (index * 7) % 251;
+  const staged = await createFactoryGuestStaging({ call, operationId: fixture.operationId, operationIndex: 0 }).stageOutput("snapshot.json", bytes, "application/json");
+  const read = await readFactoryGuestMaterial(call, { artifactId: staged.material.artifactId, digest: staged.digest });
+  expect(sha256Hex(read.content)).toBe(sha256Hex(bytes));
+  expect(read.mediaType).toBe("application/json");
+  const refused = await readFactoryGuestMaterial(call, { artifactId: "another-runs-artifact", digest: staged.digest }).catch((error: unknown) => error);
+  expect(refused).toBeInstanceOf(FactoryGuestMaterialError);
+  expect((refused as FactoryGuestMaterialError).code).toBe("unknown_material");
+}, 120_000);
+
+test("a repository read crosses the host boundary, and an installation with no sources refuses it by name (W4H-28)", async () => {
+  const fixture = await setup();
+  const host = await createFactoryGuestBrokerClient({ baseUrl: fixture.service.url, tls: fixture.paths, serverName: "localhost" });
+  const failure = await readFactoryGuestRepository(async payload => host.invoke(fixture.request, payload), { operationId: fixture.operationId, operationIndex: 0, source: "launch", commitSha: "c".repeat(40) }).catch((error: unknown) => error);
+  expect(failure).toBeInstanceOf(FactoryGuestMaterialError);
+  expect((failure as FactoryGuestMaterialError).code).toBe("repository_source_unknown");
 }, 120_000);
 
 test("a refusal crosses the boundary as a refusal, not as a transport failure", async () => {
@@ -310,6 +337,8 @@ test("the route authenticates the host and the attempt separately, and refuses e
     expect(JSON.parse(elsewhere.body.toString("utf8"))).toEqual({ error: "forbidden_host" });
   }
   fixture.setLease(HOST);
+  // Only those two were cross-tenant or cross-attempt; no earlier refusal counted.
+  expect(fixture.denials()).toBe(2);
 
   // The right host and the right token, but nothing to answer.
   for (const body of [{ attemptToken: token }, { payload: frame }, ["not", "an", "object"], "text"]) {
@@ -427,7 +456,7 @@ async function recordLaunch(fixture: Awaited<ReturnType<typeof setup>>): Promise
     VALUES (${fixture.attemptId},${TENANT},${fixture.projectId},${fixture.runId},${"c".repeat(64)},'{}','reservation-a',1,1,1,'allocation-a',${HOST},${`sha256:${"d".repeat(64)}`},${receipt}::jsonb,${"b".repeat(64)},${factoryAttemptWorkerId(fixture.attemptId)},${factoryAttemptInvocationId(fixture.attemptId, 0, 1)},'launched')`);
 }
 
-async function composedRoute(fixture: Awaited<ReturnType<typeof setup>>, overrides: { readonly secret?: string; readonly missingKey?: boolean; readonly modelProvider?: FactoryOneHopProvider } = {}) {
+async function composedRoute(fixture: Awaited<ReturnType<typeof setup>>, overrides: { readonly secret?: string; readonly missingKey?: boolean; readonly modelProvider?: FactoryOneHopProvider; readonly repositories?: FactoryStartupConfig["repositories"] } = {}) {
   const root = await makeFactoryTempPrivateRoot("w01g-guest-broker-");
   directories.push(root);
   await chmod(root, 0o700);
@@ -453,6 +482,7 @@ async function composedRoute(fixture: Awaited<ReturnType<typeof setup>>, overrid
       tokens: { issuer: TOKEN_ISSUER, audience: FACTORY_GUEST_BROKER_AUDIENCE, publicKeyPaths: { test: tokenKey } },
     },
     ...(overrides.modelProvider === undefined ? {} : { modelProvider: { provider: PIN.provider, model: PIN.model } }),
+    ...(overrides.repositories === undefined ? {} : { repositories: overrides.repositories }),
   } as unknown as FactoryStartupConfig;
   const reported: Array<{ role: string; error: unknown }> = [];
   const pinsAsked: unknown[] = [];
@@ -496,6 +526,22 @@ test("the product binds the guest-broker route from its startup document, and a 
   const moved = await host.invoke(request, probe).then(() => undefined, (error: unknown) => error as { response: { statusCode: number; body: Buffer } });
   expect(moved?.response.statusCode).toBe(403);
   expect(JSON.parse(moved!.response.body.toString("utf8"))).toEqual({ error: "forbidden_host" });
+}, 120_000);
+
+test("the composed route reads a declared repository source for a guest, sealed in the guest's own attempt (W4H-28)", async () => {
+  const fixture = await setup();
+  const source = await referenceCodeGitRepository();
+  directories.push(source.root);
+  const cache = await makeFactoryTempPrivateRoot("w4h28-repository-cache-");
+  directories.push(cache);
+  const { composed, secret } = await composedRoute(fixture, { repositories: { cachePath: cache, sources: [{ name: "launch", url: `file://${source.root}` }] } });
+  await recordLaunch(fixture);
+  const token = await signFactoryAttemptToken(fixture.authority, secret, INSTALLATION, 600);
+  const request = { ...fixture.request, broker: { ...fixture.request.broker, attemptToken: token } } as FactoryRunnerRequest;
+  const { caPath, certificatePath, privateKeyPath, serviceTokenPath } = fixture.paths;
+  const host = await createFactoryConfiguredGuestBroker({ [TENANT]: { baseUrl: composed.listener!.url, serviceTokenPath, tls: { caPath, certificatePath, privateKeyPath } } });
+  const read = await readFactoryGuestRepository(async payload => host.invoke(request, payload), { operationId: fixture.operationId, operationIndex: 0, source: "launch", commitSha: source.base });
+  expect(JSON.parse(new TextDecoder().decode(read.content))).toMatchObject({ schemaVersion: "factory.repository-tree.v1", commitSha: source.base });
 }, 120_000);
 
 test("the composed route answers a model request with the installation's pinned provider, and names a missing pin", async () => {

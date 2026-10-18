@@ -64,7 +64,7 @@ describe("updateUserEmail", () => {
   });
 
   test("returns false for nonexistent user", async () => {
-    const result = await updateUserEmail("nonexistent-id", "any@test.com");
+    const result = await updateUserEmail("nonexistent-id", "any@test.example");
     expect(result).toBe(false);
   });
 });

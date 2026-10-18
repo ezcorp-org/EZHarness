@@ -1,0 +1,24 @@
+CRAP: --changed against e8d996d72da811069e84aaa8518bbe861d282d72 → 13 measured file(s) in diff
+
+CRAP: 52 functions in 13 files (max 30, warn 15)
+
+Worst 15:
+     23.0  cc= 23 cov=100%  packages/@ezcorp/extension-runner/src/podman.ts:735 startExecution
+     20.0  cc= 20 cov=100%  packages/@ezcorp/extension-runner/src/service.ts:255 dispatch
+     18.0  cc= 18 cov=100%  packages/@ezcorp/extension-runner/src/service.ts:142 startRunnerService
+     16.0  cc= 16 cov=100%  src/factory/package-preparation.ts:292 hydrate
+      8.0  cc=  8 cov=100%  packages/@ezcorp/extension-runner/src/service.ts:64 readRequestBody
+      8.0  cc=  8 cov=100%  packages/@ezcorp/extension-runner/src/service.ts:301 handle
+      7.0  cc=  7 cov=100%  src/extensions/extension-lifecycle-service.ts:140 initialize
+      7.0  cc=  7 cov=100%  src/extensions/runner-rehydration.ts:63 restore
+      7.0  cc=  7 cov=100%  src/readiness.ts:40 getReadiness
+      6.0  cc=  6 cov=100%  src/factory/package-preparation.ts:99 artifactUnavailable
+      5.0  cc=  5 cov=100%  src/extensions/runner-rehydration.ts:86 createRehydratingRunner
+      4.0  cc=  4 cov=100%  src/extensions/runner-rehydration.ts:54 readCopy
+      3.0  cc=  3 cov=100%  src/extensions/runner-rehydration.ts:87 once
+      3.0  cc=  3 cov=100%  src/factory/guest-package-build.ts:115 buildFactoryGuestHarnessRelease
+      2.0  cc=  2 cov=100%  packages/@ezcorp/extension-runner/src/podman.ts:687 validateArtifact
+
+4 function(s) above the warn line (not failing).
+
+✓ no touched function exceeds CRAP 30

@@ -1,0 +1,9 @@
+bun test v1.4.2 (744846f84)
+{"ts":"2026-10-16T01:08:24.109Z","level":"info","msg":"Repaired double-encoded jsonb","subsystem":"db","table":"messages","column":"usage","rows":1}
+{"ts":"2026-10-16T01:08:24.485Z","level":"info","msg":"jsonb double-encode repair already completed — skipping scan","subsystem":"db","marker":"db:jsonb-repair:done"}
+{"ts":"2026-10-16T01:08:24.489Z","level":"warn","msg":"jsonb repair marker write failed","subsystem":"db","error":"Error: insert boom"}
+
+ 4 pass
+ 0 fail
+ 14 expect() calls
+Ran 4 tests across 1 file. [1317.00ms]

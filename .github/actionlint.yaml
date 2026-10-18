@@ -1,0 +1,6 @@
+# actionlint configuration. The repository's self-hosted runner labels (used with `self-hosted` in ci.yml);
+# without them actionlint reports each as an unknown label.
+self-hosted-runner:
+  labels:
+    - factory-real
+    - factory-gpu

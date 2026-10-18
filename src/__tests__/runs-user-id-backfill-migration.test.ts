@@ -41,7 +41,7 @@ describe("migrate(): runs.user_id attribution backfill", () => {
     const CONV_ID = "conv-run-bf-1";
     const RUN_ID = "run-bf-1";
 
-    await db.insert(users).values({ id: USER_ID, email: "r1@x.com", passwordHash: "x", name: "R1", role: "member" } as any);
+    await db.insert(users).values({ id: USER_ID, email: "r1@x.example", passwordHash: "x", name: "R1", role: "member" } as any);
     await db.insert(projects).values({ id: PROJECT_ID, name: "r1", path: "/tmp/r1" } as any);
     await db.insert(conversations).values({ id: CONV_ID, projectId: PROJECT_ID, userId: USER_ID } as any);
     // Run inserted as if before user_id existed — explicitly NULL.
@@ -66,7 +66,7 @@ describe("migrate(): runs.user_id attribution backfill", () => {
     const SUB_ID = "conv-sub-bf-2";
     const RUN_ID = "run-bf-2";
 
-    await db.insert(users).values({ id: USER_ID, email: "r2@x.com", passwordHash: "x", name: "R2", role: "member" } as any);
+    await db.insert(users).values({ id: USER_ID, email: "r2@x.example", passwordHash: "x", name: "R2", role: "member" } as any);
     await db.insert(projects).values({ id: PROJECT_ID, name: "r2", path: "/tmp/r2" } as any);
     await db.insert(conversations).values({ id: ROOT_ID, projectId: PROJECT_ID, userId: USER_ID } as any);
     // Sub-conversation: userId NULL, parent → owned root.
@@ -108,8 +108,8 @@ describe("migrate(): runs.user_id attribution backfill", () => {
     const CONV_ID = "conv-run-bf-4";
     const RUN_ID = "run-bf-4";
 
-    await db.insert(users).values({ id: OWNER_ID, email: "r4o@x.com", passwordHash: "x", name: "R4o", role: "member" } as any);
-    await db.insert(users).values({ id: OTHER_ID, email: "r4x@x.com", passwordHash: "x", name: "R4x", role: "member" } as any);
+    await db.insert(users).values({ id: OWNER_ID, email: "r4o@x.example", passwordHash: "x", name: "R4o", role: "member" } as any);
+    await db.insert(users).values({ id: OTHER_ID, email: "r4x@x.example", passwordHash: "x", name: "R4x", role: "member" } as any);
     await db.insert(projects).values({ id: PROJECT_ID, name: "r4", path: "/tmp/r4" } as any);
     // Conversation owned by OWNER, but the run already attributes to OTHER.
     await db.insert(conversations).values({ id: CONV_ID, projectId: PROJECT_ID, userId: OWNER_ID } as any);

@@ -1,0 +1,8 @@
+bun test v1.4.2 (744846f84)
+{"ts":"2026-10-17T23:29:44.906Z","level":"warn","msg":"legacy MCP manifest secret could not be migrated","subsystem":"db.queries.extensions","extension":"legacy-fail","error":"Error: secret store unavailable"}
+{"ts":"2026-10-17T23:29:45.230Z","level":"warn","msg":"legacy MCP manifest secret could not be migrated","subsystem":"db.queries.extensions","extension":"mix-fail","error":"Error: secret store unavailable"}
+
+ 2 pass
+ 0 fail
+ 7 expect() calls
+Ran 2 tests across 1 file. [1321.00ms]

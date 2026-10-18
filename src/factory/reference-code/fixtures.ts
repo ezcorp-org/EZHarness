@@ -106,6 +106,22 @@ export const REFERENCE_CODE_FIXTURE_REQUEST = Object.freeze({
   baseBranch: "main",
 });
 
+/**
+ * The fixture repository's protected policy, as an operator states it in the run's connection
+ * (W4H-28). Derived from the fixture request so the two cannot disagree. The repository id is the
+ * fixture's own number: a local release never reaches GitHub, and a pull request names the id the
+ * W07 publication repository really has.
+ */
+export const REFERENCE_CODE_FIXTURE_POLICY = Object.freeze({
+  repositoryId: 1,
+  allowedPaths: REFERENCE_CODE_FIXTURE_REQUEST.allowedPaths,
+  protectedPaths: REFERENCE_CODE_FIXTURE_REQUEST.protectedPaths,
+  protectedTestPaths: Object.freeze(["test/slugify.protected.test.ts"]),
+});
+
+/** The fixture base commit's recorded time: the candidate commit's time, never a clock read. */
+export const REFERENCE_CODE_FIXTURE_COMMITTED_AT_SECONDS = 1_790_000_000;
+
 /** The implementation that satisfies every protected claim. */
 export const REFERENCE_CODE_ACCEPTED_SLUGIFY = `/** Turns a title into a URL slug: lowercase words joined by single hyphens. */
 export function slugify(value: string): string {

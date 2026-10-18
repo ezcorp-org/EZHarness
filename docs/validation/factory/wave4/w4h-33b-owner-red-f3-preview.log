@@ -1,0 +1,30 @@
+bun test v1.4.2 (744846f84)
+
+src/__tests__/shipping-preview-isolation.test.ts:
+55 |   // Rootless Podman maps 65,536 subordinate ids: the image's low ids and the helper's 90000–99000 range, nothing else.
+56 |   for (const map of ["--uidmap=0:0:56536", "--uidmap=90000:56536:9001", "--gidmap=0:0:56536", "--gidmap=90000:56536:9001"]) expect(argv).toContain(map);
+57 |   expect(argv).toContain("--network=none");
+58 |   // The proof job installs the runner's pinned static conmon, built without journald, and Podman logs to journald by
+59 |   // default: the run then dies with "conmon failed: exit status 1" (W4H-33b). The runner passes the same flag.
+60 |   expect(argv).toContain("--log-driver=none");
+                    ^
+error: expect(received).toContain(expected)
+
+Expected to contain: "--log-driver=none"
+Received: [
+  "run", "--rm", "--uidmap=0:0:56536", "--uidmap=90000:56536:9001", "--gidmap=0:0:56536", "--gidmap=90000:56536:9001",
+  "--network=none", "--env=EZCORP_PREVIEW_ISOLATION_PROOF=1", "--volume=/tmp/tmp.82AgcFfmgk:/app/src/__tests__:ro",
+  "--entrypoint=bun", "ezcorp:test-candidate", "test", "--timeout", "60000", "./src/__tests__/preview-uid-keystone.docker.test.ts",
+  "./src/__tests__/preview-dynamic-e2e.docker.test.ts"
+]
+
+      at <anonymous> (/home/dev/work/EZCorp/EZHarness/.worktrees/w4h-33b/src/__tests__/shipping-preview-isolation.test.ts:60:16)
+(fail) runs the plan's preview files inside the candidate image with the preview uid range mapped and the lane variable set [25.35ms]
+(pass) a run where the in-image tests skipped, failed or ran nothing is a failed proof [70.30ms]
+(pass) refuses to start without the candidate image or a receipt directory [7.75ms]
+
+ 2 pass
+ 1 fail
+ 19 expect() calls
+Ran 3 tests across 1 file. [477.00ms]
+exit=1

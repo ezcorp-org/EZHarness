@@ -1,0 +1,38 @@
+bun test v1.4.2 (744846f84)
+{"ts":"2026-10-16T01:03:50.805Z","level":"info","msg":"skipped: model lacks image input capability","subsystem":"executor.loadHistory.rehydrate","branchLen":0}
+{"ts":"2026-10-16T01:03:50.811Z","level":"warn","msg":"Task-tracking wire failed — task tools unavailable this turn","subsystem":"executor.streamChat.setup","error":"TaskTrackingNotInstalledError: task-tracking extension not installed — did ensureBundledExtensions() run?"}
+{"ts":"2026-10-16T01:03:50.811Z","level":"warn","msg":"ask-user extension not installed — did ensureBundledExtensions() run?","subsystem":"ask-user-host"}
+{"ts":"2026-10-16T01:03:50.812Z","level":"warn","msg":"run_workflow wire skipped — the conversation row has no owner, so a run could not be authorized","subsystem":"executor.streamChat.setup","conversationId":"750b6ca1-1b9b-42bc-acd8-c2110da8edf6"}
+{"ts":"2026-10-16T01:03:50.819Z","level":"info","msg":"provider failure before first token — same-provider retry","subsystem":"executor.streamChat.failover","provider":"prov-fail","model":"prov-fail-model","retry":1,"backoffMs":180}
+{"ts":"2026-10-16T01:03:51.005Z","level":"info","msg":"provider failure before first token — attempting failover","subsystem":"executor.streamChat.failover","failedProvider":"prov-fail","failedModel":"prov-fail-model","attempt":1}
+{"ts":"2026-10-16T01:03:51.005Z","level":"info","msg":"turn cache","subsystem":"executor.streamChat.subscribe","provider":"prov-ok","model":"prov-ok-model","hitRate":0,"cachedTokens":0,"cacheWriteTokens":0,"cacheWrite1hTokens":0,"promptTokens":5}
+{"ts":"2026-10-16T01:03:51.006Z","level":"info","msg":"conversation cache summary","subsystem":"executor.streamChat.subscribe","turns":1,"overallHitRate":0,"cachedTokens":0,"promptTokens":5,"segments":[{"provider":"prov-ok","model":"prov-ok-model","hitRate":0,"cachedTokens":0,"cacheWrite1hTokens":0,"turns":1}]}
+{"ts":"2026-10-16T01:03:51.025Z","level":"info","msg":"skipped: model lacks image input capability","subsystem":"executor.loadHistory.rehydrate","branchLen":0}
+{"ts":"2026-10-16T01:03:51.027Z","level":"warn","msg":"Task-tracking wire failed — task tools unavailable this turn","subsystem":"executor.streamChat.setup","error":"TaskTrackingNotInstalledError: task-tracking extension not installed — did ensureBundledExtensions() run?"}
+{"ts":"2026-10-16T01:03:51.028Z","level":"warn","msg":"ask-user extension not installed — did ensureBundledExtensions() run?","subsystem":"ask-user-host"}
+{"ts":"2026-10-16T01:03:51.028Z","level":"warn","msg":"run_workflow wire skipped — the conversation row has no owner, so a run could not be authorized","subsystem":"executor.streamChat.setup","conversationId":"2cf868d9-76c1-4fd4-bcf3-7f10492cc8d6"}
+{"ts":"2026-10-16T01:03:51.031Z","level":"info","msg":"provider failure before first token — same-provider retry","subsystem":"executor.streamChat.failover","provider":"prov-fail","model":"prov-fail-model","retry":1,"backoffMs":190}
+{"ts":"2026-10-16T01:03:51.221Z","level":"info","msg":"provider failure before first token — attempting failover","subsystem":"executor.streamChat.failover","failedProvider":"prov-fail","failedModel":"prov-fail-model","attempt":1}
+{"ts":"2026-10-16T01:03:51.231Z","level":"info","msg":"skipped: model lacks image input capability","subsystem":"executor.loadHistory.rehydrate","provider":"prov-ok","branchLen":0}
+{"ts":"2026-10-16T01:03:51.232Z","level":"warn","msg":"Task-tracking wire failed — task tools unavailable this turn","subsystem":"executor.streamChat.setup","error":"TaskTrackingNotInstalledError: task-tracking extension not installed — did ensureBundledExtensions() run?"}
+{"ts":"2026-10-16T01:03:51.233Z","level":"warn","msg":"ask-user extension not installed — did ensureBundledExtensions() run?","subsystem":"ask-user-host"}
+{"ts":"2026-10-16T01:03:51.233Z","level":"warn","msg":"run_workflow wire skipped — the conversation row has no owner, so a run could not be authorized","subsystem":"executor.streamChat.setup","conversationId":"d61375d0-b20a-424c-8161-7bd9df9103dc"}
+{"ts":"2026-10-16T01:03:51.236Z","level":"info","msg":"turn cache","subsystem":"executor.streamChat.subscribe","provider":"prov-ok","model":"prov-ok-model","hitRate":0,"cachedTokens":0,"cacheWriteTokens":0,"cacheWrite1hTokens":0,"promptTokens":5}
+{"ts":"2026-10-16T01:03:51.236Z","level":"info","msg":"conversation cache summary","subsystem":"executor.streamChat.subscribe","turns":1,"overallHitRate":0,"cachedTokens":0,"promptTokens":5,"segments":[{"provider":"prov-ok","model":"prov-ok-model","hitRate":0,"cachedTokens":0,"cacheWrite1hTokens":0,"turns":1}]}
+{"ts":"2026-10-16T01:03:51.254Z","level":"info","msg":"skipped: model lacks image input capability","subsystem":"executor.loadHistory.rehydrate","provider":"prov-fail","model":"prov-fail-opus","kinds":["text","pdf"],"branchLen":0}
+{"ts":"2026-10-16T01:03:51.255Z","level":"warn","msg":"Task-tracking wire failed — task tools unavailable this turn","subsystem":"executor.streamChat.setup","error":"TaskTrackingNotInstalledError: task-tracking extension not installed — did ensureBundledExtensions() run?"}
+{"ts":"2026-10-16T01:03:51.255Z","level":"warn","msg":"ask-user extension not installed — did ensureBundledExtensions() run?","subsystem":"ask-user-host"}
+{"ts":"2026-10-16T01:03:51.255Z","level":"warn","msg":"run_workflow wire skipped — the conversation row has no owner, so a run could not be authorized","subsystem":"executor.streamChat.setup","conversationId":"cff010b7-b302-4b40-94de-e3fefdbb3b9d"}
+{"ts":"2026-10-16T01:03:51.258Z","level":"info","msg":"provider failure before first token — same-provider retry","subsystem":"executor.streamChat.failover","provider":"prov-fail","model":"prov-fail-opus","retry":1,"backoffMs":256}
+{"ts":"2026-10-16T01:03:51.514Z","level":"info","msg":"provider failure before first token — attempting failover","subsystem":"executor.streamChat.failover","failedProvider":"prov-fail","failedModel":"prov-fail-opus","attempt":1}
+{"ts":"2026-10-16T01:03:51.514Z","level":"info","msg":"turn cache","subsystem":"executor.streamChat.subscribe","provider":"prov-ok","model":"prov-ok-model","hitRate":0,"cachedTokens":0,"cacheWriteTokens":0,"cacheWrite1hTokens":0,"promptTokens":5}
+{"ts":"2026-10-16T01:03:51.514Z","level":"info","msg":"conversation cache summary","subsystem":"executor.streamChat.subscribe","turns":1,"overallHitRate":0,"cachedTokens":0,"promptTokens":5,"segments":[{"provider":"prov-ok","model":"prov-ok-model","hitRate":0,"cachedTokens":0,"cacheWrite1hTokens":0,"turns":1}]}
+{"ts":"2026-10-16T01:03:51.527Z","level":"info","msg":"skipped: model lacks image input capability","subsystem":"executor.loadHistory.rehydrate","branchLen":0}
+{"ts":"2026-10-16T01:03:51.529Z","level":"warn","msg":"Task-tracking wire failed — task tools unavailable this turn","subsystem":"executor.streamChat.setup","error":"TaskTrackingNotInstalledError: task-tracking extension not installed — did ensureBundledExtensions() run?"}
+{"ts":"2026-10-16T01:03:51.530Z","level":"warn","msg":"ask-user extension not installed — did ensureBundledExtensions() run?","subsystem":"ask-user-host"}
+{"ts":"2026-10-16T01:03:51.530Z","level":"warn","msg":"run_workflow wire skipped — the conversation row has no owner, so a run could not be authorized","subsystem":"executor.streamChat.setup","conversationId":"23edbbb5-5cda-4377-a834-a62b584b3659"}
+
+ 5 pass
+ 0 fail
+ 50 expect() calls
+Ran 5 tests across 1 file. [1.71s]

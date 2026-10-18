@@ -1,0 +1,27 @@
+bun test v1.4.2 (744846f84)
+{"ts":"2026-10-16T01:09:03.028Z","level":"info","msg":"walked","subsystem":"executor.loadHistory.rehydrate","assistantsInBranch":4,"toolRowsFound":0,"urlsSeen":2,"statMisses":0,"imagesInjected":2,"totalBytes":16,"cwd":"/tmp/cap-ASXM9H"}
+{"ts":"2026-10-16T01:09:03.030Z","level":"info","msg":"walked","subsystem":"executor.loadHistory.rehydrate","assistantsInBranch":3,"toolRowsFound":0,"urlsSeen":3,"statMisses":0,"imagesInjected":2,"totalBytes":200,"cwd":"/tmp/cap-GSen59"}
+{"ts":"2026-10-16T01:09:03.031Z","level":"info","msg":"walked","subsystem":"executor.loadHistory.rehydrate","assistantsInBranch":2,"toolRowsFound":0,"urlsSeen":1,"statMisses":0,"imagesInjected":1,"totalBytes":8,"cwd":"/tmp/cap-riRUNP"}
+{"ts":"2026-10-16T01:09:03.032Z","level":"info","msg":"walked","subsystem":"executor.loadHistory.rehydrate","assistantsInBranch":2,"toolRowsFound":0,"urlsSeen":1,"statMisses":0,"imagesInjected":1,"totalBytes":8,"cwd":"/tmp/cap-tFXs80"}
+{"ts":"2026-10-16T01:09:03.032Z","level":"info","msg":"walked","subsystem":"executor.loadHistory.rehydrate","assistantsInBranch":0,"toolRowsFound":0,"urlsSeen":0,"statMisses":0,"imagesInjected":0,"totalBytes":0,"cwd":"/tmp/cap-XtIevk"}
+{"ts":"2026-10-16T01:09:03.033Z","level":"info","msg":"walked","subsystem":"executor.loadHistory.rehydrate","assistantsInBranch":1,"toolRowsFound":0,"urlsSeen":0,"statMisses":0,"imagesInjected":0,"totalBytes":0,"cwd":"/tmp/cap-bw6rHM"}
+{"ts":"2026-10-16T01:09:03.034Z","level":"info","msg":"walked","subsystem":"executor.loadHistory.rehydrate","assistantsInBranch":1,"toolRowsFound":0,"urlsSeen":1,"statMisses":0,"imagesInjected":1,"totalBytes":8,"cwd":"/tmp/cap-4MNsB7"}
+{"ts":"2026-10-16T01:09:03.035Z","level":"warn","msg":"walked — some ext-files URLs could not be resolved on disk","subsystem":"executor.loadHistory.rehydrate","assistantsInBranch":1,"toolRowsFound":0,"urlsSeen":1,"statMisses":1,"imagesInjected":0,"totalBytes":0,"cwd":"/tmp/cap-wp2UZ8"}
+{"ts":"2026-10-16T01:09:03.069Z","level":"info","msg":"walked","subsystem":"executor.loadHistory.rehydrate","assistantsInBranch":1,"toolRowsFound":0,"urlsSeen":1,"statMisses":0,"imagesInjected":1,"totalBytes":8,"cwd":"/tmp/loadhistory-hjGZbD"}
+{"ts":"2026-10-16T01:09:03.094Z","level":"info","msg":"skipped: model lacks image input capability","subsystem":"executor.loadHistory.rehydrate","provider":"my-custom-provider","model":"text-only-model","kinds":["text","pdf"],"branchLen":3}
+{"ts":"2026-10-16T01:09:03.134Z","level":"info","msg":"walked","subsystem":"executor.loadHistory.rehydrate","assistantsInBranch":7,"toolRowsFound":0,"urlsSeen":5,"statMisses":0,"imagesInjected":5,"totalBytes":20,"cwd":"/tmp/loadhistory-EqbA4e"}
+{"ts":"2026-10-16T01:09:03.178Z","level":"info","msg":"walked","subsystem":"executor.loadHistory.rehydrate","assistantsInBranch":3,"toolRowsFound":0,"urlsSeen":3,"statMisses":0,"imagesInjected":2,"totalBytes":4194304,"cwd":"/tmp/loadhistory-XVPbAc"}
+{"ts":"2026-10-16T01:09:03.238Z","level":"info","msg":"walked","subsystem":"executor.loadHistory.rehydrate","assistantsInBranch":11,"toolRowsFound":0,"urlsSeen":1,"statMisses":0,"imagesInjected":1,"totalBytes":8,"cwd":"/tmp/loadhistory-0vGOp1"}
+{"ts":"2026-10-16T01:09:03.255Z","level":"info","msg":"walked","subsystem":"executor.loadHistory.rehydrate","assistantsInBranch":2,"toolRowsFound":0,"urlsSeen":2,"statMisses":0,"imagesInjected":1,"totalBytes":8,"cwd":"/tmp/loadhistory-6Htiks"}
+{"ts":"2026-10-16T01:09:03.264Z","level":"info","msg":"walked","subsystem":"executor.loadHistory.rehydrate","assistantsInBranch":1,"toolRowsFound":0,"urlsSeen":0,"statMisses":0,"imagesInjected":0,"totalBytes":0,"cwd":"/tmp/loadhistory-SN4VvT"}
+{"ts":"2026-10-16T01:09:03.274Z","level":"info","msg":"walked","subsystem":"executor.loadHistory.rehydrate","assistantsInBranch":1,"toolRowsFound":0,"urlsSeen":0,"statMisses":0,"imagesInjected":0,"totalBytes":0,"cwd":"/tmp/loadhistory-Lx5uLA"}
+{"ts":"2026-10-16T01:09:03.287Z","level":"info","msg":"walked","subsystem":"executor.loadHistory.rehydrate","assistantsInBranch":1,"toolRowsFound":1,"urlsSeen":1,"statMisses":0,"imagesInjected":1,"totalBytes":8,"cwd":"/tmp/loadhistory-x2VeN1"}
+{"ts":"2026-10-16T01:09:03.298Z","level":"info","msg":"walked","subsystem":"executor.loadHistory.rehydrate","assistantsInBranch":1,"toolRowsFound":1,"urlsSeen":2,"statMisses":0,"imagesInjected":1,"totalBytes":8,"cwd":"/tmp/loadhistory-BSTkeN"}
+{"ts":"2026-10-16T01:09:03.309Z","level":"info","msg":"walked","subsystem":"executor.loadHistory.rehydrate","assistantsInBranch":1,"toolRowsFound":2,"urlsSeen":2,"statMisses":0,"imagesInjected":2,"totalBytes":12,"cwd":"/tmp/loadhistory-Bzp9qW"}
+{"ts":"2026-10-16T01:09:03.320Z","level":"info","msg":"walked","subsystem":"executor.loadHistory.rehydrate","assistantsInBranch":1,"toolRowsFound":1,"urlsSeen":0,"statMisses":0,"imagesInjected":0,"totalBytes":0,"cwd":"/tmp/loadhistory-ZXWJG9"}
+{"ts":"2026-10-16T01:09:03.330Z","level":"info","msg":"walked","subsystem":"executor.loadHistory.rehydrate","assistantsInBranch":1,"toolRowsFound":0,"urlsSeen":2,"statMisses":0,"imagesInjected":2,"totalBytes":12,"cwd":"/tmp/loadhistory-rNh4Ut"}
+
+ 24 pass
+ 0 fail
+ 48 expect() calls
+Ran 24 tests across 1 file. [1358.00ms]

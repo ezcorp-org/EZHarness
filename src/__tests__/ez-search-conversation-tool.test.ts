@@ -180,8 +180,8 @@ describe("search_conversation (real PGlite, keyword mode)", () => {
 
   beforeAll(async () => {
     await setupTestDb();
-    const u1 = await createUser({ email: "ez-search-1@test.com", passwordHash: "h", name: "One" });
-    const u2 = await createUser({ email: "ez-search-2@test.com", passwordHash: "h", name: "Two" });
+    const u1 = await createUser({ email: "ez-search-1@test.example", passwordHash: "h", name: "One" });
+    const u2 = await createUser({ email: "ez-search-2@test.example", passwordHash: "h", name: "Two" });
     user1 = u1.id;
     user2 = u2.id;
     await getDb()

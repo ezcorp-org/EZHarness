@@ -1,0 +1,16 @@
+Checked 6 files in 15ms. No fixes applied.
+── Tests (staged) ─────────────────────────────────
+  bun: packages/@ezcorp/extension-runner/tests/service.test.ts
+bun test v1.4.2 (744846f84)
+
+ 10 pass
+ 0 fail
+ 45 expect() calls
+Ran 10 tests across 1 file. [1105.00ms]
+  bun: packages/@ezcorp/extension-runner/tests/store-reuse.test.ts
+bun test v1.4.2 (744846f84)
+
+ 6 pass
+ 0 fail
+ 11 expect() calls
+Ran 6 tests across 1 file. [448.00ms]

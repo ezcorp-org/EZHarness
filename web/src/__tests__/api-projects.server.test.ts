@@ -75,7 +75,7 @@ describe("POST /api/projects", () => {
 	});
 
 	test("rejects 400 when name or path missing (auth'd user)", async () => {
-		const user = { id: "u1", email: "u@test.com", name: "U", role: "member" };
+		const user = { id: "u1", email: "u@test.example", name: "U", role: "member" };
 		// Both empty -> 400 path. Don't pass body that triggers DB on success.
 		const res = await POST(makePostEvent({ name: "", path: "" }, { user }));
 		expect(res.status).toBe(400);
@@ -92,7 +92,7 @@ describe("POST /api/projects", () => {
 	 * throwaway overlay or nowhere at all.
 	 */
 	describe("path shape", () => {
-		const user = { id: "u1", email: "u@test.com", name: "U", role: "member" };
+		const user = { id: "u1", email: "u@test.example", name: "U", role: "member" };
 
 		test("rejects the tilde path as TYPED — it is not absolute", async () => {
 			// What a user actually enters. The leading `~` means it fails the

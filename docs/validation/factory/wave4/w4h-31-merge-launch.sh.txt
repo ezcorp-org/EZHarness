@@ -1,0 +1,20 @@
+#!/usr/bin/env bash
+# launch.sh commit|hold|publish (integrator-5; publish = publish-if-main.sh with the config's W-SYNC identity environment, only when heavy.exit = 0; the coordinator's word 2026-10-14): the W4H-31 commit and hold, each ONE gated-flock job that YIELDS to the
+# user's single real run (GATED_FLOCK_YIELD_FILE = w4h-28's proof/real-run.pending "<pid> <label>": while it exists and its pid lives, the job waits lock-free).
+# Run each only after the previous one's exit file reads 0; old exit files go to old-exits/ (never edited).
+set -u
+E=/tmp/factory-platform-evidence/w00; D=$E/w4h-merge/w4h-31-sync-main-934531e2e; mkdir -p $D/old-exits
+export GATED_FLOCK_YIELD_FILE=/tmp/factory-platform-evidence/w4h-28/proof/real-run.pending GATED_FLOCK_MAX_S=36000 GATED_FLOCK_START_MEM_GIB=12
+cd /tmp || exit 2
+case "${1:-}" in
+  commit) [ -e $D/commit.exit ] && mv $D/commit.exit $D/old-exits/commit.exit.$(date -u +%Y%m%dT%H%M%SZ)
+          GATED_FLOCK_EXIT_FILE=$D/commit.exit nohup bash $E/gated-flock.sh w4h-31-commit $D/commit-gate.log timeout 7200 bash $D/commit-locked.sh > $D/commit.out 2>&1 & ;;
+  hold)   [ "$(cat $D/commit.exit 2>/dev/null)" = 0 ] || { echo "REFUSED: commit.exit is not 0"; exit 3; }
+          [ -e $D/heavy.exit ] && mv $D/heavy.exit $D/old-exits/heavy.exit.$(date -u +%Y%m%dT%H%M%SZ)
+          GATED_FLOCK_EXIT_FILE=$D/heavy.exit nohup bash $E/gated-flock.sh w4h-31-hold $D/hold-gate.log timeout 18000 bash $D/hold-own-pg.sh $D > $D/hold.out 2>&1 & ;;
+  publish) [ "$(cat $D/heavy.exit 2>/dev/null)" = 0 ] || { echo "REFUSED: heavy.exit is not 0"; exit 3; }
+          ( . $D/config.sh; bash /tmp/factory-platform-evidence/integrator-5/publish-if-main.sh $D/config.sh "$SYNC_BASE_MAIN" ) > $D/publish.out 2>&1; rc=$?
+          echo "publish exit $rc $(date -u +%FT%TZ)"; tail -4 $D/publish.out; exit $rc ;;
+  *) echo "usage: launch.sh commit|hold|publish"; exit 2 ;;
+esac
+echo "launched $1 $(date -u +%FT%TZ) (yield file: $GATED_FLOCK_YIELD_FILE)"

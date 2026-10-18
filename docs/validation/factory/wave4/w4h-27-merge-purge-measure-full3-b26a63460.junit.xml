@@ -1,0 +1,96 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuites name="bun test" tests="63" assertions="372" failures="0" skipped="0" time="56.517641471">
+  <testsuite name="tests/postgres/factory-provisioning.test.ts" file="tests/postgres/factory-provisioning.test.ts" tests="63" assertions="372" failures="0" skipped="0" time="56.515307844" hostname="nixos-amd">
+    <testsuite name="the seven steps and four phases" file="tests/postgres/factory-provisioning.test.ts" line="179" tests="5" assertions="23" failures="0" skipped="0" time="0.934" hostname="nixos-amd">
+      <testcase name="a full run walks the steps in order, opens the route last, and reaches invitation_issued" classname="the seven steps and four phases" time="0.241727" file="tests/postgres/factory-provisioning.test.ts" line="180" assertions="8" />
+      <testcase name="`through` stops at the phase its steps establish, and a partial tenant is not served" classname="the seven steps and four phases" time="0.186224" file="tests/postgres/factory-provisioning.test.ts" line="196" assertions="7" />
+      <testcase name="a rerun over a complete installation verifies every step and re-creates nothing" classname="the seven steps and four phases" time="0.167491" file="tests/postgres/factory-provisioning.test.ts" line="207" assertions="3" />
+      <testcase name="concurrent provisioning of one tenant serializes on its lock and yields one identity" classname="the seven steps and four phases" time="0.167533" file="tests/postgres/factory-provisioning.test.ts" line="217" assertions="2" />
+      <testcase name="a request that changes a persisted identity is refused, and so is a malformed one" classname="the seven steps and four phases" time="0.173295" file="tests/postgres/factory-provisioning.test.ts" line="224" assertions="3" />
+    </testsuite>
+    <testsuite name="faults and recovery" file="tests/postgres/factory-provisioning.test.ts" line="232" tests="22" assertions="158" failures="0" skipped="0" time="3.84" hostname="nixos-amd">
+      <testcase name="a fault before database is recorded on the ledger and the rerun resumes there" classname="faults and recovery" time="0.165936" file="tests/postgres/factory-provisioning.test.ts" line="236" assertions="9" />
+      <testcase name="a fault before storage is recorded on the ledger and the rerun resumes there" classname="faults and recovery" time="0.173221" file="tests/postgres/factory-provisioning.test.ts" line="236" assertions="9" />
+      <testcase name="a fault before temporal is recorded on the ledger and the rerun resumes there" classname="faults and recovery" time="0.168959" file="tests/postgres/factory-provisioning.test.ts" line="236" assertions="9" />
+      <testcase name="a fault before secrets is recorded on the ledger and the rerun resumes there" classname="faults and recovery" time="0.2767" file="tests/postgres/factory-provisioning.test.ts" line="236" assertions="9" />
+      <testcase name="a fault before deployment is recorded on the ledger and the rerun resumes there" classname="faults and recovery" time="0.171609" file="tests/postgres/factory-provisioning.test.ts" line="236" assertions="9" />
+      <testcase name="a fault before ingress is recorded on the ledger and the rerun resumes there" classname="faults and recovery" time="0.173575" file="tests/postgres/factory-provisioning.test.ts" line="236" assertions="9" />
+      <testcase name="a fault before invitation is recorded on the ledger and the rerun resumes there" classname="faults and recovery" time="0.177141" file="tests/postgres/factory-provisioning.test.ts" line="236" assertions="9" />
+      <testcase name="a fault after database is recorded on the ledger and the rerun resumes there" classname="faults and recovery" time="0.200447" file="tests/postgres/factory-provisioning.test.ts" line="236" assertions="9" />
+      <testcase name="a fault after storage is recorded on the ledger and the rerun resumes there" classname="faults and recovery" time="0.180387" file="tests/postgres/factory-provisioning.test.ts" line="236" assertions="9" />
+      <testcase name="a fault after temporal is recorded on the ledger and the rerun resumes there" classname="faults and recovery" time="0.170619" file="tests/postgres/factory-provisioning.test.ts" line="236" assertions="9" />
+      <testcase name="a fault after secrets is recorded on the ledger and the rerun resumes there" classname="faults and recovery" time="0.179606" file="tests/postgres/factory-provisioning.test.ts" line="236" assertions="9" />
+      <testcase name="a fault after deployment is recorded on the ledger and the rerun resumes there" classname="faults and recovery" time="0.216387" file="tests/postgres/factory-provisioning.test.ts" line="236" assertions="9" />
+      <testcase name="a fault after ingress is recorded on the ledger and the rerun resumes there" classname="faults and recovery" time="0.184818" file="tests/postgres/factory-provisioning.test.ts" line="236" assertions="9" />
+      <testcase name="a fault after invitation is recorded on the ledger and the rerun resumes there" classname="faults and recovery" time="0.176439" file="tests/postgres/factory-provisioning.test.ts" line="236" assertions="9" />
+      <testcase name="a driver failure is recorded with its own code and the phase does not advance" classname="faults and recovery" time="0.176365" file="tests/postgres/factory-provisioning.test.ts" line="256" assertions="4" />
+      <testcase name="a completed step that fails re-verification is marked failed and the rerun stops there" classname="faults and recovery" time="0.173752" file="tests/postgres/factory-provisioning.test.ts" line="266" assertions="2" />
+      <testcase name="a crash inside product role creation is recognised on the rerun, never adopted blindly" classname="faults and recovery" time="0.181207" file="tests/postgres/factory-provisioning.test.ts" line="275" assertions="4" />
+      <testcase name="a crash inside product database creation is recognised on the rerun, never adopted blindly" classname="faults and recovery" time="0.186298" file="tests/postgres/factory-provisioning.test.ts" line="275" assertions="5" />
+      <testcase name="a crash inside the fleet host&apos;s shared pool role creation is recognised on the rerun, never adopted blindly" classname="faults and recovery" time="0.061448" file="tests/postgres/factory-provisioning.test.ts" line="290" assertions="5" />
+      <testcase name="a crash inside the fleet host&apos;s shared pool database creation is recognised on the rerun, never adopted blindly" classname="faults and recovery" time="0.064578" file="tests/postgres/factory-provisioning.test.ts" line="290" assertions="7" />
+      <testcase name="a same-named role without this installation&apos;s provenance is refused and never dropped" classname="faults and recovery" time="0.179804" file="tests/postgres/factory-provisioning.test.ts" line="311" assertions="3" />
+      <testcase name="a resource that loses its marker after completion fails verification by name" classname="faults and recovery" time="0.212748" file="tests/postgres/factory-provisioning.test.ts" line="321" assertions="2" />
+    </testsuite>
+    <testsuite name="credentials: uniqueness, rotation, and revocation" file="tests/postgres/factory-provisioning.test.ts" line="334" tests="6" assertions="22" failures="0" skipped="0" time="1.024" hostname="nixos-amd">
+      <testcase name="every installation&apos;s secrets are distinct, and a copied one is refused as shared" classname="credentials: uniqueness, rotation, and revocation" time="0.297557" file="tests/postgres/factory-provisioning.test.ts" line="335" assertions="4" />
+      <testcase name="rotating the database credential makes the old password fail before it returns" classname="credentials: uniqueness, rotation, and revocation" time="0.184166" file="tests/postgres/factory-provisioning.test.ts" line="347" assertions="5" />
+      <testcase name="a crash between ALTER ROLE and the credential swap is finished by the next read, never a lockout" classname="credentials: uniqueness, rotation, and revocation" time="0.187732" file="tests/postgres/factory-provisioning.test.ts" line="362" assertions="6" />
+      <testcase name="a pending credential whose ALTER never ran is applied on the next read" classname="credentials: uniqueness, rotation, and revocation" time="0.181677" file="tests/postgres/factory-provisioning.test.ts" line="380" assertions="3" />
+      <testcase name="canLogin answers false only for a refused credential and rethrows any other failure" classname="credentials: uniqueness, rotation, and revocation" time="0.002645" file="tests/postgres/factory-provisioning.test.ts" line="393" assertions="2" />
+      <testcase name="rotation is refused before resources exist and for a step with no credential" classname="credentials: uniqueness, rotation, and revocation" time="0.173348" file="tests/postgres/factory-provisioning.test.ts" line="403" assertions="2" />
+    </testsuite>
+    <testsuite name="rotation through the provisioner" file="tests/postgres/factory-provisioning.test.ts" line="414" tests="4" assertions="16" failures="0" skipped="0" time="0.62" hostname="nixos-amd">
+      <testcase name="the deployment rotates its own mesh and re-delivers nothing else; the invitation delivers itself" classname="rotation through the provisioner" time="0.175657" file="tests/postgres/factory-provisioning.test.ts" line="417" assertions="6" />
+      <testcase name="before step 5 exists, a rotated credential is not re-delivered" classname="rotation through the provisioner" time="0.142396" file="tests/postgres/factory-provisioning.test.ts" line="435" assertions="1" />
+      <testcase name="a step that is not complete cannot rotate, so no invitation is issued ahead of its route" classname="rotation through the provisioner" time="0.135256" file="tests/postgres/factory-provisioning.test.ts" line="443" assertions="4" />
+      <testcase name="a failed rotation or re-delivery is recorded on the ledger and leaves the step complete" classname="rotation through the provisioner" time="0.168272" file="tests/postgres/factory-provisioning.test.ts" line="451" assertions="5" />
+    </testsuite>
+    <testsuite name="the provisioner&apos;s own guards" file="tests/postgres/factory-provisioning.test.ts" line="466" tests="3" assertions="7" failures="0" skipped="0" time="0.471" hostname="nixos-amd">
+      <testcase name="every mutation is attributed on the ledger to whoever asked for it" classname="the provisioner&apos;s own guards" time="0.206635" file="tests/postgres/factory-provisioning.test.ts" line="467" assertions="1" />
+      <testcase name="a ledger with a later step complete while an earlier one is not is refused, never skipped past" classname="the provisioner&apos;s own guards" time="0.128107" file="tests/postgres/factory-provisioning.test.ts" line="480" assertions="3" />
+      <testcase name="a phase another writer moved first is refused, not silently recorded" classname="the provisioner&apos;s own guards" time="0.137036" file="tests/postgres/factory-provisioning.test.ts" line="491" assertions="3" />
+    </testsuite>
+    <testsuite name="the product database&apos;s extensions" file="tests/postgres/factory-provisioning.test.ts" line="507" tests="1" assertions="6" failures="0" skipped="0" time="0.219" hostname="nixos-amd">
+      <testcase name="vector and pg_trgm are created by the cluster administrator, verified on every rerun, and restored after loss" classname="the product database&apos;s extensions" time="0.219012" file="tests/postgres/factory-provisioning.test.ts" line="508" assertions="6" />
+    </testsuite>
+    <testsuite name="teardown and purge" file="tests/postgres/factory-provisioning.test.ts" line="530" tests="5" assertions="38" failures="0" skipped="0" time="31.152" hostname="nixos-amd">
+      <testcase name="teardown holds the route first, walks steps backwards, withdraws logins, keeps data, and names its residue" classname="teardown and purge" time="0.196623" file="tests/postgres/factory-provisioning.test.ts" line="538" assertions="11" />
+      <testcase name="teardown of a partial installation tears down only the steps that created something" classname="teardown and purge" time="0.140456" file="tests/postgres/factory-provisioning.test.ts" line="561" assertions="1" />
+      <testcase name="a teardown failure stops with the tenant still tearing down, and the rerun resumes it" classname="teardown and purge" time="0.204014" file="tests/postgres/factory-provisioning.test.ts" line="569" assertions="3" />
+      <testcase name="purge needs an installation-issued approval and closed work, drops the databases, and keeps the archive key" classname="teardown and purge" time="30.480743" file="tests/postgres/factory-provisioning.test.ts" line="578" assertions="19" />
+      <testcase name="bootstrap cannot be observed before the invitation is issued, nor for an unknown tenant" classname="teardown and purge" time="0.132979" file="tests/postgres/factory-provisioning.test.ts" line="611" assertions="4" />
+    </testsuite>
+    <testsuite name="the control ledger holds references only" file="tests/postgres/factory-provisioning.test.ts" line="621" tests="2" assertions="8" failures="0" skipped="0" time="0.16" hostname="nixos-amd">
+      <testcase name="a credential-shaped value is refused before it can reach a row" classname="the control ledger holds references only" time="0.000188" file="tests/postgres/factory-provisioning.test.ts" line="622" assertions="5" />
+      <testcase name="the directory publishes routing, identity, contact, limits, and membership references only" classname="the control ledger holds references only" time="0.16083" file="tests/postgres/factory-provisioning.test.ts" line="629" assertions="3" />
+    </testsuite>
+    <testsuite name="fleet upgrade waves" file="tests/postgres/factory-provisioning.test.ts" line="644" tests="9" assertions="43" failures="0" skipped="0" time="0.418" hostname="nixos-amd">
+      <testcase name="a build is a pinned image and a full revision; a conflicting re-registration is refused" classname="fleet upgrade waves" time="0.000559" file="tests/postgres/factory-provisioning.test.ts" line="679" assertions="4" />
+      <testcase name="the canary goes first and alone, each installation moves host, orchestrator, harness in that order" classname="fleet upgrade waves" time="0.035546" file="tests/postgres/factory-provisioning.test.ts" line="686" assertions="4" />
+      <testcase name="a migration failure in the canary stops the wave, rolls the canary back in reverse, and touches nobody else" classname="fleet upgrade waves" time="0.022377" file="tests/postgres/factory-provisioning.test.ts" line="695" assertions="9" />
+      <testcase name="a readiness failure after the canary stops the wave at that installation" classname="fleet upgrade waves" time="0.032483" file="tests/postgres/factory-provisioning.test.ts" line="709" assertions="6" />
+      <testcase name="an unknown canary is refused, and a build nothing needs is retired while referenced ones are kept" classname="fleet upgrade waves" time="0.007111" file="tests/postgres/factory-provisioning.test.ts" line="721" assertions="3" />
+      <testcase name="an installation that serves no traffic is skipped and named; an ineligible canary stops the wave before anything moves" classname="fleet upgrade waves" time="0.007374" file="tests/postgres/factory-provisioning.test.ts" line="734" assertions="6" />
+      <testcase name="a wave that throws is recorded stopped with the failure, never left running" classname="fleet upgrade waves" time="0.003651" file="tests/postgres/factory-provisioning.test.ts" line="747" assertions="3" />
+      <testcase name="one wave runs at a time; a wave a crashed process left running is refused until the operator abandons it" classname="fleet upgrade waves" time="0.006973" file="tests/postgres/factory-provisioning.test.ts" line="753" assertions="6" />
+      <testcase name="a wave waits for the installation&apos;s provisioner lock" classname="fleet upgrade waves" time="0.306985" file="tests/postgres/factory-provisioning.test.ts" line="767" assertions="2" />
+    </testsuite>
+    <testsuite name="the purge work census" file="tests/postgres/factory-provisioning.test.ts" line="787" tests="1" assertions="2" failures="0" skipped="0" time="1.341" hostname="nixos-amd">
+      <testcase name="counts active and uncertain rows by state only, and treats an absent table as zero" classname="the purge work census" time="1.341239" file="tests/postgres/factory-provisioning.test.ts" line="788" assertions="2" />
+    </testsuite>
+    <testcase name="a tenant-scoped secret file written by hand is never adopted as another tenant&apos;s" classname="" time="0.289388" file="tests/postgres/factory-provisioning.test.ts" line="806" assertions="1" />
+    <testsuite name="fleet composition" file="tests/postgres/factory-provisioning.test.ts" line="815" tests="1" assertions="10" failures="0" skipped="0" time="10.204" hostname="nixos-amd">
+      <testcase name="one settings document composes every driver over real stores, and the provisioner it builds answers" classname="fleet composition" time="10.204168" file="tests/postgres/factory-provisioning.test.ts" line="816" assertions="10" />
+    </testsuite>
+    <testsuite name="store claims on the real cluster" file="tests/postgres/factory-provisioning.test.ts" line="870" tests="1" assertions="3" failures="0" skipped="0" time="0.019" hostname="nixos-amd">
+      <testcase name="a (store, bucket) claimed by one fleet is refused to another, and the holder&apos;s rerun passes" classname="store claims on the real cluster" time="0.019077" file="tests/postgres/factory-provisioning.test.ts" line="871" assertions="3" />
+    </testsuite>
+    <testsuite name="the operator entry" file="tests/postgres/factory-provisioning.test.ts" line="888" tests="1" assertions="8" failures="0" skipped="0" time="0.729" hostname="nixos-amd">
+      <testcase name="init writes a local fleet with its own control role, and the main entry answers a status over it" classname="the operator entry" time="0.729388" file="tests/postgres/factory-provisioning.test.ts" line="889" assertions="8" />
+    </testsuite>
+    <testsuite name="the fleet host: one shared pool and supervisor, and no residue on the cluster" file="tests/postgres/factory-provisioning.test.ts" line="924" tests="1" assertions="27" failures="0" skipped="0" time="1.392" hostname="nixos-amd">
+      <testcase name="two installations share one pool and one supervisor; teardown, purge, and decommission leave no role or database of the fleet" classname="the fleet host: one shared pool and supervisor, and no residue on the cluster" time="1.392716" file="tests/postgres/factory-provisioning.test.ts" line="967" assertions="27" />
+    </testsuite>
+  </testsuite>
+</testsuites>

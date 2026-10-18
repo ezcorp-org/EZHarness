@@ -1,0 +1,121 @@
+{
+  "$id": "urn:ezcorp:factory:guest-material-read-response:v1",
+  "$ref": "#/definitions/FactoryGuestMaterialReadResponse",
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "definitions": {
+    "FactoryGuestMaterialReadRefusal": {
+      "description": "Why a read was refused. `unknown_material` covers every artifact that is not a sealed material or candidate output of this run, so a refusal never says whether an id exists in another scope.",
+      "enum": [
+        "invalid_request",
+        "unknown_attempt",
+        "unknown_material",
+        "deadline_expired",
+        "digest_mismatch",
+        "oversize",
+        "unavailable"
+      ],
+      "type": "string"
+    },
+    "FactoryGuestMaterialReadResponse": {
+      "anyOf": [
+        {
+          "additionalProperties": false,
+          "properties": {
+            "artifactId": {
+              "type": "string"
+            },
+            "contentBase64": {
+              "type": "string"
+            },
+            "digest": {
+              "type": "string"
+            },
+            "encodedBytes": {
+              "type": "number"
+            },
+            "mediaType": {
+              "type": "string"
+            },
+            "page": {
+              "type": "number"
+            },
+            "pageCount": {
+              "type": "number"
+            },
+            "schemaVersion": {
+              "const": "factory.guest-material-read-response.v1",
+              "type": "string"
+            },
+            "status": {
+              "const": "page",
+              "type": "string"
+            },
+            "totalBytes": {
+              "type": "number"
+            }
+          },
+          "required": [
+            "artifactId",
+            "contentBase64",
+            "digest",
+            "encodedBytes",
+            "mediaType",
+            "page",
+            "pageCount",
+            "schemaVersion",
+            "status",
+            "totalBytes"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "artifactId": {
+              "type": "string"
+            },
+            "digest": {
+              "type": "string"
+            },
+            "page": {
+              "type": "number"
+            },
+            "refusal": {
+              "additionalProperties": false,
+              "properties": {
+                "code": {
+                  "$ref": "#/definitions/FactoryGuestMaterialReadRefusal"
+                },
+                "message": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "code",
+                "message"
+              ],
+              "type": "object"
+            },
+            "schemaVersion": {
+              "const": "factory.guest-material-read-response.v1",
+              "type": "string"
+            },
+            "status": {
+              "const": "refused",
+              "type": "string"
+            }
+          },
+          "required": [
+            "artifactId",
+            "digest",
+            "page",
+            "refusal",
+            "schemaVersion",
+            "status"
+          ],
+          "type": "object"
+        }
+      ]
+    }
+  }
+}

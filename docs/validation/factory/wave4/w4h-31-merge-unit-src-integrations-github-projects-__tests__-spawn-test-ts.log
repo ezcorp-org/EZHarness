@@ -1,0 +1,61 @@
+bun test v1.4.2 (744846f84)
+{"ts":"2026-10-16T01:23:18.714Z","level":"info","msg":"github-projects extension not installed — spawn proceeds without ticket tools","subsystem":"ext.github-projects.spawn","conversationId":"conv-1"}
+{"ts":"2026-10-16T01:23:18.714Z","level":"info","msg":"github-projects extension not installed — spawn proceeds without ticket tools","subsystem":"ext.github-projects.spawn","conversationId":"conv-1"}
+{"ts":"2026-10-16T01:23:18.714Z","level":"info","msg":"github-projects extension not installed — spawn proceeds without ticket tools","subsystem":"ext.github-projects.spawn","conversationId":"conv-1"}
+{"ts":"2026-10-16T01:23:18.715Z","level":"info","msg":"github-projects extension not installed — spawn proceeds without ticket tools","subsystem":"ext.github-projects.spawn","conversationId":"conv-1"}
+{"ts":"2026-10-16T01:23:18.715Z","level":"info","msg":"github-projects extension not installed — spawn proceeds without ticket tools","subsystem":"ext.github-projects.spawn","conversationId":"conv-1"}
+{"ts":"2026-10-16T01:23:18.715Z","level":"info","msg":"github-projects extension not installed — spawn proceeds without ticket tools","subsystem":"ext.github-projects.spawn","conversationId":"conv-1"}
+{"ts":"2026-10-16T01:23:18.715Z","level":"info","msg":"github-projects extension not installed — spawn proceeds without ticket tools","subsystem":"ext.github-projects.spawn","conversationId":"conv-1"}
+{"ts":"2026-10-16T01:23:18.715Z","level":"info","msg":"github-projects extension not installed — spawn proceeds without ticket tools","subsystem":"ext.github-projects.spawn","conversationId":"conv-1"}
+{"ts":"2026-10-16T01:23:18.715Z","level":"info","msg":"github-projects extension not installed — spawn proceeds without ticket tools","subsystem":"ext.github-projects.spawn","conversationId":"conv-1"}
+{"ts":"2026-10-16T01:23:18.715Z","level":"info","msg":"github-projects extension not installed — spawn proceeds without ticket tools","subsystem":"ext.github-projects.spawn","conversationId":"conv-1"}
+{"ts":"2026-10-16T01:23:18.715Z","level":"info","msg":"github-projects extension not installed — spawn proceeds without ticket tools","subsystem":"ext.github-projects.spawn","conversationId":"conv-1"}
+{"ts":"2026-10-16T01:23:18.715Z","level":"info","msg":"github-projects extension not installed — spawn proceeds without ticket tools","subsystem":"ext.github-projects.spawn","conversationId":"conv-1"}
+{"ts":"2026-10-16T01:23:18.716Z","level":"info","msg":"github-projects extension not installed — spawn proceeds without ticket tools","subsystem":"ext.github-projects.spawn","conversationId":"conv-1"}
+{"ts":"2026-10-16T01:23:18.716Z","level":"info","msg":"github-projects extension not installed — spawn proceeds without ticket tools","subsystem":"ext.github-projects.spawn","conversationId":"conv-1"}
+{"ts":"2026-10-16T01:23:18.716Z","level":"info","msg":"github-projects extension not installed — spawn proceeds without ticket tools","subsystem":"ext.github-projects.spawn","conversationId":"conv-1"}
+{"ts":"2026-10-16T01:23:18.716Z","level":"info","msg":"github-projects extension not installed — spawn proceeds without ticket tools","subsystem":"ext.github-projects.spawn","conversationId":"conv-1"}
+{"ts":"2026-10-16T01:23:18.716Z","level":"info","msg":"github-projects extension not installed — spawn proceeds without ticket tools","subsystem":"ext.github-projects.spawn","conversationId":"conv-1"}
+{"ts":"2026-10-16T01:23:18.726Z","level":"info","msg":"github-projects extension not installed — spawn proceeds without ticket tools","subsystem":"ext.github-projects.spawn","conversationId":"conv-1"}
+{"ts":"2026-10-16T01:23:18.737Z","level":"info","msg":"github-projects extension not installed — spawn proceeds without ticket tools","subsystem":"ext.github-projects.spawn","conversationId":"conv-1"}
+{"ts":"2026-10-16T01:23:18.737Z","level":"info","msg":"github-projects extension not installed — spawn proceeds without ticket tools","subsystem":"ext.github-projects.spawn","conversationId":"conv-1"}
+{"ts":"2026-10-16T01:23:18.747Z","level":"info","msg":"github-projects extension not installed — spawn proceeds without ticket tools","subsystem":"ext.github-projects.spawn","conversationId":"conv-1"}
+{"ts":"2026-10-16T01:23:18.747Z","level":"warn","msg":"github-projects spawn launch failed","subsystem":"ext.github-projects.spawn","runId":"f7c42cd2-cd9c-489c-a28b-9cac9605133d","error":"Error: launch boom"}
+{"ts":"2026-10-16T01:23:18.758Z","level":"info","msg":"github-projects extension not installed — spawn proceeds without ticket tools","subsystem":"ext.github-projects.spawn","conversationId":"conv-1"}
+{"ts":"2026-10-16T01:23:18.759Z","level":"info","msg":"github-projects extension not installed — spawn proceeds without ticket tools","subsystem":"ext.github-projects.spawn","conversationId":"conv-1"}
+{"ts":"2026-10-16T01:23:18.759Z","level":"info","msg":"github-projects extension not installed — spawn proceeds without ticket tools","subsystem":"ext.github-projects.spawn","conversationId":"conv-1"}
+{"ts":"2026-10-16T01:23:18.759Z","level":"warn","msg":"github-projects extension wiring failed","subsystem":"ext.github-projects.spawn","conversationId":"conv-1","error":"Error: wire boom"}
+{"ts":"2026-10-16T01:23:18.759Z","level":"info","msg":"github-projects extension not installed — spawn proceeds without ticket tools","subsystem":"ext.github-projects.spawn","conversationId":"conv-1"}
+{"ts":"2026-10-16T01:23:18.760Z","level":"info","msg":"github-projects extension not installed — spawn proceeds without ticket tools","subsystem":"ext.github-projects.spawn","conversationId":"conv-1"}
+{"ts":"2026-10-16T01:23:18.771Z","level":"info","msg":"github-projects extension not installed — spawn proceeds without ticket tools","subsystem":"ext.github-projects.spawn","conversationId":"conv-1"}
+{"ts":"2026-10-16T01:23:18.772Z","level":"info","msg":"github-projects extension not installed — spawn proceeds without ticket tools","subsystem":"ext.github-projects.spawn","conversationId":"conv-1"}
+{"ts":"2026-10-16T01:23:18.773Z","level":"info","msg":"github-projects extension not installed — spawn proceeds without ticket tools","subsystem":"ext.github-projects.spawn","conversationId":"conv-1"}
+{"ts":"2026-10-16T01:23:18.774Z","level":"info","msg":"github-projects extension not installed — spawn proceeds without ticket tools","subsystem":"ext.github-projects.spawn","conversationId":"conv-1"}
+{"ts":"2026-10-16T01:23:18.776Z","level":"info","msg":"github-projects extension not installed — spawn proceeds without ticket tools","subsystem":"ext.github-projects.spawn","conversationId":"conv-1"}
+{"ts":"2026-10-16T01:23:18.786Z","level":"info","msg":"github-projects extension not installed — spawn proceeds without ticket tools","subsystem":"ext.github-projects.spawn","conversationId":"conv-1"}
+{"ts":"2026-10-16T01:23:18.786Z","level":"warn","msg":"github-projects run-lifecycle update failed","subsystem":"ext.github-projects.spawn","runId":"f7d2856a-5c2e-4ad0-98d8-8468207d70a4","error":"Error: db down"}
+{"ts":"2026-10-16T01:23:18.789Z","level":"info","msg":"github-projects extension not installed — spawn proceeds without ticket tools","subsystem":"ext.github-projects.spawn","conversationId":"conv-1"}
+{"ts":"2026-10-16T01:23:18.800Z","level":"info","msg":"github-projects extension not installed — spawn proceeds without ticket tools","subsystem":"ext.github-projects.spawn","conversationId":"conv-1"}
+{"ts":"2026-10-16T01:23:18.810Z","level":"info","msg":"github-projects extension not installed — spawn proceeds without ticket tools","subsystem":"ext.github-projects.spawn","conversationId":"conv-1"}
+{"ts":"2026-10-16T01:23:18.820Z","level":"info","msg":"github-projects extension not installed — spawn proceeds without ticket tools","subsystem":"ext.github-projects.spawn","conversationId":"conv-1"}
+{"ts":"2026-10-16T01:23:18.830Z","level":"info","msg":"github-projects extension not installed — spawn proceeds without ticket tools","subsystem":"ext.github-projects.spawn","conversationId":"conv-1"}
+{"ts":"2026-10-16T01:23:18.841Z","level":"info","msg":"github-projects extension not installed — spawn proceeds without ticket tools","subsystem":"ext.github-projects.spawn","conversationId":"conv-1"}
+{"ts":"2026-10-16T01:23:18.851Z","level":"info","msg":"github-projects extension not installed — spawn proceeds without ticket tools","subsystem":"ext.github-projects.spawn","conversationId":"conv-1"}
+{"ts":"2026-10-16T01:23:18.851Z","level":"warn","msg":"github-projects write-back failed (swallowed)","subsystem":"ext.github-projects.spawn","runId":"6b834803-89c7-4de8-a045-1ac4f8975004","error":"Error: gh api down"}
+{"ts":"2026-10-16T01:23:18.861Z","level":"info","msg":"github-projects extension not installed — spawn proceeds without ticket tools","subsystem":"ext.github-projects.spawn","conversationId":"conv-1"}
+{"ts":"2026-10-16T01:23:18.861Z","level":"warn","msg":"github-projects write-back failed (swallowed)","subsystem":"ext.github-projects.spawn","runId":"84d30add-5baf-45ab-91a4-3e2a992a5ac5","error":"Error: rate limit"}
+{"ts":"2026-10-16T01:23:18.871Z","level":"info","msg":"github-projects extension not installed — spawn proceeds without ticket tools","subsystem":"ext.github-projects.spawn","conversationId":"conv-1"}
+{"ts":"2026-10-16T01:23:18.871Z","level":"warn","msg":"github-projects write-back failed (swallowed)","subsystem":"ext.github-projects.spawn","runId":"40711744-3842-456b-a191-0bf6b6261baf","error":"Error: gh api down"}
+{"ts":"2026-10-16T01:23:18.882Z","level":"info","msg":"github-projects extension not installed — spawn proceeds without ticket tools","subsystem":"ext.github-projects.spawn","conversationId":"conv-1"}
+{"ts":"2026-10-16T01:23:18.892Z","level":"info","msg":"github-projects extension not installed — spawn proceeds without ticket tools","subsystem":"ext.github-projects.spawn","conversationId":"conv-1"}
+{"ts":"2026-10-16T01:23:18.893Z","level":"info","msg":"github-projects proposal re-run queued","subsystem":"ext.github-projects.spawn","sourceProposalId":"prop-src","newProposalId":"prop-new","actor":"u-7"}
+{"ts":"2026-10-16T01:23:18.893Z","level":"info","msg":"github-projects proposal re-run queued","subsystem":"ext.github-projects.spawn","sourceProposalId":"prop-src","newProposalId":"prop-new","actor":"u-7"}
+{"ts":"2026-10-16T01:23:18.893Z","level":"info","msg":"github-projects proposal re-run queued","subsystem":"ext.github-projects.spawn","sourceProposalId":"prop-src","newProposalId":"prop-new","actor":"u-7"}
+{"ts":"2026-10-16T01:23:18.893Z","level":"info","msg":"github-projects proposal re-run queued","subsystem":"ext.github-projects.spawn","sourceProposalId":"prop-src","newProposalId":"prop-new","actor":"u-7"}
+{"ts":"2026-10-16T01:23:18.893Z","level":"info","msg":"github-projects proposal re-run queued","subsystem":"ext.github-projects.spawn","sourceProposalId":"prop-src","newProposalId":"prop-new","actor":"u-1"}
+{"ts":"2026-10-16T01:23:18.893Z","level":"info","msg":"github-projects proposal re-run queued","subsystem":"ext.github-projects.spawn","sourceProposalId":"prop-src","newProposalId":"prop-new","actor":"u-1"}
+
+ 80 pass
+ 0 fail
+ 210 expect() calls
+Ran 80 tests across 1 file. [629.00ms]

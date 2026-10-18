@@ -1,0 +1,267 @@
+Current runner version: '2.337.0'
+##[group]Runner Image Provisioner
+Hosted Compute Agent
+Version: 20261002.596
+Commit: c3d12f3313a95f25162a1503be624f3b0617f8c0
+Build Date: 2026-10-02T22:28:27Z
+Worker ID: {468b63f7-1d08-4bde-a237-6bb757e49ab4}
+Region: northcentralus
+Cloud: Azure
+##[endgroup]
+##[group]Operating System
+Ubuntu
+24.04.5
+LTS
+##[endgroup]
+##[group]Runner Image
+Image: ubuntu-24.04
+Version: 20261004.327.1
+Included Software: https://github.com/actions/runner-images/blob/ubuntu24/20261004.327/images/ubuntu/Ubuntu2404-Readme.md
+Image Release: https://github.com/actions/runner-images/releases/tag/ubuntu24%2F20261004.327
+##[endgroup]
+##[group]GITHUB_TOKEN Permissions
+Actions: read
+Contents: read
+Metadata: read
+##[endgroup]
+Secret source: Actions
+Cache mode: write
+Prepare workflow directory
+Prepare all required actions
+Getting action download info
+Download action repository 'actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1' (SHA:3d3c42e5aac5ba805825da76410c181273ba90b1)
+Download action repository 'oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6' (SHA:0c5077e51419868618aeaa5fe8019c62421857d6)
+Complete job name: Factory runner readiness precheck
+##[group]Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+with:
+  repository: ezcorp-org/EZHarness
+  token: ***
+  ssh-strict: true
+  ssh-user: git
+  persist-credentials: true
+  clean: true
+  sparse-checkout-cone-mode: true
+  fetch-depth: 1
+  fetch-tags: false
+  show-progress: true
+  lfs: false
+  submodules: false
+  set-safe-directory: true
+  allow-unsafe-pr-checkout: false
+env:
+  BUN_FEATURE_FLAG_DISABLE_SQL_AUTO_PIPELINING: 1
+  BUN_RUNTIME_TRANSPILER_CACHE_PATH: 0
+##[endgroup]
+Syncing repository: ezcorp-org/EZHarness
+##[group]Getting Git version info
+Working directory is '/home/runner/work/EZHarness/EZHarness'
+[command]/usr/bin/git version
+git version 2.55.0
+##[endgroup]
+Temporarily overriding HOME='/home/runner/work/_temp/56a992a3-4463-45db-9837-8a46259d5155' before making global git config changes
+Adding repository directory to the temporary git global config as a safe directory
+[command]/usr/bin/git config --global --add safe.directory /home/runner/work/EZHarness/EZHarness
+Deleting the contents of '/home/runner/work/EZHarness/EZHarness'
+##[group]Determining repository object format
+##[endgroup]
+##[group]Initializing the repository
+[command]/usr/bin/git init /home/runner/work/EZHarness/EZHarness
+hint: Using 'master' as the name for the initial branch. This default branch name
+hint: will change to "main" in Git 3.0. To configure the initial branch name
+hint: to use in all of your new repositories, which will suppress this warning,
+hint: call:
+hint:
+hint: 	git config --global init.defaultBranch <name>
+hint:
+hint: Names commonly chosen instead of 'master' are 'main', 'trunk' and
+hint: 'development'. The just-created branch can be renamed via this command:
+hint:
+hint: 	git branch -m <name>
+hint:
+hint: Disable this message with "git config set advice.defaultBranchName false"
+Initialized empty Git repository in /home/runner/work/EZHarness/EZHarness/.git/
+[command]/usr/bin/git remote add origin https://github.com/ezcorp-org/EZHarness
+##[endgroup]
+##[group]Disabling automatic garbage collection
+[command]/usr/bin/git config --local gc.auto 0
+##[endgroup]
+##[group]Setting up auth
+Removing SSH command configuration
+[command]/usr/bin/git config --local --name-only --get-regexp core\.sshCommand
+[command]/usr/bin/git submodule foreach --recursive sh -c "git config --local --name-only --get-regexp 'core\.sshCommand' && git config --local --unset-all 'core.sshCommand' || :"
+Removing HTTP extra header
+[command]/usr/bin/git config --local --name-only --get-regexp http\.https\:\/\/github\.com\/\.extraheader
+[command]/usr/bin/git submodule foreach --recursive sh -c "git config --local --name-only --get-regexp 'http\.https\:\/\/github\.com\/\.extraheader' && git config --local --unset-all 'http.https://github.com/.extraheader' || :"
+Removing includeIf entries pointing to credentials config files
+[command]/usr/bin/git config --local --name-only --get-regexp ^includeIf\.gitdir:
+[command]/usr/bin/git submodule foreach --recursive git config --local --show-origin --name-only --get-regexp remote.origin.url
+[command]/usr/bin/git config --file /home/runner/work/_temp/git-credentials-6bfb372b-a8c2-4427-b55c-146f804f76de.config http.https://github.com/.extraheader AUTHORIZATION: basic ***
+[command]/usr/bin/git config --local includeIf.gitdir:/home/runner/work/EZHarness/EZHarness/.git.path /home/runner/work/_temp/git-credentials-6bfb372b-a8c2-4427-b55c-146f804f76de.config
+[command]/usr/bin/git config --local includeIf.gitdir:/home/runner/work/EZHarness/EZHarness/.git/worktrees/*.path /home/runner/work/_temp/git-credentials-6bfb372b-a8c2-4427-b55c-146f804f76de.config
+[command]/usr/bin/git config --local includeIf.gitdir:/github/workspace/.git.path /github/runner_temp/git-credentials-6bfb372b-a8c2-4427-b55c-146f804f76de.config
+[command]/usr/bin/git config --local includeIf.gitdir:/github/workspace/.git/worktrees/*.path /github/runner_temp/git-credentials-6bfb372b-a8c2-4427-b55c-146f804f76de.config
+##[endgroup]
+##[group]Fetching the repository
+[command]/usr/bin/git -c protocol.version=2 fetch --no-tags --prune --no-recurse-submodules --depth=1 origin +bde644422b02a7daaae377257b29a453abde6d73:refs/remotes/pull/341/merge
+From https://github.com/ezcorp-org/EZHarness
+ * [new ref]         bde644422b02a7daaae377257b29a453abde6d73 -> pull/341/merge
+##[endgroup]
+##[group]Determining the checkout info
+##[endgroup]
+[command]/usr/bin/git sparse-checkout disable
+[command]/usr/bin/git config --local --unset-all extensions.worktreeConfig
+##[group]Checking out the ref
+[command]/usr/bin/git checkout --progress --force refs/remotes/pull/341/merge
+Updating files:  35% (5734/16004)
+Updating files:  36% (5762/16004)
+Updating files:  37% (5922/16004)
+Updating files:  38% (6082/16004)
+Updating files:  39% (6242/16004)
+Updating files:  40% (6402/16004)
+Updating files:  41% (6562/16004)
+Updating files:  42% (6722/16004)
+Updating files:  43% (6882/16004)
+Updating files:  44% (7042/16004)
+Updating files:  45% (7202/16004)
+Updating files:  46% (7362/16004)
+Updating files:  47% (7522/16004)
+Updating files:  48% (7682/16004)
+Updating files:  49% (7842/16004)
+Updating files:  50% (8002/16004)
+Updating files:  51% (8163/16004)
+Updating files:  52% (8323/16004)
+Updating files:  53% (8483/16004)
+Updating files:  54% (8643/16004)
+Updating files:  55% (8803/16004)
+Updating files:  56% (8963/16004)
+Updating files:  57% (9123/16004)
+Updating files:  58% (9283/16004)
+Updating files:  59% (9443/16004)
+Updating files:  60% (9603/16004)
+Updating files:  61% (9763/16004)
+Updating files:  62% (9923/16004)
+Updating files:  63% (10083/16004)
+Updating files:  64% (10243/16004)
+Updating files:  65% (10403/16004)
+Updating files:  66% (10563/16004)
+Updating files:  67% (10723/16004)
+Updating files:  68% (10883/16004)
+Updating files:  69% (11043/16004)
+Updating files:  70% (11203/16004)
+Updating files:  71% (11363/16004)
+Updating files:  72% (11523/16004)
+Updating files:  73% (11683/16004)
+Updating files:  74% (11843/16004)
+Updating files:  75% (12003/16004)
+Updating files:  76% (12164/16004)
+Updating files:  77% (12324/16004)
+Updating files:  78% (12484/16004)
+Updating files:  79% (12644/16004)
+Updating files:  80% (12804/16004)
+Updating files:  81% (12964/16004)
+Updating files:  82% (13124/16004)
+Updating files:  83% (13284/16004)
+Updating files:  84% (13444/16004)
+Updating files:  85% (13604/16004)
+Updating files:  86% (13764/16004)
+Updating files:  87% (13924/16004)
+Updating files:  88% (14084/16004)
+Updating files:  89% (14244/16004)
+Updating files:  90% (14404/16004)
+Updating files:  91% (14564/16004)
+Updating files:  92% (14724/16004)
+Updating files:  93% (14884/16004)
+Updating files:  94% (15044/16004)
+Updating files:  95% (15204/16004)
+Updating files:  96% (15364/16004)
+Updating files:  97% (15524/16004)
+Updating files:  98% (15684/16004)
+Updating files:  99% (15844/16004)
+Updating files: 100% (16004/16004)
+Updating files: 100% (16004/16004), done.
+Note: switching to 'refs/remotes/pull/341/merge'.
+
+You are in 'detached HEAD' state. You can look around, make experimental
+changes and commit them, and you can discard any commits you make in this
+state without impacting any branches by switching back to a branch.
+
+If you want to create a new branch to retain commits you create, you may
+do so (now or later) by using -c with the switch command. Example:
+
+  git switch -c <new-branch-name>
+
+Or undo this operation with:
+
+  git switch -
+
+Turn off this advice by setting config variable advice.detachedHead to false
+
+HEAD is now at bde6444 Merge d2add3048f12369a5242052fdee54ce1c7ad1c37 into 1981febd23c3dbbc20b5d4d455414a4b8b2020d5
+##[endgroup]
+[command]/usr/bin/git log -1 --format=%H
+bde644422b02a7daaae377257b29a453abde6d73
+##[group]Run oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6
+with:
+  bun-version-file: .bun-version
+  no-cache: false
+  token: ***
+env:
+  BUN_FEATURE_FLAG_DISABLE_SQL_AUTO_PIPELINING: 1
+  BUN_RUNTIME_TRANSPILER_CACHE_PATH: 0
+##[endgroup]
+Obtained version 1.4.2 from .bun-version
+Cache hit for: bun-gmoqYqdUbaYsI0KujeXt7Zg/p0I=
+Received 35684134 of 35684134 (100.0%), 59.7 MBs/sec
+Cache Size: ~34 MB (35684134 B)
+[command]/usr/bin/tar -xf /home/runner/work/_temp/2b8128f3-dc85-4bb3-b84b-bb771590a937/cache.tzst -P -C /home/runner/work/EZHarness/EZHarness --use-compress-program unzstd
+Cache restored successfully
+[command]/home/runner/.bun/bin/bun --revision
+1.4.2+744846f84
+Using a cached version of Bun: 1.4.2+744846f84
+##[group]Run bun scripts/check-factory-runners.ts
+bun scripts/check-factory-runners.ts
+shell: /usr/bin/bash -e {0}
+env:
+  BUN_FEATURE_FLAG_DISABLE_SQL_AUTO_PIPELINING: 1
+  BUN_RUNTIME_TRANSPILER_CACHE_PATH: 0
+  FACTORY_RUNNER_READ_TOKEN: ***
+  FACTORY_TEST_TENANT_COUNT: 10
+##[endgroup]
+Factory runner readiness: ezcorp-org/EZHarness
+test tenant count: 10
+registered runners (1): nixos-amd-factory-gpu:online[Linux,X64,factory-gpu,self-hosted]
+missing (1): no online runner has required label 'factory-real'
+##[error]Process completed with exit code 1.
+Post job cleanup.
+[command]/usr/bin/git version
+git version 2.55.0
+Temporarily overriding HOME='/home/runner/work/_temp/b0833858-0fe0-4b4d-8f5c-4f705ca78558' before making global git config changes
+Adding repository directory to the temporary git global config as a safe directory
+[command]/usr/bin/git config --global --add safe.directory /home/runner/work/EZHarness/EZHarness
+Removing SSH command configuration
+[command]/usr/bin/git config --local --name-only --get-regexp core\.sshCommand
+[command]/usr/bin/git submodule foreach --recursive sh -c "git config --local --name-only --get-regexp 'core\.sshCommand' && git config --local --unset-all 'core.sshCommand' || :"
+Removing HTTP extra header
+[command]/usr/bin/git config --local --name-only --get-regexp http\.https\:\/\/github\.com\/\.extraheader
+[command]/usr/bin/git submodule foreach --recursive sh -c "git config --local --name-only --get-regexp 'http\.https\:\/\/github\.com\/\.extraheader' && git config --local --unset-all 'http.https://github.com/.extraheader' || :"
+Removing includeIf entries pointing to credentials config files
+[command]/usr/bin/git config --local --name-only --get-regexp ^includeIf\.gitdir:
+includeif.gitdir:/home/runner/work/EZHarness/EZHarness/.git.path
+includeif.gitdir:/home/runner/work/EZHarness/EZHarness/.git/worktrees/*.path
+includeif.gitdir:/github/workspace/.git.path
+includeif.gitdir:/github/workspace/.git/worktrees/*.path
+[command]/usr/bin/git config --local --get-all includeif.gitdir:/home/runner/work/EZHarness/EZHarness/.git.path
+/home/runner/work/_temp/git-credentials-6bfb372b-a8c2-4427-b55c-146f804f76de.config
+[command]/usr/bin/git config --local --unset includeif.gitdir:/home/runner/work/EZHarness/EZHarness/.git.path \/home\/runner\/work\/_temp\/git\-credentials\-6bfb372b\-a8c2\-4427\-b55c\-146f804f76de\.config
+[command]/usr/bin/git config --local --get-all includeif.gitdir:/home/runner/work/EZHarness/EZHarness/.git/worktrees/*.path
+/home/runner/work/_temp/git-credentials-6bfb372b-a8c2-4427-b55c-146f804f76de.config
+[command]/usr/bin/git config --local --unset includeif.gitdir:/home/runner/work/EZHarness/EZHarness/.git/worktrees/*.path \/home\/runner\/work\/_temp\/git\-credentials\-6bfb372b\-a8c2\-4427\-b55c\-146f804f76de\.config
+[command]/usr/bin/git config --local --get-all includeif.gitdir:/github/workspace/.git.path
+/github/runner_temp/git-credentials-6bfb372b-a8c2-4427-b55c-146f804f76de.config
+[command]/usr/bin/git config --local --unset includeif.gitdir:/github/workspace/.git.path \/github\/runner_temp\/git\-credentials\-6bfb372b\-a8c2\-4427\-b55c\-146f804f76de\.config
+[command]/usr/bin/git config --local --get-all includeif.gitdir:/github/workspace/.git/worktrees/*.path
+/github/runner_temp/git-credentials-6bfb372b-a8c2-4427-b55c-146f804f76de.config
+[command]/usr/bin/git config --local --unset includeif.gitdir:/github/workspace/.git/worktrees/*.path \/github\/runner_temp\/git\-credentials\-6bfb372b\-a8c2\-4427\-b55c\-146f804f76de\.config
+[command]/usr/bin/git submodule foreach --recursive git config --local --show-origin --name-only --get-regexp remote.origin.url
+Removing credentials config '/home/runner/work/_temp/git-credentials-6bfb372b-a8c2-4427-b55c-146f804f76de.config'
+Cleaning up orphan processes

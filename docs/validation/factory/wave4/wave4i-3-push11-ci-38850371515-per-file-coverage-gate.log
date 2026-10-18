@@ -1,0 +1,726 @@
+Per-file coverage gate	Set up job	﻿2026-10-16T04:49:33.9035291Z Current runner version: '2.337.0'
+Per-file coverage gate	Set up job	2026-10-16T04:49:33.9060445Z ##[group]Runner Image Provisioner
+Per-file coverage gate	Set up job	2026-10-16T04:49:33.9061323Z Hosted Compute Agent
+Per-file coverage gate	Set up job	2026-10-16T04:49:33.9062072Z Version: 20261012.601
+Per-file coverage gate	Set up job	2026-10-16T04:49:33.9063126Z Commit: f3dc54e1fb89da6852db922499a0233137369e1d
+Per-file coverage gate	Set up job	2026-10-16T04:49:33.9063901Z Build Date: 2026-10-12T17:48:21Z
+Per-file coverage gate	Set up job	2026-10-16T04:49:33.9064685Z Worker ID: {0f26c9d3-dfe1-4b31-b97f-1486ccbb723d}
+Per-file coverage gate	Set up job	2026-10-16T04:49:33.9065419Z Region: westus
+Per-file coverage gate	Set up job	2026-10-16T04:49:33.9065959Z Cloud: Azure
+Per-file coverage gate	Set up job	2026-10-16T04:49:33.9066609Z ##[endgroup]
+Per-file coverage gate	Set up job	2026-10-16T04:49:33.9068201Z ##[group]Operating System
+Per-file coverage gate	Set up job	2026-10-16T04:49:33.9068944Z Ubuntu
+Per-file coverage gate	Set up job	2026-10-16T04:49:33.9069521Z 24.04.5
+Per-file coverage gate	Set up job	2026-10-16T04:49:33.9070068Z LTS
+Per-file coverage gate	Set up job	2026-10-16T04:49:33.9070685Z ##[endgroup]
+Per-file coverage gate	Set up job	2026-10-16T04:49:33.9071248Z ##[group]Runner Image
+Per-file coverage gate	Set up job	2026-10-16T04:49:33.9071896Z Image: ubuntu-24.04
+Per-file coverage gate	Set up job	2026-10-16T04:49:33.9072751Z Version: 20261012.334.1
+Per-file coverage gate	Set up job	2026-10-16T04:49:33.9073893Z Included Software: https://github.com/actions/runner-images/blob/ubuntu24/20261012.334/images/ubuntu/Ubuntu2404-Readme.md
+Per-file coverage gate	Set up job	2026-10-16T04:49:33.9075748Z Image Release: https://github.com/actions/runner-images/releases/tag/ubuntu24%2F20261012.334
+Per-file coverage gate	Set up job	2026-10-16T04:49:33.9076782Z ##[endgroup]
+Per-file coverage gate	Set up job	2026-10-16T04:49:33.9077932Z ##[group]GITHUB_TOKEN Permissions
+Per-file coverage gate	Set up job	2026-10-16T04:49:33.9079901Z Contents: read
+Per-file coverage gate	Set up job	2026-10-16T04:49:33.9080573Z Metadata: read
+Per-file coverage gate	Set up job	2026-10-16T04:49:33.9081192Z ##[endgroup]
+Per-file coverage gate	Set up job	2026-10-16T04:49:33.9083794Z Secret source: Actions
+Per-file coverage gate	Set up job	2026-10-16T04:49:33.9084787Z Cache mode: write
+Per-file coverage gate	Set up job	2026-10-16T04:49:33.9085631Z Prepare workflow directory
+Per-file coverage gate	Set up job	2026-10-16T04:49:34.0749098Z Prepare all required actions
+Per-file coverage gate	Set up job	2026-10-16T04:49:34.0798520Z Getting action download info
+Per-file coverage gate	Set up job	2026-10-16T04:49:34.4460107Z Download action repository 'actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1' (SHA:3d3c42e5aac5ba805825da76410c181273ba90b1)
+Per-file coverage gate	Set up job	2026-10-16T04:49:34.5433443Z Download action repository 'oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6' (SHA:0c5077e51419868618aeaa5fe8019c62421857d6)
+Per-file coverage gate	Set up job	2026-10-16T04:49:34.9044733Z Download action repository 'actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c' (SHA:3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c)
+Per-file coverage gate	Set up job	2026-10-16T04:49:35.3080619Z Download action repository 'actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a' (SHA:043fb46d1a93c77aae656e7c1c64a875d1fc6a0a)
+Per-file coverage gate	Set up job	2026-10-16T04:49:36.1028762Z Complete job name: Per-file coverage gate
+Per-file coverage gate	Require coverage producers to have succeeded	﻿2026-10-16T04:49:36.2738186Z ##[group]Run if [ "success" != "success" ] || \
+Per-file coverage gate	Require coverage producers to have succeeded	2026-10-16T04:49:36.2738929Z ^[[36;1mif [ "success" != "success" ] || \^[[0m
+Per-file coverage gate	Require coverage producers to have succeeded	2026-10-16T04:49:36.2739486Z ^[[36;1m   [ "success" != "success" ] || \^[[0m
+Per-file coverage gate	Require coverage producers to have succeeded	2026-10-16T04:49:36.2740029Z ^[[36;1m   [ "success" != "success" ] || \^[[0m
+Per-file coverage gate	Require coverage producers to have succeeded	2026-10-16T04:49:36.2740562Z ^[[36;1m   [ "success" != "success" ] || \^[[0m
+Per-file coverage gate	Require coverage producers to have succeeded	2026-10-16T04:49:36.2741105Z ^[[36;1m   [ "success" != "success" ] || \^[[0m
+Per-file coverage gate	Require coverage producers to have succeeded	2026-10-16T04:49:36.2741644Z ^[[36;1m   [ "success" != "success" ] || \^[[0m
+Per-file coverage gate	Require coverage producers to have succeeded	2026-10-16T04:49:36.2742178Z ^[[36;1m   [ "success" != "success" ] || \^[[0m
+Per-file coverage gate	Require coverage producers to have succeeded	2026-10-16T04:49:36.2743251Z ^[[36;1m   [ "success" != "success" ]; then^[[0m
+Per-file coverage gate	Require coverage producers to have succeeded	2026-10-16T04:49:36.2743979Z ^[[36;1m  echo "::error::coverage producers failed — coverage data is incomplete"^[[0m
+Per-file coverage gate	Require coverage producers to have succeeded	2026-10-16T04:49:36.2744651Z ^[[36;1m  exit 1^[[0m
+Per-file coverage gate	Require coverage producers to have succeeded	2026-10-16T04:49:36.2745070Z ^[[36;1mfi^[[0m
+Per-file coverage gate	Require coverage producers to have succeeded	2026-10-16T04:49:36.3007668Z shell: /usr/bin/bash -e {0}
+Per-file coverage gate	Require coverage producers to have succeeded	2026-10-16T04:49:36.3008589Z env:
+Per-file coverage gate	Require coverage producers to have succeeded	2026-10-16T04:49:36.3009171Z   BUN_FEATURE_FLAG_DISABLE_SQL_AUTO_PIPELINING: 1
+Per-file coverage gate	Require coverage producers to have succeeded	2026-10-16T04:49:36.3009940Z   BUN_RUNTIME_TRANSPILER_CACHE_PATH: 0
+Per-file coverage gate	Require coverage producers to have succeeded	2026-10-16T04:49:36.3010552Z ##[endgroup]
+Per-file coverage gate	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	﻿2026-10-16T04:49:36.6898250Z ##[group]Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+Per-file coverage gate	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:49:36.6898905Z with:
+Per-file coverage gate	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:49:36.6899214Z   fetch-depth: 0
+Per-file coverage gate	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:49:36.6899571Z   repository: ezcorp-org/EZHarness
+Per-file coverage gate	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:49:36.6902603Z   token: ***
+Per-file coverage gate	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:49:36.6902938Z   ssh-strict: true
+Per-file coverage gate	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:49:36.6903258Z   ssh-user: git
+Per-file coverage gate	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:49:36.6903584Z   persist-credentials: true
+Per-file coverage gate	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:49:36.6903942Z   clean: true
+Per-file coverage gate	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:49:36.6904258Z   sparse-checkout-cone-mode: true
+Per-file coverage gate	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:49:36.6905561Z   fetch-tags: false
+Per-file coverage gate	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:49:36.6905944Z   show-progress: true
+Per-file coverage gate	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:49:36.6906281Z   lfs: false
+Per-file coverage gate	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:49:36.6906585Z   submodules: false
+Per-file coverage gate	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:49:36.6906905Z   set-safe-directory: true
+Per-file coverage gate	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:49:36.6907266Z   allow-unsafe-pr-checkout: false
+Per-file coverage gate	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:49:36.6907622Z env:
+Per-file coverage gate	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:49:36.6907949Z   BUN_FEATURE_FLAG_DISABLE_SQL_AUTO_PIPELINING: 1
+Per-file coverage gate	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:49:36.6908399Z   BUN_RUNTIME_TRANSPILER_CACHE_PATH: 0
+Per-file coverage gate	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:49:36.6908850Z ##[endgroup]
+Per-file coverage gate	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:49:36.7870617Z Syncing repository: ezcorp-org/EZHarness
+Per-file coverage gate	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:49:36.7873157Z ##[group]Getting Git version info
+Per-file coverage gate	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:49:36.7874026Z Working directory is '/home/runner/work/EZHarness/EZHarness'
+Per-file coverage gate	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:49:36.7875246Z [command]/usr/bin/git version
+Per-file coverage gate	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:49:36.7940595Z git version 2.55.0
+Per-file coverage gate	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:49:36.7963866Z ##[endgroup]
+Per-file coverage gate	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:49:36.7974846Z Temporarily overriding HOME='/home/runner/work/_temp/545ae9d1-4ca0-4eef-96bb-d98468efef12' before making global git config changes
+Per-file coverage gate	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:49:36.7976980Z Adding repository directory to the temporary git global config as a safe directory
+Per-file coverage gate	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:49:36.7980921Z [command]/usr/bin/git config --global --add safe.directory /home/runner/work/EZHarness/EZHarness
+Per-file coverage gate	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:49:36.8033974Z Deleting the contents of '/home/runner/work/EZHarness/EZHarness'
+Per-file coverage gate	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:49:36.8038066Z ##[group]Determining repository object format
+Per-file coverage gate	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:49:36.8039896Z ##[endgroup]
+Per-file coverage gate	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:49:36.8040940Z ##[group]Initializing the repository
+Per-file coverage gate	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:49:36.8045623Z [command]/usr/bin/git init /home/runner/work/EZHarness/EZHarness
+Per-file coverage gate	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:49:36.8188011Z hint: Using 'master' as the name for the initial branch. This default branch name
+Per-file coverage gate	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:49:36.8189465Z hint: will change to "main" in Git 3.0. To configure the initial branch name
+Per-file coverage gate	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:49:36.8190689Z hint: to use in all of your new repositories, which will suppress this warning,
+Per-file coverage gate	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:49:36.8191731Z hint: call:
+Per-file coverage gate	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:49:36.8192206Z hint:
+Per-file coverage gate	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:49:36.8193195Z hint: 	git config --global init.defaultBranch <name>
+Per-file coverage gate	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:49:36.8194007Z hint:
+Per-file coverage gate	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:49:36.8194776Z hint: Names commonly chosen instead of 'master' are 'main', 'trunk' and
+Per-file coverage gate	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:49:36.8196021Z hint: 'development'. The just-created branch can be renamed via this command:
+Per-file coverage gate	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:49:36.8197025Z hint:
+Per-file coverage gate	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:49:36.8197629Z hint: 	git branch -m <name>
+Per-file coverage gate	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:49:36.8198255Z hint:
+Per-file coverage gate	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:49:36.8199069Z hint: Disable this message with "git config set advice.defaultBranchName false"
+Per-file coverage gate	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:49:36.8200558Z Initialized empty Git repository in /home/runner/work/EZHarness/EZHarness/.git/
+Per-file coverage gate	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:49:36.8207102Z [command]/usr/bin/git remote add origin https://github.com/ezcorp-org/EZHarness
+Per-file coverage gate	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:49:36.8266895Z ##[endgroup]
+Per-file coverage gate	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:49:36.8271520Z ##[group]Disabling automatic garbage collection
+Per-file coverage gate	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:49:36.8277515Z [command]/usr/bin/git config --local gc.auto 0
+Per-file coverage gate	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:49:36.8313389Z ##[endgroup]
+Per-file coverage gate	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:49:36.8314381Z ##[group]Setting up auth
+Per-file coverage gate	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:49:36.8315105Z Removing SSH command configuration
+Per-file coverage gate	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:49:36.8320487Z [command]/usr/bin/git config --local --name-only --get-regexp core\.sshCommand
+Per-file coverage gate	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:49:36.8356159Z [command]/usr/bin/git submodule foreach --recursive sh -c "git config --local --name-only --get-regexp 'core\.sshCommand' && git config --local --unset-all 'core.sshCommand' || :"
+Per-file coverage gate	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:49:36.8742077Z Removing HTTP extra header
+Per-file coverage gate	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:49:36.8748628Z [command]/usr/bin/git config --local --name-only --get-regexp http\.https\:\/\/github\.com\/\.extraheader
+Per-file coverage gate	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:49:36.8788372Z [command]/usr/bin/git submodule foreach --recursive sh -c "git config --local --name-only --get-regexp 'http\.https\:\/\/github\.com\/\.extraheader' && git config --local --unset-all 'http.https://github.com/.extraheader' || :"
+Per-file coverage gate	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:49:36.9044539Z Removing includeIf entries pointing to credentials config files
+Per-file coverage gate	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:49:36.9049827Z [command]/usr/bin/git config --local --name-only --get-regexp ^includeIf\.gitdir:
+Per-file coverage gate	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:49:36.9086288Z [command]/usr/bin/git submodule foreach --recursive git config --local --show-origin --name-only --get-regexp remote.origin.url
+Per-file coverage gate	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:49:36.9312036Z [command]/usr/bin/git config --file /home/runner/work/_temp/git-credentials-daaf64f8-7468-4652-945e-60a0a2d9aff4.config http.https://github.com/.extraheader AUTHORIZATION: basic ***
+Per-file coverage gate	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:49:36.9351843Z [command]/usr/bin/git config --local includeIf.gitdir:/home/runner/work/EZHarness/EZHarness/.git.path /home/runner/work/_temp/git-credentials-daaf64f8-7468-4652-945e-60a0a2d9aff4.config
+Per-file coverage gate	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:49:36.9386351Z [command]/usr/bin/git config --local includeIf.gitdir:/home/runner/work/EZHarness/EZHarness/.git/worktrees/*.path /home/runner/work/_temp/git-credentials-daaf64f8-7468-4652-945e-60a0a2d9aff4.config
+Per-file coverage gate	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:49:36.9427733Z [command]/usr/bin/git config --local includeIf.gitdir:/github/workspace/.git.path /github/runner_temp/git-credentials-daaf64f8-7468-4652-945e-60a0a2d9aff4.config
+Per-file coverage gate	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:49:36.9463300Z [command]/usr/bin/git config --local includeIf.gitdir:/github/workspace/.git/worktrees/*.path /github/runner_temp/git-credentials-daaf64f8-7468-4652-945e-60a0a2d9aff4.config
+Per-file coverage gate	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:49:36.9494102Z ##[endgroup]
+Per-file coverage gate	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:49:36.9494730Z ##[group]Fetching the repository
+Per-file coverage gate	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:49:36.9500945Z [command]/usr/bin/git -c protocol.version=2 fetch --no-tags --prune --no-recurse-submodules origin +refs/heads/*:refs/remotes/origin/* +refs/tags/*:refs/tags/* +5dcc037abe0acf2d3261f6327a31a474adde5e1a:refs/remotes/pull/341/merge
+Per-file coverage gate	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:49:46.1766440Z From https://github.com/ezcorp-org/EZHarness
+Per-file coverage gate	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:49:46.1767563Z  * [new branch]          chore/biome-2.5.6                        -> origin/chore/biome-2.5.6
+Per-file coverage gate	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:49:46.1768707Z  * [new branch]          chore/biome-denylist-and-no-explicit-any -> origin/chore/biome-denylist-and-no-explicit-any
+Per-file coverage gate	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:49:46.1770325Z  * [new branch]          chore/dependabot-group-pglite-pair       -> origin/chore/dependabot-group-pglite-pair
+Per-file coverage gate	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:49:46.1771789Z  * [new branch]          chore/drop-unused-svelte-drawer          -> origin/chore/drop-unused-svelte-drawer
+Per-file coverage gate	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:49:46.1773388Z  * [new branch]          chore/enable-biome-formatter             -> origin/chore/enable-biome-formatter
+Per-file coverage gate	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:49:46.1774744Z  * [new branch]          chore/lint-worktree-fix-and-codeowners   -> origin/chore/lint-worktree-fix-and-codeowners
+Per-file coverage gate	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:49:46.1776487Z  * [new branch]          chore/nested-resolver-comment-and-ratchet-assessment -> origin/chore/nested-resolver-comment-and-ratchet-assessment
+Per-file coverage gate	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:49:46.1778121Z  * [new branch]          chore/path-independent-assertions        -> origin/chore/path-independent-assertions
+Per-file coverage gate	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:49:46.1779086Z  * [new branch]          chore/pi-085-combined                    -> origin/chore/pi-085-combined
+Per-file coverage gate	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:49:46.1779785Z  * [new branch]          chore/projects-root-followup             -> origin/chore/projects-root-followup
+Per-file coverage gate	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:49:46.1780610Z  * [new branch]          chore/recover-dropped-test-and-prune-plan -> origin/chore/recover-dropped-test-and-prune-plan
+Per-file coverage gate	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:49:46.1781488Z  * [new branch]          chore/shrink-noexplicitany-override      -> origin/chore/shrink-noexplicitany-override
+Per-file coverage gate	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:49:46.1782852Z  * [new branch]          chore/testing-infra-review               -> origin/chore/testing-infra-review
+Per-file coverage gate	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:49:46.1784311Z  * [new branch]          chore/unsafe-optional-chaining           -> origin/chore/unsafe-optional-chaining
+Per-file coverage gate	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:49:46.1785996Z  * [new branch]          ci/coverage-gate-tells-the-truth         -> origin/ci/coverage-gate-tells-the-truth
+Per-file coverage gate	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:49:46.1786924Z  * [new branch]          ci/coverage-retry-preserve-instrumentation -> origin/ci/coverage-retry-preserve-instrumentation
+Per-file coverage gate	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:49:46.1787761Z  * [new branch]          ci/dependabot-exclude-breaking           -> origin/ci/dependabot-exclude-breaking
+Per-file coverage gate	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:49:46.1788617Z  * [new branch]          ci/dependency-audit-gate                 -> origin/ci/dependency-audit-gate
+Per-file coverage gate	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:49:46.1789301Z  * [new branch]          ci/dependency-boundary-guard             -> origin/ci/dependency-boundary-guard
+Per-file coverage gate	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:49:46.1790048Z  * [new branch]          ci/gate-integrity-biome-awareness        -> origin/ci/gate-integrity-biome-awareness
+Per-file coverage gate	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:49:46.1790861Z  * [new branch]          ci/gitleaks-secret-scan                  -> origin/ci/gitleaks-secret-scan
+Per-file coverage gate	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:49:46.1791686Z  * [new branch]          ci/harden-gate-integrity-detectors       -> origin/ci/harden-gate-integrity-detectors
+Per-file coverage gate	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:49:46.1792819Z  * [new branch]          ci/pin-actions-and-release-runtime       -> origin/ci/pin-actions-and-release-runtime
+Per-file coverage gate	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:49:46.1793601Z  * [new branch]          ci/quality-gates                         -> origin/ci/quality-gates
+Per-file coverage gate	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:49:46.1794293Z  * [new branch]          ci/test-pool-worker-watchdog             -> origin/ci/test-pool-worker-watchdog
+Per-file coverage gate	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:49:46.1795039Z  * [new branch]          ci/wire-chat-e2e-into-blocking-lane      -> origin/ci/wire-chat-e2e-into-blocking-lane
+Per-file coverage gate	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:49:46.1795902Z  * [new branch]          dependabot/bun/bun-minor-and-patch-dc78982b45 -> origin/dependabot/bun/bun-minor-and-patch-dc78982b45
+Per-file coverage gate	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:49:46.1796818Z  * [new branch]          dependabot/github_actions/actions-c673fd7efc -> origin/dependabot/github_actions/actions-c673fd7efc
+Per-file coverage gate	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:49:46.1797792Z  * [new branch]          diagnostic/chromium-context-0733/20260907 -> origin/diagnostic/chromium-context-0733/20260907
+Per-file coverage gate	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:49:46.1798632Z  * [new branch]          docs/local-verification-scope            -> origin/docs/local-verification-scope
+Per-file coverage gate	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:49:46.1799292Z  * [new branch]          evidence/pr-303                          -> origin/evidence/pr-303
+Per-file coverage gate	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:49:46.1799978Z  * [new branch]          feat/author-installations-names          -> origin/feat/author-installations-names
+Per-file coverage gate	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:49:46.1800694Z  * [new branch]          feat/chat-turn-collapse                  -> origin/feat/chat-turn-collapse
+Per-file coverage gate	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:49:46.1801409Z  * [new branch]          feat/composable-factory-platform         -> origin/feat/composable-factory-platform
+Per-file coverage gate	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:49:46.1802119Z  * [new branch]          feat/extension-v4                        -> origin/feat/extension-v4
+Per-file coverage gate	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:49:46.1803092Z  * [new branch]          feat/factory-platform-followup-1         -> origin/feat/factory-platform-followup-1
+Per-file coverage gate	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:49:46.1803869Z  * [new branch]          feat/factory-platform-followup-2         -> origin/feat/factory-platform-followup-2
+Per-file coverage gate	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:49:46.1804612Z  * [new branch]          feat/factory-platform-followup-3         -> origin/feat/factory-platform-followup-3
+Per-file coverage gate	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:49:46.1805336Z  * [new branch]          feat/kb-share-a-file                     -> origin/feat/kb-share-a-file
+Per-file coverage gate	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:49:46.1806003Z  * [new branch]          feat/kilo-provider                       -> origin/feat/kilo-provider
+Per-file coverage gate	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:49:46.1806777Z  * [new branch]          feat/pi-0.83                             -> origin/feat/pi-0.83
+Per-file coverage gate	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:49:46.1807488Z  * [new branch]          feat/pluggable-infrastructure-v1         -> origin/feat/pluggable-infrastructure-v1
+Per-file coverage gate	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:49:46.1808263Z  * [new branch]          feat/projects-under-ezcorp               -> origin/feat/projects-under-ezcorp
+Per-file coverage gate	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:49:46.1808997Z  * [new branch]          feat/trusted-local-runner                -> origin/feat/trusted-local-runner
+Per-file coverage gate	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:49:46.1809944Z  * [new branch]          feat/workflow-output-template            -> origin/feat/workflow-output-template
+Per-file coverage gate	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:49:46.1810670Z  * [new branch]          feat/workflow-run-card                   -> origin/feat/workflow-run-card
+Per-file coverage gate	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:49:46.1811382Z  * [new branch]          fix/agents-page-breadcrumb               -> origin/fix/agents-page-breadcrumb
+Per-file coverage gate	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:49:46.1812098Z  * [new branch]          fix/audit-mcp-sdk-sharp                  -> origin/fix/audit-mcp-sdk-sharp
+Per-file coverage gate	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:49:46.1813298Z  * [new branch]          fix/audit-proxy-addr-source-map-js       -> origin/fix/audit-proxy-addr-source-map-js
+Per-file coverage gate	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:49:46.1814135Z  * [new branch]          fix/bundled-auto-wire-reconcile          -> origin/fix/bundled-auto-wire-reconcile
+Per-file coverage gate	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:49:46.1815082Z  * [new branch]          fix/bundled-bootstrap-runner-retry       -> origin/fix/bundled-bootstrap-runner-retry
+Per-file coverage gate	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:49:46.1815909Z  * [new branch]          fix/chat-stick-to-bottom-latch           -> origin/fix/chat-stick-to-bottom-latch
+Per-file coverage gate	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:49:46.1816801Z  * [new branch]          fix/compaction-readonly-and-implicit-any-let -> origin/fix/compaction-readonly-and-implicit-any-let
+Per-file coverage gate	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:49:46.1817690Z  * [new branch]          fix/connection-fault-stop-reason         -> origin/fix/connection-fault-stop-reason
+Per-file coverage gate	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:49:46.1818631Z  * [new branch]          fix/consent-hash-semantic-split          -> origin/fix/consent-hash-semantic-split
+Per-file coverage gate	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:49:46.1819552Z  * [new branch]          fix/context-denominator-follows-model-switch -> origin/fix/context-denominator-follows-model-switch
+Per-file coverage gate	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:49:46.1820538Z  * [new branch]          fix/default-extension-runner             -> origin/fix/default-extension-runner
+Per-file coverage gate	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:49:46.1821285Z  * [new branch]          fix/devstack-diagnostics                 -> origin/fix/devstack-diagnostics
+Per-file coverage gate	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:49:46.1821978Z  * [new branch]          fix/devstack-vite-ssr                    -> origin/fix/devstack-vite-ssr
+Per-file coverage gate	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:49:46.1823223Z  * [new branch]          fix/duplication-audit-fixes              -> origin/fix/duplication-audit-fixes
+Per-file coverage gate	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:49:46.1824061Z  * [new branch]          fix/e2e-hydration-readiness-gate         -> origin/fix/e2e-hydration-readiness-gate
+Per-file coverage gate	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:49:46.1824841Z  * [new branch]          fix/effort-on-custom-models              -> origin/fix/effort-on-custom-models
+Per-file coverage gate	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:49:46.1825643Z  * [new branch]          fix/etl-envelope-and-trigger-sweep       -> origin/fix/etl-envelope-and-trigger-sweep
+Per-file coverage gate	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:49:46.1826504Z  * [new branch]          fix/extension-install-path-portability   -> origin/fix/extension-install-path-portability
+Per-file coverage gate	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:49:46.1827435Z  * [new branch]          fix/extension-release-persistence        -> origin/fix/extension-release-persistence
+Per-file coverage gate	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:49:46.1828551Z  * [new branch]          fix/extension-uninstall-path-containment -> origin/fix/extension-uninstall-path-containment
+Per-file coverage gate	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:49:46.1829559Z  * [new branch]          fix/gate-vacuous-test-parser-extents     -> origin/fix/gate-vacuous-test-parser-extents
+Per-file coverage gate	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:49:46.1830619Z  * [new branch]          fix/git-fixture-environment-isolation    -> origin/fix/git-fixture-environment-isolation
+Per-file coverage gate	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:49:46.1831455Z  * [new branch]          fix/health-detail-unreachable            -> origin/fix/health-detail-unreachable
+Per-file coverage gate	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:49:46.1832441Z  * [new branch]          fix/hook-tests-without-git-env           -> origin/fix/hook-tests-without-git-env
+Per-file coverage gate	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:49:46.1833270Z  * [new branch]          fix/http-extension-uuid                  -> origin/fix/http-extension-uuid
+Per-file coverage gate	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:49:46.1834020Z  * [new branch]          fix/mask-canonical-worktrees             -> origin/fix/mask-canonical-worktrees
+Per-file coverage gate	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:49:46.1834740Z  * [new branch]          fix/mask-root-pi-secret                  -> origin/fix/mask-root-pi-secret
+Per-file coverage gate	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:49:46.1835506Z  * [new branch]          fix/memory-dedup-write-columns           -> origin/fix/memory-dedup-write-columns
+Per-file coverage gate	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:49:46.1837227Z  * [new branch]          fix/memory-extractor-silent-llm-failure  -> origin/fix/memory-extractor-silent-llm-failure
+Per-file coverage gate	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:49:46.1838808Z  * [new branch]          fix/mock-cleanup-comment-scrape          -> origin/fix/mock-cleanup-comment-scrape
+Per-file coverage gate	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:49:46.1840213Z  * [new branch]          fix/mock-llm-base-url-port               -> origin/fix/mock-llm-base-url-port
+Per-file coverage gate	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:49:46.1841423Z  * [new branch]          fix/rbacscopes-diff-revert               -> origin/fix/rbacscopes-diff-revert
+Per-file coverage gate	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:49:46.1842899Z  * [new branch]          fix/resources-proof-settle               -> origin/fix/resources-proof-settle
+Per-file coverage gate	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:49:46.1843775Z  * [new branch]          fix/save-memory-vacuous-tests            -> origin/fix/save-memory-vacuous-tests
+Per-file coverage gate	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:49:46.1844539Z  * [new branch]          fix/sharp-security-update                -> origin/fix/sharp-security-update
+Per-file coverage gate	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:49:46.1845287Z  * [new branch]          fix/tool-call-persist-losses             -> origin/fix/tool-call-persist-losses
+Per-file coverage gate	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:49:46.1845991Z  * [new branch]          fix/transformers-v4                      -> origin/fix/transformers-v4
+Per-file coverage gate	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:49:46.1846664Z  * [new branch]          fix/ts7-tsgo-migration                   -> origin/fix/ts7-tsgo-migration
+Per-file coverage gate	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:49:46.1847367Z  * [new branch]          fix/validate-coverage-oct12              -> origin/fix/validate-coverage-oct12
+Per-file coverage gate	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:49:46.1848124Z  * [new branch]          fix/validation-followups-oct13           -> origin/fix/validation-followups-oct13
+Per-file coverage gate	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:49:46.1848764Z  * [new branch]          main                                     -> origin/main
+Per-file coverage gate	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:49:46.1849496Z  * [new branch]          perf/pglite-migrated-snapshot-cache      -> origin/perf/pglite-migrated-snapshot-cache
+Per-file coverage gate	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:49:46.1850477Z  * [new branch]          refactor/extract-project-root-module     -> origin/refactor/extract-project-root-module
+Per-file coverage gate	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:49:46.1851266Z  * [new branch]          refactor/own-session-types               -> origin/refactor/own-session-types
+Per-file coverage gate	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:49:46.1852042Z  * [new branch]          security/api-registry-scope-ratchet      -> origin/security/api-registry-scope-ratchet
+Per-file coverage gate	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:49:46.1853169Z  * [new branch]          security/file-organizer-path-containment -> origin/security/file-organizer-path-containment
+Per-file coverage gate	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:49:46.1854012Z  * [new branch]          security/kb-retrieval-user-scope         -> origin/security/kb-retrieval-user-scope
+Per-file coverage gate	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:49:46.1854844Z  * [new branch]          security/project-permission-mode-authz   -> origin/security/project-permission-mode-authz
+Per-file coverage gate	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:49:46.1855643Z  * [new branch]          test/hermetic-drafts-handler             -> origin/test/hermetic-drafts-handler
+Per-file coverage gate	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:49:46.1856452Z  * [new branch]          test/no-assertions-on-user-managed-data  -> origin/test/no-assertions-on-user-managed-data
+Per-file coverage gate	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:49:46.1857298Z  * [new branch]          test/pin-wall-clock-and-parallelism      -> origin/test/pin-wall-clock-and-parallelism
+Per-file coverage gate	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:49:46.1858091Z  * [new branch]          test/session-characterization            -> origin/test/session-characterization
+Per-file coverage gate	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:49:46.1858761Z  * [new ref]             5dcc037abe0acf2d3261f6327a31a474adde5e1a -> pull/341/merge
+Per-file coverage gate	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:49:46.1860209Z ##[endgroup]
+Per-file coverage gate	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:49:46.1860689Z ##[group]Determining the checkout info
+Per-file coverage gate	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:49:46.1861168Z ##[endgroup]
+Per-file coverage gate	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:49:46.1861464Z [command]/usr/bin/git sparse-checkout disable
+Per-file coverage gate	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:49:46.1862676Z [command]/usr/bin/git config --local --unset-all extensions.worktreeConfig
+Per-file coverage gate	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:49:46.1877925Z ##[group]Checking out the ref
+Per-file coverage gate	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:49:46.1882213Z [command]/usr/bin/git checkout --progress --force refs/remotes/pull/341/merge
+Per-file coverage gate	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:49:47.2501659Z Updating files:  33% (5677/17084)
+Per-file coverage gate	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:49:47.2737774Z Updating files:  34% (5809/17084)
+Per-file coverage gate	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:49:47.2887089Z Updating files:  35% (5980/17084)
+Per-file coverage gate	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:49:47.2967727Z Updating files:  36% (6151/17084)
+Per-file coverage gate	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:49:47.3069380Z Updating files:  37% (6322/17084)
+Per-file coverage gate	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:49:47.3174040Z Updating files:  38% (6492/17084)
+Per-file coverage gate	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:49:47.3285667Z Updating files:  39% (6663/17084)
+Per-file coverage gate	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:49:47.3379307Z Updating files:  40% (6834/17084)
+Per-file coverage gate	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:49:47.3462967Z Updating files:  41% (7005/17084)
+Per-file coverage gate	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:49:47.3532014Z Updating files:  42% (7176/17084)
+Per-file coverage gate	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:49:47.3600677Z Updating files:  43% (7347/17084)
+Per-file coverage gate	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:49:47.3682086Z Updating files:  44% (7517/17084)
+Per-file coverage gate	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:49:47.3756174Z Updating files:  45% (7688/17084)
+Per-file coverage gate	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:49:47.3839323Z Updating files:  46% (7859/17084)
+Per-file coverage gate	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:49:47.3913096Z Updating files:  47% (8030/17084)
+Per-file coverage gate	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:49:47.3987730Z Updating files:  48% (8201/17084)
+Per-file coverage gate	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:49:47.4056740Z Updating files:  49% (8372/17084)
+Per-file coverage gate	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:49:47.4160839Z Updating files:  50% (8542/17084)
+Per-file coverage gate	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:49:47.4231161Z Updating files:  51% (8713/17084)
+Per-file coverage gate	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:49:47.4330334Z Updating files:  52% (8884/17084)
+Per-file coverage gate	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:49:47.4400521Z Updating files:  53% (9055/17084)
+Per-file coverage gate	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:49:47.4464760Z Updating files:  54% (9226/17084)
+Per-file coverage gate	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:49:47.4529548Z Updating files:  55% (9397/17084)
+Per-file coverage gate	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:49:47.4594516Z Updating files:  56% (9568/17084)
+Per-file coverage gate	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:49:47.4663071Z Updating files:  57% (9738/17084)
+Per-file coverage gate	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:49:47.4733142Z Updating files:  58% (9909/17084)
+Per-file coverage gate	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:49:47.4805302Z Updating files:  59% (10080/17084)
+Per-file coverage gate	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:49:47.4900309Z Updating files:  60% (10251/17084)
+Per-file coverage gate	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:49:47.5054316Z Updating files:  61% (10422/17084)
+Per-file coverage gate	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:49:47.5176499Z Updating files:  62% (10593/17084)
+Per-file coverage gate	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:49:47.5307368Z Updating files:  63% (10763/17084)
+Per-file coverage gate	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:49:47.5422538Z Updating files:  64% (10934/17084)
+Per-file coverage gate	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:49:47.5564979Z Updating files:  65% (11105/17084)
+Per-file coverage gate	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:49:47.5689622Z Updating files:  66% (11276/17084)
+Per-file coverage gate	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:49:47.5812078Z Updating files:  67% (11447/17084)
+Per-file coverage gate	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:49:47.5949126Z Updating files:  68% (11618/17084)
+Per-file coverage gate	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:49:47.6086475Z Updating files:  69% (11788/17084)
+Per-file coverage gate	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:49:47.6236635Z Updating files:  70% (11959/17084)
+Per-file coverage gate	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:49:47.6402876Z Updating files:  71% (12130/17084)
+Per-file coverage gate	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:49:47.6539939Z Updating files:  72% (12301/17084)
+Per-file coverage gate	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:49:47.6697380Z Updating files:  73% (12472/17084)
+Per-file coverage gate	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:49:47.6841513Z Updating files:  74% (12643/17084)
+Per-file coverage gate	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:49:47.6988493Z Updating files:  75% (12813/17084)
+Per-file coverage gate	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:49:47.7140911Z Updating files:  76% (12984/17084)
+Per-file coverage gate	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:49:47.7263836Z Updating files:  77% (13155/17084)
+Per-file coverage gate	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:49:47.7430681Z Updating files:  78% (13326/17084)
+Per-file coverage gate	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:49:47.7582037Z Updating files:  79% (13497/17084)
+Per-file coverage gate	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:49:47.7727599Z Updating files:  80% (13668/17084)
+Per-file coverage gate	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:49:47.7859039Z Updating files:  81% (13839/17084)
+Per-file coverage gate	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:49:47.8008246Z Updating files:  82% (14009/17084)
+Per-file coverage gate	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:49:47.8150482Z Updating files:  83% (14180/17084)
+Per-file coverage gate	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:49:47.8293146Z Updating files:  84% (14351/17084)
+Per-file coverage gate	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:49:47.8491141Z Updating files:  85% (14522/17084)
+Per-file coverage gate	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:49:47.8611822Z Updating files:  86% (14693/17084)
+Per-file coverage gate	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:49:47.8750537Z Updating files:  87% (14864/17084)
+Per-file coverage gate	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:49:47.8889461Z Updating files:  88% (15034/17084)
+Per-file coverage gate	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:49:47.9016861Z Updating files:  89% (15205/17084)
+Per-file coverage gate	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:49:47.9156205Z Updating files:  90% (15376/17084)
+Per-file coverage gate	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:49:47.9286238Z Updating files:  91% (15547/17084)
+Per-file coverage gate	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:49:47.9419878Z Updating files:  92% (15718/17084)
+Per-file coverage gate	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:49:47.9554219Z Updating files:  93% (15889/17084)
+Per-file coverage gate	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:49:47.9684281Z Updating files:  94% (16059/17084)
+Per-file coverage gate	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:49:47.9810872Z Updating files:  95% (16230/17084)
+Per-file coverage gate	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:49:47.9920837Z Updating files:  96% (16401/17084)
+Per-file coverage gate	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:49:48.0071226Z Updating files:  97% (16572/17084)
+Per-file coverage gate	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:49:48.0227315Z Updating files:  98% (16743/17084)
+Per-file coverage gate	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:49:48.0383522Z Updating files:  99% (16914/17084)
+Per-file coverage gate	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:49:48.0384528Z Updating files: 100% (17084/17084)
+Per-file coverage gate	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:49:48.0384967Z Updating files: 100% (17084/17084), done.
+Per-file coverage gate	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:49:48.0574206Z Note: switching to 'refs/remotes/pull/341/merge'.
+Per-file coverage gate	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:49:48.0574667Z 
+Per-file coverage gate	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:49:48.0574995Z You are in 'detached HEAD' state. You can look around, make experimental
+Per-file coverage gate	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:49:48.0575775Z changes and commit them, and you can discard any commits you make in this
+Per-file coverage gate	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:49:48.0576546Z state without impacting any branches by switching back to a branch.
+Per-file coverage gate	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:49:48.0577309Z 
+Per-file coverage gate	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:49:48.0577614Z If you want to create a new branch to retain commits you create, you may
+Per-file coverage gate	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:49:48.0578336Z do so (now or later) by using -c with the switch command. Example:
+Per-file coverage gate	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:49:48.0578757Z 
+Per-file coverage gate	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:49:48.0578916Z   git switch -c <new-branch-name>
+Per-file coverage gate	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:49:48.0579200Z 
+Per-file coverage gate	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:49:48.0579350Z Or undo this operation with:
+Per-file coverage gate	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:49:48.0579612Z 
+Per-file coverage gate	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:49:48.0579746Z   git switch -
+Per-file coverage gate	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:49:48.0579948Z 
+Per-file coverage gate	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:49:48.0580294Z Turn off this advice by setting config variable advice.detachedHead to false
+Per-file coverage gate	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:49:48.0580806Z 
+Per-file coverage gate	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:49:48.0581395Z HEAD is now at 5dcc037ab Merge ff8331a70d86e600c6d23dd4c9c664320a656dfe into 934531e2e9e8fd0c3c97e48527d545ca3476eb5e
+Per-file coverage gate	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:49:48.0640718Z ##[endgroup]
+Per-file coverage gate	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:49:48.0696106Z [command]/usr/bin/git log -1 --format=%H
+Per-file coverage gate	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:49:48.0728246Z 5dcc037abe0acf2d3261f6327a31a474adde5e1a
+Per-file coverage gate	Run oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6	﻿2026-10-16T04:49:48.3820786Z ##[group]Run oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6
+Per-file coverage gate	Run oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6	2026-10-16T04:49:48.3821213Z with:
+Per-file coverage gate	Run oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6	2026-10-16T04:49:48.3821425Z   bun-version-file: .bun-version
+Per-file coverage gate	Run oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6	2026-10-16T04:49:48.3821686Z   no-cache: false
+Per-file coverage gate	Run oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6	2026-10-16T04:49:48.3824314Z   token: ***
+Per-file coverage gate	Run oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6	2026-10-16T04:49:48.3824518Z env:
+Per-file coverage gate	Run oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6	2026-10-16T04:49:48.3824747Z   BUN_FEATURE_FLAG_DISABLE_SQL_AUTO_PIPELINING: 1
+Per-file coverage gate	Run oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6	2026-10-16T04:49:48.3825069Z   BUN_RUNTIME_TRANSPILER_CACHE_PATH: 0
+Per-file coverage gate	Run oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6	2026-10-16T04:49:48.3825324Z ##[endgroup]
+Per-file coverage gate	Run oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6	2026-10-16T04:49:48.5522939Z Obtained version 1.4.2 from .bun-version
+Per-file coverage gate	Run oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6	2026-10-16T04:49:48.8207374Z Cache hit for: bun-gmoqYqdUbaYsI0KujeXt7Zg/p0I=
+Per-file coverage gate	Run oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6	2026-10-16T04:49:50.1359983Z Received 0 of 35684134 (0.0%), 0.0 MBs/sec
+Per-file coverage gate	Run oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6	2026-10-16T04:49:50.4855945Z Received 35684134 of 35684134 (100.0%), 25.2 MBs/sec
+Per-file coverage gate	Run oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6	2026-10-16T04:49:50.4856577Z Cache Size: ~34 MB (35684134 B)
+Per-file coverage gate	Run oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6	2026-10-16T04:49:50.4891404Z [command]/usr/bin/tar -xf /home/runner/work/_temp/0dbfbbde-b934-46b9-94da-d0a91706abb9/cache.tzst -P -C /home/runner/work/EZHarness/EZHarness --use-compress-program unzstd
+Per-file coverage gate	Run oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6	2026-10-16T04:49:50.6242718Z Cache restored successfully
+Per-file coverage gate	Run oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6	2026-10-16T04:49:50.6265377Z [command]/home/runner/.bun/bin/bun --revision
+Per-file coverage gate	Run oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6	2026-10-16T04:49:50.6301295Z 1.4.2+744846f84
+Per-file coverage gate	Run oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6	2026-10-16T04:49:50.6308191Z Using a cached version of Bun: 1.4.2+744846f84
+Per-file coverage gate	Run bun install --frozen-lockfile	﻿2026-10-16T04:49:50.6617905Z ##[group]Run bun install --frozen-lockfile
+Per-file coverage gate	Run bun install --frozen-lockfile	2026-10-16T04:49:50.6618319Z ^[[36;1mbun install --frozen-lockfile^[[0m
+Per-file coverage gate	Run bun install --frozen-lockfile	2026-10-16T04:49:50.6687214Z shell: /usr/bin/bash -e {0}
+Per-file coverage gate	Run bun install --frozen-lockfile	2026-10-16T04:49:50.6687485Z env:
+Per-file coverage gate	Run bun install --frozen-lockfile	2026-10-16T04:49:50.6687728Z   BUN_FEATURE_FLAG_DISABLE_SQL_AUTO_PIPELINING: 1
+Per-file coverage gate	Run bun install --frozen-lockfile	2026-10-16T04:49:50.6688062Z   BUN_RUNTIME_TRANSPILER_CACHE_PATH: 0
+Per-file coverage gate	Run bun install --frozen-lockfile	2026-10-16T04:49:50.6688338Z ##[endgroup]
+Per-file coverage gate	Run bun install --frozen-lockfile	2026-10-16T04:49:50.6811524Z bun install v1.4.2 (744846f84)
+Per-file coverage gate	Run bun install --frozen-lockfile	2026-10-16T04:49:50.6865926Z Resolving dependencies
+Per-file coverage gate	Run bun install --frozen-lockfile	2026-10-16T04:49:50.9270765Z Resolved, downloaded and extracted [16]
+Per-file coverage gate	Run bun install --frozen-lockfile	2026-10-16T04:50:01.8853642Z 
+Per-file coverage gate	Run bun install --frozen-lockfile	2026-10-16T04:50:01.8854604Z $ bun run build:packages && bash scripts/setup-git-hooks.sh
+Per-file coverage gate	Run bun install --frozen-lockfile	2026-10-16T04:50:01.8895759Z $ bun scripts/build-workspace-packages.ts
+Per-file coverage gate	Run bun install --frozen-lockfile	2026-10-16T04:50:01.9066662Z build:packages: @ezcorp/extension-contract (packages/@ezcorp/extension-contract)
+Per-file coverage gate	Run bun install --frozen-lockfile	2026-10-16T04:50:01.9099098Z $ tsc -b tsconfig.build.json
+Per-file coverage gate	Run bun install --frozen-lockfile	2026-10-16T04:50:01.9998687Z build:packages: @ezcorp/sdk (packages/@ezcorp/sdk)
+Per-file coverage gate	Run bun install --frozen-lockfile	2026-10-16T04:50:02.0027707Z $ bunx tsc -b tsconfig.build.json
+Per-file coverage gate	Run bun install --frozen-lockfile	2026-10-16T04:50:02.1053155Z build:packages: @ezcorp/factory-sdk (packages/@ezcorp/factory-sdk)
+Per-file coverage gate	Run bun install --frozen-lockfile	2026-10-16T04:50:02.1078256Z $ bunx tsc -b tsconfig.build.json
+Per-file coverage gate	Run bun install --frozen-lockfile	2026-10-16T04:50:05.1568067Z build:packages: @ezcorp/factory-transport (packages/@ezcorp/factory-transport)
+Per-file coverage gate	Run bun install --frozen-lockfile	2026-10-16T04:50:05.1595003Z $ tsc -b tsconfig.build.json
+Per-file coverage gate	Run bun install --frozen-lockfile	2026-10-16T04:50:06.0789734Z build:packages: @ezcorp/factory-orchestrator (packages/@ezcorp/factory-orchestrator)
+Per-file coverage gate	Run bun install --frozen-lockfile	2026-10-16T04:50:06.0813147Z $ bun run --cwd ../factory-transport build && tsc -b tsconfig.build.json
+Per-file coverage gate	Run bun install --frozen-lockfile	2026-10-16T04:50:06.0847077Z $ tsc -b tsconfig.build.json
+Per-file coverage gate	Run bun install --frozen-lockfile	2026-10-16T04:50:09.1200107Z build:packages: @ezcorp/harness-client (packages/@ezcorp/harness-client)
+Per-file coverage gate	Run bun install --frozen-lockfile	2026-10-16T04:50:09.1226251Z $ bunx tsc -b tsconfig.build.json
+Per-file coverage gate	Run bun install --frozen-lockfile	2026-10-16T04:50:10.4379690Z 
+Per-file coverage gate	Run bun install --frozen-lockfile	2026-10-16T04:50:10.4382003Z + @biomejs/biome@2.5.14
+Per-file coverage gate	Run bun install --frozen-lockfile	2026-10-16T04:50:10.4382769Z + @types/bun@1.4.2 (v1.4.3 available)
+Per-file coverage gate	Run bun install --frozen-lockfile	2026-10-16T04:50:10.4383127Z + @types/js-yaml@4.0.9
+Per-file coverage gate	Run bun install --frozen-lockfile	2026-10-16T04:50:10.4383411Z + @types/node@26.6.3 (v26.6.5 available)
+Per-file coverage gate	Run bun install --frozen-lockfile	2026-10-16T04:50:10.4383696Z + drizzle-kit@0.31.11
+Per-file coverage gate	Run bun install --frozen-lockfile	2026-10-16T04:50:10.4383927Z + @aws-sdk/client-kms@3.1131.0
+Per-file coverage gate	Run bun install --frozen-lockfile	2026-10-16T04:50:10.4384185Z + @aws-sdk/client-s3@3.1131.0
+Per-file coverage gate	Run bun install --frozen-lockfile	2026-10-16T04:50:10.4384432Z + @balena/dockerignore@1.0.2
+Per-file coverage gate	Run bun install --frozen-lockfile	2026-10-16T04:50:10.4384693Z + @earendil-works/pi-agent-core@0.99.2
+Per-file coverage gate	Run bun install --frozen-lockfile	2026-10-16T04:50:10.4384975Z + @earendil-works/pi-ai@0.99.2
+Per-file coverage gate	Run bun install --frozen-lockfile	2026-10-16T04:50:10.4385233Z + @electric-sql/pglite@0.5.8
+Per-file coverage gate	Run bun install --frozen-lockfile	2026-10-16T04:50:10.4385496Z + @electric-sql/pglite-pgvector@0.0.9
+Per-file coverage gate	Run bun install --frozen-lockfile	2026-10-16T04:50:10.4385773Z + @huggingface/transformers@4.3.0
+Per-file coverage gate	Run bun install --frozen-lockfile	2026-10-16T04:50:10.4386077Z + @modelcontextprotocol/sdk@1.31.0 (v1.32.1 available)
+Per-file coverage gate	Run bun install --frozen-lockfile	2026-10-16T04:50:10.4386412Z + @zxing/library@0.23.0
+Per-file coverage gate	Run bun install --frozen-lockfile	2026-10-16T04:50:10.4386642Z + drizzle-orm@0.45.3
+Per-file coverage gate	Run bun install --frozen-lockfile	2026-10-16T04:50:10.4386861Z + exceljs@4.4.0
+Per-file coverage gate	Run bun install --frozen-lockfile	2026-10-16T04:50:10.4387079Z + fast-png@8.0.0
+Per-file coverage gate	Run bun install --frozen-lockfile	2026-10-16T04:50:10.4387286Z + file-type@22.1.1
+Per-file coverage gate	Run bun install --frozen-lockfile	2026-10-16T04:50:10.4387495Z + jpeg-js@0.4.4
+Per-file coverage gate	Run bun install --frozen-lockfile	2026-10-16T04:50:10.4387729Z + pdf-parse@2.4.5
+Per-file coverage gate	Run bun install --frozen-lockfile	2026-10-16T04:50:10.4387938Z + yaml@2.9.1
+Per-file coverage gate	Run bun install --frozen-lockfile	2026-10-16T04:50:10.4388147Z + typescript@5.9.3 (v7.0.2 available)
+Per-file coverage gate	Run bun install --frozen-lockfile	2026-10-16T04:50:10.4388333Z 
+Per-file coverage gate	Run bun install --frozen-lockfile	2026-10-16T04:50:10.4388434Z 481 packages installed [19.76s]
+Per-file coverage gate	Run git fetch --no-tags origin main	﻿2026-10-16T04:50:10.4687244Z ##[group]Run git fetch --no-tags origin main
+Per-file coverage gate	Run git fetch --no-tags origin main	2026-10-16T04:50:10.4687650Z ^[[36;1mgit fetch --no-tags origin main^[[0m
+Per-file coverage gate	Run git fetch --no-tags origin main	2026-10-16T04:50:10.4750550Z shell: /usr/bin/bash -e {0}
+Per-file coverage gate	Run git fetch --no-tags origin main	2026-10-16T04:50:10.4750828Z env:
+Per-file coverage gate	Run git fetch --no-tags origin main	2026-10-16T04:50:10.4751069Z   BUN_FEATURE_FLAG_DISABLE_SQL_AUTO_PIPELINING: 1
+Per-file coverage gate	Run git fetch --no-tags origin main	2026-10-16T04:50:10.4751407Z   BUN_RUNTIME_TRANSPILER_CACHE_PATH: 0
+Per-file coverage gate	Run git fetch --no-tags origin main	2026-10-16T04:50:10.4751679Z ##[endgroup]
+Per-file coverage gate	Run git fetch --no-tags origin main	2026-10-16T04:50:10.8070393Z From https://github.com/ezcorp-org/EZHarness
+Per-file coverage gate	Run git fetch --no-tags origin main	2026-10-16T04:50:10.8071098Z  * branch                main       -> FETCH_HEAD
+Per-file coverage gate	Run actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c	﻿2026-10-16T04:50:10.8674710Z ##[group]Run actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
+Per-file coverage gate	Run actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c	2026-10-16T04:50:10.8675165Z with:
+Per-file coverage gate	Run actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c	2026-10-16T04:50:10.8675369Z   pattern: lcov-cov-*
+Per-file coverage gate	Run actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c	2026-10-16T04:50:10.8675609Z   path: coverage-artifacts
+Per-file coverage gate	Run actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c	2026-10-16T04:50:10.8675859Z   merge-multiple: true
+Per-file coverage gate	Run actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c	2026-10-16T04:50:10.8676099Z   repository: ezcorp-org/EZHarness
+Per-file coverage gate	Run actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c	2026-10-16T04:50:10.8676356Z   run-id: 38850371515
+Per-file coverage gate	Run actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c	2026-10-16T04:50:10.8676573Z   skip-decompress: false
+Per-file coverage gate	Run actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c	2026-10-16T04:50:10.8676814Z   digest-mismatch: error
+Per-file coverage gate	Run actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c	2026-10-16T04:50:10.8677030Z env:
+Per-file coverage gate	Run actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c	2026-10-16T04:50:10.8677253Z   BUN_FEATURE_FLAG_DISABLE_SQL_AUTO_PIPELINING: 1
+Per-file coverage gate	Run actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c	2026-10-16T04:50:10.8677575Z   BUN_RUNTIME_TRANSPILER_CACHE_PATH: 0
+Per-file coverage gate	Run actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c	2026-10-16T04:50:10.8677838Z ##[endgroup]
+Per-file coverage gate	Run actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c	2026-10-16T04:50:11.3807765Z Found 42 artifact(s)
+Per-file coverage gate	Run actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c	2026-10-16T04:50:11.3808789Z Filtering artifacts by pattern 'lcov-cov-*'
+Per-file coverage gate	Run actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c	2026-10-16T04:50:11.3833243Z Preparing to download the following artifacts:
+Per-file coverage gate	Run actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c	2026-10-16T04:50:11.3834517Z - lcov-cov-shard-1 (ID: 12025935128, Size: 267369, Expected Digest: sha256:ab933b8b1d6f96ce5b2fe28fff3497f4c7ad3d93fd5f1500106e37460fadda80)
+Per-file coverage gate	Run actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c	2026-10-16T04:50:11.3836408Z - lcov-cov-web-vitest-3 (ID: 12025685187, Size: 470040, Expected Digest: sha256:0d905e9eda45697adefa65e2c0bfd675fc9d721f1e27d75131f93ac1eec4bf66)
+Per-file coverage gate	Run actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c	2026-10-16T04:50:11.3838159Z - lcov-cov-shard-7 (ID: 12025575662, Size: 275553, Expected Digest: sha256:6c53aa3a89c02a54508a7bc3264ac2908a5bec2e0c385cb8d619259d7fac2249)
+Per-file coverage gate	Run actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c	2026-10-16T04:50:11.3839920Z - lcov-cov-factory-storage (ID: 12025321454, Size: 224403, Expected Digest: sha256:322b8c5109b1afa2a86a02ce9a10b080d94b950c39448e36918a85a321832742)
+Per-file coverage gate	Run actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c	2026-10-16T04:50:11.3841615Z - lcov-cov-factory-assurance-release (ID: 12025276149, Size: 141923, Expected Digest: sha256:91e455e8939927510a4c6fef56cb16ec2d5a286acef51820af6feddd82209bf2)
+Per-file coverage gate	Run actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c	2026-10-16T04:50:11.3843176Z - lcov-cov-factory-pool (ID: 12025210502, Size: 4761, Expected Digest: sha256:d8bf86a00cb7d9e6cc6c6b3088eda7e7f1ac27f2b9bfe29acd1eaa735403e1c5)
+Per-file coverage gate	Run actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c	2026-10-16T04:50:11.3844666Z - lcov-cov-shard-3 (ID: 12025206103, Size: 292292, Expected Digest: sha256:190a8765662befed61ea19b3f2e0c2bded8752f34b754bcad46431f5bb23369c)
+Per-file coverage gate	Run actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c	2026-10-16T04:50:11.3845791Z - lcov-cov-factory-provisioning (ID: 12025205758, Size: 4062, Expected Digest: sha256:f0913b1604fb8cc8d40f731290e5ebc32ba10267260e4290722286ebd4437198)
+Per-file coverage gate	Run actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c	2026-10-16T04:50:11.3847086Z - lcov-cov-shard-8 (ID: 12025171716, Size: 261305, Expected Digest: sha256:bbc9b4cb4546c6e50097d09de679f34f66fc055de5948554fd6619ebdcad9ecc)
+Per-file coverage gate	Run actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c	2026-10-16T04:50:11.3848468Z - lcov-cov-factory-python (ID: 12025166095, Size: 10779, Expected Digest: sha256:94f3f064ff90d97d5547b0cf5f92e0e7c00274abaf8b95406c2ae7d44bd8d8a9)
+Per-file coverage gate	Run actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c	2026-10-16T04:50:11.3850019Z - lcov-cov-shard-10 (ID: 12025060893, Size: 260084, Expected Digest: sha256:97c5043fdc63324dc0336fe26485b87238899b6ea38551d757a17894e49adf99)
+Per-file coverage gate	Run actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c	2026-10-16T04:50:11.3851119Z - lcov-cov-shard-5 (ID: 12025026170, Size: 287004, Expected Digest: sha256:d8848dae143f752408d4fb6df3349d77b874f4bfcef11767c51cb9b54bb071d7)
+Per-file coverage gate	Run actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c	2026-10-16T04:50:11.3852707Z - lcov-cov-shard-4 (ID: 12024873727, Size: 273359, Expected Digest: sha256:b7a4ae57c74cb37c9987a1e7536f5230af432f91b6964c575c114ca3f7ccc2e0)
+Per-file coverage gate	Run actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c	2026-10-16T04:50:11.3853954Z - lcov-cov-shard-2 (ID: 12024864039, Size: 278469, Expected Digest: sha256:68f5c3875b70f42c5d257dc43ee7f7f7dbabd637a4b15fafd299bb16453f8e0f)
+Per-file coverage gate	Run actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c	2026-10-16T04:50:11.3855167Z - lcov-cov-factory-compute-admissions (ID: 12024838618, Size: 1748, Expected Digest: sha256:672f4b78b960e3770ac31b95b5c7d0dd5330bc8ff823fbd78e81e7f4dc963942)
+Per-file coverage gate	Run actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c	2026-10-16T04:50:11.3856423Z - lcov-cov-extras (ID: 12024798711, Size: 465675, Expected Digest: sha256:9785f3b15dad4bb160dce4e7ecb23e4c93585431b8ec52d0439d881fbfc82a44)
+Per-file coverage gate	Run actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c	2026-10-16T04:50:11.3857469Z - lcov-cov-shard-9 (ID: 12024779252, Size: 274083, Expected Digest: sha256:3929766d1e97a4ceb594e9a2b81147ae59eba1823c3e5eed9127f96db10f559c)
+Per-file coverage gate	Run actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c	2026-10-16T04:50:11.3858475Z - lcov-cov-shard-6 (ID: 12024774380, Size: 286120, Expected Digest: sha256:918a99e275260b6c03ff6857fe14d76f1e4a5b02f7f4d26d6c861356f47d89a1)
+Per-file coverage gate	Run actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c	2026-10-16T04:50:11.3859485Z - lcov-cov-shard-0 (ID: 12024689536, Size: 273973, Expected Digest: sha256:9b50e3f12185c948c8e66e06f0e96e832805f8fe0a024067f0c287efd3ca4db9)
+Per-file coverage gate	Run actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c	2026-10-16T04:50:11.3860731Z - lcov-cov-shard-11 (ID: 12024689292, Size: 264155, Expected Digest: sha256:11395b91d4573db3043afdde26337aa64fa0608f471605691de0f239e3182da7)
+Per-file coverage gate	Run actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c	2026-10-16T04:50:11.3861850Z - lcov-cov-web-vitest-2 (ID: 12024599682, Size: 477450, Expected Digest: sha256:2ab9a013d48754ee1be27dcb06a78251354c5f2b20b465fdec1c1e6f08bddb18)
+Per-file coverage gate	Run actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c	2026-10-16T04:50:11.3863812Z - lcov-cov-security (ID: 12024589029, Size: 1877, Expected Digest: sha256:a358a5bae270194188fd1e8152a133e9a743cf4e38bab2781b119dbfef76ac1a)
+Per-file coverage gate	Run actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c	2026-10-16T04:50:11.3865560Z - lcov-cov-web-vitest-1 (ID: 12024539952, Size: 464406, Expected Digest: sha256:f08c3fb1aa963c6f29fbd5987f6fc1896932298e696e0a43b7a725d744e4aa99)
+Per-file coverage gate	Run actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c	2026-10-16T04:50:11.3867406Z - lcov-cov-factory-orchestrator (ID: 12024109988, Size: 11861, Expected Digest: sha256:c922aba8477ed89d75b84906a2055b1270e2e8f49119b8a6d4c9ea4fb7d8d8bb)
+Per-file coverage gate	Run actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c	2026-10-16T04:50:11.9393943Z Redirecting to blob download url: https://productionresultssa1.blob.core.windows.net/actions-results/54b6548b-5aee-8f83-b9cf-30af94d09988/workflow-job-run-d3a34cf1-039b-5c28-b1fd-5c5ba8592d8c/artifacts/d3eb5fce536b88e7d528817e7f3e53c3984141221652ad05ed156efff9e9cff6.zip
+Per-file coverage gate	Run actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c	2026-10-16T04:50:11.9396535Z Starting download of artifact to: /home/runner/work/EZHarness/EZHarness/coverage-artifacts
+Per-file coverage gate	Run actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c	2026-10-16T04:50:11.9413810Z Redirecting to blob download url: https://productionresultssa1.blob.core.windows.net/actions-results/54b6548b-5aee-8f83-b9cf-30af94d09988/workflow-job-run-a7b5dc5c-b527-5947-a501-a9533c75aaf9/artifacts/37f31e27066c5e6d99e7ffc5b05a0541643d501f9230771d62c1dd1fa3582394.zip
+Per-file coverage gate	Run actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c	2026-10-16T04:50:11.9416271Z Starting download of artifact to: /home/runner/work/EZHarness/EZHarness/coverage-artifacts
+Per-file coverage gate	Run actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c	2026-10-16T04:50:11.9475697Z Redirecting to blob download url: https://productionresultssa1.blob.core.windows.net/actions-results/54b6548b-5aee-8f83-b9cf-30af94d09988/workflow-job-run-83f2c1f5-98a9-5e69-be69-79c1751c9494/artifacts/f4626b586a870a107abebd3c534e0185af037e38f8daab901b4e1ba70cb6bc03.zip
+Per-file coverage gate	Run actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c	2026-10-16T04:50:11.9478519Z Starting download of artifact to: /home/runner/work/EZHarness/EZHarness/coverage-artifacts
+Per-file coverage gate	Run actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c	2026-10-16T04:50:11.9502208Z Redirecting to blob download url: https://productionresultssa1.blob.core.windows.net/actions-results/54b6548b-5aee-8f83-b9cf-30af94d09988/workflow-job-run-50571146-83fe-581c-9e48-cc828cc2a4f4/artifacts/ed47277d3e1ff5b67bb84eb97b54f4b6bd55da2f30cb8727cb780b9db2e237b9.zip
+Per-file coverage gate	Run actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c	2026-10-16T04:50:11.9505393Z Starting download of artifact to: /home/runner/work/EZHarness/EZHarness/coverage-artifacts
+Per-file coverage gate	Run actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c	2026-10-16T04:50:11.9515053Z Redirecting to blob download url: https://productionresultssa1.blob.core.windows.net/actions-results/54b6548b-5aee-8f83-b9cf-30af94d09988/workflow-job-run-710325a4-f7dd-5246-8f41-317289c48879/artifacts/6cafa1f50b94edd262d0aa2071b228adb4a96a0183bc2763d098581d56f4a42c.zip
+Per-file coverage gate	Run actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c	2026-10-16T04:50:11.9517703Z Starting download of artifact to: /home/runner/work/EZHarness/EZHarness/coverage-artifacts
+Per-file coverage gate	Run actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c	2026-10-16T04:50:11.9535228Z Redirecting to blob download url: https://productionresultssa1.blob.core.windows.net/actions-results/54b6548b-5aee-8f83-b9cf-30af94d09988/workflow-job-run-e27cff9f-0cc9-5570-a5c8-257ba057ac65/artifacts/3f888df2bee0bea98f87a4dd57be2a2ed6d0e58a2ab89684a255670fbb83914c.zip
+Per-file coverage gate	Run actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c	2026-10-16T04:50:11.9537823Z Starting download of artifact to: /home/runner/work/EZHarness/EZHarness/coverage-artifacts
+Per-file coverage gate	Run actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c	2026-10-16T04:50:11.9543525Z Redirecting to blob download url: https://productionresultssa1.blob.core.windows.net/actions-results/54b6548b-5aee-8f83-b9cf-30af94d09988/workflow-job-run-a9f28b60-2b90-5b4c-a9b3-8ee4bd631b12/artifacts/dd1511ec5a30bc33a5f0e2049148b11e43634162296fba74a914084f0c593fa8.zip
+Per-file coverage gate	Run actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c	2026-10-16T04:50:11.9546179Z Starting download of artifact to: /home/runner/work/EZHarness/EZHarness/coverage-artifacts
+Per-file coverage gate	Run actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c	2026-10-16T04:50:11.9555867Z Redirecting to blob download url: https://productionresultssa1.blob.core.windows.net/actions-results/54b6548b-5aee-8f83-b9cf-30af94d09988/workflow-job-run-14efce6f-34b7-5aff-b315-33e6876b0844/artifacts/20e62a67458bd3933ef2dcbfee7d326152bfe356c57f25e2ec50bd2ff05a4c55.zip
+Per-file coverage gate	Run actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c	2026-10-16T04:50:11.9558964Z Starting download of artifact to: /home/runner/work/EZHarness/EZHarness/coverage-artifacts
+Per-file coverage gate	Run actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c	2026-10-16T04:50:11.9624297Z Redirecting to blob download url: https://productionresultssa1.blob.core.windows.net/actions-results/54b6548b-5aee-8f83-b9cf-30af94d09988/workflow-job-run-4b10391f-a107-5c10-a47b-36116e23586e/artifacts/15bd73c4e8154c149102a130df26d2556de8b04c2499f7463d1a4bc04233fe09.zip
+Per-file coverage gate	Run actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c	2026-10-16T04:50:11.9627361Z Starting download of artifact to: /home/runner/work/EZHarness/EZHarness/coverage-artifacts
+Per-file coverage gate	Run actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c	2026-10-16T04:50:11.9634963Z Redirecting to blob download url: https://productionresultssa1.blob.core.windows.net/actions-results/54b6548b-5aee-8f83-b9cf-30af94d09988/workflow-job-run-c72c0234-8af0-569a-bb74-77ff914e2165/artifacts/122a0d105bc4138e878d5d9ee56f129b68b8b060807b236523400fedbaf9c76e.zip
+Per-file coverage gate	Run actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c	2026-10-16T04:50:11.9638118Z Starting download of artifact to: /home/runner/work/EZHarness/EZHarness/coverage-artifacts
+Per-file coverage gate	Run actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c	2026-10-16T04:50:11.9648338Z Redirecting to blob download url: https://productionresultssa1.blob.core.windows.net/actions-results/54b6548b-5aee-8f83-b9cf-30af94d09988/workflow-job-run-016cee06-3ace-5b2e-9f18-56b2e99f4091/artifacts/d3f6f9b8b1594efa45210452692962a50f35ebe3c27b18037fae718919040045.zip
+Per-file coverage gate	Run actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c	2026-10-16T04:50:11.9651791Z Starting download of artifact to: /home/runner/work/EZHarness/EZHarness/coverage-artifacts
+Per-file coverage gate	Run actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c	2026-10-16T04:50:11.9660636Z Redirecting to blob download url: https://productionresultssa1.blob.core.windows.net/actions-results/54b6548b-5aee-8f83-b9cf-30af94d09988/workflow-job-run-489c2191-8500-5f17-9367-d6916d8ba8ba/artifacts/45d0bb51103f658eba1c0ca34609223347395bdde0b796885b299514d105d0e3.zip
+Per-file coverage gate	Run actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c	2026-10-16T04:50:11.9664132Z Starting download of artifact to: /home/runner/work/EZHarness/EZHarness/coverage-artifacts
+Per-file coverage gate	Run actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c	2026-10-16T04:50:11.9670483Z Redirecting to blob download url: https://productionresultssa1.blob.core.windows.net/actions-results/54b6548b-5aee-8f83-b9cf-30af94d09988/workflow-job-run-64958fd9-021c-52e1-82a9-d2df17e4b4fc/artifacts/aa2b9a50e8b3c317cc7d312f361d34b4386cfb07ea855df793addb645c34420a.zip
+Per-file coverage gate	Run actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c	2026-10-16T04:50:11.9673498Z Starting download of artifact to: /home/runner/work/EZHarness/EZHarness/coverage-artifacts
+Per-file coverage gate	Run actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c	2026-10-16T04:50:11.9681813Z Redirecting to blob download url: https://productionresultssa1.blob.core.windows.net/actions-results/54b6548b-5aee-8f83-b9cf-30af94d09988/workflow-job-run-c6775055-d33d-5e41-9e42-17c872911805/artifacts/0bbd2b3d0d861ffa886bb2b98ad310299fc54695f251cf1d47d953a5e03095c6.zip
+Per-file coverage gate	Run actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c	2026-10-16T04:50:11.9684937Z Starting download of artifact to: /home/runner/work/EZHarness/EZHarness/coverage-artifacts
+Per-file coverage gate	Run actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c	2026-10-16T04:50:11.9723630Z Redirecting to blob download url: https://productionresultssa1.blob.core.windows.net/actions-results/54b6548b-5aee-8f83-b9cf-30af94d09988/workflow-job-run-2e50637a-d850-56cc-aacf-ebe562b7e6d4/artifacts/cbac3ca7d686962391671d01c78429f0397da775b1d0b7c9c7b62ddb13f961da.zip
+Per-file coverage gate	Run actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c	2026-10-16T04:50:11.9726352Z Starting download of artifact to: /home/runner/work/EZHarness/EZHarness/coverage-artifacts
+Per-file coverage gate	Run actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c	2026-10-16T04:50:11.9734393Z Redirecting to blob download url: https://productionresultssa1.blob.core.windows.net/actions-results/54b6548b-5aee-8f83-b9cf-30af94d09988/workflow-job-run-2cd2d97f-8964-5751-ab28-1fda71568467/artifacts/131596031516c5210d943bce6cc7bf40eec084efac4b7c1b0de459393a068f50.zip
+Per-file coverage gate	Run actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c	2026-10-16T04:50:11.9737136Z Starting download of artifact to: /home/runner/work/EZHarness/EZHarness/coverage-artifacts
+Per-file coverage gate	Run actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c	2026-10-16T04:50:11.9749045Z Redirecting to blob download url: https://productionresultssa1.blob.core.windows.net/actions-results/54b6548b-5aee-8f83-b9cf-30af94d09988/workflow-job-run-c82019c5-34a5-5aa4-96cb-3c68d36ccca5/artifacts/24ef787f29a8af923b92189c483e5725ed1f2ee69ce42a90c18fd7492a48b0b8.zip
+Per-file coverage gate	Run actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c	2026-10-16T04:50:11.9751861Z Starting download of artifact to: /home/runner/work/EZHarness/EZHarness/coverage-artifacts
+Per-file coverage gate	Run actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c	2026-10-16T04:50:11.9768039Z Redirecting to blob download url: https://productionresultssa1.blob.core.windows.net/actions-results/54b6548b-5aee-8f83-b9cf-30af94d09988/workflow-job-run-1f370a12-ebc4-5f97-91d1-7a17fb79fe81/artifacts/5bc2ebcc961fa83581f75510a54691c70ebfc127c052c6d5ce9ebb06f6b12267.zip
+Per-file coverage gate	Run actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c	2026-10-16T04:50:11.9769800Z Starting download of artifact to: /home/runner/work/EZHarness/EZHarness/coverage-artifacts
+Per-file coverage gate	Run actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c	2026-10-16T04:50:11.9774082Z Redirecting to blob download url: https://productionresultssa1.blob.core.windows.net/actions-results/54b6548b-5aee-8f83-b9cf-30af94d09988/workflow-job-run-031e030e-dbdb-5249-ab66-3e49d9c76ecd/artifacts/d008d8541fba91b04110b8735a577c9cd1877e1742f5466f2d37c3ddaf395074.zip
+Per-file coverage gate	Run actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c	2026-10-16T04:50:11.9775762Z Starting download of artifact to: /home/runner/work/EZHarness/EZHarness/coverage-artifacts
+Per-file coverage gate	Run actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c	2026-10-16T04:50:11.9779073Z Redirecting to blob download url: https://productionresultssa1.blob.core.windows.net/actions-results/54b6548b-5aee-8f83-b9cf-30af94d09988/workflow-job-run-d3a34cf1-039b-5c28-b1fd-5c5ba8592d8c/artifacts/003dbe4a305a86363eb3bd16eeed3bb7e20e0967c4575de9d5fcb7f1d332b1da.zip
+Per-file coverage gate	Run actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c	2026-10-16T04:50:11.9780613Z Starting download of artifact to: /home/runner/work/EZHarness/EZHarness/coverage-artifacts
+Per-file coverage gate	Run actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c	2026-10-16T04:50:11.9788337Z Redirecting to blob download url: https://productionresultssa1.blob.core.windows.net/actions-results/54b6548b-5aee-8f83-b9cf-30af94d09988/workflow-job-run-7be63906-c499-57b5-b1af-0ff8c30a758e/artifacts/ae85c2de19a4f9243d61c6fe9bf8d0a7d1b6f6065c8e2e705dd5d69ec98bae0f.zip
+Per-file coverage gate	Run actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c	2026-10-16T04:50:11.9789872Z Starting download of artifact to: /home/runner/work/EZHarness/EZHarness/coverage-artifacts
+Per-file coverage gate	Run actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c	2026-10-16T04:50:11.9807073Z Redirecting to blob download url: https://productionresultssa1.blob.core.windows.net/actions-results/54b6548b-5aee-8f83-b9cf-30af94d09988/workflow-job-run-d3a34cf1-039b-5c28-b1fd-5c5ba8592d8c/artifacts/9b87d67e2532032ec42326bdd101a6854e968bd96bf69f855c1c11931196d7e8.zip
+Per-file coverage gate	Run actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c	2026-10-16T04:50:11.9810182Z Starting download of artifact to: /home/runner/work/EZHarness/EZHarness/coverage-artifacts
+Per-file coverage gate	Run actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c	2026-10-16T04:50:11.9816444Z Redirecting to blob download url: https://productionresultssa1.blob.core.windows.net/actions-results/54b6548b-5aee-8f83-b9cf-30af94d09988/workflow-job-run-d3a34cf1-039b-5c28-b1fd-5c5ba8592d8c/artifacts/de567fc4c38709abd1c3402894467da936150faa307521ff8e18f2a57ef5d307.zip
+Per-file coverage gate	Run actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c	2026-10-16T04:50:11.9818311Z Starting download of artifact to: /home/runner/work/EZHarness/EZHarness/coverage-artifacts
+Per-file coverage gate	Run actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c	2026-10-16T04:50:11.9839289Z Redirecting to blob download url: https://productionresultssa1.blob.core.windows.net/actions-results/54b6548b-5aee-8f83-b9cf-30af94d09988/workflow-job-run-257ff309-9f86-53fc-80ac-7b00aeac4bf5/artifacts/c8c00922d122963180d11076b2969f3a645ba298e15a95fc53470545da020166.zip
+Per-file coverage gate	Run actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c	2026-10-16T04:50:11.9842169Z Starting download of artifact to: /home/runner/work/EZHarness/EZHarness/coverage-artifacts
+Per-file coverage gate	Run actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c	2026-10-16T04:50:12.2538469Z (node:2483) [DEP0005] DeprecationWarning: Buffer() is deprecated due to security and usability issues. Please use the Buffer.alloc(), Buffer.allocUnsafe(), or Buffer.from() methods instead.
+Per-file coverage gate	Run actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c	2026-10-16T04:50:12.2540073Z (Use `node --trace-deprecation ...` to show where the warning was created)
+Per-file coverage gate	Run actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c	2026-10-16T04:50:12.2578074Z SHA256 digest of downloaded artifact is 94f3f064ff90d97d5547b0cf5f92e0e7c00274abaf8b95406c2ae7d44bd8d8a9
+Per-file coverage gate	Run actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c	2026-10-16T04:50:12.2579056Z Artifact download completed successfully.
+Per-file coverage gate	Run actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c	2026-10-16T04:50:12.2738492Z SHA256 digest of downloaded artifact is d8bf86a00cb7d9e6cc6c6b3088eda7e7f1ac27f2b9bfe29acd1eaa735403e1c5
+Per-file coverage gate	Run actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c	2026-10-16T04:50:12.2739619Z Artifact download completed successfully.
+Per-file coverage gate	Run actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c	2026-10-16T04:50:12.2862090Z SHA256 digest of downloaded artifact is 672f4b78b960e3770ac31b95b5c7d0dd5330bc8ff823fbd78e81e7f4dc963942
+Per-file coverage gate	Run actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c	2026-10-16T04:50:12.2863570Z Artifact download completed successfully.
+Per-file coverage gate	Run actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c	2026-10-16T04:50:12.2865128Z SHA256 digest of downloaded artifact is a358a5bae270194188fd1e8152a133e9a743cf4e38bab2781b119dbfef76ac1a
+Per-file coverage gate	Run actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c	2026-10-16T04:50:12.2866577Z Artifact download completed successfully.
+Per-file coverage gate	Run actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c	2026-10-16T04:50:12.2888345Z SHA256 digest of downloaded artifact is f0913b1604fb8cc8d40f731290e5ebc32ba10267260e4290722286ebd4437198
+Per-file coverage gate	Run actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c	2026-10-16T04:50:12.2889384Z Artifact download completed successfully.
+Per-file coverage gate	Run actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c	2026-10-16T04:50:12.2944945Z SHA256 digest of downloaded artifact is c922aba8477ed89d75b84906a2055b1270e2e8f49119b8a6d4c9ea4fb7d8d8bb
+Per-file coverage gate	Run actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c	2026-10-16T04:50:12.2945739Z Artifact download completed successfully.
+Per-file coverage gate	Run actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c	2026-10-16T04:50:12.4564454Z SHA256 digest of downloaded artifact is 91e455e8939927510a4c6fef56cb16ec2d5a286acef51820af6feddd82209bf2
+Per-file coverage gate	Run actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c	2026-10-16T04:50:12.4565900Z Artifact download completed successfully.
+Per-file coverage gate	Run actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c	2026-10-16T04:50:12.5259990Z SHA256 digest of downloaded artifact is 97c5043fdc63324dc0336fe26485b87238899b6ea38551d757a17894e49adf99
+Per-file coverage gate	Run actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c	2026-10-16T04:50:12.5261040Z Artifact download completed successfully.
+Per-file coverage gate	Run actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c	2026-10-16T04:50:12.5306885Z SHA256 digest of downloaded artifact is 9b50e3f12185c948c8e66e06f0e96e832805f8fe0a024067f0c287efd3ca4db9
+Per-file coverage gate	Run actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c	2026-10-16T04:50:12.5307710Z Artifact download completed successfully.
+Per-file coverage gate	Run actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c	2026-10-16T04:50:12.5336852Z SHA256 digest of downloaded artifact is bbc9b4cb4546c6e50097d09de679f34f66fc055de5948554fd6619ebdcad9ecc
+Per-file coverage gate	Run actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c	2026-10-16T04:50:12.5337635Z Artifact download completed successfully.
+Per-file coverage gate	Run actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c	2026-10-16T04:50:12.5373665Z SHA256 digest of downloaded artifact is 6c53aa3a89c02a54508a7bc3264ac2908a5bec2e0c385cb8d619259d7fac2249
+Per-file coverage gate	Run actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c	2026-10-16T04:50:12.5374667Z Artifact download completed successfully.
+Per-file coverage gate	Run actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c	2026-10-16T04:50:12.5380167Z SHA256 digest of downloaded artifact is 322b8c5109b1afa2a86a02ce9a10b080d94b950c39448e36918a85a321832742
+Per-file coverage gate	Run actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c	2026-10-16T04:50:12.5380914Z Artifact download completed successfully.
+Per-file coverage gate	Run actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c	2026-10-16T04:50:12.5529510Z SHA256 digest of downloaded artifact is 68f5c3875b70f42c5d257dc43ee7f7f7dbabd637a4b15fafd299bb16453f8e0f
+Per-file coverage gate	Run actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c	2026-10-16T04:50:12.5530305Z Artifact download completed successfully.
+Per-file coverage gate	Run actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c	2026-10-16T04:50:12.5584630Z SHA256 digest of downloaded artifact is 190a8765662befed61ea19b3f2e0c2bded8752f34b754bcad46431f5bb23369c
+Per-file coverage gate	Run actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c	2026-10-16T04:50:12.5585776Z Artifact download completed successfully.
+Per-file coverage gate	Run actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c	2026-10-16T04:50:12.5709006Z SHA256 digest of downloaded artifact is ab933b8b1d6f96ce5b2fe28fff3497f4c7ad3d93fd5f1500106e37460fadda80
+Per-file coverage gate	Run actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c	2026-10-16T04:50:12.5709872Z Artifact download completed successfully.
+Per-file coverage gate	Run actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c	2026-10-16T04:50:12.5774440Z SHA256 digest of downloaded artifact is b7a4ae57c74cb37c9987a1e7536f5230af432f91b6964c575c114ca3f7ccc2e0
+Per-file coverage gate	Run actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c	2026-10-16T04:50:12.5775703Z Artifact download completed successfully.
+Per-file coverage gate	Run actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c	2026-10-16T04:50:12.5951776Z SHA256 digest of downloaded artifact is 11395b91d4573db3043afdde26337aa64fa0608f471605691de0f239e3182da7
+Per-file coverage gate	Run actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c	2026-10-16T04:50:12.5953206Z Artifact download completed successfully.
+Per-file coverage gate	Run actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c	2026-10-16T04:50:12.5958843Z SHA256 digest of downloaded artifact is d8848dae143f752408d4fb6df3349d77b874f4bfcef11767c51cb9b54bb071d7
+Per-file coverage gate	Run actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c	2026-10-16T04:50:12.5960074Z Artifact download completed successfully.
+Per-file coverage gate	Run actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c	2026-10-16T04:50:12.5961274Z SHA256 digest of downloaded artifact is 3929766d1e97a4ceb594e9a2b81147ae59eba1823c3e5eed9127f96db10f559c
+Per-file coverage gate	Run actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c	2026-10-16T04:50:12.5962738Z Artifact download completed successfully.
+Per-file coverage gate	Run actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c	2026-10-16T04:50:12.6246456Z SHA256 digest of downloaded artifact is 0d905e9eda45697adefa65e2c0bfd675fc9d721f1e27d75131f93ac1eec4bf66
+Per-file coverage gate	Run actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c	2026-10-16T04:50:12.6247734Z Artifact download completed successfully.
+Per-file coverage gate	Run actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c	2026-10-16T04:50:12.6591021Z SHA256 digest of downloaded artifact is 918a99e275260b6c03ff6857fe14d76f1e4a5b02f7f4d26d6c861356f47d89a1
+Per-file coverage gate	Run actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c	2026-10-16T04:50:12.6592939Z Artifact download completed successfully.
+Per-file coverage gate	Run actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c	2026-10-16T04:50:12.6621486Z SHA256 digest of downloaded artifact is f08c3fb1aa963c6f29fbd5987f6fc1896932298e696e0a43b7a725d744e4aa99
+Per-file coverage gate	Run actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c	2026-10-16T04:50:12.6622622Z Artifact download completed successfully.
+Per-file coverage gate	Run actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c	2026-10-16T04:50:12.6891766Z SHA256 digest of downloaded artifact is 9785f3b15dad4bb160dce4e7ecb23e4c93585431b8ec52d0439d881fbfc82a44
+Per-file coverage gate	Run actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c	2026-10-16T04:50:12.6893165Z Artifact download completed successfully.
+Per-file coverage gate	Run actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c	2026-10-16T04:50:12.7051481Z SHA256 digest of downloaded artifact is 2ab9a013d48754ee1be27dcb06a78251354c5f2b20b465fdec1c1e6f08bddb18
+Per-file coverage gate	Run actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c	2026-10-16T04:50:12.7052880Z Artifact download completed successfully.
+Per-file coverage gate	Run actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c	2026-10-16T04:50:12.7053504Z Total of 24 artifact(s) downloaded
+Per-file coverage gate	Run actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c	2026-10-16T04:50:12.7056950Z Download artifact has finished successfully
+Per-file coverage gate	Run actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c	﻿2026-10-16T04:50:12.7777478Z ##[group]Run actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
+Per-file coverage gate	Run actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c	2026-10-16T04:50:12.7778102Z with:
+Per-file coverage gate	Run actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c	2026-10-16T04:50:12.7778457Z   name: browser-route-coverage
+Per-file coverage gate	Run actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c	2026-10-16T04:50:12.7778898Z   path: browser-route-coverage-artifact
+Per-file coverage gate	Run actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c	2026-10-16T04:50:12.7779342Z   merge-multiple: false
+Per-file coverage gate	Run actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c	2026-10-16T04:50:12.7779731Z   repository: ezcorp-org/EZHarness
+Per-file coverage gate	Run actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c	2026-10-16T04:50:12.7780142Z   run-id: 38850371515
+Per-file coverage gate	Run actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c	2026-10-16T04:50:12.7780513Z   skip-decompress: false
+Per-file coverage gate	Run actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c	2026-10-16T04:50:12.7780901Z   digest-mismatch: error
+Per-file coverage gate	Run actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c	2026-10-16T04:50:12.7781265Z env:
+Per-file coverage gate	Run actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c	2026-10-16T04:50:12.7781636Z   BUN_FEATURE_FLAG_DISABLE_SQL_AUTO_PIPELINING: 1
+Per-file coverage gate	Run actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c	2026-10-16T04:50:12.7782109Z   BUN_RUNTIME_TRANSPILER_CACHE_PATH: 0
+Per-file coverage gate	Run actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c	2026-10-16T04:50:12.7782712Z ##[endgroup]
+Per-file coverage gate	Run actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c	2026-10-16T04:50:12.9200306Z Downloading single artifact
+Per-file coverage gate	Run actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c	2026-10-16T04:50:13.1924962Z Preparing to download the following artifacts:
+Per-file coverage gate	Run actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c	2026-10-16T04:50:13.1926157Z - browser-route-coverage (ID: 12025418060, Size: 592481, Expected Digest: sha256:0711d81cee819c34045ae51f3bcf785808ef9ae4a78cd92efe876079edc50d2f)
+Per-file coverage gate	Run actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c	2026-10-16T04:50:13.7206333Z Redirecting to blob download url: https://productionresultssa1.blob.core.windows.net/actions-results/54b6548b-5aee-8f83-b9cf-30af94d09988/workflow-job-run-cb3b5424-7ea7-5e78-8ee2-ea3053f3dbfa/artifacts/31a667bc1b4082b557b006b9977037425556ff5d446189040d1ed5cf566a6c9b.zip
+Per-file coverage gate	Run actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c	2026-10-16T04:50:13.7208653Z Starting download of artifact to: /home/runner/work/EZHarness/EZHarness/browser-route-coverage-artifact
+Per-file coverage gate	Run actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c	2026-10-16T04:50:14.0251499Z (node:2496) [DEP0005] DeprecationWarning: Buffer() is deprecated due to security and usability issues. Please use the Buffer.alloc(), Buffer.allocUnsafe(), or Buffer.from() methods instead.
+Per-file coverage gate	Run actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c	2026-10-16T04:50:14.0253363Z (Use `node --trace-deprecation ...` to show where the warning was created)
+Per-file coverage gate	Run actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c	2026-10-16T04:50:14.4933954Z SHA256 digest of downloaded artifact is 0711d81cee819c34045ae51f3bcf785808ef9ae4a78cd92efe876079edc50d2f
+Per-file coverage gate	Run actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c	2026-10-16T04:50:14.4934900Z Artifact download completed successfully.
+Per-file coverage gate	Run actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c	2026-10-16T04:50:14.4935471Z Total of 1 artifact(s) downloaded
+Per-file coverage gate	Run actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c	2026-10-16T04:50:14.4939693Z Download artifact has finished successfully
+Per-file coverage gate	Require converted browser route coverage	﻿2026-10-16T04:50:14.5267520Z ##[group]Run test -s browser-route-coverage-artifact/lcov.info
+Per-file coverage gate	Require converted browser route coverage	2026-10-16T04:50:14.5268241Z ^[[36;1mtest -s browser-route-coverage-artifact/lcov.info^[[0m
+Per-file coverage gate	Require converted browser route coverage	2026-10-16T04:50:14.5269003Z ^[[36;1mcp browser-route-coverage-artifact/lcov.info coverage-artifacts/lcov_browser_routes.info^[[0m
+Per-file coverage gate	Require converted browser route coverage	2026-10-16T04:50:14.5332737Z shell: /usr/bin/bash -e {0}
+Per-file coverage gate	Require converted browser route coverage	2026-10-16T04:50:14.5333162Z env:
+Per-file coverage gate	Require converted browser route coverage	2026-10-16T04:50:14.5333547Z   BUN_FEATURE_FLAG_DISABLE_SQL_AUTO_PIPELINING: 1
+Per-file coverage gate	Require converted browser route coverage	2026-10-16T04:50:14.5334037Z   BUN_RUNTIME_TRANSPILER_CACHE_PATH: 0
+Per-file coverage gate	Require converted browser route coverage	2026-10-16T04:50:14.5334469Z ##[endgroup]
+Per-file coverage gate	Require V8 coverage for every executable shared web source	﻿2026-10-16T04:50:14.5677405Z ##[group]Run bun scripts/check-web-vitest-coverage.ts coverage-artifacts/lcov_web_vitest_*.info
+Per-file coverage gate	Require V8 coverage for every executable shared web source	2026-10-16T04:50:14.5678336Z ^[[36;1mbun scripts/check-web-vitest-coverage.ts coverage-artifacts/lcov_web_vitest_*.info^[[0m
+Per-file coverage gate	Require V8 coverage for every executable shared web source	2026-10-16T04:50:14.5740922Z shell: /usr/bin/bash -e {0}
+Per-file coverage gate	Require V8 coverage for every executable shared web source	2026-10-16T04:50:14.5741316Z env:
+Per-file coverage gate	Require V8 coverage for every executable shared web source	2026-10-16T04:50:14.5741693Z   BUN_FEATURE_FLAG_DISABLE_SQL_AUTO_PIPELINING: 1
+Per-file coverage gate	Require V8 coverage for every executable shared web source	2026-10-16T04:50:14.5742169Z   BUN_RUNTIME_TRANSPILER_CACHE_PATH: 0
+Per-file coverage gate	Require V8 coverage for every executable shared web source	2026-10-16T04:50:14.5742896Z ##[endgroup]
+Per-file coverage gate	Require V8 coverage for every executable shared web source	2026-10-16T04:50:14.7948605Z web Vitest coverage records every configured executable source (621 candidates)
+Per-file coverage gate	Merge lcov + enforce thresholds	﻿2026-10-16T04:50:14.8205416Z ##[group]Run mkdir -p coverage
+Per-file coverage gate	Merge lcov + enforce thresholds	2026-10-16T04:50:14.8205911Z ^[[36;1mmkdir -p coverage^[[0m
+Per-file coverage gate	Merge lcov + enforce thresholds	2026-10-16T04:50:14.8206482Z ^[[36;1mbun scripts/merge-lcov.ts "coverage-artifacts/*.info" coverage/lcov.info^[[0m
+Per-file coverage gate	Merge lcov + enforce thresholds	2026-10-16T04:50:14.8207086Z ^[[36;1mbun scripts/check-coverage.ts^[[0m
+Per-file coverage gate	Merge lcov + enforce thresholds	2026-10-16T04:50:14.8269163Z shell: /usr/bin/bash -e {0}
+Per-file coverage gate	Merge lcov + enforce thresholds	2026-10-16T04:50:14.8269571Z env:
+Per-file coverage gate	Merge lcov + enforce thresholds	2026-10-16T04:50:14.8269958Z   BUN_FEATURE_FLAG_DISABLE_SQL_AUTO_PIPELINING: 1
+Per-file coverage gate	Merge lcov + enforce thresholds	2026-10-16T04:50:14.8270468Z   BUN_RUNTIME_TRANSPILER_CACHE_PATH: 0
+Per-file coverage gate	Merge lcov + enforce thresholds	2026-10-16T04:50:14.8270896Z ##[endgroup]
+Per-file coverage gate	Merge lcov + enforce thresholds	2026-10-16T04:50:16.7526740Z merged 2400 source files → coverage/lcov.info
+Per-file coverage gate	Merge lcov + enforce thresholds	2026-10-16T04:50:17.0088978Z Coverage gate PASSED: 2246 enforced file(s) at or above threshold.
+Per-file coverage gate	New-file coverage gate	﻿2026-10-16T04:50:17.0364023Z ##[group]Run bun scripts/check-new-file-coverage.ts
+Per-file coverage gate	New-file coverage gate	2026-10-16T04:50:17.0364624Z ^[[36;1mbun scripts/check-new-file-coverage.ts^[[0m
+Per-file coverage gate	New-file coverage gate	2026-10-16T04:50:17.0426058Z shell: /usr/bin/bash -e {0}
+Per-file coverage gate	New-file coverage gate	2026-10-16T04:50:17.0426467Z env:
+Per-file coverage gate	New-file coverage gate	2026-10-16T04:50:17.0426859Z   BUN_FEATURE_FLAG_DISABLE_SQL_AUTO_PIPELINING: 1
+Per-file coverage gate	New-file coverage gate	2026-10-16T04:50:17.0427361Z   BUN_RUNTIME_TRANSPILER_CACHE_PATH: 0
+Per-file coverage gate	New-file coverage gate	2026-10-16T04:50:17.0427808Z   BASE_REF: origin/main
+Per-file coverage gate	New-file coverage gate	2026-10-16T04:50:17.0428176Z ##[endgroup]
+Per-file coverage gate	New-file coverage gate	2026-10-16T04:50:17.1491187Z New-file coverage gate PASSED: 7 new source file(s) gated.
+Per-file coverage gate	Patch coverage gate	﻿2026-10-16T04:50:17.1762081Z ##[group]Run bun scripts/check-patch-coverage.ts
+Per-file coverage gate	Patch coverage gate	2026-10-16T04:50:17.1762873Z ^[[36;1mbun scripts/check-patch-coverage.ts^[[0m
+Per-file coverage gate	Patch coverage gate	2026-10-16T04:50:17.1824375Z shell: /usr/bin/bash -e {0}
+Per-file coverage gate	Patch coverage gate	2026-10-16T04:50:17.1824788Z env:
+Per-file coverage gate	Patch coverage gate	2026-10-16T04:50:17.1825160Z   BUN_FEATURE_FLAG_DISABLE_SQL_AUTO_PIPELINING: 1
+Per-file coverage gate	Patch coverage gate	2026-10-16T04:50:17.1825634Z   BUN_RUNTIME_TRANSPILER_CACHE_PATH: 0
+Per-file coverage gate	Patch coverage gate	2026-10-16T04:50:17.1826055Z   BASE_REF: origin/main
+Per-file coverage gate	Patch coverage gate	2026-10-16T04:50:17.1826416Z ##[endgroup]
+Per-file coverage gate	Patch coverage gate	2026-10-16T04:50:17.3935184Z Patch coverage gate PASSED: all changed executable lines covered (37 file(s)).
+Per-file coverage gate	Global coverage floor	﻿2026-10-16T04:50:17.4230274Z ##[group]Run bun scripts/check-global-coverage.ts
+Per-file coverage gate	Global coverage floor	2026-10-16T04:50:17.4230872Z ^[[36;1mbun scripts/check-global-coverage.ts^[[0m
+Per-file coverage gate	Global coverage floor	2026-10-16T04:50:17.4293736Z shell: /usr/bin/bash -e {0}
+Per-file coverage gate	Global coverage floor	2026-10-16T04:50:17.4294138Z env:
+Per-file coverage gate	Global coverage floor	2026-10-16T04:50:17.4294522Z   BUN_FEATURE_FLAG_DISABLE_SQL_AUTO_PIPELINING: 1
+Per-file coverage gate	Global coverage floor	2026-10-16T04:50:17.4295013Z   BUN_RUNTIME_TRANSPILER_CACHE_PATH: 0
+Per-file coverage gate	Global coverage floor	2026-10-16T04:50:17.4295448Z ##[endgroup]
+Per-file coverage gate	Global coverage floor	2026-10-16T04:50:17.6178564Z 
+Per-file coverage gate	Global coverage floor	2026-10-16T04:50:17.6180259Z Global line coverage: 98.59% (214571/217638 lines across 2383 files), floor 90%
+Per-file coverage gate	Global coverage floor	2026-10-16T04:50:17.6181830Z ✓ at or above the 90% floor (margin 8.59 points)
+Per-file coverage gate	CRAP gate (touched functions)	﻿2026-10-16T04:50:17.6505469Z ##[group]Run bun scripts/crap-score.ts --changed
+Per-file coverage gate	CRAP gate (touched functions)	2026-10-16T04:50:17.6506032Z ^[[36;1mbun scripts/crap-score.ts --changed^[[0m
+Per-file coverage gate	CRAP gate (touched functions)	2026-10-16T04:50:17.6567741Z shell: /usr/bin/bash -e {0}
+Per-file coverage gate	CRAP gate (touched functions)	2026-10-16T04:50:17.6568139Z env:
+Per-file coverage gate	CRAP gate (touched functions)	2026-10-16T04:50:17.6568519Z   BUN_FEATURE_FLAG_DISABLE_SQL_AUTO_PIPELINING: 1
+Per-file coverage gate	CRAP gate (touched functions)	2026-10-16T04:50:17.6568998Z   BUN_RUNTIME_TRANSPILER_CACHE_PATH: 0
+Per-file coverage gate	CRAP gate (touched functions)	2026-10-16T04:50:17.6569432Z   BASE_REF: origin/main
+Per-file coverage gate	CRAP gate (touched functions)	2026-10-16T04:50:17.6569798Z ##[endgroup]
+Per-file coverage gate	CRAP gate (touched functions)	2026-10-16T04:50:18.4187104Z CRAP: --changed against origin/main → 36 measured file(s) in diff
+Per-file coverage gate	CRAP gate (touched functions)	2026-10-16T04:50:18.6832940Z 
+Per-file coverage gate	CRAP gate (touched functions)	2026-10-16T04:50:18.6833566Z CRAP: 186 functions in 36 files (max 30, warn 15)
+Per-file coverage gate	CRAP gate (touched functions)	2026-10-16T04:50:18.6833952Z 
+Per-file coverage gate	CRAP gate (touched functions)	2026-10-16T04:50:18.6834111Z Worst 15:
+Per-file coverage gate	CRAP gate (touched functions)	2026-10-16T04:50:18.6834657Z      23.0  cc= 23 cov=100%  src/factory/installation-startup.ts:783 installationCollaborators
+Per-file coverage gate	CRAP gate (touched functions)	2026-10-16T04:50:18.6835574Z      22.0  cc= 22 cov=100%  packages/@ezcorp/factory-orchestrator/src/process.ts:190 runFactoryOrchestratorProcess
+Per-file coverage gate	CRAP gate (touched functions)	2026-10-16T04:50:18.6836518Z      22.0  cc= 22 cov=100%  src/factory/runner/host-launch-service.ts:157 <anonymous@157>
+Per-file coverage gate	CRAP gate (touched functions)	2026-10-16T04:50:18.6837243Z      19.0  cc= 19 cov=100%  src/factory/startup-config.ts:498 wellFormedRunnerProfile
+Per-file coverage gate	CRAP gate (touched functions)	2026-10-16T04:50:18.6837927Z      17.0  cc= 17 cov=100%  src/factory/startup-config.ts:781 checkRunnerProfiles
+Per-file coverage gate	CRAP gate (touched functions)	2026-10-16T04:50:18.6838652Z      16.0  cc= 16 cov=100%  src/extensions/bundled-bootstrap.ts:116 stageBundledExtensionSources
+Per-file coverage gate	CRAP gate (touched functions)	2026-10-16T04:50:18.6839363Z      16.0  cc= 16 cov=100%  src/factory/package-preparation.ts:259 hydrate
+Per-file coverage gate	CRAP gate (touched functions)	2026-10-16T04:50:18.6840046Z      16.0  cc= 16 cov=100%  src/factory/runtime-workers.ts:138 registerFactoryRuntimeWorkers
+Per-file coverage gate	CRAP gate (touched functions)	2026-10-16T04:50:18.6840748Z      11.0  cc= 11 cov=100%  src/factory/host-preparation-client.ts:35 build
+Per-file coverage gate	CRAP gate (touched functions)	2026-10-16T04:50:18.6841431Z      11.0  cc= 11 cov=100%  src/factory/provisioning/fleet.ts:102 parseFactoryFleetSettings
+Per-file coverage gate	CRAP gate (touched functions)	2026-10-16T04:50:18.6842182Z      10.0  cc= 10 cov=100%  src/factory/installation-startup.ts:1012 composeAttemptDispatch
+Per-file coverage gate	CRAP gate (touched functions)	2026-10-16T04:50:18.6843718Z      10.0  cc= 10 cov=100%  src/factory/runner/host-launch-service.ts:215 hostRefusalFor
+Per-file coverage gate	CRAP gate (touched functions)	2026-10-16T04:50:18.6844518Z      10.0  cc= 10 cov=100%  src/factory/runner/host-launch-service.ts:244 factoryHostPreparationFromWire
+Per-file coverage gate	CRAP gate (touched functions)	2026-10-16T04:50:18.6845363Z       9.0  cc=  9 cov=100%  packages/@ezcorp/factory-orchestrator/src/workflow-bundle.ts:56 validRecord
+Per-file coverage gate	CRAP gate (touched functions)	2026-10-16T04:50:18.6846231Z       9.0  cc=  9 cov=100%  src/factory/package-preparation.ts:237 loadForBindingInTransaction
+Per-file coverage gate	CRAP gate (touched functions)	2026-10-16T04:50:18.6846676Z 
+Per-file coverage gate	CRAP gate (touched functions)	2026-10-16T04:50:18.6846893Z 8 function(s) above the warn line (not failing).
+Per-file coverage gate	CRAP gate (touched functions)	2026-10-16T04:50:18.6847198Z 
+Per-file coverage gate	CRAP gate (touched functions)	2026-10-16T04:50:18.6847626Z ✓ no touched function exceeds CRAP 30
+Per-file coverage gate	Quality summary	﻿2026-10-16T04:50:18.7315796Z ##[group]Run bun scripts/quality-report.ts --text --expect coverage,crap
+Per-file coverage gate	Quality summary	2026-10-16T04:50:18.7316546Z ^[[36;1mbun scripts/quality-report.ts --text --expect coverage,crap^[[0m
+Per-file coverage gate	Quality summary	2026-10-16T04:50:18.7379322Z shell: /usr/bin/bash -e {0}
+Per-file coverage gate	Quality summary	2026-10-16T04:50:18.7379757Z env:
+Per-file coverage gate	Quality summary	2026-10-16T04:50:18.7380139Z   BUN_FEATURE_FLAG_DISABLE_SQL_AUTO_PIPELINING: 1
+Per-file coverage gate	Quality summary	2026-10-16T04:50:18.7380625Z   BUN_RUNTIME_TRANSPILER_CACHE_PATH: 0
+Per-file coverage gate	Quality summary	2026-10-16T04:50:18.7381057Z ##[endgroup]
+Per-file coverage gate	Quality summary	2026-10-16T04:50:18.7605053Z 
+Per-file coverage gate	Quality summary	2026-10-16T04:50:18.7613380Z === Quality gates: PASS ===
+Per-file coverage gate	Quality summary	2026-10-16T04:50:18.7613959Z   expected: coverage, crap
+Per-file coverage gate	Quality summary	2026-10-16T04:50:18.7614550Z   coverage: {"passed":true,"linePct":98.5908,"threshold":90}
+Per-file coverage gate	Quality summary	2026-10-16T04:50:18.7615690Z   crap: {"passed":true,"mode":"touched-functions","violations":0,"functionsScored":186,"maxScore":30}
+Per-file coverage gate	Quality summary	2026-10-16T04:50:18.7616295Z 
+Per-file coverage gate	Quality summary	2026-10-16T04:50:18.7616483Z No failures.
+Per-file coverage gate	Quality summary	2026-10-16T04:50:18.7617140Z Structured summary: /home/runner/work/EZHarness/EZHarness/coverage/quality/summary.json
+Per-file coverage gate	Upload quality reports	﻿2026-10-16T04:50:18.8127009Z ##[group]Run actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+Per-file coverage gate	Upload quality reports	2026-10-16T04:50:18.8127625Z with:
+Per-file coverage gate	Upload quality reports	2026-10-16T04:50:18.8127971Z   name: quality-reports
+Per-file coverage gate	Upload quality reports	2026-10-16T04:50:18.8128367Z   path: coverage/quality
+Per-file coverage gate	Upload quality reports	2026-10-16T04:50:18.8128936Z   retention-days: 7
+Per-file coverage gate	Upload quality reports	2026-10-16T04:50:18.8129301Z   if-no-files-found: warn
+Per-file coverage gate	Upload quality reports	2026-10-16T04:50:18.8129692Z   compression-level: 6
+Per-file coverage gate	Upload quality reports	2026-10-16T04:50:18.8130059Z   overwrite: false
+Per-file coverage gate	Upload quality reports	2026-10-16T04:50:18.8130425Z   include-hidden-files: false
+Per-file coverage gate	Upload quality reports	2026-10-16T04:50:18.8130822Z   archive: true
+Per-file coverage gate	Upload quality reports	2026-10-16T04:50:18.8131159Z env:
+Per-file coverage gate	Upload quality reports	2026-10-16T04:50:18.8131525Z   BUN_FEATURE_FLAG_DISABLE_SQL_AUTO_PIPELINING: 1
+Per-file coverage gate	Upload quality reports	2026-10-16T04:50:18.8131997Z   BUN_RUNTIME_TRANSPILER_CACHE_PATH: 0
+Per-file coverage gate	Upload quality reports	2026-10-16T04:50:18.8132604Z ##[endgroup]
+Per-file coverage gate	Upload quality reports	2026-10-16T04:50:18.9633310Z With the provided path, there will be 3 files uploaded
+Per-file coverage gate	Upload quality reports	2026-10-16T04:50:18.9634764Z Artifact name is valid!
+Per-file coverage gate	Upload quality reports	2026-10-16T04:50:18.9635342Z Root directory input is valid!
+Per-file coverage gate	Upload quality reports	2026-10-16T04:50:19.3673161Z Uploading artifact: quality-reports.zip
+Per-file coverage gate	Upload quality reports	2026-10-16T04:50:19.3717493Z Beginning upload of artifact content to blob storage
+Per-file coverage gate	Upload quality reports	2026-10-16T04:50:19.6991718Z Uploaded bytes 3739
+Per-file coverage gate	Upload quality reports	2026-10-16T04:50:19.7784676Z Finished uploading artifact content to blob storage!
+Per-file coverage gate	Upload quality reports	2026-10-16T04:50:19.7786198Z SHA256 digest of uploaded artifact is 0cb033a128e18d9781aa8d09cdfdf43806ab65c3e7b45f417c33608eb8dd2d87
+Per-file coverage gate	Upload quality reports	2026-10-16T04:50:19.7787522Z Finalizing artifact upload
+Per-file coverage gate	Upload quality reports	2026-10-16T04:50:20.1869996Z Artifact quality-reports successfully finalized. Artifact ID 12025932785
+Per-file coverage gate	Upload quality reports	2026-10-16T04:50:20.1872210Z Artifact quality-reports has been successfully uploaded! Final size is 3739 bytes. Artifact ID is 12025932785
+Per-file coverage gate	Upload quality reports	2026-10-16T04:50:20.1876089Z Artifact download URL: https://github.com/ezcorp-org/EZHarness/actions/runs/38850371515/artifacts/12025932785
+Per-file coverage gate	Post Run oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6	﻿2026-10-16T04:50:20.2536933Z Post job cleanup.
+Per-file coverage gate	Post Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	﻿2026-10-16T04:50:20.5493035Z Post job cleanup.
+Per-file coverage gate	Post Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:50:20.6405113Z [command]/usr/bin/git version
+Per-file coverage gate	Post Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:50:20.6463624Z git version 2.55.0
+Per-file coverage gate	Post Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:50:20.6508222Z Temporarily overriding HOME='/home/runner/work/_temp/b75d55b5-8606-4c83-b32d-14a7c804fdc8' before making global git config changes
+Per-file coverage gate	Post Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:50:20.6510229Z Adding repository directory to the temporary git global config as a safe directory
+Per-file coverage gate	Post Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:50:20.6514255Z [command]/usr/bin/git config --global --add safe.directory /home/runner/work/EZHarness/EZHarness
+Per-file coverage gate	Post Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:50:20.6562677Z Removing SSH command configuration
+Per-file coverage gate	Post Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:50:20.6571166Z [command]/usr/bin/git config --local --name-only --get-regexp core\.sshCommand
+Per-file coverage gate	Post Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:50:20.6629754Z [command]/usr/bin/git submodule foreach --recursive sh -c "git config --local --name-only --get-regexp 'core\.sshCommand' && git config --local --unset-all 'core.sshCommand' || :"
+Per-file coverage gate	Post Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:50:20.6920059Z Removing HTTP extra header
+Per-file coverage gate	Post Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:50:20.6927443Z [command]/usr/bin/git config --local --name-only --get-regexp http\.https\:\/\/github\.com\/\.extraheader
+Per-file coverage gate	Post Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:50:20.6979866Z [command]/usr/bin/git submodule foreach --recursive sh -c "git config --local --name-only --get-regexp 'http\.https\:\/\/github\.com\/\.extraheader' && git config --local --unset-all 'http.https://github.com/.extraheader' || :"
+Per-file coverage gate	Post Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:50:20.7251064Z Removing includeIf entries pointing to credentials config files
+Per-file coverage gate	Post Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:50:20.7260070Z [command]/usr/bin/git config --local --name-only --get-regexp ^includeIf\.gitdir:
+Per-file coverage gate	Post Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:50:20.7295523Z includeif.gitdir:/home/runner/work/EZHarness/EZHarness/.git.path
+Per-file coverage gate	Post Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:50:20.7296840Z includeif.gitdir:/home/runner/work/EZHarness/EZHarness/.git/worktrees/*.path
+Per-file coverage gate	Post Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:50:20.7298122Z includeif.gitdir:/github/workspace/.git.path
+Per-file coverage gate	Post Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:50:20.7299308Z includeif.gitdir:/github/workspace/.git/worktrees/*.path
+Per-file coverage gate	Post Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:50:20.7306011Z [command]/usr/bin/git config --local --get-all includeif.gitdir:/home/runner/work/EZHarness/EZHarness/.git.path
+Per-file coverage gate	Post Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:50:20.7336188Z /home/runner/work/_temp/git-credentials-daaf64f8-7468-4652-945e-60a0a2d9aff4.config
+Per-file coverage gate	Post Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:50:20.7349991Z [command]/usr/bin/git config --local --unset includeif.gitdir:/home/runner/work/EZHarness/EZHarness/.git.path \/home\/runner\/work\/_temp\/git\-credentials\-daaf64f8\-7468\-4652\-945e\-60a0a2d9aff4\.config
+Per-file coverage gate	Post Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:50:20.7407670Z [command]/usr/bin/git config --local --get-all includeif.gitdir:/home/runner/work/EZHarness/EZHarness/.git/worktrees/*.path
+Per-file coverage gate	Post Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:50:20.7440293Z /home/runner/work/_temp/git-credentials-daaf64f8-7468-4652-945e-60a0a2d9aff4.config
+Per-file coverage gate	Post Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:50:20.7452871Z [command]/usr/bin/git config --local --unset includeif.gitdir:/home/runner/work/EZHarness/EZHarness/.git/worktrees/*.path \/home\/runner\/work\/_temp\/git\-credentials\-daaf64f8\-7468\-4652\-945e\-60a0a2d9aff4\.config
+Per-file coverage gate	Post Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:50:20.7495875Z [command]/usr/bin/git config --local --get-all includeif.gitdir:/github/workspace/.git.path
+Per-file coverage gate	Post Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:50:20.7523183Z /github/runner_temp/git-credentials-daaf64f8-7468-4652-945e-60a0a2d9aff4.config
+Per-file coverage gate	Post Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:50:20.7531510Z [command]/usr/bin/git config --local --unset includeif.gitdir:/github/workspace/.git.path \/github\/runner_temp\/git\-credentials\-daaf64f8\-7468\-4652\-945e\-60a0a2d9aff4\.config
+Per-file coverage gate	Post Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:50:20.7570286Z [command]/usr/bin/git config --local --get-all includeif.gitdir:/github/workspace/.git/worktrees/*.path
+Per-file coverage gate	Post Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:50:20.7597423Z /github/runner_temp/git-credentials-daaf64f8-7468-4652-945e-60a0a2d9aff4.config
+Per-file coverage gate	Post Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:50:20.7606941Z [command]/usr/bin/git config --local --unset includeif.gitdir:/github/workspace/.git/worktrees/*.path \/github\/runner_temp\/git\-credentials\-daaf64f8\-7468\-4652\-945e\-60a0a2d9aff4\.config
+Per-file coverage gate	Post Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:50:20.7647731Z [command]/usr/bin/git submodule foreach --recursive git config --local --show-origin --name-only --get-regexp remote.origin.url
+Per-file coverage gate	Post Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:50:20.7900868Z Removing credentials config '/home/runner/work/_temp/git-credentials-daaf64f8-7468-4652-945e-60a0a2d9aff4.config'
+Per-file coverage gate	Complete job	﻿2026-10-16T04:50:20.8060906Z Cleaning up orphan processes

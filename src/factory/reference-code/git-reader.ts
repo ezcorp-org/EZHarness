@@ -110,6 +110,15 @@ async function readBlobs(options: ReferenceCodeGitOptions, shas: readonly string
 export class ReferenceCodeGitReader implements ReferenceCodeRepositoryReader {
   constructor(private readonly options: ReferenceCodeGitOptions) {}
 
+  /** The commit's committer time, in seconds: a recorded fact, never a clock read (W4H-28). */
+  async committedAtSeconds(commitSha: string): Promise<number> {
+    assertFactoryGitSha(commitSha);
+    const output = await runGit(this.options, ["show", "-s", "--format=%ct", `${commitSha}^{commit}`]);
+    const seconds = Number(output.stdout.toString("utf8").trim());
+    if (output.status !== 0 || !Number.isSafeInteger(seconds) || seconds < 0) throw new ReferenceCodeSnapshotError("reference_code_base_commit_unknown", commitSha);
+    return seconds;
+  }
+
   async resolveCommit(baseSha: string): Promise<{ commitSha: string; treeSha: string }> {
     assertFactoryGitSha(baseSha);
     const output = await runGit(this.options, ["cat-file", "--batch-check=%(objectname) %(objecttype)"], `${baseSha}^{commit}\n`);

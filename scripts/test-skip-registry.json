@@ -1,0 +1,23 @@
+{
+  "//": "Allowed precondition skips (team-lead's ruling, W4H-33). A suite may skip with \"skip: precondition <name> missing; tracked: <id>\" only when <id> is a row here, the suite is one of its suites and <name> one of its preconditions. scripts/test-skip-inventory.test.ts enforces it. `ledger` names the team's leftover entry that will provide the lane; no test reads that ledger.",
+  "rows": [
+    {
+      "id": "ai-kit-deployed-lane",
+      "suites": [
+        "packages/@ezcorp/ai-kit/test/e2e/bundled.test.ts",
+        "packages/@ezcorp/ai-kit/test/e2e/fanout.test.ts",
+        "packages/@ezcorp/ai-kit/test/e2e/quickstart.test.ts"
+      ],
+      "preconditions": [
+        "ai-kit installed",
+        "EZCORP_E2E_MODEL",
+        "agents researcher and writer",
+        "autoSpinUp team",
+        "an agent"
+      ],
+      "reason": "The real-auth lane runs these deployed-service suites but does not yet install ai-kit through the bundled lifecycle, pin the mock model by env, or seed the fan-out agents and autoSpinUp team.",
+      "ledger": "leftovers-2026-10-16 ai-kit-deployed-lane",
+      "owner": "w4h-36 (ledger row); the lane's implementer then removes this row"
+    }
+  ]
+}

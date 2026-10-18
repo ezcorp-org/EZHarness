@@ -1,0 +1,13 @@
+bun test v1.4.2 (744846f84)
+{"ts":"2026-10-16T01:01:41.997Z","level":"info","msg":"briefing chat tools wired for turn","subsystem":"briefing.chat-tools","conversationId":"conv-normal","userId":"user-1","registered":4,"expected":4}
+{"ts":"2026-10-16T01:01:41.997Z","level":"info","msg":"briefing chat tools wired for turn","subsystem":"briefing.chat-tools","conversationId":"conv-other-agent","userId":"user-1","registered":4,"expected":4}
+{"ts":"2026-10-16T01:01:41.998Z","level":"info","msg":"briefing chat tools wired for turn","subsystem":"briefing.chat-tools","conversationId":"conv-unbootstrapped","userId":"user-1","registered":4,"expected":4}
+{"ts":"2026-10-16T01:01:41.998Z","level":"info","msg":"briefing chat tools wired for turn","subsystem":"briefing.chat-tools","conversationId":"conv-normal","userId":"user-1","registered":4,"expected":4}
+{"ts":"2026-10-16T01:01:41.998Z","level":"info","msg":"briefing chat tools wired for turn","subsystem":"briefing.chat-tools","conversationId":"conv-normal","userId":"user-1","registered":0,"expected":4}
+{"ts":"2026-10-16T01:01:41.998Z","level":"warn","msg":"Briefing chat tools wire failed — subscribe tools unavailable this turn","subsystem":"executor.streamChat.setup","error":"Error: wire exploded"}
+{"ts":"2026-10-16T01:01:41.998Z","level":"info","msg":"briefing chat tools wired for turn","subsystem":"briefing.chat-tools","conversationId":"conv-normal","userId":"user-1","registered":4,"expected":4}
+
+ 10 pass
+ 0 fail
+ 20 expect() calls
+Ran 10 tests across 1 file. [462.00ms]

@@ -1,0 +1,37 @@
+base head 390c49a90; W4H-33 head 1dcaac301; run 2026-10-16T09:53:39Z; bun 1.4.2
+packages/@ezcorp/ai-kit/test/shape.test.ts | pass=5 fail=0 | GREEN as listed: todoIf -> plain test; every surface exists on base, so its red needs a removed surface; log: logs/shape-red-before.txt (6/6 removals exit 0 as todo)
+packages/@ezcorp/ai-kit/test/unit/deployed-preconditions.test.ts | pass=6 fail=0 | GREEN as listed: it tests the ai-kit e2e suites and their _guard, all staged; its red is the forced skip path and a forced false present line; logs: logs/precond-contract-red.log, logs/callsite-red-quickstart.log, logs/callsite-red-fanout.log
+scripts/check-factory-lanes.test.ts | pass=42 fail=2 | error: expect(received).toEqual(expected)
+scripts/ripgrep-registration.test.ts | pass=1 fail=2 | error: ENOENT: no such file or directory, open '<base>/.github/actions/ripgrep/action.yml'
+scripts/test-images-registration.test.ts | pass=0 fail=3 | error: expect(received).toBe(expected)
+scripts/test-skip-inventory.test.ts | pass=0 fail=1 | RED-LOAD-ERROR: error: Cannot find module './test-skip-inventory.ts' from '<base>/scripts/test-skip-inventory.test.ts'
+src/__tests__/price-chart-market-stub.test.ts | pass=2 fail=0 | GREEN as listed: a new test helper's own test (the helper is staged); the suites it serves are red in logs/heavy-price-chart.log
+src/__tests__/production-proof-plan.test.ts | pass=0 fail=1 | RED-LOAD-ERROR: SyntaxError: Export named 'PRODUCTION_PROOF_BOUND_TESTS' not found in module '<base>/scripts/production-proof-plan.ts'.
+src/__tests__/production-proof-results.test.ts | pass=0 fail=1 | RED-LOAD-ERROR: SyntaxError: Export named 'PREVIEW_ISOLATION_PROOF_TESTS' not found in module '<base>/scripts/verify-shipping-production-results.ts'.
+src/__tests__/runtime-tools-grep.test.ts | pass=18 fail=0 | GREEN as listed: base hosts have rg, so the rg cases run there; its red is a host WITHOUT rg: logs/rg-norg-before.log (2 skip) vs logs/rg-norg-after.log (3 fail)
+src/__tests__/shipping-preview-isolation.test.ts | pass=0 fail=3 | error: expect(received).toBe(expected)
+src/__tests__/shipping-production-suite-wiring.test.ts | pass=2 fail=2 | error: expect(received).toContain(expected)
+src/__tests__/start-assignment-plumbing.test.ts | pass=97 fail=0 | GREEN as listed: the new case pins behaviour the base already has; its red is start-assignment.ts:590 reverted: logs/subconv1-red.log
+src/factory/runner/supervisor-services.test.ts | pass=29 fail=0 | GREEN as listed: a test-only change: the head file DECLARES its timeouts (65 s, 125 s), so it passes on the base product; its red is the BASE file at Bun's default 5 s timeout: logs/supsvc-default-timeout.log (27 pass 2 fail)
+web/src/__tests__/api-users-id.server.test.ts | pass=7 fail=0 | GREEN as listed: an added in-file assertion on existing behaviour (gate-integrity's vacuous-test finding), no red by design; log: logs/api-users-id.log
+web/src/__tests__/sub-conversation.test.ts | pass=7 fail=0 | GREEN as listed: four empty test.todo removed; nothing to make red here; the behaviours' red cases are in start-assignment-plumbing and send-message
+web/src/lib/chat/page-handlers/__tests__/send-message.test.ts | pass=69 fail=6 |  FAIL  src/lib/chat/page-handlers/__tests__/send-message.test.ts > handleSend (mention parsing) > @agent mention triggers startSubConvo (sub-convo store + createSubConversation)
+web/src/lib/components/ChatThread.coverage.component.test.ts | pass=53 fail=1 |  FAIL  src/lib/components/ChatThread.coverage.component.test.ts > ChatThread window events > ez:turn_saved: the active sub-conversation's turn enters its block, not the thread; an inactive sub's turn 
+src/__tests__/preview-uid-keystone.docker.test.ts | not runnable lock-free | on base gated on DOCKER_TEST, which no lane sets (0 tests, void); the head runs in the candidate image under rootless Podman; log: proof-preview-isolation/controller.log (7/0 at the head)
+src/__tests__/preview-dynamic-e2e.docker.test.ts | not runnable lock-free | same gate and proof as preview-uid-keystone; log: proof-preview-isolation/controller.log
+src/__tests__/price-chart.e2e.test.ts | not runnable lock-free | builds an isolated release with Podman; on base gated on EZCORP_E2E_NETWORK (0 tests in those describes, void); log: logs/heavy-price-chart.log (head before the fix: pinned URLs, executor reached live Yahoo), logs/heavy-price-chart-commit.log (8/0)
+web/src/__tests__/price-chart-stream-bridge.test.ts | not runnable lock-free | builds an isolated release with Podman; on base gated on EZCORP_E2E_NETWORK and failing on a missing DB when the gate is set: logs/bridge-network-probe.log; green: logs/heavy-price-chart-commit.log (6/0)
+web/e2e/real-auth/sub-conversation-flow.spec.ts | not runnable lock-free | Playwright real-auth lane; on base the create answers 400 "Validation failed ... agentConfigId: Invalid UUID" (Expected 201, Received 400); log: logs/subconvo-e2e-red.log; reply-in-block red: logs/subconvo-e2e-green2.log
+web/e2e/real-auth/ai-kit-public-api.spec.ts | not runnable lock-free | Playwright real-auth lane; the deployed-service test failed 1 pass 5 fail before the precondition probes; log: logs/heavy-real-auth-aikit.log
+web/e2e/reliability.spec.ts | not runnable lock-free | Playwright; a fixture-address change only, its red is the identity check: logs/identity-reliability-before.txt
+packages/@ezcorp/ai-kit/test/e2e/bundled.test.ts | not runnable lock-free | a deployed-service suite selected by the real-auth lane's variables (void without them); log: logs/heavy-real-auth-aikit.log
+packages/@ezcorp/ai-kit/test/e2e/fanout.test.ts | not runnable lock-free | a deployed-service suite selected by the real-auth lane's variables; log: logs/heavy-real-auth-aikit.log
+packages/@ezcorp/ai-kit/test/e2e/quickstart.test.ts | not runnable lock-free | a deployed-service suite selected by the real-auth lane's variables; log: logs/heavy-real-auth-aikit.log
+
+== section appended 2026-10-16T10:03:05Z: F2 fix e4aa0cb44 changed src/__tests__/production-proof-results.test.ts (its base counts at 390c49a90)
+base head 390c49a90; W4H-33 head e4aa0cb44; run 2026-10-16T10:03:05Z; bun 1.4.2
+src/__tests__/production-proof-results.test.ts | pass=0 fail=1 | RED-LOAD-ERROR: SyntaxError: Export named 'PREVIEW_ISOLATION_PROOF_TESTS' not found in module '<base>/scripts/verify-shipping-production-results.ts'.
+
+== section appended 2026-10-16T14:40:57Z: D3 e50aedefd added packages/@ezcorp/ai-kit/test/unit/e2e-poll.test.ts (its base counts at 390c49a90; fanout.test.ts stays in the not-runnable lines)
+base head 390c49a90; W4H-33 head e50aedefd; run 2026-10-16T14:40:57Z; bun 1.4.2
+packages/@ezcorp/ai-kit/test/unit/e2e-poll.test.ts | pass=0 fail=1 | RED-LOAD-ERROR: error: Cannot find module '../e2e/_poll' from '<base>/packages/@ezcorp/ai-kit/test/unit/e2e-poll.test.ts'

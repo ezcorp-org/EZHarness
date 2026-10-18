@@ -1,0 +1,7 @@
+bun test v1.4.2 (744846f84)
+{"ts":"2026-10-16T09:52:12.990Z","level":"warn","msg":"Model \"claude-sonnet-4-20250514\" is pinned for provider \"anthropic\" (pinned by conversation pin) but is not in the installed pi-ai catalog. The request still goes to anthropic, but the context window and per-token pricing are ESTIMATES (128k, unpriced), so long threads may be compacted more aggressively and spend will report as unmeasured. Re-pin the conversation to a listed model, or run refresh-models if the provider still serves this id.","subsystem":"providers.router","provider":"anthropic","modelId":"claude-sonnet-4-20250514"}
+
+ 52 pass
+ 0 fail
+ 102 expect() calls
+Ran 52 tests across 1 file. [469.00ms]

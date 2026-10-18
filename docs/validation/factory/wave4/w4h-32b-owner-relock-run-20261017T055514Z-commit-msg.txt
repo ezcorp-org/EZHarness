@@ -1,0 +1,13 @@
+fix(factory): relock the S3 release adapter after fc1254003 moved the trusted SDK digest (W4H-32b, push16 ci 39005464033)
+
+The push16 hosted run (ci 39005464033 on integ/w00 39baed85a) went red in src/factory/s3-release-adapter/package.test.ts ("the
+provided SDK bundle and toolchain are the locked ones") and package.podman.integration.test.ts ("the pinned image builds the
+locked source into the artifact the SDK names"). fc1254003 (W4H-32) added Runner.restoreArtifact to
+packages/@ezcorp/extension-contract/src/types.d.ts. bundleTrustedPackages (extension-runner provision.ts) digests the sdk and
+extension-contract trees, so the trusted SDK digest moved and S3_RELEASE_ADAPTER_LOCK was not relocked in that package.
+The designed response (W4H-28 ruling A): bun scripts/relock-s3-release-adapter.ts, which rebuilt the adapter in the pinned image.
+  sdkDigest:      sha256:f3c4fba229fcaed6c10fb60f79785e566aaae8b26923bd832d7246b8f169dc26 -> sha256:a8c4f87236d4cbc8225d453650e7bc6786a8d329918d518ad68ccecf7deeb480
+  artifactDigest: sha256:54dcd1fd33774934dc1a5a2ec4d4adb19daa059b355856f168d6ee1468d8f0bc -> sha256:04a33827f5aad8a0e3ad36feeb39c62f356a5d0f2a4b71da6948d7bc1323d147
+  toolchainDigest and sourceDigest: unchanged
+lock.json and the factory-sdk literal (references.ts) are the two files the relock writes. No other product change; no gate change.
+Red: /tmp/factory-platform-evidence/w4h-32b/red/ and the job's red-podman.log. Green: the job's green.log.

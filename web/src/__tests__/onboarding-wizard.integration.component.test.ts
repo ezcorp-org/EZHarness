@@ -34,7 +34,7 @@ vi.mock("$lib/api.js", () => ({
 import OnboardingPage from "../routes/(auth)/onboarding/+page.svelte";
 import { upsertSetting } from "$lib/api.js";
 
-const baseUser = { id: "u-1", name: "Ada", email: "ada@test.com", role: "admin" as const };
+const baseUser = { id: "u-1", name: "Ada", email: "ada@test.example", role: "admin" as const };
 
 describe("Onboarding wizard (+page.svelte)", () => {
 	let fetchSpy: ReturnType<typeof vi.spyOn>;

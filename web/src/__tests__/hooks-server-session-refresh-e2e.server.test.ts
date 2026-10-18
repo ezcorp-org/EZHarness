@@ -31,7 +31,7 @@ vi.mock("$server/db/queries/users", () => ({
   getUserCount: vi.fn(async () => 1),
   getUserById: vi.fn(async () => ({
     id: "u-e2e",
-    email: "e2e@test.com",
+    email: "e2e@test.example",
     name: "E2E",
     role: "member",
     onboardedAt: new Date("2026-01-01"),
@@ -77,7 +77,7 @@ const { REFRESH_AFTER_SECONDS, NEW_LIFETIME_SECONDS } = __sessionRefreshConfig;
 const SECRET = process.env.EZCORP_JWT_SECRET!;
 const IDENTITY = {
   id: "u-e2e",
-  email: "e2e@test.com",
+  email: "e2e@test.example",
   name: "E2E",
   role: "member" as const,
 };

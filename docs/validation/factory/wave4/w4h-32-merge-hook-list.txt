@@ -1,0 +1,13 @@
+packages/@ezcorp/extension-runner/tests/service.test.ts
+packages/@ezcorp/extension-runner/tests/store-reuse.test.ts
+scripts/factory-graph-proof/guest-package.test.ts
+src/extensions/extension-lifecycle-service.test.ts
+src/extensions/runner-connection.test.ts
+src/extensions/runner-rehydration.test.ts
+src/factory/attempt-composition.test.ts
+src/factory/guest-package-build.test.ts
+src/factory/guest-package-harness-install.test.ts
+src/factory/host-preparation-client.test.ts
+src/factory/package-preparation.podman.integration.test.ts
+src/__tests__/extension-lifecycle-service-trusted-local.test.ts
+src/__tests__/readiness.test.ts

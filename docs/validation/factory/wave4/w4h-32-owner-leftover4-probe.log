@@ -1,0 +1,7 @@
+-- head + T1c
+ 8 pass
+ 0 fail
+-- validator mutant + T1c
+(fail) the one guest-package builder (W4H-26) > a release blob store that files the artifact copy under another digest is refused 
+ 7 pass
+ 1 fail

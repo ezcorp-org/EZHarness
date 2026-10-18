@@ -352,7 +352,7 @@ test("a memory warning for another run does not appear in this chat", async ({ p
 
 const settingsRoutes: Record<string, (url: URL) => unknown> = {
 	"/api/auth/me": () => ({
-		user: { id: "u-1", email: "admin@test.com", name: "Admin", role: "admin" },
+		user: { id: "u-1", email: "admin@example.com", name: "Admin", role: "admin" },
 	}),
 	"/api/users": () => ({ users: [] }),
 	"/api/teams": () => ({ teams: [] }),

@@ -1,0 +1,13 @@
+bun test v1.4.2 (744846f84)
+{"ts":"2026-10-16T01:11:03.771Z","level":"info","msg":"Watchdog deferring","subsystem":"executor.watchdog","runId":"run-oig2-1","conversationId":"conv-oig2-1","idleMs":15000,"reason":"tool openai-image-gen-2__generate in flight"}
+{"ts":"2026-10-16T01:11:03.772Z","level":"info","msg":"Watchdog deferring","subsystem":"executor.watchdog","runId":"run-oig2-1","conversationId":"conv-oig2-1","idleMs":15000,"reason":"tool openai-image-gen-2__generate in flight"}
+{"ts":"2026-10-16T01:11:03.772Z","level":"info","msg":"Watchdog deferral ended","subsystem":"executor.watchdog","runId":"run-oig2-1","conversationId":"conv-oig2-1","reason":"tool openai-image-gen-2__generate in flight","deferredMs":165000}
+{"ts":"2026-10-16T01:11:03.772Z","level":"error","msg":"Watchdog tripped, interrupting run","subsystem":"executor.watchdog","runId":"run-oig2-1","conversationId":"conv-oig2-1","idleMs":90000,"reason":"Tool openai-image-gen-2__generate exceeded its 180000ms call timeout"}
+{"ts":"2026-10-16T01:11:03.772Z","level":"info","msg":"Watchdog deferring","subsystem":"executor.watchdog","runId":"run-oig2-1","conversationId":"conv-oig2-1","idleMs":15000,"reason":"tool openai-image-gen-2__generate in flight"}
+{"ts":"2026-10-16T01:11:03.773Z","level":"warn","msg":"Watchdog: process may have been suspended","subsystem":"executor.watchdog","runId":"run-oig2-1","conversationId":"conv-oig2-1","suspendedMs":80000}
+{"ts":"2026-10-16T01:11:03.773Z","level":"error","msg":"Watchdog tripped, interrupting run","subsystem":"executor.watchdog","runId":"run-oig2-1","conversationId":"conv-oig2-1","idleMs":95000,"reason":"Watchdog: no activity for 95s — the computer may have been asleep or suspended for about 1 min during this run, which can interrupt the model connection. Send your message again to retry."}
+
+ 5 pass
+ 0 fail
+ 55 expect() calls
+Ran 5 tests across 1 file. [503.00ms]

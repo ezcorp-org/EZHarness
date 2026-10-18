@@ -1,0 +1,7 @@
+bun test v1.4.2 (744846f84)
+{"ts":"2026-10-16T00:53:07.756Z","level":"warn","msg":"Scheduled audit failed for project","subsystem":"audit.run","projectId":"60c0b4a0-a7b3-475a-8f17-560ef78c4a5b","error":"Error: ENOTDIR: not a directory, open '/tmp/audit-run-jDX44I/not-a-dir/.ezcorp/audit-reports/broken-2026-10-16.md'"}
+
+ 13 pass
+ 0 fail
+ 38 expect() calls
+Ran 13 tests across 1 file. [4.50s]

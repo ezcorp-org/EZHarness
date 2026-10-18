@@ -1,0 +1,29 @@
+bun test v1.4.2 (744846f84)
+{"ts":"2026-10-16T01:11:09.178Z","level":"info","msg":"skipped: model lacks image input capability","subsystem":"executor.loadHistory.rehydrate","branchLen":0}
+{"ts":"2026-10-16T01:11:09.195Z","level":"warn","msg":"ask-user extension not installed — did ensureBundledExtensions() run?","subsystem":"ask-user-host"}
+{"ts":"2026-10-16T01:11:09.195Z","level":"warn","msg":"run_workflow wire skipped — the conversation row has no owner, so a run could not be authorized","subsystem":"executor.streamChat.setup","conversationId":"2ca24032-8613-423c-8c1d-ce7629f2f117"}
+{"ts":"2026-10-16T01:11:09.198Z","level":"info","msg":"Agent orchestration resolution","subsystem":"executor.streamChat.setup","userMessage":"@Alpha do X","agents":["Alpha"],"teams":[],"depth":0}
+{"ts":"2026-10-16T01:11:09.199Z","level":"info","msg":"Scratchpad auto-wire skipped: not enabled or storage not granted","subsystem":"executor.streamChat.setup","exists":false,"enabled":false,"storageGranted":false}
+{"ts":"2026-10-16T01:11:09.199Z","level":"info","msg":"Injected orchestration tools","subsystem":"executor.streamChat.setup","agents":["Alpha"],"toolCount":10}
+{"ts":"2026-10-16T01:11:09.213Z","level":"info","msg":"skipped: model lacks image input capability","subsystem":"executor.loadHistory.rehydrate","branchLen":0}
+{"ts":"2026-10-16T01:11:09.218Z","level":"warn","msg":"ask-user extension not installed — did ensureBundledExtensions() run?","subsystem":"ask-user-host"}
+{"ts":"2026-10-16T01:11:09.218Z","level":"warn","msg":"run_workflow wire skipped — the conversation row has no owner, so a run could not be authorized","subsystem":"executor.streamChat.setup","conversationId":"2ca24032-8613-423c-8c1d-ce7629f2f117"}
+{"ts":"2026-10-16T01:11:09.218Z","level":"info","msg":"Agent orchestration resolution","subsystem":"executor.streamChat.setup","userMessage":"is the background agent done yet?","agents":[],"teams":[],"depth":0}
+{"ts":"2026-10-16T01:11:09.228Z","level":"warn","msg":"session history producer failed — using legacy branch for this turn (delete the conversation's agent_sessions row to force a fresh backfill)","subsystem":"executor.loadHistory.rehydrate","conversationId":"2ca24032-8613-423c-8c1d-ce7629f2f117","error":"SessionError: Entry msg-anchor-1 not found"}
+{"ts":"2026-10-16T01:11:09.230Z","level":"info","msg":"skipped: model lacks image input capability","subsystem":"executor.loadHistory.rehydrate","branchLen":0}
+{"ts":"2026-10-16T01:11:09.235Z","level":"warn","msg":"ask-user extension not installed — did ensureBundledExtensions() run?","subsystem":"ask-user-host"}
+{"ts":"2026-10-16T01:11:09.235Z","level":"warn","msg":"run_workflow wire skipped — the conversation row has no owner, so a run could not be authorized","subsystem":"executor.streamChat.setup","conversationId":"2ca24032-8613-423c-8c1d-ce7629f2f117"}
+{"ts":"2026-10-16T01:11:09.235Z","level":"info","msg":"Agent orchestration resolution","subsystem":"executor.streamChat.setup","userMessage":"continue the researcher","agents":[],"teams":[],"depth":0}
+{"ts":"2026-10-16T01:11:09.242Z","level":"info","msg":"skipped: model lacks image input capability","subsystem":"executor.loadHistory.rehydrate","branchLen":0}
+{"ts":"2026-10-16T01:11:09.246Z","level":"warn","msg":"ask-user extension not installed — did ensureBundledExtensions() run?","subsystem":"ask-user-host"}
+{"ts":"2026-10-16T01:11:09.246Z","level":"warn","msg":"run_workflow wire skipped — the conversation row has no owner, so a run could not be authorized","subsystem":"executor.streamChat.setup","conversationId":"2ca24032-8613-423c-8c1d-ce7629f2f117"}
+{"ts":"2026-10-16T01:11:09.246Z","level":"info","msg":"Agent orchestration resolution","subsystem":"executor.streamChat.setup","userMessage":"plain follow-up","agents":[],"teams":[],"depth":0}
+{"ts":"2026-10-16T01:11:09.253Z","level":"info","msg":"skipped: model lacks image input capability","subsystem":"executor.loadHistory.rehydrate","branchLen":0}
+{"ts":"2026-10-16T01:11:09.258Z","level":"warn","msg":"ask-user extension not installed — did ensureBundledExtensions() run?","subsystem":"ask-user-host"}
+{"ts":"2026-10-16T01:11:09.258Z","level":"warn","msg":"run_workflow wire skipped — the conversation row has no owner, so a run could not be authorized","subsystem":"executor.streamChat.setup","conversationId":"2ca24032-8613-423c-8c1d-ce7629f2f117"}
+{"ts":"2026-10-16T01:11:09.258Z","level":"info","msg":"Agent orchestration resolution","subsystem":"executor.streamChat.setup","userMessage":"continue the nested task","agents":[],"teams":[],"depth":0}
+
+ 5 pass
+ 0 fail
+ 26 expect() calls
+Ran 5 tests across 1 file. [1069.00ms]

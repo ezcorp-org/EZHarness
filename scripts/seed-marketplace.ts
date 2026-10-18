@@ -156,7 +156,7 @@ async function seed() {
   const db = getDb();
 
   // Ensure we have a test user with working credentials
-  const testEmail = "test@test.com";
+  const testEmail = "test@test.example";
   const testPassword = "Test123!";
   const { hashPassword } = await import("../src/auth/password");
 

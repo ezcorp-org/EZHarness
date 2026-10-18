@@ -1,0 +1,3 @@
+tc-gate 2026-10-16T03:33:53Z push RED: lock-free typecheck while 1 heavy holder(s) run; MemAvailable=16.0GiB; not run (exit 75)
+tc-gate 2026-10-16T04:22:12Z push GREEN: MemAvailable=16.8GiB >= 12GiB (in-lock=1); start
+tc-gate 2026-10-16T04:23:23Z push END: exit=0; MemAvailable before 16.8GiB, lowest during 13.6GiB, after 16.9GiB

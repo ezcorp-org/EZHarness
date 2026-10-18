@@ -1,0 +1,12 @@
+bun test v1.4.2 (744846f84)
+
+src/__tests__/spawn-assignment.integration.test.ts:
+[spawn-assignment] registry not threaded — falling back to blanket extension copy (no cap intersection). extensionId=test-spawn-assignment conversationId=conv-sa-int-1 subConversationId=sub-run-int-1. This is a Phase 4 §M4 fallback path; production callers should thread ctx.registry.
+[spawn-assignment] registry not threaded — falling back to blanket extension copy (no cap intersection). extensionId=test-spawn-assignment conversationId=conv-sa-int-1 subConversationId=sub-run-int-2. This is a Phase 4 §M4 fallback path; production callers should thread ctx.registry.
+{"ts":"2026-10-17T23:42:27.662Z","level":"info","msg":"event fire has no resolvable owner — subscriber capability calls will be skipped (clean soft-fail)","subsystem":"event-subscription-dispatcher","eventType":"task:assignment_update","conversationId":"conv-sa-int-1"}
+{"ts":"2026-10-17T23:42:27.662Z","level":"info","msg":"assignment_update: delivering","subsystem":"event-subscription-dispatcher","extensionId":"test-spawn-assignment","conversationId":"conv-sa-int-1","assignmentId":"a-int-1","status":"completed"}
+
+ 2 pass
+ 0 fail
+ 12 expect() calls
+Ran 2 tests across 1 file. [1.55s]

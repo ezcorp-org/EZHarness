@@ -1,0 +1,9 @@
+bun test v1.4.2 (744846f84)
+
+src/__tests__/spawn-assignment-hourly-quota.integration.test.ts:
+[spawn-assignment] registry not threaded — falling back to blanket extension copy (no cap intersection). extensionId=test-hourly-quota-ext conversationId=conv-hq-int-1 subConversationId=sub-run-hq-1. This is a Phase 4 §M4 fallback path; production callers should thread ctx.registry.
+
+ 1 pass
+ 0 fail
+ 12 expect() calls
+Ran 1 test across 1 file. [1123.00ms]

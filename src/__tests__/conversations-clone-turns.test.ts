@@ -33,8 +33,8 @@ const SOURCE_CONV_ID = "conv-source-1";
 async function seedFixtures() {
   const db = getTestDb();
   await db.insert(users).values([
-    { id: USER_ID, email: "c@x.com", passwordHash: "x", name: "Clone", role: "member" } as any,
-    { id: OTHER_USER_ID, email: "o@x.com", passwordHash: "x", name: "Other", role: "member" } as any,
+    { id: USER_ID, email: "c@x.example", passwordHash: "x", name: "Clone", role: "member" } as any,
+    { id: OTHER_USER_ID, email: "o@x.example", passwordHash: "x", name: "Other", role: "member" } as any,
   ]);
   await db.insert(projects).values({ id: PROJECT_ID, name: "p", path: "/tmp/p" } as any);
   await db.insert(extensions).values({

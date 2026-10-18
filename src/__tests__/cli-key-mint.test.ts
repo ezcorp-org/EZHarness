@@ -70,10 +70,10 @@ describe("parseArgs: key mint", () => {
   });
 
   test("all flags parsed", () => {
-    const p = parseArgs(["key", "mint", "--scopes", "read,admin", "--user", "a@b.com", "--name", "ci", "--role", "admin"]);
+    const p = parseArgs(["key", "mint", "--scopes", "read,admin", "--user", "a@b.example", "--name", "ci", "--role", "admin"]);
     expect(p.command).toBe("key:mint");
     expect(p.scopes).toBe("read,admin");
-    expect(p.userRef).toBe("a@b.com");
+    expect(p.userRef).toBe("a@b.example");
     expect(p.keyName).toBe("ci");
     expect(p.role).toBe("admin");
   });
@@ -142,13 +142,13 @@ describe("resolveKeyMintUser", () => {
   // role is now part of the result so the scope-ceiling check (FINDING B)
   // can be enforced in the key:mint dispatch.
   test("--user matches by email (carries role)", async () => {
-    byEmail["a@b.com"] = { id: "u1", email: "a@b.com", role: "member" };
-    expect(await resolveKeyMintUser("a@b.com")).toEqual({ id: "u1", email: "a@b.com", role: "member" });
+    byEmail["a@b.example"] = { id: "u1", email: "a@b.example", role: "member" };
+    expect(await resolveKeyMintUser("a@b.example")).toEqual({ id: "u1", email: "a@b.example", role: "member" });
   });
 
   test("--user falls back to id lookup when email misses (carries role)", async () => {
-    byId["u2"] = { id: "u2", email: "x@y.com", role: "admin" };
-    expect(await resolveKeyMintUser("u2")).toEqual({ id: "u2", email: "x@y.com", role: "admin" });
+    byId["u2"] = { id: "u2", email: "x@y.example", role: "admin" };
+    expect(await resolveKeyMintUser("u2")).toEqual({ id: "u2", email: "x@y.example", role: "admin" });
   });
 
   test("--user with no match exits(1)", async () => {

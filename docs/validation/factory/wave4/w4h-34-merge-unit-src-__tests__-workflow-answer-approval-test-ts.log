@@ -1,0 +1,8 @@
+bun test v1.4.2 (744846f84)
+{"ts":"2026-10-17T23:43:08.930Z","level":"info","msg":"approval cleared with standing consent (no named itemIds)","subsystem":"workflow.approval","approvalId":"2d208f20-bd56-481f-805c-6b84e0cc9bd0","workflowRunId":"a4602674-a03f-4bea-b512-a210ddd4a21a","stepName":"gate","answeredBy":"answerer","actorKind":"user"}
+{"ts":"2026-10-17T23:43:08.943Z","level":"warn","msg":"approval scope check threw — denying","subsystem":"workflow.approval","approvalId":"17ecbf78-ca50-4f6a-bf1c-adc58fa455b8","scope":"workflows:approve","error":"Error: identity service unavailable"}
+
+ 35 pass
+ 0 fail
+ 115 expect() calls
+Ran 35 tests across 1 file. [2.37s]

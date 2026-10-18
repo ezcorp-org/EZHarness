@@ -58,6 +58,8 @@ jobs:
       # and the pinned uv (uv-command.test.ts, python-runner.integration.test.ts; W4H-2).
       - uses: ./.github/actions/gate-integrity-deps
       - uses: ./.github/actions/setup-python-toolchain
+      # The backend suites test the ripgrep backend of the grep tool (W4H-33).
+      - uses: ./.github/actions/ripgrep
 
       - name: Run test suite
         run: bun run test

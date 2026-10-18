@@ -1,0 +1,10 @@
+bun test v1.4.2 (744846f84)
+{"ts":"2026-10-16T01:13:56.498Z","level":"info","msg":"search call failed","subsystem":"ext.search-handler","extensionId":"7648ea13-9ecd-46f3-8ee3-2810283b6aa6","action":"web","error":"Error: Search failed via tavily: Tavily HTTP 401"}
+{"ts":"2026-10-16T01:13:56.498Z","level":"warn","msg":"search.web failed","subsystem":"ext.7648ea13-9ecd-46f3-8ee3-2810283b6aa6.capability","extensionId":"7648ea13-9ecd-46f3-8ee3-2810283b6aa6","onBehalfOf":"c44beb5b-0707-4cc7-9174-99b92bd3e494","conversationId":"5afac144-3b60-4818-99b5-81d2910260dd","errorCode":null,"errorMessage":"Search failed via tavily: Tavily HTTP 401","provider":null,"model":null,"durationMs":0}
+{"ts":"2026-10-16T01:13:56.501Z","level":"info","msg":"search call failed","subsystem":"ext.search-handler","extensionId":"7648ea13-9ecd-46f3-8ee3-2810283b6aa6","action":"web","error":"Error: Search failed via searxng: Egress blocked (private-ip): searxng → 10.0.0.7"}
+{"ts":"2026-10-16T01:13:56.501Z","level":"warn","msg":"search.web failed","subsystem":"ext.7648ea13-9ecd-46f3-8ee3-2810283b6aa6.capability","extensionId":"7648ea13-9ecd-46f3-8ee3-2810283b6aa6","onBehalfOf":"c44beb5b-0707-4cc7-9174-99b92bd3e494","conversationId":"5afac144-3b60-4818-99b5-81d2910260dd","errorCode":null,"errorMessage":"Search failed via searxng: Egress blocked (private-ip): searxng → 10.0.0.7","provider":null,"model":null,"durationMs":1}
+
+ 14 pass
+ 0 fail
+ 32 expect() calls
+Ran 14 tests across 1 file. [1056.00ms]

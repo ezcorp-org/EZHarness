@@ -1,0 +1,99 @@
+#!/usr/bin/env bash
+# W4H-28 hosted-coverage follow-up: final legs at the w4h-28-hcf head, in one lock hold. Each leg's status goes to
+# summary.txt; the exit (and so gated-flock's exit file) is the worst one (legs/lib.sh).
+#   static (typecheck in the lock), every changed or new test file on its own, the test-line lcov of the new tests,
+#   the coverage merge and the patch/new-file/CRAP gates against BASE_REF, the 51 invariants, the guard set,
+#   gate-integrity default/main/base judged against the ruled expected set (gi-expected.txt).
+set -u
+. /tmp/factory-platform-evidence/w4h-28/env-hcf.sh
+. /tmp/factory-platform-evidence/w4h-28/legs/lib.sh
+cd "$W"; H=$(git rev-parse --short HEAD); S=$LEGS_DIR/final-hcf-$H; mkdir -p "$S"; SUM=$S/summary.txt
+export BASE_REF=${BASE_REF:-c8ae394ca}
+echo "final legs (hosted-coverage follow-up) at $H, base $BASE_REF, $(date -u +%FT%TZ)" > "$SUM"
+TESTS=(src/__tests__/coverage-outside-repo.test.ts src/__tests__/quality-report-producers.test.ts src/__tests__/merge-lcov-shard-vote.test.ts
+  src/__tests__/coverage-gate.test.ts src/__tests__/gate-scripts.test.ts src/__tests__/merge-lcov-compiled-output.test.ts
+  src/__tests__/coverage-leg-lcov-guard.test.ts src/__tests__/lcov-noise-filter.test.ts src/__tests__/credential-store-bundled.test.ts)
+NEW_TESTS=(src/__tests__/coverage-outside-repo.test.ts src/__tests__/quality-report-producers.test.ts)
+
+leg "$SUM" static env STATIC_LABEL="static-hcf-$H" STATIC_TC_IN_LOCK=1 bash "$E/legs/static-hcf.sh"
+[ -f "$LEGS_DIR/static-hcf-$H.log" ] && sed 's/^/  /' "$LEGS_DIR/static-hcf-$H.log" >> "$SUM"
+
+# One test file, under coverage into its own folder: green only if it ran tests and none failed.
+i=0
+cover() {
+  local t=$1 d out p f
+  i=$((i+1)); d="$S/cov/l$i"; mkdir -p "$d"
+  out=$(bun test --timeout 900000 --coverage --coverage-reporter=lcov --coverage-dir="$d" "./$t" 2>&1)
+  p=$(grep -E '^\s*[0-9]+ pass' <<<"$out" | grep -oE '[0-9]+' | head -1); f=$(grep -E '^\s*[0-9]+ fail' <<<"$out" | grep -oE '[0-9]+' | head -1)
+  echo "$t pass=${p:-0} fail=${f:-?}" >> "$S/tests.txt"
+  [ "${f:-1}" = 0 ] && [ "${p:-0}" -gt 0 ]
+}
+for t in "${TESTS[@]}"; do leg "$SUM" "test:$t" cover "$t"; done
+
+# The new tests' own lines (test files in the lcov, as the case-check measures them): none at 0 hits.
+testlines() {
+  local d=$S/testlines out
+  printf '[test]\nroot = "src/__tests__"\npreload = ["./src/__tests__/preload.ts"]\ncoverageSkipTestFiles = false\n' > "$S/bunfig-testlines.toml"
+  bun --config="$S/bunfig-testlines.toml" test --coverage --coverage-reporter=lcov --coverage-dir="$d" "${NEW_TESTS[@]/#/./}" > "$S/testlines.log" 2>&1 || return 1
+  python3 - "$d/lcov.info" "${NEW_TESTS[@]}" > "$S/testlines.txt" <<'PY'
+import sys
+lcov, files = sys.argv[1], sys.argv[2:]
+recs = {}
+for r in open(lcov).read().split("end_of_record"):
+    lines = r.strip().splitlines()
+    sf = next((l[3:] for l in lines if l.startswith("SF:")), None)
+    if sf: recs[sf] = [l[3:] for l in lines if l.startswith("DA:")]
+bad = 0
+for f in files:
+    da = recs.get(f)
+    if da is None: print(f, "NO LCOV"); bad += 1; continue
+    zero = [d for d in da if d.endswith(",0")]
+    print(f, "instrumented", len(da), "at 0:", zero); bad += len(zero)
+sys.exit(1 if bad else 0)
+PY
+}
+leg "$SUM" "testlines:new tests" testlines
+[ -f "$S/testlines.txt" ] && sed 's/^/  /' "$S/testlines.txt" >> "$SUM"
+
+leg "$SUM" merge to "$S/merge.log" bun scripts/merge-lcov.ts "$S/cov/*/lcov.info" "$S/lcov.info"
+mkdir -p coverage && cp "$S/lcov.info" coverage/lcov.info 2>/dev/null
+leg "$SUM" patch to "$S/patch.log" bun scripts/check-patch-coverage.ts
+leg "$SUM" new-file to "$S/new-file.log" bun scripts/check-new-file-coverage.ts
+leg "$SUM" crap to "$S/crap.log" bun scripts/crap-score.ts --changed
+rm -f coverage/lcov.info
+
+invariant() {
+  [ -f "$1" ] || { echo "ABSENT $1" >> "$S/invariants.txt"; return 1; }
+  bun test --timeout 120000 "./$1" > "$S/invariant.last.log" 2>&1; local rc=$?
+  echo "$1 rc=$rc" >> "$S/invariants.txt"; return $rc
+}
+mapfile -t INVARIANTS < <(grep -v -E '^\s*(#|$)' /tmp/factory-platform-evidence/w00/invariant-tests.txt)
+[ "${#INVARIANTS[@]}" -gt 0 ] || leg "$SUM" "invariant:list" false
+for t in "${INVARIANTS[@]}"; do leg "$SUM" "invariant:$t" invariant "$t"; done
+
+guard_file() {
+  local out p x
+  out=$(bun test --timeout 60000 "$1" 2>&1)
+  p=$(grep -E '^\s*[0-9]+ pass' <<<"$out" | grep -oE '[0-9]+' | head -1); x=$(grep -E '^\s*[0-9]+ fail' <<<"$out" | grep -oE '[0-9]+' | head -1)
+  echo "$1 pass=${p:-0} fail=${x:-?}" >> "$S/guard.txt"
+  [ "${x:-1}" = 0 ] && [ "${p:-0}" -gt 0 ]
+}
+mapfile -t GUARD < <(bash /tmp/factory-platform-evidence/w00/guard-suites.sh "$W")
+[ "${#GUARD[@]}" -gt 0 ] || leg "$SUM" "guard:list" false
+for f in "${GUARD[@]}"; do leg "$SUM" "guard:$f" guard_file "$f"; done
+
+# Gate integrity: green when it passes, or when its findings are exactly the ruled set (team-lead: a ruled gate change).
+gi() {
+  local name=$1 base=$2 out
+  out=$(BASE_REF=$base bun scripts/gate-integrity.ts 2>&1); local rc=$?
+  printf '%s\n' "$out" > "$S/gi-$name.log"
+  [ "$rc" = 0 ] && return 0
+  diff <(grep -E '^  \S' <<<"$out" | sed 's/^  //' | sort) <(sort "$E/legs/gi-expected.txt") > "$S/gi-$name.diff"
+}
+leg "$SUM" "gate-integrity default" gi default "${GI_DEFAULT_BASE:-c8ae394ca}"
+leg "$SUM" "gate-integrity main" gi main origin/main
+leg "$SUM" "gate-integrity base" gi base c8ae394ca
+
+echo "worst rc=$LEGS_WORST" >> "$SUM"
+echo "done $(date -u +%FT%TZ)" >> "$SUM"
+exit "$LEGS_WORST"

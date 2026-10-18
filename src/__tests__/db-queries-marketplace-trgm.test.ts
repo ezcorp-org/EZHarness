@@ -137,7 +137,7 @@ beforeAll(async () => {
   authorId = crypto.randomUUID();
   await getDb().insert(users).values({
     id: authorId,
-    email: "trgm@test.com",
+    email: "trgm@test.example",
     passwordHash: "h",
     name: "trgm-test",
     role: "member",

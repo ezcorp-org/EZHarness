@@ -12,7 +12,11 @@ import type { Runner, RunnerExecution, RunnerInspection, StartRequest } from "@e
 import type { FactoryRunnerResult } from "@ezcorp/factory-sdk";
 import { factoryLaunchCompletedResult, factoryLaunchLease, factoryLaunchPackage, factoryLaunchRequest } from "../../__tests__/helpers/factory-attempt-launch-fixture";
 import { FactoryAttemptRuntimeError, snapshotIntent, type FactoryAttemptLaunchIntent } from "./attempt-wire";
-import { createFactoryHostLaunchSupervisor, factoryHostDevicePresent } from "./host-launch-supervisor";
+import { buildLimits } from "@ezcorp/extension-runner";
+import { mkdtemp, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { createFactoryHostLaunchSupervisor, factoryHostDevicePresent, factoryHostPreparationRecords, FACTORY_HOST_PREPARATION_RETENTION } from "./host-launch-supervisor";
 
 const hostId = factoryLaunchLease.hostId;
 const completed = factoryLaunchCompletedResult("host-supervisor");
@@ -35,6 +39,8 @@ class GatedRunner implements Runner {
   starts = 0;
   closes = 0;
   attaches = 0;
+  /** Every start and attach request, in order. */
+  readonly requests: StartRequest[] = [];
   readonly answer = latch<FactoryRunnerResult>();
   readonly states = new Map<string, RunnerInspection["state"]>();
   diagnostics: RunnerInspection["diagnostics"] = [];
@@ -50,6 +56,7 @@ class GatedRunner implements Runner {
   }
   async start(input: StartRequest): Promise<RunnerExecution> {
     this.starts += 1;
+    this.requests.push(input);
     await this.startGate;
     if (this.startFails) throw new Error("podman create failed");
     this.states.set(input.workerId, "running");
@@ -57,6 +64,7 @@ class GatedRunner implements Runner {
   }
   async attach(input: StartRequest): Promise<RunnerExecution> {
     this.attaches += 1;
+    this.requests.push(input);
     return this.execution(input.workerId, async () => { throw new Error("a reattached guest must never be invoked again"); });
   }
   /** When set, each execution reports this exit code once the guest's invocation has settled. */
@@ -197,6 +205,19 @@ describe("every way there will never be an answer is named", () => {
   });
 });
 
+describe("the process policy of a factory guest", () => {
+  test("a guest this host starts or reattaches may start processes, because the runner denies a start that names no policy", async () => {
+    const runner = new GatedRunner();
+    const host = supervisor(runner);
+    const started = intentFor("attempt-policy-start");
+    const reattached = intentFor("attempt-policy-attach");
+    runner.states.set(reattached.workerId, "running");
+    expect(await host.launch(started, new AbortController().signal)).toMatchObject({ disposition: "started" });
+    expect(await host.attach(reattached, new AbortController().signal)).toMatchObject({ disposition: "attached" });
+    expect(runner.requests.map(request => [request.workerId, request.processSpawn])).toEqual([[started.workerId, "allow"], [reattached.workerId, "allow"]]);
+  });
+});
+
 describe("a start still in flight is joined, never inspected half made", () => {
   test("a second launch, an attach and a read that arrive during a slow start all join it", async () => {
     const runner = new GatedRunner();
@@ -269,5 +290,128 @@ describe("the host refuses a device it does not have before any container exists
     expect(await factoryHostDevicePresent("/dev/null")).toBe(true);
     expect(await factoryHostDevicePresent("/dev/dri/renderD200")).toBe(false);
     expect(await factoryHostDevicePresent("/etc/hostname")).toBe(false);
+  });
+});
+
+describe("preparing a package in this host's own store (C05, W4H-26)", () => {
+  const files = { "extension.ts": "export {};" };
+  const artifacts = { "extension.ts": "export {};", ".runner/recipe.json": "{}" };
+  /** A host store that builds: the two runner methods a preparation reaches, and a count of each. */
+  class BuildingRunner {
+    asked: Array<Parameters<Runner["build"]>[0]> = [];
+    collected: string[] = [];
+    outcome: "succeeded" | "failed" = "succeeded";
+    async build(input: Parameters<Runner["build"]>[0]): Promise<Awaited<ReturnType<Runner["build"]>>> {
+      this.asked.push(input);
+      return { operationId: input.operationId, state: this.outcome, sourceDigest: input.sourceDigest, ...(this.outcome === "succeeded" ? { artifactDigest: "f".repeat(64) } : {}), imageDigest: "image@sha256:x", diagnostics: [], evidence: {} as never };
+    }
+    async collectArtifacts(digest: string): Promise<typeof artifacts> { this.collected.push(digest); return structuredClone(artifacts); }
+  }
+  const supervising = (runner: BuildingRunner, preparationRecords?: ReturnType<typeof factoryHostPreparationRecords>) =>
+    createFactoryHostLaunchSupervisor({ runner: runner as unknown as Runner, hostId, broker: { invoke: async () => ({}) }, ...(preparationRecords === undefined ? {} : { preparationRecords }) });
+  const preparation = { tenantId: "tenant", operationId: "build-1", sourceDigest: "d".repeat(64), files, entrypoint: "extension.ts" };
+
+  test("builds under the host's own build limits and answers the build with the artifacts its store holds", async () => {
+    const runner = new BuildingRunner();
+    const host = supervising(runner);
+    const prepared = await host.prepare!(preparation, new AbortController().signal);
+    expect(runner.asked).toEqual([{ operationId: "build-1", sourceDigest: "d".repeat(64), files, entrypoint: "extension.ts", limits: buildLimits }]);
+    expect(runner.collected).toEqual(["f".repeat(64)]);
+    expect(prepared).toMatchObject({ result: { state: "succeeded", artifactDigest: "f".repeat(64) }, artifacts });
+  });
+
+  test("a repeated build identity joins or reads the first build, and other source under it is refused", async () => {
+    const runner = new BuildingRunner();
+    const host = supervising(runner);
+    const signal = new AbortController().signal;
+    const [first, joined] = await Promise.all([host.prepare!(preparation, signal), host.prepare!(preparation, signal)]);
+    expect(await host.prepare!(preparation, signal)).toEqual(first);
+    expect(joined).toEqual(first);
+    expect(runner.asked).toHaveLength(1);
+    await expect(host.prepare!({ ...preparation, sourceDigest: "e".repeat(64) }, signal)).rejects.toThrow("already prepared that build identity from other source");
+    await expect(host.prepare!({ ...preparation, entrypoint: "other.ts" }, signal)).rejects.toMatchObject({ code: "invalid_request" });
+  });
+
+  test("after a restart, a repeated build identity reads the first build's record: never a second build, never duplicate_operation", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "w4h26-host-preparations-"));
+    try {
+      const records = factoryHostPreparationRecords(join(directory, "host-preparations"));
+      const before = new BuildingRunner();
+      const first = await createFactoryHostLaunchSupervisor({ runner: before as unknown as Runner, hostId, broker: { invoke: async () => ({}) }, preparationRecords: records }).prepare!(preparation, new AbortController().signal);
+      // A new process: a fresh runner whose operations are empty, the same durable records.
+      const after = new BuildingRunner();
+      after.build = async () => { throw new Error("duplicate_operation: Runner operation ID is already used"); };
+      const restarted = createFactoryHostLaunchSupervisor({ runner: after as unknown as Runner, hostId, broker: { invoke: async () => ({}) }, preparationRecords: factoryHostPreparationRecords(join(directory, "host-preparations")) });
+      expect(await restarted.prepare!(preparation, new AbortController().signal)).toEqual(first);
+      expect(after.collected).toEqual(["f".repeat(64)]);
+      // Other source under that identity is refused after the restart too, and does not poison the identity.
+      await expect(restarted.prepare!({ ...preparation, sourceDigest: "e".repeat(64) }, new AbortController().signal)).rejects.toMatchObject({ code: "invalid_request" });
+      expect(await restarted.prepare!(preparation, new AbortController().signal)).toEqual(first);
+      expect(await records.read("never-built")).toBeUndefined();
+    } finally { await rm(directory, { recursive: true, force: true }); }
+  });
+
+  test("after a restart, other source under a reused identity is refused even as the FIRST request, and does not poison it (T1)", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "w4h26-host-preparations-"));
+    try {
+      const records = factoryHostPreparationRecords(join(directory, "host-preparations"));
+      const first = await supervising(new BuildingRunner(), records).prepare!(preparation, new AbortController().signal);
+      const after = new BuildingRunner();
+      const restarted = supervising(after, records);
+      await expect(restarted.prepare!({ ...preparation, sourceDigest: "e".repeat(64) }, new AbortController().signal)).rejects.toMatchObject({ code: "invalid_request" });
+      expect(after.asked).toEqual([]);
+      expect(await restarted.prepare!(preparation, new AbortController().signal)).toEqual(first);
+      expect(after.asked).toEqual([]);
+    } finally { await rm(directory, { recursive: true, force: true }); }
+  });
+
+  test("only a SUCCEEDED preparation is recorded: a failed build stays in memory and is rebuilt after a restart (N6)", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "w4h26-host-preparations-"));
+    try {
+      const records = factoryHostPreparationRecords(join(directory, "host-preparations"));
+      const failing = new BuildingRunner();
+      failing.outcome = "failed";
+      const host = supervising(failing, records);
+      expect(await host.prepare!(preparation, new AbortController().signal)).toMatchObject({ result: { state: "failed" }, artifacts: {} });
+      // In this process the failed answer is joined, not rebuilt.
+      await host.prepare!(preparation, new AbortController().signal);
+      expect(failing.asked).toHaveLength(1);
+      expect(await records.read(preparation.operationId)).toBeUndefined();
+      // After a restart the identity is built again.
+      const after = new BuildingRunner();
+      expect(await supervising(after, records).prepare!(preparation, new AbortController().signal)).toMatchObject({ result: { state: "succeeded" } });
+      expect(after.asked).toHaveLength(1);
+      expect(await records.read(preparation.operationId)).toMatchObject({ sourceDigest: preparation.sourceDigest, result: { state: "succeeded" } });
+    } finally { await rm(directory, { recursive: true, force: true }); }
+  });
+
+  test("two concurrent first requests with durable records build once (N7)", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "w4h26-host-preparations-"));
+    try {
+      const runner = new BuildingRunner();
+      const host = supervising(runner, factoryHostPreparationRecords(join(directory, "host-preparations")));
+      const [one, two] = await Promise.all([host.prepare!(preparation, new AbortController().signal), host.prepare!(preparation, new AbortController().signal)]);
+      expect(one).toEqual(two);
+      expect(runner.asked).toHaveLength(1);
+    } finally { await rm(directory, { recursive: true, force: true }); }
+  });
+
+  test("keeps at most FACTORY_HOST_PREPARATION_RETENTION outcomes, oldest first out", async () => {
+    const runner = new BuildingRunner();
+    const host = supervising(runner);
+    const signal = new AbortController().signal;
+    for (let index = 0; index <= FACTORY_HOST_PREPARATION_RETENTION; index++) await host.prepare!({ ...preparation, operationId: `build-${index}` }, signal);
+    await host.prepare!({ ...preparation, operationId: `build-${FACTORY_HOST_PREPARATION_RETENTION}` }, signal);
+    expect(runner.asked).toHaveLength(FACTORY_HOST_PREPARATION_RETENTION + 1);
+    await host.prepare!({ ...preparation, operationId: "build-0" }, signal);
+    expect(runner.asked).toHaveLength(FACTORY_HOST_PREPARATION_RETENTION + 2);
+  });
+
+  test("a failed build is answered as it is, with no artifacts", async () => {
+    const runner = new BuildingRunner();
+    runner.outcome = "failed";
+    const host = supervising(runner);
+    expect(await host.prepare!(preparation, new AbortController().signal)).toMatchObject({ result: { state: "failed" }, artifacts: {} });
+    expect(runner.collected).toEqual([]);
   });
 });

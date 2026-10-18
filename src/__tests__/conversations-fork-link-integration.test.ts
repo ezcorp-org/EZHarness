@@ -35,7 +35,7 @@ async function seedFixtures() {
   const db = getTestDb();
   await db.insert(users).values({
     id: USER_ID,
-    email: "f@x.com",
+    email: "f@x.example",
     passwordHash: "x",
     name: "Fork",
     role: "member",

@@ -16,14 +16,26 @@ import {
 } from "../../__tests__/helpers/factory-private-root";
 import { factoryTemporalPositionsFromConfig } from "../recovery-composition";
 import { parseFactoryStartupConfig } from "../startup-config";
+import { parseFactoryGatewayProcessConfig } from "../gateway-process";
+import { parseFactoryOrchestratorProcessConfig } from "../orchestration-process";
 import { FactoryTemporalHttpPositions } from "../temporal-retention";
+import { composeFactoryReleaseDestinations } from "../release-declaration";
+import { S3FactoryManifestReleaseProvider } from "../release-s3-publication";
+import { FactoryGitHubReleaseProvider } from "../release-github";
+import type { FactoryReleaseOperation } from "../releases";
 import {
   FACTORY_CONTAINER_PATHS,
   FACTORY_CONTAINER_SERVICES,
+  FACTORY_GITHUB_RELEASE_DESTINATION,
+  FACTORY_GITHUB_RELEASE_TOKEN_FILE,
+  FACTORY_INSTALLATION_S3_RELEASE_DESTINATION,
+  FACTORY_RELEASE_S3_PREFIX,
   FACTORY_DEFAULT_DATABASE_POOL_MAX,
   FACTORY_DEPLOYED_SERVICES,
+  FACTORY_METRICS_TOKEN_FILE,
   FactoryDeploymentStep,
   factoryDeploymentHandle,
+  FACTORY_FLEET_PORT_OFFSETS,
   factoryInstallationPorts,
   renderFactoryInstallationBundle,
   writeFactoryDeliveries,
@@ -74,13 +86,26 @@ async function filesIn(directory: string): Promise<Record<string, string>> {
 const mode = async (path: string) => (await stat(path)).mode & 0o777;
 
 describe("factoryInstallationPorts", () => {
-  test("derives four consecutive ports ten apart per tenant number", () => {
-    expect(factoryInstallationPorts("tenant-01", 40_000)).toEqual({ harness: 40_010, privateService: 40_011, gateway: 40_012, guestBroker: 40_013 });
-    // The highest tenant's guest-broker port stays below the fleet host's pool port (base + 1002).
-    expect(factoryInstallationPorts("tenant-99", 40_000).guestBroker).toBeLessThan(factoryFleetHostIdentity("fleet-a", 40_000).ports.pool);
+  test("derives seven consecutive ports ten apart per tenant number", () => {
+    expect(factoryInstallationPorts("tenant-01", 40_000)).toEqual({
+      harness: 40_010, privateService: 40_011, gateway: 40_012, guestBroker: 40_013,
+      harnessMetrics: 40_014, gatewayMetrics: 40_015, orchestratorMetrics: 40_016,
+    });
+    // The highest tenant's last port stays below the fleet host's pool port (base + 1002).
+    expect(factoryInstallationPorts("tenant-99", 40_000).orchestratorMetrics).toBeLessThan(factoryFleetHostIdentity("fleet-a", 40_000).ports.pool);
     expect(factoryInstallationPorts("tenant-00", 1_024).harness).toBe(1_024);
     expect(factoryInstallationPorts("tenant-99", 64_535).gateway).toBe(64_535 + 990 + 2);
     expect(Object.isFrozen(factoryInstallationPorts("tenant-02", 40_000))).toBe(true);
+  });
+
+  test("the fleet's own ports are distinct, above every tenant's, and inside the host's bound (C11 added three)", () => {
+    const offsets = Object.values(FACTORY_FLEET_PORT_OFFSETS);
+    expect(new Set(offsets).size).toBe(offsets.length);
+    expect(Math.min(...offsets)).toBeGreaterThan(99 * 10 + 6);
+    expect(Math.max(...offsets)).toBeLessThanOrEqual(1_010);
+    const host = factoryFleetHostIdentity("fleet-a", 40_000).ports;
+    expect([host.pool, host.supervisor, host.poolMetrics, host.supervisorMetrics, host.prometheus]).toEqual(
+      [FACTORY_FLEET_PORT_OFFSETS.pool, FACTORY_FLEET_PORT_OFFSETS.supervisor, FACTORY_FLEET_PORT_OFFSETS.poolMetrics, FACTORY_FLEET_PORT_OFFSETS.supervisorMetrics, FACTORY_FLEET_PORT_OFFSETS.prometheus].map((offset) => 40_000 + offset));
   });
 
   test("two tenants never share a port", () => {
@@ -115,7 +140,7 @@ describe("renderFactoryInstallationBundle", () => {
   test("names the installation's ports, the fleet host, directories and origin", () => {
     expect(bundle.ports).toEqual(factoryInstallationPorts("tenant-01", 40_000));
     expect(bundle.host).toEqual(makeFactoryTestHostFacts(join(root, "runtime")));
-    expect([bundle.host.poolId, bundle.host.hostId, bundle.host.ports]).toEqual(["pool.fleet-a", "host.fleet-a", { pool: 41_002, supervisor: 41_003 }]);
+    expect([bundle.host.poolId, bundle.host.hostId, bundle.host.ports]).toEqual(["pool.fleet-a", "host.fleet-a", { pool: 41_002, supervisor: 41_003, poolMetrics: 41_006, supervisorMetrics: 41_007, prometheus: 41_008 }]);
     expect(bundle.runtimeDirectory).toBe(join(root, "runtime", "tenant-01"));
     expect(bundle.readinessDirectory).toBe(join(bundle.runtimeDirectory, "readiness"));
     expect(bundle.dataDirectory).toBe(join(bundle.runtimeDirectory, "harness-data"));
@@ -157,6 +182,20 @@ describe("renderFactoryInstallationBundle", () => {
     expect(json).toContain(`/run/ezcorp/secrets/${FACTORY_HOST_FILES.hostPublicKey}`);
   });
 
+  test("the harness, the gateway and the orchestrator each serve /metrics on their own port with the fleet's scrape token (C11 M4)", () => {
+    const document = (service: "harness" | "gateway" | "orchestrator", file: string) => (bundle.deliveries[service].files[file] as { document: { metrics?: unknown } }).document;
+    const token = `/run/ezcorp/secrets/${FACTORY_METRICS_TOKEN_FILE}`;
+    expect(document("harness", "factory-startup.json").metrics).toEqual({ hostname: "0.0.0.0", port: bundle.ports.harnessMetrics, scrapeTokenPath: token });
+    expect(document("gateway", "gateway.json").metrics).toEqual({ hostname: "0.0.0.0", port: bundle.ports.gatewayMetrics, scrapeTokenPath: token });
+    expect(document("orchestrator", "orchestrator.json").metrics).toEqual({ hostname: "0.0.0.0", port: bundle.ports.orchestratorMetrics, scrapeTokenPath: token });
+    for (const service of ["harness", "gateway", "orchestrator"] as const) {
+      expect(bundle.deliveries[service].files[FACTORY_METRICS_TOKEN_FILE]).toEqual({ source: bundle.host.metricsScrapeTokenPath });
+    }
+    expect(parseFactoryGatewayProcessConfig(JSON.parse(JSON.stringify(document("gateway", "gateway.json")))).metrics).toEqual(document("gateway", "gateway.json").metrics as never);
+    // Each rendered process document is one its own process accepts.
+    expect(parseFactoryOrchestratorProcessConfig(JSON.parse(JSON.stringify(document("orchestrator", "orchestrator.json")))).metrics).toEqual(document("orchestrator", "orchestrator.json").metrics as never);
+  });
+
   test("the harness delivery holds no master key, no wrapped key, and no operator material", () => {
     const harness = Object.keys(bundle.deliveries.harness.files);
     for (const forbidden of [FACTORY_KEY_FILES.master, FACTORY_KEY_FILES.wraps, FACTORY_HOST_FILES.hostKey, ...Object.values(FACTORY_MESH_OPERATOR_FILES).filter((name) => name !== FACTORY_MESH_FILES.caCertificate)]) {
@@ -190,8 +229,9 @@ describe("renderFactoryInstallationBundle", () => {
     const second = await renderFactoryInstallationBundle(other, makeFactoryTestDeploymentSettings(join(root, "runtime")));
     const paths = (value: FactoryInstallationBundle) => Object.values(value.deliveries).flatMap((delivery) => [delivery.directory, ...Object.values(delivery.files).flatMap((entry) => "source" in entry ? [entry.source] : [])]);
     const firstPaths = new Set(paths(bundle));
-    // Only the fleet host's public material is common to both.
-    expect(paths(second).filter((path) => firstPaths.has(path)).sort()).toEqual([bundle.host.caCertificatePath, bundle.host.hostPublicKeyPath, bundle.host.tokenPublicKeyPath].sort());
+    // Only the fleet host's public material is common to both, and the fleet's scrape token, once per tenant process.
+    const scrapeToken = bundle.host.metricsScrapeTokenPath;
+    expect(paths(second).filter((path) => firstPaths.has(path)).sort()).toEqual([bundle.host.caCertificatePath, bundle.host.hostPublicKeyPath, bundle.host.tokenPublicKeyPath, scrapeToken, scrapeToken, scrapeToken].sort());
     expect(second.ports.harness).toBe(40_020);
   });
 
@@ -365,6 +405,79 @@ describe("every rendered startup document declares the recovery sections W15's b
       finally { composed.listener?.stop(); }
     });
   }
+});
+
+describe("the installation's model pin (W4H-28)", () => {
+  let root: string;
+  let installation: FactoryInstallationContext;
+  beforeAll(async () => {
+    root = await makeFactoryPrivateRoot();
+    installation = makeFactoryTestInstallation(root);
+    await seedInstallationFiles(installation, { mesh: true, runtimeRoot: join(root, "runtime") });
+  });
+  afterAll(async () => { await removeFactoryPrivateRoot(root); });
+  const startupOf = (bundle: FactoryInstallationBundle) => (bundle.deliveries.harness.files["factory-startup.json"] as { document: Record<string, unknown> }).document;
+
+  test("the deployer writes the fleet's model pin into the startup document, and writes none when the fleet declares none", async () => {
+    const pin = { provider: "openai", model: "gpt-6-luna", credentialKind: "oauth" as const };
+    expect(startupOf(await renderFactoryInstallationBundle(installation, makeFactoryTestDeploymentSettings(join(root, "runtime"), { modelProvider: pin }))).modelProvider).toEqual(pin);
+    expect(startupOf(await renderFactoryInstallationBundle(installation, makeFactoryTestDeploymentSettings(join(root, "runtime")))).modelProvider).toBeUndefined();
+  });
+});
+
+describe("the startup release block (W4H-27 D3): what the deployer writes, the release reader resolves", () => {
+  const ADAPTER = { package: "@ezcorp/s3-immutable-publish", manifestName: "s3-immutable-publish", version: "1.0.0", digest: `sha256:${"e".repeat(64)}`, export: "publish" };
+  const PROFILE = { adapter: ADAPTER, action: "factory.release.publish", destination: FACTORY_INSTALLATION_S3_RELEASE_DESTINATION, estimatedSpendMicros: 1_000 };
+  const TOKEN = "gh-release-token-value";
+  let root: string;
+  let installation: FactoryInstallationContext;
+
+  beforeAll(async () => {
+    root = await makeFactoryPrivateRoot();
+    installation = makeFactoryTestInstallation(root);
+    await seedInstallationFiles(installation, { mesh: true, runtimeRoot: join(root, "runtime") });
+    // The installation's own ordinary-store identity, as the storage step leaves it.
+    await writeModeFile(join(installation.secretDirectory, "ordinary-storage.json"), JSON.stringify({ identities: [{ name: "tenant-01", credentials: [{ accessKey: "a", secretKey: "b" }] }] }));
+  });
+  afterAll(async () => { await removeFactoryPrivateRoot(root); });
+
+  const startupOf = (bundle: FactoryInstallationBundle) => (bundle.deliveries.harness.files["factory-startup.json"] as { document: Record<string, unknown> }).document;
+  const operation = (provider: string, account: string) => ({ projectId: "project-1", operationId: "factory-release:op-1", dispatchGeneration: 1, state: "executing", destination: { provider, account, object: "x" } }) as unknown as FactoryReleaseOperation;
+  const collaborators = { database: {} as never, tenantId: "tenant-01", reader: {} as never, attempts: {} as never, materials: {} as never, releases: { async inspect() { return null; } } as never };
+
+  test("with profiles, the installation's own S3 destination and the declared GitHub one resolve through the release reader; the token travels by path", async () => {
+    const tokenPath = await writeModeFile(join(root, "operator-github-token"), TOKEN);
+    const settings = makeFactoryTestDeploymentSettings(join(root, "runtime"), { release: { github: { repository: "ezcorp-org/factory-platform-publication-tests", tokenPath }, profiles: [PROFILE] } });
+    const bundle = await renderFactoryInstallationBundle(installation, settings);
+    expect(startupOf(bundle).release).toEqual({
+      destinations: [
+        { name: FACTORY_INSTALLATION_S3_RELEASE_DESTINATION, kind: "s3", endpoint: "http://127.0.0.1:59000", bucket: "tenant-01", account: "tenant-01", prefix: FACTORY_RELEASE_S3_PREFIX, credentialsPath: "/run/ezcorp/secrets/ordinary-storage.json" },
+        { name: FACTORY_GITHUB_RELEASE_DESTINATION, kind: "github", repository: "ezcorp-org/factory-platform-publication-tests", tokenPath: `/run/ezcorp/secrets/${FACTORY_GITHUB_RELEASE_TOKEN_FILE}` },
+      ],
+      profiles: [PROFILE],
+    });
+    expect(bundle.deliveries.harness.files[FACTORY_GITHUB_RELEASE_TOKEN_FILE]).toEqual({ source: tokenPath });
+    await writeFactoryDeliveries(bundle);
+    const delivered = await readFile(join(bundle.deliveries.harness.directory, "factory-startup.json"), "utf8");
+    expect(delivered).not.toContain(TOKEN);
+    // The harness reads its delivery at /run/ezcorp/secrets; on the host it is the delivery directory.
+    const config = parseFactoryStartupConfig(JSON.parse(delivered.replaceAll(`${FACTORY_CONTAINER_PATHS.secrets}/`, `${bundle.deliveries.harness.directory}/`)));
+    const composed = await composeFactoryReleaseDestinations(config, collaborators);
+    expect(composed?.destinations).toEqual([FACTORY_INSTALLATION_S3_RELEASE_DESTINATION, FACTORY_GITHUB_RELEASE_DESTINATION]);
+    expect(await composed!.providers.resolve(operation("s3", "tenant-01"))).toBeInstanceOf(S3FactoryManifestReleaseProvider);
+    expect(await composed!.providers.resolve(operation("github", "ezcorp-org/factory-platform-publication-tests"))).toBeInstanceOf(FactoryGitHubReleaseProvider);
+    expect((await factoryRejection(Promise.resolve(composed!.providers.resolve(operation("s3", "tenant-02"))))).code).toBe("factory_release_destination_unknown");
+  });
+
+  test("S3 always, GitHub only when declared; no profile, no release block", async () => {
+    const s3Only = await renderFactoryInstallationBundle(installation, makeFactoryTestDeploymentSettings(join(root, "runtime"), { release: { profiles: [PROFILE] } }));
+    expect((startupOf(s3Only).release as { destinations: { name: string }[] }).destinations.map((entry) => entry.name)).toEqual([FACTORY_INSTALLATION_S3_RELEASE_DESTINATION]);
+    expect(Object.keys(s3Only.deliveries.harness.files)).not.toContain(FACTORY_GITHUB_RELEASE_TOKEN_FILE);
+    for (const release of [undefined, { profiles: [] }]) {
+      const none = await renderFactoryInstallationBundle(installation, makeFactoryTestDeploymentSettings(join(root, "runtime"), release === undefined ? {} : { release }));
+      expect(Object.keys(startupOf(none))).not.toContain("release");
+    }
+  });
 });
 
 describe("writeFactoryDeliveries", () => {

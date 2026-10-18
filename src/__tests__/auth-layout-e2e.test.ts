@@ -54,7 +54,7 @@ async function userFromCookie(event: any) {
 
 describe("setup -> login -> me chain", () => {
   beforeAll(async () => { await cleanDb(); });
-  const ADMIN_EMAIL = "admin@e2e.com";
+  const ADMIN_EMAIL = "admin@e2e.example";
   const ADMIN_PASSWORD = "SecurePassword123";
   let adminId: string;
 
@@ -160,9 +160,9 @@ describe("setup -> login -> me chain", () => {
 
 describe("setup -> invite -> signup -> login chain", () => {
   beforeAll(async () => { await cleanDb(); });
-  const ADMIN_EMAIL = "admin@e2e-invite.com";
+  const ADMIN_EMAIL = "admin@e2e-invite.example";
   const ADMIN_PASSWORD = "Adminpass123";
-  const INVITE_EMAIL = "newuser@e2e-invite.com";
+  const INVITE_EMAIL = "newuser@e2e-invite.example";
   const INVITE_PASSWORD = "Newuserpass123";
   let inviteToken: string;
 
@@ -257,7 +257,7 @@ describe("setup -> invite -> signup -> login chain", () => {
       method: "POST",
       url: `http://localhost/api/auth/invite/${inviteToken}`,
       params: { token: inviteToken },
-      body: { name: "Another", email: "another@e2e.com", password: "Password123" },
+      body: { name: "Another", email: "another@e2e.example", password: "Password123" },
     });
 
     const res = await inviteTokenPost(event);
@@ -280,7 +280,7 @@ describe("setup -> invite -> signup -> login chain", () => {
     const invEvent = createMockEvent({
       method: "POST",
       url: "http://localhost/api/auth/invite",
-      body: { email: "locked@e2e.com", role: "member" },
+      body: { email: "locked@e2e.example", role: "member" },
       user: adminUser as any,
     });
     const invRes = await invitePost(invEvent);
@@ -292,7 +292,7 @@ describe("setup -> invite -> signup -> login chain", () => {
       method: "POST",
       url: `http://localhost/api/auth/invite/${freshToken}`,
       params: { token: freshToken },
-      body: { name: "Wrong", email: "wrong@e2e.com", password: "Password123" },
+      body: { name: "Wrong", email: "wrong@e2e.example", password: "Password123" },
     });
 
     const res = await inviteTokenPost(event);
@@ -307,7 +307,7 @@ describe("setup -> invite -> signup -> login chain", () => {
 
 describe("login -> logout -> me fails chain", () => {
   beforeAll(async () => { await cleanDb(); });
-  const EMAIL = "session@e2e.com";
+  const EMAIL = "session@e2e.example";
   const PASSWORD = "Sessionpass123";
 
   test("setup and login", async () => {
@@ -374,7 +374,7 @@ describe("duplicate setup blocked", () => {
     const event1 = createMockEvent({
       method: "POST",
       url: "http://localhost/api/auth/setup",
-      body: { name: "First Admin", email: "first@e2e.com", password: "Password123" },
+      body: { name: "First Admin", email: "first@e2e.example", password: "Password123" },
     });
     const res1 = await setupPost(event1);
     expect(res1.status).toBe(201);
@@ -386,7 +386,7 @@ describe("duplicate setup blocked", () => {
     const event2 = createMockEvent({
       method: "POST",
       url: "http://localhost/api/auth/setup",
-      body: { name: "Second Admin", email: "second@e2e.com", password: "Password123" },
+      body: { name: "Second Admin", email: "second@e2e.example", password: "Password123" },
     });
     const res2 = await setupPost(event2);
     expect(res2.status).toBe(403);
@@ -405,7 +405,7 @@ describe("public path enforcement", () => {
     const setupEvent = createMockEvent({
       method: "POST",
       url: "http://localhost/api/auth/setup",
-      body: { name: "Admin", email: "admin@public.com", password: "Password123" },
+      body: { name: "Admin", email: "admin@public.example", password: "Password123" },
     });
     const setupRes = await setupPost(setupEvent);
     expect(setupRes.status).toBe(201);
@@ -414,7 +414,7 @@ describe("public path enforcement", () => {
     const loginEvent = createMockEvent({
       method: "POST",
       url: "http://localhost/api/auth/login",
-      body: { email: "admin@public.com", password: "Password123" },
+      body: { email: "admin@public.example", password: "Password123" },
     });
     const loginRes = await loginPost(loginEvent);
     expect(loginRes.status).toBe(200);
@@ -444,7 +444,7 @@ describe("public path enforcement", () => {
     const event = createMockEvent({
       method: "POST",
       url: "http://localhost/api/auth/invite",
-      body: { email: "someone@test.com", role: "member" },
+      body: { email: "someone@test.example", role: "member" },
     });
 
     const res = await invitePost(event);

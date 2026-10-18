@@ -48,7 +48,7 @@ describe("POST /api/auth/login — validation gate", () => {
 	});
 
 	test("rejects 400 when password is empty", async () => {
-		const res = await POST(makeEvent({ email: "u@test.com", password: "" }));
+		const res = await POST(makeEvent({ email: "u@test.example", password: "" }));
 		expect(res.status).toBe(400);
 	});
 

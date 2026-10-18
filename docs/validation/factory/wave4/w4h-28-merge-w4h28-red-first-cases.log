@@ -1,0 +1,248 @@
+packages/@ezcorp/extension-runner/tests/dependencies.test.ts: Ran 7 tests across 1 file. [1057.00ms]
+packages/@ezcorp/extension-runner/tests/provision-determinism.test.ts: Ran 2 tests across 1 file. [760.00ms]
+packages/@ezcorp/extension-runner/tests/service.test.ts: Ran 10 tests across 1 file. [1277.00ms]
+packages/@ezcorp/extension-runner/tests/store-reuse.test.ts: Ran 2 tests across 1 file. [481.00ms]
+packages/@ezcorp/factory-sdk/src/guest-material-read.test.ts: Ran 18 tests across 1 file. [516.00ms]
+packages/@ezcorp/factory-sdk/src/guest-materials.test.ts: Ran 15 tests across 1 file. [497.00ms]
+packages/@ezcorp/factory-sdk/src/guest-model.test.ts: Ran 6 tests across 1 file. [461.00ms]
+packages/@ezcorp/factory-sdk/src/kernel-remediation.test.ts: Ran 10 tests across 1 file. [524.00ms]
+packages/@ezcorp/factory-sdk/src/reference-execution.test.ts: Ran 3 tests across 1 file. [560.00ms]
+packages/@ezcorp/factory-sdk/src/references-pins.test.ts: Ran 10 tests across 1 file. [442.00ms]
+packages/@ezcorp/factory-sdk/src/schema.test.ts: Ran 3 tests across 1 file. [1205.00ms]
+packages/@ezcorp/factory-sdk/src/validation.test.ts: Ran 7 tests across 1 file. [458.00ms]
+scripts/check-factory-boundaries.test.ts: Ran 31 tests across 1 file. [2.22s]
+scripts/factory-fleet-init-local.test.ts: Ran 5 tests across 1 file. [534.00ms]
+scripts/factory-graph-proof/codex-import-deployment.test.ts: Ran 7 tests across 1 file. [1.96s]
+scripts/factory-graph-proof/guest-package.test.ts: Ran 1 test across 1 file. [488.00ms]
+scripts/factory-graph-proof/release-selection.test.ts: Ran 3 tests across 1 file. [513.00ms]
+scripts/factory-graph-proof/stack-documents.test.ts: Ran 5 tests across 1 file. [478.00ms]
+scripts/relock-s3-release-adapter.test.ts: Ran 5 tests across 1 file. [500.00ms]
+src/factory/artifact-materials.test.ts: Ran 10 tests across 1 file. [471.00ms]
+src/factory/console.integration.test.ts: Ran 27 tests across 1 file. [3.28s]
+src/factory/guest-broker-composition.test.ts: Ran 5 tests across 1 file. [1054.00ms]
+src/factory/guest-package-build.test.ts: Ran 5 tests across 1 file. [442.00ms]
+src/factory/host-preparation-client.integration.test.ts: Ran 7 tests across 1 file. [1.91s]
+src/factory/private-https.integration.test.ts: Ran 17 tests across 1 file. [1.71s]
+src/factory/private-https.test.ts: Ran 2 tests across 1 file. [440.00ms]
+src/factory/provisioning/deployment.test.ts: Ran 50 tests across 1 file. [1.65s]
+src/factory/provisioning/fleet-cli.test.ts: Ran 11 tests across 1 file. [520.00ms]
+src/factory/provisioning/fleet.test.ts: Ran 15 tests across 1 file. [518.00ms]
+src/factory/reference-code/budget.test.ts: Ran 3 tests across 1 file. [1008.00ms]
+src/factory/reference-code/checks.test.ts: Ran 14 tests across 1 file. [517.00ms]
+src/factory/reference-code/freeze.test.ts: Ran 13 tests across 1 file. [445.00ms]
+src/factory/reference-code/generate.test.ts: Ran 16 tests across 1 file. [480.00ms]
+src/factory/reference-code/git-reader.test.ts: Ran 7 tests across 1 file. [581.00ms]
+src/factory/reference-code/pack.test.ts: Ran 17 tests across 1 file. [591.00ms]
+src/factory/reference-code/review.test.ts: Ran 9 tests across 1 file. [485.00ms]
+src/factory/reference-code/runner-checks.test.ts: Ran 8 tests across 1 file. [646.00ms]
+src/factory/reference-code/runner-guest.podman.integration.test.ts: Ran 1 test across 1 file. [18.84s]
+src/factory/reference-code/runner-packages.test.ts: Ran 21 tests across 1 file. [596.00ms]
+src/factory/reference-code/workspace.test.ts: Ran 15 tests across 1 file. [1.72s]
+src/factory/release-github.test.ts: Ran 15 tests across 1 file. [456.00ms]
+src/factory/run-controls.test.ts: Ran 4 tests across 1 file. [557.00ms]
+src/factory/runner/guest-broker-transport.integration.test.ts: Ran 16 tests across 1 file. [16.12s]
+src/factory/runner/guest-material-broker.integration.test.ts: Ran 29 tests across 1 file. [10.95s]
+src/factory/runner/guest-model-broker.test.ts: Ran 13 tests across 1 file. [505.00ms]
+src/factory/runner/guest-model-journal.integration.test.ts: Ran 4 tests across 1 file. [3.61s]
+src/factory/runner/guest-model-journal.test.ts: Ran 4 tests across 1 file. [495.00ms]
+src/factory/runner/guest-repository-read.integration.test.ts: Ran 3 tests across 1 file. [1.78s]
+src/factory/runner/host-launch-service.test.ts: Ran 23 tests across 1 file. [548.00ms]
+src/factory/runner/supervisor-services.test.ts: Ran 29 tests across 1 file. [31.48s]
+src/factory/s3-release-adapter/package.podman.integration.test.ts: Ran 2 tests across 1 file. [10.36s]
+src/factory/s3-release-adapter/package.test.ts: Ran 4 tests across 1 file. [876.00ms]
+src/factory/s3-release-adapter/relock.test.ts: Ran 2 tests across 1 file. [1048.00ms]
+src/factory/startup-config.test.ts: Ran 58 tests across 1 file. [530.00ms]
+src/providers/codex-login-import.test.ts: Ran 24 tests across 1 file. [1171.00ms]
+src/providers/factory-broker.test.ts: Ran 38 tests across 1 file. [1087.00ms]
+src/__tests__/credentials.test.ts: Ran 42 tests across 1 file. [454.00ms]
+src/__tests__/credential-store-bundled.test.ts: Ran 1 test across 1 file. [758.00ms]
+src/__tests__/credential-store.test.ts: Ran 20 tests across 1 file. [439.00ms]
+src/__tests__/factory-boot.test.ts: Ran 23 tests across 1 file. [604.00ms]
+src/__tests__/factory-private-client.test.ts: Ran 5 tests across 1 file. [1.69s]
+CASE PASS: a package the source locks itself replaces the provisioned copy of that package, and only that one (W4H-28)
+CASE PASS: the trusted SDK bundle is the same whatever the builder's NODE_ENV, and none of the builder's value reaches it
+CASE PASS: in this process too, the bundle keeps the runtime read and carries none of this builder's NODE_ENV
+CASE PASS: an unclassified error answers 500 runner_internal_error with its class and code, is reported once, and is never retried
+CASE PASS: a genuine validation refusal keeps HTTP 400 and its own text
+CASE PASS: by default an unclassified error goes to the runner's stderr as one JSON line with its class, code and bounded message
+CASE PASS: a 500 on a non-idempotent start reaches the runner exactly once: the client never retries it
+CASE PASS: two boots on one kept store: the second runner serves the release the first one built
+CASE PASS: a store that lacks the release's artifact refuses by name, artifact_missing, naming the cause ENOENT (real-8)
+CASE PASS: a read names an artifact, a content digest and a page, and nothing else
+CASE PASS: a page must be exactly its slice of a bounded whole
+CASE PASS: reads a whole across pages and proves its digest
+CASE PASS: refuses bytes that are not the digest it asked for
+CASE PASS: raises the host's refusal by its own name
+CASE PASS: refuses to send a frame the contract refuses
+CASE PASS: an input port's material value is the address
+CASE PASS: a read names its operation, a declared source and one full commit id
+CASE PASS: an answer is the sealed tree's handle, or a named refusal
+CASE PASS: the client follows the handle with the material read, and raises refusals by name
+CASE PASS: one call, its journal-shaped operation, and the output built from the answer
+CASE PASS: a task's own refusal after the answer fails by name and still mirrors the call
+CASE PASS: any other error is not a task refusal and propagates
+CASE PASS: a refusal before the claim leaves no row; a claimed failure copies the settled operation
+CASE PASS: an attempt with no pin asks with the named unpinned model, so the broker refuses it
+CASE PASS: a checkpoint the host will not recover stops the task loudly
+CASE PASS: the pin's digests are the digests of its own configuration and policy
+CASE PASS: generateCandidate and supervisedReview name the pin's model and configuration digest
+CASE PASS: protectedChecks calls no model, so neither its task nor its nine claims name one
+CASE PASS: its defaults are reference.code.v1 exactly
+CASE PASS: another model pin changes the two model runners and nothing else
+CASE PASS: the S3 release destination is a parameter: the release adapter changes, the inputs do not
+CASE PASS: no reference definition names the S3 adapter with a placeholder digest
+CASE PASS: every task node declares its cost; none falls back to the allocation's whole cost
+CASE PASS: the declared costs together stay well under the run's 1,000,000 cost micros
+CASE PASS: the release destination and the model pin change no declared cost
+CASE PASS: the reference S3 publication adapter is a published, locked artifact, so the local fleet declares the default S3 release profile (W4H-28)
+CASE PASS: the local fleet declares every reference.code.v1 task runner, generateCandidate pinned to the installation's model, and the startup parser admits them (W4H-26, W4H-28)
+CASE PASS: KEY=VALUE lines; a value keeps every character after the first =; comments and blanks are skipped
+CASE PASS: no --deployment: no environment
+CASE PASS: the secret, the salt and the database password round-trip unchanged, whatever characters they hold
+CASE PASS: a missing option, a bad port, a folder outside /run/user, or an unreadable file is refused by name
+CASE PASS: the environment is set before the import loads, and a local secrets folder or database path cannot win
+CASE PASS: without --deployment the import runs on the environment it was given
+CASE PASS: while the import waits on its database, /proc/<pid>/cmdline and /proc/<pid>/environ hold no secret
+CASE PASS: the expected digest is the digest of the bundled runner source, exactly as the boot stages it
+CASE PASS: the newest release WITH the expected source digest is picked; a newer release of other bytes never is
+CASE PASS: no release with the expected digest is a named failure, never another release
+CASE PASS: by default it is loopback on a free port, and the proof calls loopback
+CASE PASS: a named tailnet address is listened on and called on, with the origin the browser sends
+CASE PASS: the wildcard is listened on, the proof calls loopback, and the origin defaults to loopback
+CASE PASS: a host that is not an IPv4 address, a port out of range, and an origin that is not a bare http origin are refused
+CASE PASS: the request reads PROOF_WEB_HOST, PROOF_WEB_PORT and PROOF_WEB_ORIGIN and leaves each absent one out
+CASE PASS: rebuilds, writes the lock and the SDK literal, and prints each digest old -> new
+CASE PASS: a dirty tree is refused before any build or write
+CASE PASS: an SDK that does not name the locked artifact exactly once is refused before any build
+CASE PASS: a failed build is not a refusal: it propagates and nothing is written
+CASE PASS: the real dependencies read this repository's lock and report the tree state
+CASE PASS: a package whose artifacts exceed 4 MiB prepares, and the product still recomputes their digest (W4H-28)
+CASE PASS: the preparation reply bound still exists, on both sides, and only for the preparation route (W4H-28)
+CASE PASS: a named route may reply up to its own bound; every other route keeps the listener's, and both refuse above it by name (W4H-28)
+CASE PASS: a route bound is refused at start when it is not a positive integer within the route ceiling
+CASE PASS: the deployer writes the fleet's model pin into the startup document, and writes none when the fleet declares none
+CASE PASS: an installation model pin is carried for the profiles that pin it, and judged by the startup parser (W4H-28)
+CASE PASS: generate's model spend leaves freeze and the protected checks admissible
+CASE PASS: a task that declares no cost holds the allocation's whole cost, so any earlier spend refuses it by name
+CASE PASS: a declared cost above the allocation is held at the allocation, never above it
+CASE PASS: links every package of a read-only toolchain, scoped ones included, and each declared binary
+CASE PASS: the validator package locks exactly the fixture's toolchain, by version and SHA-512
+CASE PASS: a validator is handed the frozen node's output by reference and reads the whole subject from it
+CASE PASS: a subject that is not a frozen candidate of its snapshot is refused by name
+CASE PASS: as a validator it answers the nine-claim report; with no toolchain the frozen install fails by name, never a pass
+CASE PASS: as the protected-checks task it seals the report and the command record as one evidence material
+CASE PASS: supervisedReview makes one call and reports the rubric's verdict as its one claim
+CASE PASS: the registered protectedChecks tool is the lane over the working directory
+CASE PASS: the guest names the source and the commit; the host's sealed tree becomes the same snapshot a recording gives
+CASE PASS: a tree of another commit or shape, or one whose bytes are not its tree id, is refused by name
+CASE PASS: both facts are required, and the policy is checked field by field
+CASE PASS: a snapshot output whose digest is not its files', or that is not a snapshot, is refused
+CASE PASS: reads the sealed snapshot, makes exactly one call, and seals the complete resulting tree
+CASE PASS: a repair names the findings it must fix, and a fenced answer is accepted
+CASE PASS: an answer the rules refuse fails the attempt by name, its one call still accounted
+CASE PASS: an input that is not a request, a remediation and a snapshot port is refused before any call
+CASE PASS: freezes the exact commit a release creates, its policy and time from the snapshot alone
+CASE PASS: an S3 release resolves from the accepted publication of the frozen record, sealed by the freeze itself
+CASE PASS: a snapshot of another base, or a generation that is not this snapshot's, is refused by name
+CASE PASS: a title is the request's first sentence, bounded
+CASE PASS: a guest reads its run's sealed material across the host boundary, and another run's is refused by name (W4H-28)
+CASE PASS: a repository read crosses the host boundary, and an installation with no sources refuses it by name (W4H-28)
+CASE PASS: the composed route reads a declared repository source for a guest, sealed in the guest's own attempt (W4H-28)
+CASE PASS: a call whose bound does not fit the attempt's token budget is refused before any claim (W4H-28)
+CASE PASS: a guest reads one commit of a declared source: the complete tree, sealed in its own attempt, token by reference
+CASE PASS: an undeclared source, an unknown commit, an unreachable source and a malformed frame are refused by name
+CASE PASS: an expired attempt reads nothing, and a tree above the guest's read bound is refused before it is sealed
+CASE PASS: the staged source is the locked source
+CASE PASS: the provided SDK bundle and toolchain are the locked ones: a change to either moves the artifact, so it goes red here first
+CASE PASS: the SDK's reference S3 adapter names this package and its locked artifact
+CASE PASS: a guest call never publishes
+CASE PASS: a build gives the lock: the staged source, the provided SDK and toolchain, the artifact and the image
+CASE PASS: a failed build names its diagnostics, and the builder is still closed and its folder removed
+CASE PASS: accepts reference.code.v1's unpinned task runners, which carry a configuration digest and no model (W4H-26, W4H-28)
+CASE PASS: accepts declared sources, by handle, URL and token reference, and keeps them
+CASE PASS: refuses a section without its cache, an empty or duplicate list, and each malformed source by index
+CASE PASS: accepts reference.code.v1's generateCandidate pinned to the C10 model, whose digest is now a real configuration's (W4H-28)
+CASE PASS: access, refresh and the account id map; the expiry is the access token's own exp
+CASE PASS: the account id comes from the token's claim when the file does not carry it
+CASE PASS: an unexpected file shape names the key NAMES it found, never a value
+CASE PASS: an access token that is not a JWT is refused by name with its segment count
+CASE PASS: a missing JWT claim is refused by its claim path
+CASE PASS: the account id is masked to its last four characters
+CASE PASS: the stored row is what the sign-in flow writes, the provider reads connected, and the summary holds no token
+CASE PASS: a secret and salt holding $, a backtick, a backslash and both quotes store a login that decrypts unchanged
+CASE PASS: a missing file is refused by name and nothing is stored
+CASE PASS: a missing web encryption secret or salt is refused by its variable name before any connection
+CASE PASS: no DATABASE_URL is refused as unreachable by its variable name; it never falls back to an embedded database
+CASE PASS: a failed connection names host:port, the database, and the deepest error's class and code, never the password
+CASE PASS: a failed store write names the error's class and code and the import reports no success
+CASE PASS: a stored login the given secret cannot decrypt is refused as a secret mismatch and left untouched
+CASE PASS: no stored login: the secret is proved by a round trip, the summary says dryRun, nothing is stored
+CASE PASS: a stored login: the secret is proved by reading it, and the stored row is unchanged
+CASE PASS: a dry run refuses the same causes as the import
+CASE PASS: no --from prints the usage and exits 64 without connecting
+CASE PASS: --dry-run prints the summary with dryRun:true, exits 0, and closes the database
+CASE PASS: an import prints the summary without dryRun and stores the login
+CASE PASS: a refusal prints its code and detail on stderr and exits 2; the database is still closed
+CASE PASS: a failed close does not change the answer
+CASE PASS: an error outside every named step prints its class and code only and exits 2
+CASE PASS: the script runs the command line with its own arguments
+CASE PASS: a stored login that cannot be used is named as unusable, with its error class, never as not configured (W4H-28)
+CASE PASS: a key derivation error carries its class and code into the readiness, and nothing else of it
+CASE PASS: an error reading the credential is a readiness error with its deepest class and code, never "not configured" (W4H-28, C10)
+CASE PASS: the broker's call-time read names a readiness error the same way, and sends nothing
+CASE PASS: P-F3a: an explicit access mode with nothing stored is not configured, by the typed refusal with the same message
+CASE PASS: P-F3b: a stored OAuth row the secret cannot decrypt is unusable, never not configured
+CASE PASS: P-F3b: a database error on the OAuth-row read alone is a readiness error, at readiness, in the record and at the call
+CASE PASS: an unreadable OAuth row with a valid key: ready on the key, with the broken login as one warning
+CASE PASS: a database error on the OAuth-row read with a valid key refuses at once; the key is not consulted
+CASE PASS: a failed Google project discovery with no key is unusable, never a readiness error
+CASE PASS: a failed Google project discovery with a valid key: ready on the key, with one warning
+CASE PASS: S-2: a stored API key that cannot be decrypted, with no env key, is unusable
+CASE PASS: S-1: the same with an env key: ready on the env key, with the unreadable row as one warning
+CASE PASS: a broken OAuth row AND an unreadable stored key with an env key: two warnings, one per broken row
+CASE PASS: a login with no usable OAuth key and nothing else configured still reads not configured, and a healthy pin carries no warnings
+CASE PASS: getApiKey refuses when getSetting throws: a database error is not "no key", even with an env key (C10, P-F3)
+CASE PASS: a stored key that cannot be decrypted and no env key is never "no key": it refuses with the cause kept (C10, P-F3)
+CASE PASS: a bundled credential store derives a ChatGPT-subscription key from a stored OAuth credential
+CASE PASS: the pinned image builds the locked source into the artifact the SDK names
+CASE PASS: a build that fails in the pinned image is refused by name, never turned into a lock
+CASE PASS: one snapshot carries every section, bounded and scoped to its own tenant
+packages/@ezcorp/extension-runner/tests/dependencies.test.ts: file 126/126 lines hit; added lines 15, instrumented 14, uncovered 0
+packages/@ezcorp/extension-runner/tests/provision-determinism.test.ts: file 25/25 lines hit; added lines 39, instrumented 25, uncovered 0
+packages/@ezcorp/extension-runner/tests/service.test.ts: file 210/210 lines hit; added lines 71, instrumented 67, uncovered 0
+packages/@ezcorp/extension-runner/tests/store-reuse.test.ts: file 26/26 lines hit; added lines 30, instrumented 26, uncovered 0
+packages/@ezcorp/factory-sdk/src/guest-material-read.test.ts: file 137/137 lines hit; added lines 158, instrumented 137, uncovered 0
+packages/@ezcorp/factory-sdk/src/guest-model.test.ts: file 79/79 lines hit; added lines 96, instrumented 79, uncovered 0
+packages/@ezcorp/factory-sdk/src/kernel-remediation.test.ts: file 248/251 lines hit; added lines 1, instrumented 1, uncovered 0
+packages/@ezcorp/factory-sdk/src/reference-execution.test.ts: file 208/208 lines hit; added lines 5, instrumented 4, uncovered 0
+packages/@ezcorp/factory-sdk/src/references-pins.test.ts: file 80/80 lines hit; added lines 104, instrumented 80, uncovered 0
+scripts/factory-fleet-init-local.test.ts: file 56/56 lines hit; added lines 19, instrumented 18, uncovered 0
+scripts/factory-graph-proof/codex-import-deployment.test.ts: file 117/117 lines hit; added lines 135, instrumented 117, uncovered 0
+scripts/factory-graph-proof/release-selection.test.ts: file 23/23 lines hit; added lines 27, instrumented 23, uncovered 0
+scripts/factory-graph-proof/stack-documents.test.ts: file 29/29 lines hit; added lines 35, instrumented 29, uncovered 0
+scripts/relock-s3-release-adapter.test.ts: file 57/57 lines hit; added lines 66, instrumented 57, uncovered 0
+src/__tests__/credential-store-bundled.test.ts: file 21/21 lines hit; added lines 31, instrumented 21, uncovered 0
+src/__tests__/credentials.test.ts: file 431/439 lines hit; added lines 29, instrumented 25, uncovered 0
+src/__tests__/factory-private-client.test.ts: file 87/87 lines hit; added lines 4, instrumented 3, uncovered 0
+src/factory/host-preparation-client.integration.test.ts: file 99/99 lines hit; added lines 27, instrumented 21, uncovered 0
+src/factory/private-https.integration.test.ts: file 209/209 lines hit; added lines 26, instrumented 23, uncovered 0
+src/factory/provisioning/deployment.test.ts: file 573/573 lines hit; added lines 18, instrumented 16, uncovered 0
+src/factory/provisioning/fleet.test.ts: file 147/147 lines hit; added lines 8, instrumented 7, uncovered 0
+src/factory/reference-code/budget.test.ts: file 57/57 lines hit; added lines 73, instrumented 57, uncovered 0
+src/factory/reference-code/pack.test.ts: file 192/192 lines hit; added lines 4, instrumented 2, uncovered 0
+src/factory/reference-code/runner-checks.test.ts: file 131/131 lines hit; added lines 146, instrumented 131, uncovered 0
+src/factory/reference-code/runner-guest.podman.integration.test.ts: file 89/89 lines hit; added lines 116, instrumented 89, uncovered 0
+src/factory/reference-code/runner-packages.test.ts: file 260/260 lines hit; added lines 206, instrumented 174, uncovered 0
+src/factory/run-controls.test.ts: file 91/91 lines hit; added lines 2, instrumented 1, uncovered 0
+src/factory/runner/guest-broker-transport.integration.test.ts: file 444/444 lines hit; added lines 43, instrumented 40, uncovered 0
+src/factory/runner/guest-model-broker.test.ts: file 200/200 lines hit; added lines 28, instrumented 22, uncovered 0
+src/factory/runner/guest-model-journal.test.ts: file 60/61 lines hit; added lines 2, instrumented 2, uncovered 0
+src/factory/runner/guest-repository-read.integration.test.ts: file 111/111 lines hit; added lines 131, instrumented 111, uncovered 0
+src/factory/s3-release-adapter/package.podman.integration.test.ts: file 24/24 lines hit; added lines 36, instrumented 24, uncovered 0
+src/factory/s3-release-adapter/package.test.ts: file 23/23 lines hit; added lines 27, instrumented 23, uncovered 0
+src/factory/s3-release-adapter/relock.test.ts: file 28/28 lines hit; added lines 34, instrumented 28, uncovered 0
+src/factory/startup-config.test.ts: file 577/578 lines hit; added lines 29, instrumented 25, uncovered 0
+src/providers/codex-login-import.test.ts: file 222/222 lines hit; added lines 266, instrumented 222, uncovered 0
+src/providers/factory-broker.test.ts: file 485/485 lines hit; added lines 189, instrumented 164, uncovered 0
+bash line cover: merge 7e5365696 vs base b7dbd9210; trace /tmp/factory-platform-evidence/w00/w4h-merge/w4h-28-reference-run/case-check/bash-trace.txt
+no changed *.sh file

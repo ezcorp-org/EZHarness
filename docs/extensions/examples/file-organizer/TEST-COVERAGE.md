@@ -349,7 +349,7 @@ builds):
 
 The **Docker real-backend suite** (`DOCKER_TEST=1`) should **not** be
 wired into PR-blocking CI yet: it needs a seeded container
-(`docker-auth-setup.ts` expects `test@test.com`/`Test123!` on `:3000`).
+(`docker-auth-setup.ts` expects `test@test.example`/`Test123!` on `:3000`).
 Run it as a **manual / nightly non-blocking** workflow (or locally) until
 that seeded container (and the picker decision) can be provided in CI.
 Gate it explicitly so a missing container fails fast rather than silently

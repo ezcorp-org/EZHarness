@@ -1,0 +1,1 @@
+fix(factory): relock the S3 release adapter after fc1254003 moved the trusted SDK digest (W4H-32b, push16 ci 39005464033)

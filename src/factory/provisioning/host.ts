@@ -27,8 +27,9 @@
  * trust set, under the fleet's host lock, so two provisions cannot lose each
  * other's admission.
  */
-import { createPrivateKey, createPublicKey, generateKeyPairSync } from "node:crypto";
+import { createPrivateKey, createPublicKey, generateKeyPairSync, randomBytes } from "node:crypto";
 import { resolve } from "node:path";
+import { FACTORY_PROMETHEUS_CONTAINER_CONFIG, FACTORY_PROMETHEUS_CONTAINER_RULES, factoryPrometheusTargetFiles, renderFactoryPrometheusConfig, type FactoryPrometheusTarget } from "../observability/prometheus-config";
 import { parseFactoryPoolProcessConfig } from "../pool/process";
 import { parseFactorySupervisorProcessConfig } from "../runner/supervisor-process";
 import { createFactoryCertificateAuthority, issueFactoryCertificate, type FactoryCommandRunner } from "./certificates";
@@ -37,7 +38,7 @@ import { factoryDatabasePairs } from "./database";
 import { factoryFleetResourceName, type FactoryInstallationContext, type FactoryStepResources } from "./installation";
 import { FACTORY_GUEST_BROKER_AUDIENCE, FACTORY_GUEST_BROKER_SCOPE } from "../runner/guest-broker-contract";
 import { FACTORY_HOST_KEY_ID, FACTORY_MESH_FILES, FACTORY_MESH_TOKEN_KEY_ID, FACTORY_POOL_AUDIENCE, factoryMeshIdentities, factoryMeshToken, factoryMeshTokenExpiry } from "./mesh";
-import { factoryInstallationPorts } from "./ports";
+import { FACTORY_FLEET_PORT_OFFSETS, factoryInstallationPorts } from "./ports";
 import { ensureFactoryPrivateCertificatePair, ensureFactoryPrivateFile, factoryPrivatePath, openFactoryPrivateDirectory, readFactoryPrivateJson, readFactoryPrivatePath, readFactoryPrivateText, removeFactoryPrivateDirectory, replaceFactoryPrivateFile } from "./secret-files";
 import { FactoryProvisioningError } from "./steps";
 
@@ -52,6 +53,8 @@ export const FACTORY_HOST_FILES = Object.freeze({
   supervisorGuestBrokerToken: "host-supervisor-guest-broker.token",
   trustBundle: "host-trust.crt",
   hostKey: "host-signing.key", hostPublicKey: "host-signing.pub", hostKeyId: "host-signing.kid",
+  /** The fleet's one `/metrics` scrape token (C11 M4): every factory service and the evaluator hold a copy. */
+  metricsScrapeToken: "host-metrics-scrape.token",
   state: "host-state.json",
 });
 export const FACTORY_HOST_OPERATOR_FILES = Object.freeze({ caCertificate: "host-ca.crt", caKey: "host-ca.key", tokenKey: "host-token.key" });
@@ -64,14 +67,17 @@ export interface FactoryFleetHostIdentity {
   readonly hostId: string;
   readonly supervisor: string;
   readonly issuer: string;
-  readonly ports: { readonly pool: number; readonly supervisor: number };
+  readonly ports: { readonly pool: number; readonly supervisor: number; readonly poolMetrics: number; readonly supervisorMetrics: number; readonly prometheus: number };
 }
 
 export function factoryFleetHostIdentity(fleetId: string, portBase: number): FactoryFleetHostIdentity {
   if (!Number.isSafeInteger(portBase) || portBase < 1_024 || portBase + 1_010 > 65_535) throw new FactoryProvisioningError("deployment_ports_invalid", "Host ports cannot be derived.");
   return Object.freeze({
     poolId: `pool.${fleetId}`, hostId: `host.${fleetId}`, supervisor: `supervisor.${fleetId}`, issuer: `factory-host:${fleetId}`,
-    ports: Object.freeze({ pool: portBase + 1_002, supervisor: portBase + 1_003 }),
+    ports: Object.freeze({
+      pool: portBase + FACTORY_FLEET_PORT_OFFSETS.pool, supervisor: portBase + FACTORY_FLEET_PORT_OFFSETS.supervisor,
+      poolMetrics: portBase + FACTORY_FLEET_PORT_OFFSETS.poolMetrics, supervisorMetrics: portBase + FACTORY_FLEET_PORT_OFFSETS.supervisorMetrics, prometheus: portBase + FACTORY_FLEET_PORT_OFFSETS.prometheus,
+    }),
   });
 }
 
@@ -83,6 +89,14 @@ export interface FactoryFleetHostPaths {
   readonly runnerRoot: string;
   readonly poolDelivery: string;
   readonly supervisorDelivery: string;
+  /**
+   * The self-hosted evaluator's directory (C11): its config, the scrape token,
+   * and one target list per job. Private like every other host directory: the
+   * Prometheus container runs as the fleet's own user (keep-id), as the pool does.
+   */
+  readonly prometheusDirectory: string;
+  /** The evaluator's time-series data: a host directory it owns, not a named volume its keep-id user could not write. */
+  readonly prometheusDataDirectory: string;
 }
 
 export function factoryFleetHostPaths(fleetId: string, roots: { readonly secretsRoot: string; readonly operatorRoot: string; readonly runtimeRoot: string }): FactoryFleetHostPaths {
@@ -97,6 +111,8 @@ export function factoryFleetHostPaths(fleetId: string, roots: { readonly secrets
     }),
     runtimeDirectory, readinessDirectory: resolve(runtimeDirectory, "readiness"), runnerRoot: resolve(runtimeDirectory, "runner"),
     poolDelivery: resolve(secretDirectory, "deliver", "pool"), supervisorDelivery: resolve(secretDirectory, "deliver", "supervisor"),
+    prometheusDirectory: resolve(roots.operatorRoot, "prometheus"),
+    prometheusDataDirectory: resolve(runtimeDirectory, "prometheus-data"),
   });
 }
 
@@ -106,6 +122,8 @@ export interface FactoryFleetHostFacts extends FactoryFleetHostIdentity {
   readonly hostPublicKeyPath: string;
   /** The public half of the host's token key: installations verify the supervisor's guest-broker token with it. */
   readonly tokenPublicKeyPath: string;
+  /** The fleet's scrape token; each installation delivers it to its harness, gateway and orchestrator (C11 M4). */
+  readonly metricsScrapeTokenPath: string;
   readonly poolReadinessDirectory: string;
   readonly supervisorReadinessDirectory: string;
 }
@@ -149,6 +167,10 @@ export interface FactoryFleetHostRuntime {
   apply(bundle: FactoryFleetHostBundle): Promise<void>;
   /** Resolves once both services publish a fresh ready record. */
   ready(bundle: FactoryFleetHostBundle): Promise<void>;
+  /** Whether both services run now: `up` leaves a serving host exactly as it runs. */
+  serving(paths: FactoryFleetHostPaths): Promise<boolean>;
+  /** Stop both services and keep the pool's containers. Idempotent. */
+  stop(paths: FactoryFleetHostPaths): Promise<void>;
   /** Stop both services. Idempotent. */
   remove(paths: FactoryFleetHostPaths): Promise<void>;
   /** Stop both services and remove the host's runtime directory. */
@@ -198,6 +220,7 @@ export class FactoryFleetHost {
       caCertificatePath: factoryPrivatePath(this.paths.context.secretDirectory, FACTORY_HOST_FILES.caCertificate),
       hostPublicKeyPath: factoryPrivatePath(this.paths.context.secretDirectory, FACTORY_HOST_FILES.hostPublicKey),
       tokenPublicKeyPath: factoryPrivatePath(this.paths.context.secretDirectory, FACTORY_HOST_FILES.tokenPublicKey),
+      metricsScrapeTokenPath: factoryPrivatePath(this.paths.context.secretDirectory, FACTORY_HOST_FILES.metricsScrapeToken),
       poolReadinessDirectory: resolve(this.paths.readinessDirectory, "pool"),
       supervisorReadinessDirectory: resolve(this.paths.readinessDirectory, "supervisor"),
     });
@@ -243,6 +266,7 @@ export class FactoryFleetHost {
       const hostKey = await readFactoryPrivateText(secrets, FACTORY_HOST_FILES.hostKey);
       await ensureFactoryPrivateFile(secrets, FACTORY_HOST_FILES.hostPublicKey, () => createPublicKey(createPrivateKey(hostKey)).export({ type: "spki", format: "pem" }).toString());
       await ensureFactoryPrivateFile(secrets, FACTORY_HOST_FILES.hostKeyId, () => FACTORY_HOST_KEY_ID);
+      await ensureFactoryPrivateFile(secrets, FACTORY_HOST_FILES.metricsScrapeToken, () => `${randomBytes(32).toString("hex")}\n`);
       await this.refreshToken(factoryPrivatePath(context.secretDirectory, FACTORY_HOST_FILES.supervisorPoolToken), tokenKey, this.identity.supervisor, [`pool:supervisor:${this.identity.supervisor}`]);
       // W01g's route checks the token's subject against the supervisor's certificate and requires its scope.
       await this.refreshToken(factoryPrivatePath(context.secretDirectory, FACTORY_HOST_FILES.supervisorGuestBrokerToken), tokenKey, this.identity.supervisor, [FACTORY_GUEST_BROKER_SCOPE], false, FACTORY_GUEST_BROKER_AUDIENCE);
@@ -330,10 +354,28 @@ export class FactoryFleetHost {
     });
   }
 
+  /** Stop both shared services, keeping every admission: the operator's `stop`. Idempotent. */
+  async stop(): Promise<void> {
+    await this.options.locked(() => this.options.runtime.stop(this.paths));
+  }
+
+  /**
+   * Start both shared services onto the recorded state and wait for them: the operator's `up`.
+   * A host serving nobody stays down, and a host that already serves is left exactly as it runs
+   * (no re-render, no recreated pool, no restarted supervisor: every installation shares them).
+   */
+  async start(): Promise<void> {
+    await this.options.locked(async () => {
+      const state = await this.state();
+      if (Object.keys(state.admitted).length > 0 && !(await this.options.runtime.serving(this.paths))) await this.publish(state);
+    });
+  }
+
   /** Re-render and restart the host onto its current state, then wait for both services. */
   private async publish(state: FactoryFleetHostState): Promise<void> {
     const bundle = await this.render(state);
     await this.writeDeliveries(bundle);
+    await this.writeEvaluator(bundle);
     await this.options.runtime.apply(bundle);
     await this.options.runtime.ready(bundle);
   }
@@ -361,12 +403,14 @@ export class FactoryFleetHost {
       },
       resources: { capacities: { cpu: this.options.settings.cpuCapacity }, gpuHosts: [], hosts: [this.identity.hostId] },
       readinessFilePath: "/run/ezcorp/readiness/pool/pool.json", readinessHeartbeatMs: 4_000,
+      metrics: { hostname: "0.0.0.0", port: this.identity.ports.poolMetrics, scrapeTokenPath: containerSecret(FACTORY_HOST_FILES.metricsScrapeToken) },
     });
     const hostSecret = (name: string) => resolve(this.paths.supervisorDelivery, name);
     const supervisor = parseFactorySupervisorProcessConfig({
       schemaVersion: "factory.supervisor-process.v1", installationId: this.paths.context.installationId, hostId: this.identity.hostId,
       hostKeyPath: hostSecret(FACTORY_HOST_FILES.hostKey), hostKeyId: FACTORY_HOST_KEY_ID,
       runnerRoot: this.paths.runnerRoot, readinessFilePath: resolve(this.paths.readinessDirectory, "supervisor", "supervisor.json"), readinessHeartbeatMs: 4_000,
+      metrics: { hostname: "127.0.0.1", port: this.identity.ports.supervisorMetrics, scrapeTokenPath: hostSecret(FACTORY_HOST_FILES.metricsScrapeToken) },
       services: {
         // W01i: each harness peer is bound to its own tenant, so the host refuses a launch it names for another (403 forbidden_tenant).
         hostname: "127.0.0.1", port: this.identity.ports.supervisor, peerTenants: Object.fromEntries(admitted.map((entry) => [entry.harnessIdentity, entry.tenantId])),
@@ -393,13 +437,17 @@ export class FactoryFleetHost {
     return Object.freeze({
       identity: this.identity, paths: this.paths, admitted, build: current.build ?? this.options.settings.build, pool, supervisor,
       deliveries: {
-        pool: { [FACTORY_HOST_FILES.serverCertificate]: source(FACTORY_HOST_FILES.serverCertificate), [FACTORY_HOST_FILES.serverKey]: source(FACTORY_HOST_FILES.serverKey), [FACTORY_HOST_FILES.tokenPublicKey]: source(FACTORY_HOST_FILES.tokenPublicKey) },
+        pool: {
+          [FACTORY_HOST_FILES.serverCertificate]: source(FACTORY_HOST_FILES.serverCertificate), [FACTORY_HOST_FILES.serverKey]: source(FACTORY_HOST_FILES.serverKey), [FACTORY_HOST_FILES.tokenPublicKey]: source(FACTORY_HOST_FILES.tokenPublicKey),
+          [FACTORY_HOST_FILES.metricsScrapeToken]: source(FACTORY_HOST_FILES.metricsScrapeToken),
+        },
         supervisor: {
           [FACTORY_HOST_FILES.caCertificate]: source(FACTORY_HOST_FILES.caCertificate), [FACTORY_HOST_FILES.serverCertificate]: source(FACTORY_HOST_FILES.serverCertificate), [FACTORY_HOST_FILES.serverKey]: source(FACTORY_HOST_FILES.serverKey),
           [FACTORY_HOST_FILES.supervisorCertificate]: source(FACTORY_HOST_FILES.supervisorCertificate), [FACTORY_HOST_FILES.supervisorKey]: source(FACTORY_HOST_FILES.supervisorKey),
           [FACTORY_HOST_FILES.supervisorPoolToken]: source(FACTORY_HOST_FILES.supervisorPoolToken),
           [FACTORY_HOST_FILES.supervisorGuestBrokerToken]: source(FACTORY_HOST_FILES.supervisorGuestBrokerToken),
           [FACTORY_HOST_FILES.hostKey]: source(FACTORY_HOST_FILES.hostKey), [FACTORY_HOST_FILES.hostKeyId]: source(FACTORY_HOST_FILES.hostKeyId),
+          [FACTORY_HOST_FILES.metricsScrapeToken]: source(FACTORY_HOST_FILES.metricsScrapeToken),
         },
       },
     });
@@ -433,6 +481,35 @@ export class FactoryFleetHost {
     await write(this.paths.supervisorDelivery, bundle.deliveries.supervisor, { [FACTORY_HOST_FILES.trustBundle]: bundleText, "supervisor.json": `${JSON.stringify(bundle.supervisor)}\n` });
     for (const writer of ["pool", "supervisor"]) await openFactoryPrivateDirectory(resolve(this.paths.readinessDirectory, writer)).then((handle) => handle.close());
     await openFactoryPrivateDirectory(this.paths.runnerRoot).then((handle) => handle.close());
+  }
+
+  /**
+   * The evaluator's directory: its config, the scrape token, and the target
+   * list of every job, rewritten on each publish so an admission or a release
+   * reaches the evaluator without a restart (file discovery).
+   */
+  private async writeEvaluator(bundle: FactoryFleetHostBundle): Promise<void> {
+    const directory = this.paths.prometheusDirectory;
+    for (const path of [directory, resolve(directory, "targets"), this.paths.prometheusDataDirectory]) await openFactoryPrivateDirectory(path).then((handle) => handle.close());
+    const write = (path: string, text: string) => replaceFactoryPrivateFile(path, text);
+    await write(resolve(directory, "scrape-token"), new TextDecoder().decode(await readFactoryPrivatePath(factoryPrivatePath(this.paths.context.secretDirectory, FACTORY_HOST_FILES.metricsScrapeToken))));
+    await write(resolve(directory, "prometheus.yml"), renderFactoryPrometheusConfig({
+      ruleFile: `${FACTORY_PROMETHEUS_CONTAINER_RULES}/factory-alerts.yml`, tokenFile: `${FACTORY_PROMETHEUS_CONTAINER_CONFIG}/scrape-token`, targetsDirectory: `${FACTORY_PROMETHEUS_CONTAINER_CONFIG}/targets`,
+    }));
+    const loopback = (port: number) => `127.0.0.1:${port}`;
+    const targets: FactoryPrometheusTarget[] = [
+      ...bundle.admitted.flatMap((entry) => {
+        const ports = factoryInstallationPorts(entry.tenantId, this.options.settings.portBase);
+        return [
+          { service: "harness" as const, address: loopback(ports.harnessMetrics), tenant: entry.tenantId },
+          { service: "gateway" as const, address: loopback(ports.gatewayMetrics), tenant: entry.tenantId },
+          { service: "orchestrator" as const, address: loopback(ports.orchestratorMetrics), tenant: entry.tenantId },
+        ];
+      }),
+      { service: "pool", address: loopback(bundle.identity.ports.poolMetrics) },
+      { service: "supervisor", address: loopback(bundle.identity.ports.supervisorMetrics) },
+    ];
+    for (const [name, text] of Object.entries(factoryPrometheusTargetFiles(targets))) await write(resolve(directory, "targets", name), text);
   }
 
   /**

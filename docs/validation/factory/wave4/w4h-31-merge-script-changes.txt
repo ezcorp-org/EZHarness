@@ -1,0 +1,17 @@
+scripts/check-seccomp-bpf-fresh.sh
+scripts/lib/container-engine.sh
+scripts/mcp-conntrack-soak-24h.sh
+scripts/podman-compose.sh
+scripts/security-coverage.sh
+scripts/setup-podman.sh
+scripts/shipping-audit-vm.sh
+scripts/stage2-raw-network-proof.sh
+scripts/start-extension-runner-e2e.sh
+scripts/start-real-extension-preview.sh
+scripts/verify-docker-image.sh
+scripts/verify-docker-upgrade.sh
+scripts/verify-extension-container.sh
+scripts/verify-factory-local-gpu.sh
+scripts/verify-shipping-production-suite.sh
+scripts/verify-shipping-runtime.sh
+src/extensions/mcp-launcher.sh

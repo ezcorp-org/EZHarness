@@ -1,0 +1,5 @@
+Gate integrity FAILED (2 finding(s)):
+  test file DELETED: src/__tests__/task-stack-sdk-integration.test.ts — removing a test removes a gate — needs the gate-change-approved label
+  test file DELETED: src/__tests__/todo-tracker-sdk-integration.test.ts — removing a test removes a gate — needs the gate-change-approved label
+
+If a change here is legitimate, a maintainer must apply the `gate-change-approved` label (sets GATE_CHANGE_APPROVED=1).

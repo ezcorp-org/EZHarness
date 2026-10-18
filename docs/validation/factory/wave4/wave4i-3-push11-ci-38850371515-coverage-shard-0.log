@@ -1,0 +1,774 @@
+Coverage shard 0	Set up job	﻿2026-10-16T04:23:32.7958289Z Current runner version: '2.337.0'
+Coverage shard 0	Set up job	2026-10-16T04:23:32.7996724Z ##[group]Runner Image Provisioner
+Coverage shard 0	Set up job	2026-10-16T04:23:32.7998387Z Hosted Compute Agent
+Coverage shard 0	Set up job	2026-10-16T04:23:32.7999595Z Version: 20261012.601
+Coverage shard 0	Set up job	2026-10-16T04:23:32.8000638Z Commit: f3dc54e1fb89da6852db922499a0233137369e1d
+Coverage shard 0	Set up job	2026-10-16T04:23:32.8001901Z Build Date: 2026-10-12T17:48:21Z
+Coverage shard 0	Set up job	2026-10-16T04:23:32.8003062Z Worker ID: {d868c5a3-9fa8-4e90-87d0-14979741eb8b}
+Coverage shard 0	Set up job	2026-10-16T04:23:32.8004187Z Region: eastus
+Coverage shard 0	Set up job	2026-10-16T04:23:32.8005225Z Cloud: Azure
+Coverage shard 0	Set up job	2026-10-16T04:23:32.8006122Z ##[endgroup]
+Coverage shard 0	Set up job	2026-10-16T04:23:32.8008988Z ##[group]Operating System
+Coverage shard 0	Set up job	2026-10-16T04:23:32.8010057Z Ubuntu
+Coverage shard 0	Set up job	2026-10-16T04:23:32.8010863Z 24.04.5
+Coverage shard 0	Set up job	2026-10-16T04:23:32.8011831Z LTS
+Coverage shard 0	Set up job	2026-10-16T04:23:32.8012785Z ##[endgroup]
+Coverage shard 0	Set up job	2026-10-16T04:23:32.8013853Z ##[group]Runner Image
+Coverage shard 0	Set up job	2026-10-16T04:23:32.8014867Z Image: ubuntu-24.04
+Coverage shard 0	Set up job	2026-10-16T04:23:32.8015781Z Version: 20261012.334.1
+Coverage shard 0	Set up job	2026-10-16T04:23:32.8018024Z Included Software: https://github.com/actions/runner-images/blob/ubuntu24/20261012.334/images/ubuntu/Ubuntu2404-Readme.md
+Coverage shard 0	Set up job	2026-10-16T04:23:32.8021070Z Image Release: https://github.com/actions/runner-images/releases/tag/ubuntu24%2F20261012.334
+Coverage shard 0	Set up job	2026-10-16T04:23:32.8022756Z ##[endgroup]
+Coverage shard 0	Set up job	2026-10-16T04:23:32.8024634Z ##[group]GITHUB_TOKEN Permissions
+Coverage shard 0	Set up job	2026-10-16T04:23:32.8027341Z Contents: read
+Coverage shard 0	Set up job	2026-10-16T04:23:32.8028621Z Metadata: read
+Coverage shard 0	Set up job	2026-10-16T04:23:32.8029612Z ##[endgroup]
+Coverage shard 0	Set up job	2026-10-16T04:23:32.8033600Z Secret source: Actions
+Coverage shard 0	Set up job	2026-10-16T04:23:32.8035221Z Cache mode: write
+Coverage shard 0	Set up job	2026-10-16T04:23:32.8036352Z Prepare workflow directory
+Coverage shard 0	Set up job	2026-10-16T04:23:33.0311962Z Prepare all required actions
+Coverage shard 0	Set up job	2026-10-16T04:23:33.0363074Z Getting action download info
+Coverage shard 0	Set up job	2026-10-16T04:23:33.1844144Z Download action repository 'actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1' (SHA:3d3c42e5aac5ba805825da76410c181273ba90b1)
+Coverage shard 0	Set up job	2026-10-16T04:23:33.3045178Z Download action repository 'actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a' (SHA:043fb46d1a93c77aae656e7c1c64a875d1fc6a0a)
+Coverage shard 0	Set up job	2026-10-16T04:23:33.6504785Z Complete job name: Coverage shard 0
+Coverage shard 0	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	﻿2026-10-16T04:23:34.1194848Z ##[group]Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+Coverage shard 0	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:23:34.1196035Z with:
+Coverage shard 0	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:23:34.1196493Z   repository: ezcorp-org/EZHarness
+Coverage shard 0	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:23:34.1200536Z   token: ***
+Coverage shard 0	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:23:34.1200976Z   ssh-strict: true
+Coverage shard 0	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:23:34.1201411Z   ssh-user: git
+Coverage shard 0	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:23:34.1201847Z   persist-credentials: true
+Coverage shard 0	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:23:34.1202329Z   clean: true
+Coverage shard 0	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:23:34.1202764Z   sparse-checkout-cone-mode: true
+Coverage shard 0	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:23:34.1203280Z   fetch-depth: 1
+Coverage shard 0	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:23:34.1203701Z   fetch-tags: false
+Coverage shard 0	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:23:34.1204137Z   show-progress: true
+Coverage shard 0	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:23:34.1204578Z   lfs: false
+Coverage shard 0	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:23:34.1204980Z   submodules: false
+Coverage shard 0	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:23:34.1205420Z   set-safe-directory: true
+Coverage shard 0	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:23:34.1205924Z   allow-unsafe-pr-checkout: false
+Coverage shard 0	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:23:34.1206690Z env:
+Coverage shard 0	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:23:34.1207172Z   BUN_FEATURE_FLAG_DISABLE_SQL_AUTO_PIPELINING: 1
+Coverage shard 0	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:23:34.1207981Z   BUN_RUNTIME_TRANSPILER_CACHE_PATH: 0
+Coverage shard 0	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:23:34.1208552Z ##[endgroup]
+Coverage shard 0	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:23:34.2268449Z Syncing repository: ezcorp-org/EZHarness
+Coverage shard 0	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:23:34.2271197Z ##[group]Getting Git version info
+Coverage shard 0	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:23:34.2272390Z Working directory is '/home/runner/work/EZHarness/EZHarness'
+Coverage shard 0	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:23:34.2274046Z [command]/usr/bin/git version
+Coverage shard 0	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:23:34.2275502Z git version 2.55.0
+Coverage shard 0	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:23:34.2300121Z ##[endgroup]
+Coverage shard 0	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:23:34.2311896Z Temporarily overriding HOME='/home/runner/work/_temp/e697d822-7277-4419-8911-40a013ee330e' before making global git config changes
+Coverage shard 0	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:23:34.2314273Z Adding repository directory to the temporary git global config as a safe directory
+Coverage shard 0	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:23:34.2318449Z [command]/usr/bin/git config --global --add safe.directory /home/runner/work/EZHarness/EZHarness
+Coverage shard 0	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:23:34.2371962Z Deleting the contents of '/home/runner/work/EZHarness/EZHarness'
+Coverage shard 0	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:23:34.2376290Z ##[group]Determining repository object format
+Coverage shard 0	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:23:34.2378626Z ##[endgroup]
+Coverage shard 0	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:23:34.2380101Z ##[group]Initializing the repository
+Coverage shard 0	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:23:34.2383113Z [command]/usr/bin/git init /home/runner/work/EZHarness/EZHarness
+Coverage shard 0	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:23:34.2504324Z hint: Using 'master' as the name for the initial branch. This default branch name
+Coverage shard 0	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:23:34.2506171Z hint: will change to "main" in Git 3.0. To configure the initial branch name
+Coverage shard 0	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:23:34.2507970Z hint: to use in all of your new repositories, which will suppress this warning,
+Coverage shard 0	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:23:34.2509173Z hint: call:
+Coverage shard 0	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:23:34.2509801Z hint:
+Coverage shard 0	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:23:34.2510612Z hint: 	git config --global init.defaultBranch <name>
+Coverage shard 0	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:23:34.2511648Z hint:
+Coverage shard 0	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:23:34.2512571Z hint: Names commonly chosen instead of 'master' are 'main', 'trunk' and
+Coverage shard 0	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:23:34.2514139Z hint: 'development'. The just-created branch can be renamed via this command:
+Coverage shard 0	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:23:34.2515389Z hint:
+Coverage shard 0	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:23:34.2516043Z hint: 	git branch -m <name>
+Coverage shard 0	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:23:34.2516836Z hint:
+Coverage shard 0	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:23:34.2518041Z hint: Disable this message with "git config set advice.defaultBranchName false"
+Coverage shard 0	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:23:34.2519355Z Initialized empty Git repository in /home/runner/work/EZHarness/EZHarness/.git/
+Coverage shard 0	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:23:34.2521154Z [command]/usr/bin/git remote add origin https://github.com/ezcorp-org/EZHarness
+Coverage shard 0	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:23:34.2567714Z ##[endgroup]
+Coverage shard 0	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:23:34.2569209Z ##[group]Disabling automatic garbage collection
+Coverage shard 0	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:23:34.2571020Z [command]/usr/bin/git config --local gc.auto 0
+Coverage shard 0	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:23:34.2606461Z ##[endgroup]
+Coverage shard 0	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:23:34.2608011Z ##[group]Setting up auth
+Coverage shard 0	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:23:34.2609033Z Removing SSH command configuration
+Coverage shard 0	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:23:34.2612971Z [command]/usr/bin/git config --local --name-only --get-regexp core\.sshCommand
+Coverage shard 0	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:23:34.2656334Z [command]/usr/bin/git submodule foreach --recursive sh -c "git config --local --name-only --get-regexp 'core\.sshCommand' && git config --local --unset-all 'core.sshCommand' || :"
+Coverage shard 0	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:23:34.3024564Z Removing HTTP extra header
+Coverage shard 0	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:23:34.3032182Z [command]/usr/bin/git config --local --name-only --get-regexp http\.https\:\/\/github\.com\/\.extraheader
+Coverage shard 0	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:23:34.3076120Z [command]/usr/bin/git submodule foreach --recursive sh -c "git config --local --name-only --get-regexp 'http\.https\:\/\/github\.com\/\.extraheader' && git config --local --unset-all 'http.https://github.com/.extraheader' || :"
+Coverage shard 0	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:23:34.3314194Z Removing includeIf entries pointing to credentials config files
+Coverage shard 0	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:23:34.3319730Z [command]/usr/bin/git config --local --name-only --get-regexp ^includeIf\.gitdir:
+Coverage shard 0	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:23:34.3357469Z [command]/usr/bin/git submodule foreach --recursive git config --local --show-origin --name-only --get-regexp remote.origin.url
+Coverage shard 0	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:23:34.3590381Z [command]/usr/bin/git config --file /home/runner/work/_temp/git-credentials-71d68abb-cd50-4934-9fae-a1a2cdaa7804.config http.https://github.com/.extraheader AUTHORIZATION: basic ***
+Coverage shard 0	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:23:34.3634143Z [command]/usr/bin/git config --local includeIf.gitdir:/home/runner/work/EZHarness/EZHarness/.git.path /home/runner/work/_temp/git-credentials-71d68abb-cd50-4934-9fae-a1a2cdaa7804.config
+Coverage shard 0	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:23:34.3670715Z [command]/usr/bin/git config --local includeIf.gitdir:/home/runner/work/EZHarness/EZHarness/.git/worktrees/*.path /home/runner/work/_temp/git-credentials-71d68abb-cd50-4934-9fae-a1a2cdaa7804.config
+Coverage shard 0	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:23:34.3709377Z [command]/usr/bin/git config --local includeIf.gitdir:/github/workspace/.git.path /github/runner_temp/git-credentials-71d68abb-cd50-4934-9fae-a1a2cdaa7804.config
+Coverage shard 0	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:23:34.3746093Z [command]/usr/bin/git config --local includeIf.gitdir:/github/workspace/.git/worktrees/*.path /github/runner_temp/git-credentials-71d68abb-cd50-4934-9fae-a1a2cdaa7804.config
+Coverage shard 0	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:23:34.3779617Z ##[endgroup]
+Coverage shard 0	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:23:34.3780394Z ##[group]Fetching the repository
+Coverage shard 0	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:23:34.3788561Z [command]/usr/bin/git -c protocol.version=2 fetch --no-tags --prune --no-recurse-submodules --depth=1 origin +5dcc037abe0acf2d3261f6327a31a474adde5e1a:refs/remotes/pull/341/merge
+Coverage shard 0	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:23:39.1189120Z From https://github.com/ezcorp-org/EZHarness
+Coverage shard 0	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:23:39.1191298Z  * [new ref]         5dcc037abe0acf2d3261f6327a31a474adde5e1a -> pull/341/merge
+Coverage shard 0	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:23:39.1195619Z ##[endgroup]
+Coverage shard 0	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:23:39.1197114Z ##[group]Determining the checkout info
+Coverage shard 0	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:23:39.1199391Z ##[endgroup]
+Coverage shard 0	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:23:39.1200761Z [command]/usr/bin/git sparse-checkout disable
+Coverage shard 0	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:23:39.1266292Z [command]/usr/bin/git config --local --unset-all extensions.worktreeConfig
+Coverage shard 0	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:23:39.1308189Z ##[group]Checking out the ref
+Coverage shard 0	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:23:39.1312139Z [command]/usr/bin/git checkout --progress --force refs/remotes/pull/341/merge
+Coverage shard 0	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:23:40.1871204Z Updating files:  33% (5693/17084)
+Coverage shard 0	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:23:40.2107251Z Updating files:  34% (5809/17084)
+Coverage shard 0	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:23:40.2256911Z Updating files:  35% (5980/17084)
+Coverage shard 0	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:23:40.2339438Z Updating files:  36% (6151/17084)
+Coverage shard 0	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:23:40.2443889Z Updating files:  37% (6322/17084)
+Coverage shard 0	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:23:40.2549267Z Updating files:  38% (6492/17084)
+Coverage shard 0	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:23:40.2643892Z Updating files:  39% (6663/17084)
+Coverage shard 0	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:23:40.2753587Z Updating files:  40% (6834/17084)
+Coverage shard 0	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:23:40.2847970Z Updating files:  41% (7005/17084)
+Coverage shard 0	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:23:40.2921683Z Updating files:  42% (7176/17084)
+Coverage shard 0	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:23:40.2992720Z Updating files:  43% (7347/17084)
+Coverage shard 0	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:23:40.3076271Z Updating files:  44% (7517/17084)
+Coverage shard 0	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:23:40.3151077Z Updating files:  45% (7688/17084)
+Coverage shard 0	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:23:40.3231288Z Updating files:  46% (7859/17084)
+Coverage shard 0	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:23:40.3307024Z Updating files:  47% (8030/17084)
+Coverage shard 0	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:23:40.3384466Z Updating files:  48% (8201/17084)
+Coverage shard 0	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:23:40.3455090Z Updating files:  49% (8372/17084)
+Coverage shard 0	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:23:40.3551023Z Updating files:  50% (8542/17084)
+Coverage shard 0	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:23:40.3621507Z Updating files:  51% (8713/17084)
+Coverage shard 0	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:23:40.3716277Z Updating files:  52% (8884/17084)
+Coverage shard 0	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:23:40.3787661Z Updating files:  53% (9055/17084)
+Coverage shard 0	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:23:40.3852224Z Updating files:  54% (9226/17084)
+Coverage shard 0	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:23:40.3916850Z Updating files:  55% (9397/17084)
+Coverage shard 0	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:23:40.3983150Z Updating files:  56% (9568/17084)
+Coverage shard 0	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:23:40.4053748Z Updating files:  57% (9738/17084)
+Coverage shard 0	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:23:40.4124265Z Updating files:  58% (9909/17084)
+Coverage shard 0	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:23:40.4198200Z Updating files:  59% (10080/17084)
+Coverage shard 0	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:23:40.4297856Z Updating files:  60% (10251/17084)
+Coverage shard 0	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:23:40.4442254Z Updating files:  61% (10422/17084)
+Coverage shard 0	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:23:40.4566054Z Updating files:  62% (10593/17084)
+Coverage shard 0	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:23:40.4693432Z Updating files:  63% (10763/17084)
+Coverage shard 0	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:23:40.4808773Z Updating files:  64% (10934/17084)
+Coverage shard 0	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:23:40.4938388Z Updating files:  65% (11105/17084)
+Coverage shard 0	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:23:40.5056505Z Updating files:  66% (11276/17084)
+Coverage shard 0	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:23:40.5175546Z Updating files:  67% (11447/17084)
+Coverage shard 0	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:23:40.5304670Z Updating files:  68% (11618/17084)
+Coverage shard 0	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:23:40.5437032Z Updating files:  69% (11788/17084)
+Coverage shard 0	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:23:40.5576905Z Updating files:  70% (11959/17084)
+Coverage shard 0	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:23:40.5742845Z Updating files:  71% (12130/17084)
+Coverage shard 0	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:23:40.5888737Z Updating files:  72% (12301/17084)
+Coverage shard 0	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:23:40.6044052Z Updating files:  73% (12472/17084)
+Coverage shard 0	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:23:40.6173780Z Updating files:  74% (12643/17084)
+Coverage shard 0	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:23:40.6309722Z Updating files:  75% (12813/17084)
+Coverage shard 0	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:23:40.6446865Z Updating files:  76% (12984/17084)
+Coverage shard 0	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:23:40.6569790Z Updating files:  77% (13155/17084)
+Coverage shard 0	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:23:40.6722299Z Updating files:  78% (13326/17084)
+Coverage shard 0	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:23:40.6862034Z Updating files:  79% (13497/17084)
+Coverage shard 0	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:23:40.6999006Z Updating files:  80% (13668/17084)
+Coverage shard 0	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:23:40.7124160Z Updating files:  81% (13839/17084)
+Coverage shard 0	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:23:40.7264420Z Updating files:  82% (14009/17084)
+Coverage shard 0	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:23:40.7399217Z Updating files:  83% (14180/17084)
+Coverage shard 0	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:23:40.7533827Z Updating files:  84% (14351/17084)
+Coverage shard 0	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:23:40.7725801Z Updating files:  85% (14522/17084)
+Coverage shard 0	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:23:40.7839476Z Updating files:  86% (14693/17084)
+Coverage shard 0	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:23:40.7968259Z Updating files:  87% (14864/17084)
+Coverage shard 0	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:23:40.8089808Z Updating files:  88% (15034/17084)
+Coverage shard 0	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:23:40.8203506Z Updating files:  89% (15205/17084)
+Coverage shard 0	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:23:40.8332248Z Updating files:  90% (15376/17084)
+Coverage shard 0	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:23:40.8450974Z Updating files:  91% (15547/17084)
+Coverage shard 0	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:23:40.8573019Z Updating files:  92% (15718/17084)
+Coverage shard 0	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:23:40.8702043Z Updating files:  93% (15889/17084)
+Coverage shard 0	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:23:40.8823049Z Updating files:  94% (16059/17084)
+Coverage shard 0	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:23:40.8940954Z Updating files:  95% (16230/17084)
+Coverage shard 0	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:23:40.9044804Z Updating files:  96% (16401/17084)
+Coverage shard 0	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:23:40.9189614Z Updating files:  97% (16572/17084)
+Coverage shard 0	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:23:40.9342105Z Updating files:  98% (16743/17084)
+Coverage shard 0	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:23:40.9494700Z Updating files:  99% (16914/17084)
+Coverage shard 0	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:23:40.9495592Z Updating files: 100% (17084/17084)
+Coverage shard 0	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:23:40.9496291Z Updating files: 100% (17084/17084), done.
+Coverage shard 0	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:23:40.9668910Z Note: switching to 'refs/remotes/pull/341/merge'.
+Coverage shard 0	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:23:40.9669477Z 
+Coverage shard 0	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:23:40.9669941Z You are in 'detached HEAD' state. You can look around, make experimental
+Coverage shard 0	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:23:40.9671047Z changes and commit them, and you can discard any commits you make in this
+Coverage shard 0	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:23:40.9672067Z state without impacting any branches by switching back to a branch.
+Coverage shard 0	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:23:40.9672712Z 
+Coverage shard 0	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:23:40.9673131Z If you want to create a new branch to retain commits you create, you may
+Coverage shard 0	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:23:40.9673934Z do so (now or later) by using -c with the switch command. Example:
+Coverage shard 0	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:23:40.9685464Z 
+Coverage shard 0	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:23:40.9685647Z   git switch -c <new-branch-name>
+Coverage shard 0	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:23:40.9685888Z 
+Coverage shard 0	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:23:40.9686012Z Or undo this operation with:
+Coverage shard 0	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:23:40.9686216Z 
+Coverage shard 0	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:23:40.9686322Z   git switch -
+Coverage shard 0	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:23:40.9686467Z 
+Coverage shard 0	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:23:40.9686785Z Turn off this advice by setting config variable advice.detachedHead to false
+Coverage shard 0	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:23:40.9687482Z 
+Coverage shard 0	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:23:40.9688179Z HEAD is now at 5dcc037 Merge ff8331a70d86e600c6d23dd4c9c664320a656dfe into 934531e2e9e8fd0c3c97e48527d545ca3476eb5e
+Coverage shard 0	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:23:40.9712736Z ##[endgroup]
+Coverage shard 0	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:23:40.9765226Z [command]/usr/bin/git log -1 --format=%H
+Coverage shard 0	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:23:40.9796129Z 5dcc037abe0acf2d3261f6327a31a474adde5e1a
+Coverage shard 0	Run ./.github/actions/setup	﻿2026-10-16T04:23:41.0958071Z Prepare all required actions
+Coverage shard 0	Run ./.github/actions/setup	2026-10-16T04:23:41.0958711Z Getting action download info
+Coverage shard 0	Run ./.github/actions/setup	2026-10-16T04:23:41.1832618Z Download action repository 'oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6' (SHA:0c5077e51419868618aeaa5fe8019c62421857d6)
+Coverage shard 0	Run ./.github/actions/setup	2026-10-16T04:23:41.3199151Z Download action repository 'actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9' (SHA:55cc8345863c7cc4c66a329aec7e433d2d1c52a9)
+Coverage shard 0	Run ./.github/actions/setup	2026-10-16T04:23:41.5966981Z ##[group]Run ./.github/actions/setup
+Coverage shard 0	Run ./.github/actions/setup	2026-10-16T04:23:41.5967279Z with:
+Coverage shard 0	Run ./.github/actions/setup	2026-10-16T04:23:41.5967691Z   web: true
+Coverage shard 0	Run ./.github/actions/setup	2026-10-16T04:23:41.5967914Z   sync: true
+Coverage shard 0	Run ./.github/actions/setup	2026-10-16T04:23:41.5968114Z   playwright: false
+Coverage shard 0	Run ./.github/actions/setup	2026-10-16T04:23:41.5968329Z env:
+Coverage shard 0	Run ./.github/actions/setup	2026-10-16T04:23:41.5968548Z   BUN_FEATURE_FLAG_DISABLE_SQL_AUTO_PIPELINING: 1
+Coverage shard 0	Run ./.github/actions/setup	2026-10-16T04:23:41.5968868Z   BUN_RUNTIME_TRANSPILER_CACHE_PATH: 0
+Coverage shard 0	Run ./.github/actions/setup	2026-10-16T04:23:41.5969125Z ##[endgroup]
+Coverage shard 0	Run ./.github/actions/setup	2026-10-16T04:23:41.6314831Z ##[start-action display=Isolate runtime configuration between Bun processes;id=__self.__run]
+Coverage shard 0	Run ./.github/actions/setup	2026-10-16T04:23:41.6700639Z ##[group]Run echo 'BUN_RUNTIME_TRANSPILER_CACHE_PATH=0' >> "$GITHUB_ENV"
+Coverage shard 0	Run ./.github/actions/setup	2026-10-16T04:23:41.6701299Z ^[[36;1mecho 'BUN_RUNTIME_TRANSPILER_CACHE_PATH=0' >> "$GITHUB_ENV"^[[0m
+Coverage shard 0	Run ./.github/actions/setup	2026-10-16T04:23:41.6958906Z shell: /usr/bin/bash --noprofile --norc -e -o pipefail {0}
+Coverage shard 0	Run ./.github/actions/setup	2026-10-16T04:23:41.6959359Z env:
+Coverage shard 0	Run ./.github/actions/setup	2026-10-16T04:23:41.6959648Z   BUN_FEATURE_FLAG_DISABLE_SQL_AUTO_PIPELINING: 1
+Coverage shard 0	Run ./.github/actions/setup	2026-10-16T04:23:41.6960029Z   BUN_RUNTIME_TRANSPILER_CACHE_PATH: 0
+Coverage shard 0	Run ./.github/actions/setup	2026-10-16T04:23:41.6960350Z ##[endgroup]
+Coverage shard 0	Run ./.github/actions/setup	2026-10-16T04:23:41.7093225Z ##[end-action id=__self.__run;outcome=success;conclusion=success;duration_ms=77]
+Coverage shard 0	Run ./.github/actions/setup	2026-10-16T04:23:41.7380443Z ##[start-action display=Run oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6;id=__self.__oven-sh_setup-bun]
+Coverage shard 0	Run ./.github/actions/setup	2026-10-16T04:23:41.8928070Z ##[group]Run oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6
+Coverage shard 0	Run ./.github/actions/setup	2026-10-16T04:23:41.8928533Z with:
+Coverage shard 0	Run ./.github/actions/setup	2026-10-16T04:23:41.8928744Z   bun-version-file: .bun-version
+Coverage shard 0	Run ./.github/actions/setup	2026-10-16T04:23:41.8928992Z   no-cache: false
+Coverage shard 0	Run ./.github/actions/setup	2026-10-16T04:23:41.8931386Z   token: ***
+Coverage shard 0	Run ./.github/actions/setup	2026-10-16T04:23:41.8931603Z env:
+Coverage shard 0	Run ./.github/actions/setup	2026-10-16T04:23:41.8931825Z   BUN_FEATURE_FLAG_DISABLE_SQL_AUTO_PIPELINING: 1
+Coverage shard 0	Run ./.github/actions/setup	2026-10-16T04:23:41.8932138Z   BUN_RUNTIME_TRANSPILER_CACHE_PATH: 0
+Coverage shard 0	Run ./.github/actions/setup	2026-10-16T04:23:41.8932393Z ##[endgroup]
+Coverage shard 0	Run ./.github/actions/setup	2026-10-16T04:23:42.0717075Z Obtained version 1.4.2 from .bun-version
+Coverage shard 0	Run ./.github/actions/setup	2026-10-16T04:23:42.1599538Z Cache hit for: bun-gmoqYqdUbaYsI0KujeXt7Zg/p0I=
+Coverage shard 0	Run ./.github/actions/setup	2026-10-16T04:23:42.4309802Z Received 35684134 of 35684134 (100.0%), 153.3 MBs/sec
+Coverage shard 0	Run ./.github/actions/setup	2026-10-16T04:23:42.4310436Z Cache Size: ~34 MB (35684134 B)
+Coverage shard 0	Run ./.github/actions/setup	2026-10-16T04:23:42.4344192Z [command]/usr/bin/tar -xf /home/runner/work/_temp/c580fdf5-1e28-42a4-ab4f-80345984b2db/cache.tzst -P -C /home/runner/work/EZHarness/EZHarness --use-compress-program unzstd
+Coverage shard 0	Run ./.github/actions/setup	2026-10-16T04:23:42.5820100Z Cache restored successfully
+Coverage shard 0	Run ./.github/actions/setup	2026-10-16T04:23:42.5847002Z [command]/home/runner/.bun/bin/bun --revision
+Coverage shard 0	Run ./.github/actions/setup	2026-10-16T04:23:42.5904400Z 1.4.2+744846f84
+Coverage shard 0	Run ./.github/actions/setup	2026-10-16T04:23:42.5912462Z Using a cached version of Bun: 1.4.2+744846f84
+Coverage shard 0	Run ./.github/actions/setup	2026-10-16T04:23:42.6032757Z ##[end-action id=__self.__oven-sh_setup-bun;outcome=success;conclusion=success;duration_ms=865]
+Coverage shard 0	Run ./.github/actions/setup	2026-10-16T04:23:42.6606711Z ##[start-action display=Cache bun global install cache;id=__self.__actions_cache]
+Coverage shard 0	Run ./.github/actions/setup	2026-10-16T04:23:43.1865229Z ##[group]Run actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9
+Coverage shard 0	Run ./.github/actions/setup	2026-10-16T04:23:43.1865643Z with:
+Coverage shard 0	Run ./.github/actions/setup	2026-10-16T04:23:43.1865878Z   path: ~/.bun/install/cache
+Coverage shard 0	Run ./.github/actions/setup	2026-10-16T04:23:43.1866563Z   key: bun-Linux-1cb0b65f53718e04a897d6022305d459ca3163956ac9c65ff703d281bfc19c1c-1dac0a653fe0a5657494557972d43ceb2a90cc64b3a4f001424de9a6fbfafd47
+Coverage shard 0	Run ./.github/actions/setup	2026-10-16T04:23:43.1867697Z   restore-keys: bun-Linux-1cb0b65f53718e04a897d6022305d459ca3163956ac9c65ff703d281bfc19c1c-
+Coverage shard 0	Run ./.github/actions/setup	
+Coverage shard 0	Run ./.github/actions/setup	2026-10-16T04:23:43.1868214Z   enableCrossOsArchive: false
+Coverage shard 0	Run ./.github/actions/setup	2026-10-16T04:23:43.1868478Z   fail-on-cache-miss: false
+Coverage shard 0	Run ./.github/actions/setup	2026-10-16T04:23:43.1868719Z   lookup-only: false
+Coverage shard 0	Run ./.github/actions/setup	2026-10-16T04:23:43.1868938Z   save-always: false
+Coverage shard 0	Run ./.github/actions/setup	2026-10-16T04:23:43.1869146Z env:
+Coverage shard 0	Run ./.github/actions/setup	2026-10-16T04:23:43.1869383Z   BUN_FEATURE_FLAG_DISABLE_SQL_AUTO_PIPELINING: 1
+Coverage shard 0	Run ./.github/actions/setup	2026-10-16T04:23:43.1869709Z   BUN_RUNTIME_TRANSPILER_CACHE_PATH: 0
+Coverage shard 0	Run ./.github/actions/setup	2026-10-16T04:23:43.1870428Z ##[endgroup]
+Coverage shard 0	Run ./.github/actions/setup	2026-10-16T04:23:43.3769235Z Cache hit for: bun-Linux-1cb0b65f53718e04a897d6022305d459ca3163956ac9c65ff703d281bfc19c1c-1dac0a653fe0a5657494557972d43ceb2a90cc64b3a4f001424de9a6fbfafd47
+Coverage shard 0	Run ./.github/actions/setup	2026-10-16T04:23:44.4383320Z Received 218103808 of 358988266 (60.8%), 206.8 MBs/sec
+Coverage shard 0	Run ./.github/actions/setup	2026-10-16T04:23:44.9334935Z Received 358988266 of 358988266 (100.0%), 228.1 MBs/sec
+Coverage shard 0	Run ./.github/actions/setup	2026-10-16T04:23:44.9337825Z Cache Size: ~342 MB (358988266 B)
+Coverage shard 0	Run ./.github/actions/setup	2026-10-16T04:23:44.9415261Z [command]/usr/bin/tar -xf /home/runner/work/_temp/4fa1c5d5-a051-4681-b3c1-2a111b0123fb/cache.tzst -P -C /home/runner/work/EZHarness/EZHarness --use-compress-program unzstd
+Coverage shard 0	Run ./.github/actions/setup	2026-10-16T04:23:48.3378812Z Cache restored successfully
+Coverage shard 0	Run ./.github/actions/setup	2026-10-16T04:23:48.3624264Z Cache restored from key: bun-Linux-1cb0b65f53718e04a897d6022305d459ca3163956ac9c65ff703d281bfc19c1c-1dac0a653fe0a5657494557972d43ceb2a90cc64b3a4f001424de9a6fbfafd47
+Coverage shard 0	Run ./.github/actions/setup	2026-10-16T04:23:48.3752517Z ##[end-action id=__self.__actions_cache;outcome=success;conclusion=success;duration_ms=5714]
+Coverage shard 0	Run ./.github/actions/setup	2026-10-16T04:23:48.3833387Z ##[start-action display=Install root deps;id=__self.__run_2]
+Coverage shard 0	Run ./.github/actions/setup	2026-10-16T04:23:48.3966744Z ##[group]Run bun install --frozen-lockfile
+Coverage shard 0	Run ./.github/actions/setup	2026-10-16T04:23:48.3967169Z ^[[36;1mbun install --frozen-lockfile^[[0m
+Coverage shard 0	Run ./.github/actions/setup	2026-10-16T04:23:48.4035838Z shell: /usr/bin/bash --noprofile --norc -e -o pipefail {0}
+Coverage shard 0	Run ./.github/actions/setup	2026-10-16T04:23:48.4036220Z env:
+Coverage shard 0	Run ./.github/actions/setup	2026-10-16T04:23:48.4036461Z   BUN_FEATURE_FLAG_DISABLE_SQL_AUTO_PIPELINING: 1
+Coverage shard 0	Run ./.github/actions/setup	2026-10-16T04:23:48.4036812Z   BUN_RUNTIME_TRANSPILER_CACHE_PATH: 0
+Coverage shard 0	Run ./.github/actions/setup	2026-10-16T04:23:48.4037303Z ##[endgroup]
+Coverage shard 0	Run ./.github/actions/setup	2026-10-16T04:23:48.4151449Z bun install v1.4.2 (744846f84)
+Coverage shard 0	Run ./.github/actions/setup	2026-10-16T04:23:48.4236513Z Resolving dependencies
+Coverage shard 0	Run ./.github/actions/setup	2026-10-16T04:23:48.6386441Z Resolved, downloaded and extracted [3]
+Coverage shard 0	Run ./.github/actions/setup	2026-10-16T04:23:55.3095111Z 
+Coverage shard 0	Run ./.github/actions/setup	2026-10-16T04:23:55.3095984Z $ bun run build:packages && bash scripts/setup-git-hooks.sh
+Coverage shard 0	Run ./.github/actions/setup	2026-10-16T04:23:55.3149106Z $ bun scripts/build-workspace-packages.ts
+Coverage shard 0	Run ./.github/actions/setup	2026-10-16T04:23:55.3274813Z build:packages: @ezcorp/extension-contract (packages/@ezcorp/extension-contract)
+Coverage shard 0	Run ./.github/actions/setup	2026-10-16T04:23:55.3312312Z $ tsc -b tsconfig.build.json
+Coverage shard 0	Run ./.github/actions/setup	2026-10-16T04:23:55.4225232Z build:packages: @ezcorp/sdk (packages/@ezcorp/sdk)
+Coverage shard 0	Run ./.github/actions/setup	2026-10-16T04:23:55.4249874Z $ bunx tsc -b tsconfig.build.json
+Coverage shard 0	Run ./.github/actions/setup	2026-10-16T04:23:55.5233041Z build:packages: @ezcorp/factory-sdk (packages/@ezcorp/factory-sdk)
+Coverage shard 0	Run ./.github/actions/setup	2026-10-16T04:23:55.5261707Z $ bunx tsc -b tsconfig.build.json
+Coverage shard 0	Run ./.github/actions/setup	2026-10-16T04:23:58.6212093Z build:packages: @ezcorp/factory-transport (packages/@ezcorp/factory-transport)
+Coverage shard 0	Run ./.github/actions/setup	2026-10-16T04:23:58.6238169Z $ tsc -b tsconfig.build.json
+Coverage shard 0	Run ./.github/actions/setup	2026-10-16T04:23:59.5864447Z build:packages: @ezcorp/factory-orchestrator (packages/@ezcorp/factory-orchestrator)
+Coverage shard 0	Run ./.github/actions/setup	2026-10-16T04:23:59.5903106Z $ bun run --cwd ../factory-transport build && tsc -b tsconfig.build.json
+Coverage shard 0	Run ./.github/actions/setup	2026-10-16T04:23:59.5927568Z $ tsc -b tsconfig.build.json
+Coverage shard 0	Run ./.github/actions/setup	2026-10-16T04:24:02.7925183Z build:packages: @ezcorp/harness-client (packages/@ezcorp/harness-client)
+Coverage shard 0	Run ./.github/actions/setup	2026-10-16T04:24:02.7951832Z $ bunx tsc -b tsconfig.build.json
+Coverage shard 0	Run ./.github/actions/setup	2026-10-16T04:24:04.1777002Z 
+Coverage shard 0	Run ./.github/actions/setup	2026-10-16T04:24:04.1778386Z + @biomejs/biome@2.5.14
+Coverage shard 0	Run ./.github/actions/setup	2026-10-16T04:24:04.1798915Z + @types/bun@1.4.2
+Coverage shard 0	Run ./.github/actions/setup	2026-10-16T04:24:04.1799342Z + @types/js-yaml@4.0.9
+Coverage shard 0	Run ./.github/actions/setup	2026-10-16T04:24:04.1799668Z + @types/node@26.6.3 (v26.6.5 available)
+Coverage shard 0	Run ./.github/actions/setup	2026-10-16T04:24:04.1799973Z + drizzle-kit@0.31.11
+Coverage shard 0	Run ./.github/actions/setup	2026-10-16T04:24:04.1800254Z + @aws-sdk/client-kms@3.1131.0
+Coverage shard 0	Run ./.github/actions/setup	2026-10-16T04:24:04.1800554Z + @aws-sdk/client-s3@3.1131.0
+Coverage shard 0	Run ./.github/actions/setup	2026-10-16T04:24:04.1800806Z + @balena/dockerignore@1.0.2
+Coverage shard 0	Run ./.github/actions/setup	2026-10-16T04:24:04.1801308Z + @earendil-works/pi-agent-core@0.99.2
+Coverage shard 0	Run ./.github/actions/setup	2026-10-16T04:24:04.1801845Z + @earendil-works/pi-ai@0.99.2
+Coverage shard 0	Run ./.github/actions/setup	2026-10-16T04:24:04.1802296Z + @electric-sql/pglite@0.5.8
+Coverage shard 0	Run ./.github/actions/setup	2026-10-16T04:24:04.1802745Z + @electric-sql/pglite-pgvector@0.0.9
+Coverage shard 0	Run ./.github/actions/setup	2026-10-16T04:24:04.1803252Z + @huggingface/transformers@4.3.0
+Coverage shard 0	Run ./.github/actions/setup	2026-10-16T04:24:04.1803656Z + @modelcontextprotocol/sdk@1.31.0
+Coverage shard 0	Run ./.github/actions/setup	2026-10-16T04:24:04.1803931Z + @zxing/library@0.23.0
+Coverage shard 0	Run ./.github/actions/setup	2026-10-16T04:24:04.1804160Z + drizzle-orm@0.45.3
+Coverage shard 0	Run ./.github/actions/setup	2026-10-16T04:24:04.1804376Z + exceljs@4.4.0
+Coverage shard 0	Run ./.github/actions/setup	2026-10-16T04:24:04.1804948Z + fast-png@8.0.0
+Coverage shard 0	Run ./.github/actions/setup	2026-10-16T04:24:04.1805160Z + file-type@22.1.1
+Coverage shard 0	Run ./.github/actions/setup	2026-10-16T04:24:04.1805369Z + jpeg-js@0.4.4
+Coverage shard 0	Run ./.github/actions/setup	2026-10-16T04:24:04.1805583Z + pdf-parse@2.4.5
+Coverage shard 0	Run ./.github/actions/setup	2026-10-16T04:24:04.1805790Z + yaml@2.9.1
+Coverage shard 0	Run ./.github/actions/setup	2026-10-16T04:24:04.1806006Z + typescript@5.9.3 (v7.0.2 available)
+Coverage shard 0	Run ./.github/actions/setup	2026-10-16T04:24:04.1806199Z 
+Coverage shard 0	Run ./.github/actions/setup	2026-10-16T04:24:04.1806305Z 481 packages installed [15.76s]
+Coverage shard 0	Run ./.github/actions/setup	2026-10-16T04:24:04.1812983Z ##[end-action id=__self.__run_2;outcome=success;conclusion=success;duration_ms=15797]
+Coverage shard 0	Run ./.github/actions/setup	2026-10-16T04:24:04.1939980Z ##[start-action display=Install web deps;id=__self.__run_3]
+Coverage shard 0	Run ./.github/actions/setup	2026-10-16T04:24:04.2044689Z ##[group]Run cd web && bun install --frozen-lockfile
+Coverage shard 0	Run ./.github/actions/setup	2026-10-16T04:24:04.2045112Z ^[[36;1mcd web && bun install --frozen-lockfile^[[0m
+Coverage shard 0	Run ./.github/actions/setup	2026-10-16T04:24:04.2109786Z shell: /usr/bin/bash --noprofile --norc -e -o pipefail {0}
+Coverage shard 0	Run ./.github/actions/setup	2026-10-16T04:24:04.2110158Z env:
+Coverage shard 0	Run ./.github/actions/setup	2026-10-16T04:24:04.2110406Z   BUN_FEATURE_FLAG_DISABLE_SQL_AUTO_PIPELINING: 1
+Coverage shard 0	Run ./.github/actions/setup	2026-10-16T04:24:04.2110753Z   BUN_RUNTIME_TRANSPILER_CACHE_PATH: 0
+Coverage shard 0	Run ./.github/actions/setup	2026-10-16T04:24:04.2111024Z ##[endgroup]
+Coverage shard 0	Run ./.github/actions/setup	2026-10-16T04:24:04.2239426Z bun install v1.4.2 (744846f84)
+Coverage shard 0	Run ./.github/actions/setup	2026-10-16T04:24:04.2278281Z Resolving dependencies
+Coverage shard 0	Run ./.github/actions/setup	2026-10-16T04:24:04.2288140Z Resolved, downloaded and extracted [1]
+Coverage shard 0	Run ./.github/actions/setup	2026-10-16T04:24:06.1755202Z 
+Coverage shard 0	Run ./.github/actions/setup	2026-10-16T04:24:06.1758214Z $ svelte-kit sync || echo ''
+Coverage shard 0	Run ./.github/actions/setup	2026-10-16T04:24:07.0572378Z ^[[33m(!) Your Vite config uses features that are unsupported by `configLoader: 'native'`, which is planned to become the default in a future major version of Vite:
+Coverage shard 0	Run ./.github/actions/setup	2026-10-16T04:24:07.0573742Z   - import "./src/lib/build/preview-pipeline-guard" without a file extension (vite.config.ts:6:38). Add the file extension
+Coverage shard 0	Run ./.github/actions/setup	2026-10-16T04:24:07.0575073Z Set `VITE_CONFIG_NATIVE_IGNORE_WARNING=true` to suppress this warning.^[[39m
+Coverage shard 0	Run ./.github/actions/setup	2026-10-16T04:24:07.8398239Z 
+Coverage shard 0	Run ./.github/actions/setup	2026-10-16T04:24:07.8398887Z + @axe-core/playwright@4.13.0
+Coverage shard 0	Run ./.github/actions/setup	2026-10-16T04:24:07.8399435Z + @playwright/test@1.63.0
+Coverage shard 0	Run ./.github/actions/setup	2026-10-16T04:24:07.8399870Z + @stryker-mutator/core@10.0.0
+Coverage shard 0	Run ./.github/actions/setup	2026-10-16T04:24:07.8400201Z + @stryker-mutator/vitest-runner@10.0.0
+Coverage shard 0	Run ./.github/actions/setup	2026-10-16T04:24:07.8400593Z + @sveltejs/kit@2.70.3
+Coverage shard 0	Run ./.github/actions/setup	2026-10-16T04:24:07.8401025Z + @sveltejs/vite-plugin-svelte@7.3.1
+Coverage shard 0	Run ./.github/actions/setup	2026-10-16T04:24:07.8401529Z + @tailwindcss/vite@4.3.3
+Coverage shard 0	Run ./.github/actions/setup	2026-10-16T04:24:07.8401885Z + @testing-library/jest-dom@7.0.1
+Coverage shard 0	Run ./.github/actions/setup	2026-10-16T04:24:07.8402246Z + @testing-library/svelte@5.4.2
+Coverage shard 0	Run ./.github/actions/setup	2026-10-16T04:24:07.8402572Z + @types/jsdom@30.0.0
+Coverage shard 0	Run ./.github/actions/setup	2026-10-16T04:24:07.8402866Z + @typescript/native@7.0.2
+Coverage shard 0	Run ./.github/actions/setup	2026-10-16T04:24:07.8403240Z + @vitest/coverage-v8@5.0.3
+Coverage shard 0	Run ./.github/actions/setup	2026-10-16T04:24:07.8403561Z + ast-v8-to-istanbul@1.0.7
+Coverage shard 0	Run ./.github/actions/setup	2026-10-16T04:24:07.8403887Z + istanbul-lib-coverage@3.2.2
+Coverage shard 0	Run ./.github/actions/setup	2026-10-16T04:24:07.8404224Z + jsdom@30.1.1
+Coverage shard 0	Run ./.github/actions/setup	2026-10-16T04:24:07.8404518Z + rollup-plugin-visualizer@7.1.1
+Coverage shard 0	Run ./.github/actions/setup	2026-10-16T04:24:07.8404868Z + svelte@5.57.1
+Coverage shard 0	Run ./.github/actions/setup	2026-10-16T04:24:07.8405135Z + svelte-check@4.7.6
+Coverage shard 0	Run ./.github/actions/setup	2026-10-16T04:24:07.8405421Z + tailwindcss@4.3.3
+Coverage shard 0	Run ./.github/actions/setup	2026-10-16T04:24:07.8405704Z + typescript@6.0.3
+Coverage shard 0	Run ./.github/actions/setup	2026-10-16T04:24:07.8405974Z + vite@8.3.2
+Coverage shard 0	Run ./.github/actions/setup	2026-10-16T04:24:07.8406226Z + vitest@5.0.3
+Coverage shard 0	Run ./.github/actions/setup	2026-10-16T04:24:07.8406502Z + @electric-sql/pglite@0.5.8
+Coverage shard 0	Run ./.github/actions/setup	2026-10-16T04:24:07.8406857Z + @electric-sql/pglite-pgvector@0.0.9
+Coverage shard 0	Run ./.github/actions/setup	2026-10-16T04:24:07.8407237Z + @huggingface/transformers@4.3.0
+Coverage shard 0	Run ./.github/actions/setup	2026-10-16T04:24:07.8407930Z + @xyflow/svelte@1.7.0
+Coverage shard 0	Run ./.github/actions/setup	2026-10-16T04:24:07.8408287Z + ansi_up@6.0.6
+Coverage shard 0	Run ./.github/actions/setup	2026-10-16T04:24:07.8408565Z + diff2html@3.4.56
+Coverage shard 0	Run ./.github/actions/setup	2026-10-16T04:24:07.8408837Z + elkjs@0.12.0
+Coverage shard 0	Run ./.github/actions/setup	2026-10-16T04:24:07.8409100Z + highlight.js@11.12.0
+Coverage shard 0	Run ./.github/actions/setup	2026-10-16T04:24:07.8409414Z + isomorphic-dompurify@4.4.0
+Coverage shard 0	Run ./.github/actions/setup	2026-10-16T04:24:07.8409734Z + kokoro-js@1.2.1
+Coverage shard 0	Run ./.github/actions/setup	2026-10-16T04:24:07.8410024Z + linkedom@0.18.13
+Coverage shard 0	Run ./.github/actions/setup	2026-10-16T04:24:07.8410294Z + lucide-svelte@1.0.1
+Coverage shard 0	Run ./.github/actions/setup	2026-10-16T04:24:07.8410584Z + marked@18.0.14
+Coverage shard 0	Run ./.github/actions/setup	2026-10-16T04:24:07.8410867Z + svelte-adapter-bun@1.0.1
+Coverage shard 0	Run ./.github/actions/setup	2026-10-16T04:24:07.8411187Z + svelte-dnd-action@0.9.79
+Coverage shard 0	Run ./.github/actions/setup	2026-10-16T04:24:07.8411489Z + zod@4.6.5
+Coverage shard 0	Run ./.github/actions/setup	2026-10-16T04:24:07.8411635Z 
+Coverage shard 0	Run ./.github/actions/setup	2026-10-16T04:24:07.8411767Z 495 packages installed [3.62s]
+Coverage shard 0	Run ./.github/actions/setup	2026-10-16T04:24:07.8441145Z ##[end-action id=__self.__run_3;outcome=success;conclusion=success;duration_ms=3650]
+Coverage shard 0	Run ./.github/actions/setup	2026-10-16T04:24:07.8537272Z ##[start-action display=SvelteKit sync;id=__self.__run_4]
+Coverage shard 0	Run ./.github/actions/setup	2026-10-16T04:24:07.8646071Z ##[group]Run cd web && bunx --bun svelte-kit sync
+Coverage shard 0	Run ./.github/actions/setup	2026-10-16T04:24:07.8646485Z ^[[36;1mcd web && bunx --bun svelte-kit sync^[[0m
+Coverage shard 0	Run ./.github/actions/setup	2026-10-16T04:24:07.8711427Z shell: /usr/bin/bash --noprofile --norc -e -o pipefail {0}
+Coverage shard 0	Run ./.github/actions/setup	2026-10-16T04:24:07.8711810Z env:
+Coverage shard 0	Run ./.github/actions/setup	2026-10-16T04:24:07.8712068Z   BUN_FEATURE_FLAG_DISABLE_SQL_AUTO_PIPELINING: 1
+Coverage shard 0	Run ./.github/actions/setup	2026-10-16T04:24:07.8712399Z   BUN_RUNTIME_TRANSPILER_CACHE_PATH: 0
+Coverage shard 0	Run ./.github/actions/setup	2026-10-16T04:24:07.8712683Z ##[endgroup]
+Coverage shard 0	Run ./.github/actions/setup	2026-10-16T04:24:08.8217931Z ^[[33m(!) Your Vite config uses features that are unsupported by `configLoader: 'native'`, which is planned to become the default in a future major version of Vite:
+Coverage shard 0	Run ./.github/actions/setup	2026-10-16T04:24:08.8219815Z   - import "./src/lib/build/preview-pipeline-guard" without a file extension (vite.config.ts:6:38). Add the file extension
+Coverage shard 0	Run ./.github/actions/setup	2026-10-16T04:24:08.8221258Z Set `VITE_CONFIG_NATIVE_IGNORE_WARNING=true` to suppress this warning.^[[39m
+Coverage shard 0	Run ./.github/actions/setup	2026-10-16T04:24:09.4971331Z ##[end-action id=__self.__run_4;outcome=success;conclusion=success;duration_ms=1643]
+Coverage shard 0	Run ./.github/actions/setup	2026-10-16T04:24:09.5152798Z ##[start-action display=Cache Playwright browsers;id=__self.pw-cache]
+Coverage shard 0	Run ./.github/actions/setup	2026-10-16T04:24:09.5239168Z ##[end-action id=__self.pw-cache;outcome=skipped;conclusion=skipped;duration_ms=0]
+Coverage shard 0	Run ./.github/actions/setup	2026-10-16T04:24:09.5315914Z ##[start-action display=Install Playwright chromium;id=__self.__run_5]
+Coverage shard 0	Run ./.github/actions/setup	2026-10-16T04:24:09.5366673Z ##[end-action id=__self.__run_5;outcome=skipped;conclusion=skipped;duration_ms=0]
+Coverage shard 0	Run ./.github/actions/setup	2026-10-16T04:24:09.5442626Z ##[start-action display=Install Playwright system deps (browser-cache miss only);id=__self.__run_6]
+Coverage shard 0	Run ./.github/actions/setup	2026-10-16T04:24:09.5492731Z ##[end-action id=__self.__run_6;outcome=skipped;conclusion=skipped;duration_ms=0]
+Coverage shard 0	Verify rootless extension runner controls	﻿2026-10-16T04:24:09.5699281Z ##[group]Run bash scripts/setup-extension-runner-ci.sh --install
+Coverage shard 0	Verify rootless extension runner controls	2026-10-16T04:24:09.5699870Z ^[[36;1mbash scripts/setup-extension-runner-ci.sh --install^[[0m
+Coverage shard 0	Verify rootless extension runner controls	2026-10-16T04:24:09.5764732Z shell: /usr/bin/bash -e {0}
+Coverage shard 0	Verify rootless extension runner controls	2026-10-16T04:24:09.5765009Z env:
+Coverage shard 0	Verify rootless extension runner controls	2026-10-16T04:24:09.5765254Z   BUN_FEATURE_FLAG_DISABLE_SQL_AUTO_PIPELINING: 1
+Coverage shard 0	Verify rootless extension runner controls	2026-10-16T04:24:09.5765590Z   BUN_RUNTIME_TRANSPILER_CACHE_PATH: 0
+Coverage shard 0	Verify rootless extension runner controls	2026-10-16T04:24:09.5765856Z ##[endgroup]
+Coverage shard 0	Verify rootless extension runner controls	2026-10-16T04:24:09.6633286Z Get:1 file:/etc/apt/apt-mirrors.txt Mirrorlist [144 B]
+Coverage shard 0	Verify rootless extension runner controls	2026-10-16T04:24:09.6882496Z Get:6 https://packages.microsoft.com/ubuntu/24.04/prod noble InRelease [3600 B]
+Coverage shard 0	Verify rootless extension runner controls	2026-10-16T04:24:09.6970100Z Hit:2 http://azure.archive.ubuntu.com/ubuntu noble InRelease
+Coverage shard 0	Verify rootless extension runner controls	2026-10-16T04:24:09.6983267Z Get:3 http://azure.archive.ubuntu.com/ubuntu noble-updates InRelease [126 kB]
+Coverage shard 0	Verify rootless extension runner controls	2026-10-16T04:24:09.7064430Z Get:4 http://azure.archive.ubuntu.com/ubuntu noble-backports InRelease [126 kB]
+Coverage shard 0	Verify rootless extension runner controls	2026-10-16T04:24:09.7110679Z Get:5 http://azure.archive.ubuntu.com/ubuntu noble-security InRelease [126 kB]
+Coverage shard 0	Verify rootless extension runner controls	2026-10-16T04:24:09.7833150Z Get:7 https://packages.microsoft.com/ubuntu/24.04/prod noble/main armhf Packages [12.4 kB]
+Coverage shard 0	Verify rootless extension runner controls	2026-10-16T04:24:09.7997208Z Get:8 https://packages.microsoft.com/ubuntu/24.04/prod noble/main amd64 Packages [581 kB]
+Coverage shard 0	Verify rootless extension runner controls	2026-10-16T04:24:09.8099052Z Get:9 https://packages.microsoft.com/ubuntu/24.04/prod noble/main arm64 Packages [523 kB]
+Coverage shard 0	Verify rootless extension runner controls	2026-10-16T04:24:09.9145110Z Get:10 http://azure.archive.ubuntu.com/ubuntu noble-updates/main amd64 Packages [1397 kB]
+Coverage shard 0	Verify rootless extension runner controls	2026-10-16T04:24:09.9227309Z Get:11 http://azure.archive.ubuntu.com/ubuntu noble-updates/main Translation-en [308 kB]
+Coverage shard 0	Verify rootless extension runner controls	2026-10-16T04:24:09.9252626Z Get:12 http://azure.archive.ubuntu.com/ubuntu noble-updates/universe amd64 Packages [1704 kB]
+Coverage shard 0	Verify rootless extension runner controls	2026-10-16T04:24:09.9342998Z Get:13 http://azure.archive.ubuntu.com/ubuntu noble-updates/universe Translation-en [342 kB]
+Coverage shard 0	Verify rootless extension runner controls	2026-10-16T04:24:09.9378583Z Get:14 http://azure.archive.ubuntu.com/ubuntu noble-updates/restricted amd64 Packages [1805 kB]
+Coverage shard 0	Verify rootless extension runner controls	2026-10-16T04:24:09.9467361Z Get:15 http://azure.archive.ubuntu.com/ubuntu noble-updates/restricted Translation-en [411 kB]
+Coverage shard 0	Verify rootless extension runner controls	2026-10-16T04:24:10.0207115Z Get:16 http://azure.archive.ubuntu.com/ubuntu noble-security/main amd64 Packages [1144 kB]
+Coverage shard 0	Verify rootless extension runner controls	2026-10-16T04:24:10.0273986Z Get:17 http://azure.archive.ubuntu.com/ubuntu noble-security/main Translation-en [231 kB]
+Coverage shard 0	Verify rootless extension runner controls	2026-10-16T04:24:10.0295456Z Get:18 http://azure.archive.ubuntu.com/ubuntu noble-security/universe amd64 Packages [1222 kB]
+Coverage shard 0	Verify rootless extension runner controls	2026-10-16T04:24:10.0381614Z Get:19 http://azure.archive.ubuntu.com/ubuntu noble-security/universe Translation-en [246 kB]
+Coverage shard 0	Verify rootless extension runner controls	2026-10-16T04:24:10.0864275Z Get:20 http://azure.archive.ubuntu.com/ubuntu noble-security/restricted amd64 Packages [1713 kB]
+Coverage shard 0	Verify rootless extension runner controls	2026-10-16T04:24:10.0959544Z Get:21 http://azure.archive.ubuntu.com/ubuntu noble-security/restricted Translation-en [392 kB]
+Coverage shard 0	Verify rootless extension runner controls	2026-10-16T04:24:15.0104285Z Fetched 12.4 MB in 1s (9394 kB/s)
+Coverage shard 0	Verify rootless extension runner controls	2026-10-16T04:24:15.9483327Z Reading package lists...
+Coverage shard 0	Verify rootless extension runner controls	2026-10-16T04:24:15.9796700Z Reading package lists...
+Coverage shard 0	Verify rootless extension runner controls	2026-10-16T04:24:16.2231981Z Building dependency tree...
+Coverage shard 0	Verify rootless extension runner controls	2026-10-16T04:24:16.2239857Z Reading state information...
+Coverage shard 0	Verify rootless extension runner controls	2026-10-16T04:24:16.4170710Z podman is already the newest version (4.9.3+ds1-1ubuntu0.2).
+Coverage shard 0	Verify rootless extension runner controls	2026-10-16T04:24:16.4171714Z uidmap is already the newest version (1:4.13+dfsg1-4ubuntu3.2).
+Coverage shard 0	Verify rootless extension runner controls	2026-10-16T04:24:16.4172256Z uidmap set to manually installed.
+Coverage shard 0	Verify rootless extension runner controls	2026-10-16T04:24:16.4172658Z slirp4netns is already the newest version (1.2.1-1build2).
+Coverage shard 0	Verify rootless extension runner controls	2026-10-16T04:24:16.4173102Z slirp4netns set to manually installed.
+Coverage shard 0	Verify rootless extension runner controls	2026-10-16T04:24:16.4173505Z fuse-overlayfs is already the newest version (1.13-1).
+Coverage shard 0	Verify rootless extension runner controls	2026-10-16T04:24:16.4173925Z fuse-overlayfs set to manually installed.
+Coverage shard 0	Verify rootless extension runner controls	2026-10-16T04:24:16.4174388Z dbus-user-session is already the newest version (1.14.10-4ubuntu4.1).
+Coverage shard 0	Verify rootless extension runner controls	2026-10-16T04:24:16.4174878Z dbus-user-session set to manually installed.
+Coverage shard 0	Verify rootless extension runner controls	2026-10-16T04:24:16.4175314Z python3 is already the newest version (3.12.3-0ubuntu2.1).
+Coverage shard 0	Verify rootless extension runner controls	2026-10-16T04:24:16.4176554Z util-linux is already the newest version (2.39.3-9ubuntu6.6).
+Coverage shard 0	Verify rootless extension runner controls	2026-10-16T04:24:16.4177359Z ca-certificates is already the newest version (20260601~24.04.1).
+Coverage shard 0	Verify rootless extension runner controls	2026-10-16T04:24:16.4178748Z The following additional packages will be installed:
+Coverage shard 0	Verify rootless extension runner controls	2026-10-16T04:24:16.4179392Z   libcurl3t64-gnutls libcurl4t64
+Coverage shard 0	Verify rootless extension runner controls	2026-10-16T04:24:16.4402236Z The following packages will be upgraded:
+Coverage shard 0	Verify rootless extension runner controls	2026-10-16T04:24:16.4407636Z   curl libcurl3t64-gnutls libcurl4t64
+Coverage shard 0	Verify rootless extension runner controls	2026-10-16T04:24:16.4580399Z 3 upgraded, 0 newly installed, 0 to remove and 41 not upgraded.
+Coverage shard 0	Verify rootless extension runner controls	2026-10-16T04:24:16.4581117Z Need to get 907 kB of archives.
+Coverage shard 0	Verify rootless extension runner controls	2026-10-16T04:24:16.4581712Z After this operation, 3072 B of additional disk space will be used.
+Coverage shard 0	Verify rootless extension runner controls	2026-10-16T04:24:16.4582436Z Get:1 file:/etc/apt/apt-mirrors.txt Mirrorlist [144 B]
+Coverage shard 0	Verify rootless extension runner controls	2026-10-16T04:24:16.5572756Z Get:2 http://azure.archive.ubuntu.com/ubuntu noble-security/main amd64 curl amd64 8.5.0-2ubuntu10.16 [226 kB]
+Coverage shard 0	Verify rootless extension runner controls	2026-10-16T04:24:16.6465215Z Get:3 http://azure.archive.ubuntu.com/ubuntu noble-security/main amd64 libcurl4t64 amd64 8.5.0-2ubuntu10.16 [344 kB]
+Coverage shard 0	Verify rootless extension runner controls	2026-10-16T04:24:16.7328323Z Get:4 http://azure.archive.ubuntu.com/ubuntu noble-security/main amd64 libcurl3t64-gnutls amd64 8.5.0-2ubuntu10.16 [337 kB]
+Coverage shard 0	Verify rootless extension runner controls	2026-10-16T04:24:17.0116735Z Fetched 907 kB in 0s (3154 kB/s)
+Coverage shard 0	Verify rootless extension runner controls	2026-10-16T04:24:17.0712655Z (Reading database ... 
+Coverage shard 0	Verify rootless extension runner controls	2026-10-16T04:24:17.0713290Z (Reading database ... 5%
+Coverage shard 0	Verify rootless extension runner controls	2026-10-16T04:24:17.0713795Z (Reading database ... 10%
+Coverage shard 0	Verify rootless extension runner controls	2026-10-16T04:24:17.0714298Z (Reading database ... 15%
+Coverage shard 0	Verify rootless extension runner controls	2026-10-16T04:24:17.0714780Z (Reading database ... 20%
+Coverage shard 0	Verify rootless extension runner controls	2026-10-16T04:24:17.0715259Z (Reading database ... 25%
+Coverage shard 0	Verify rootless extension runner controls	2026-10-16T04:24:17.0715754Z (Reading database ... 30%
+Coverage shard 0	Verify rootless extension runner controls	2026-10-16T04:24:17.0716241Z (Reading database ... 35%
+Coverage shard 0	Verify rootless extension runner controls	2026-10-16T04:24:17.0716696Z (Reading database ... 40%
+Coverage shard 0	Verify rootless extension runner controls	2026-10-16T04:24:17.0717007Z (Reading database ... 45%
+Coverage shard 0	Verify rootless extension runner controls	2026-10-16T04:24:17.0718053Z (Reading database ... 50%
+Coverage shard 0	Verify rootless extension runner controls	2026-10-16T04:24:17.0767633Z (Reading database ... 55%
+Coverage shard 0	Verify rootless extension runner controls	2026-10-16T04:24:17.1948356Z (Reading database ... 60%
+Coverage shard 0	Verify rootless extension runner controls	2026-10-16T04:24:17.4012914Z (Reading database ... 65%
+Coverage shard 0	Verify rootless extension runner controls	2026-10-16T04:24:17.6071830Z (Reading database ... 70%
+Coverage shard 0	Verify rootless extension runner controls	2026-10-16T04:24:17.7940912Z (Reading database ... 75%
+Coverage shard 0	Verify rootless extension runner controls	2026-10-16T04:24:17.9561830Z (Reading database ... 80%
+Coverage shard 0	Verify rootless extension runner controls	2026-10-16T04:24:18.1605019Z (Reading database ... 85%
+Coverage shard 0	Verify rootless extension runner controls	2026-10-16T04:24:18.3260128Z (Reading database ... 90%
+Coverage shard 0	Verify rootless extension runner controls	2026-10-16T04:24:18.5135434Z (Reading database ... 95%
+Coverage shard 0	Verify rootless extension runner controls	2026-10-16T04:24:18.5135939Z (Reading database ... 100%
+Coverage shard 0	Verify rootless extension runner controls	2026-10-16T04:24:18.5136410Z (Reading database ... 203540 files and directories currently installed.)
+Coverage shard 0	Verify rootless extension runner controls	2026-10-16T04:24:18.5181043Z Preparing to unpack .../curl_8.5.0-2ubuntu10.16_amd64.deb ...
+Coverage shard 0	Verify rootless extension runner controls	2026-10-16T04:24:18.5219878Z Unpacking curl (8.5.0-2ubuntu10.16) over (8.5.0-2ubuntu10.15) ...
+Coverage shard 0	Verify rootless extension runner controls	2026-10-16T04:24:18.5644732Z Preparing to unpack .../libcurl4t64_8.5.0-2ubuntu10.16_amd64.deb ...
+Coverage shard 0	Verify rootless extension runner controls	2026-10-16T04:24:18.5679201Z Unpacking libcurl4t64:amd64 (8.5.0-2ubuntu10.16) over (8.5.0-2ubuntu10.15) ...
+Coverage shard 0	Verify rootless extension runner controls	2026-10-16T04:24:18.6118245Z Preparing to unpack .../libcurl3t64-gnutls_8.5.0-2ubuntu10.16_amd64.deb ...
+Coverage shard 0	Verify rootless extension runner controls	2026-10-16T04:24:18.6185796Z Unpacking libcurl3t64-gnutls:amd64 (8.5.0-2ubuntu10.16) over (8.5.0-2ubuntu10.15) ...
+Coverage shard 0	Verify rootless extension runner controls	2026-10-16T04:24:18.6676405Z Setting up libcurl4t64:amd64 (8.5.0-2ubuntu10.16) ...
+Coverage shard 0	Verify rootless extension runner controls	2026-10-16T04:24:18.6698870Z Setting up libcurl3t64-gnutls:amd64 (8.5.0-2ubuntu10.16) ...
+Coverage shard 0	Verify rootless extension runner controls	2026-10-16T04:24:18.6716820Z Setting up curl (8.5.0-2ubuntu10.16) ...
+Coverage shard 0	Verify rootless extension runner controls	2026-10-16T04:24:18.6766484Z Processing triggers for man-db (2.12.0-4build2) ...
+Coverage shard 0	Verify rootless extension runner controls	2026-10-16T04:24:18.6790348Z Not building database; man-db/auto-update is not 'true'.
+Coverage shard 0	Verify rootless extension runner controls	2026-10-16T04:24:18.6803065Z Processing triggers for libc-bin (2.39-0ubuntu8.9) ...
+Coverage shard 0	Verify rootless extension runner controls	2026-10-16T04:24:19.3681484Z 
+Coverage shard 0	Verify rootless extension runner controls	2026-10-16T04:24:19.3682293Z Running kernel seems to be up-to-date.
+Coverage shard 0	Verify rootless extension runner controls	2026-10-16T04:24:19.3682596Z 
+Coverage shard 0	Verify rootless extension runner controls	2026-10-16T04:24:19.3682721Z Restarting services...
+Coverage shard 0	Verify rootless extension runner controls	2026-10-16T04:24:19.3869096Z  systemctl restart packagekit.service php8.3-fpm.service
+Coverage shard 0	Verify rootless extension runner controls	2026-10-16T04:24:19.4951888Z 
+Coverage shard 0	Verify rootless extension runner controls	2026-10-16T04:24:19.4953161Z No containers need to be restarted.
+Coverage shard 0	Verify rootless extension runner controls	2026-10-16T04:24:19.4953634Z 
+Coverage shard 0	Verify rootless extension runner controls	2026-10-16T04:24:19.4954271Z No user sessions are running outdated binaries.
+Coverage shard 0	Verify rootless extension runner controls	2026-10-16T04:24:19.4954721Z 
+Coverage shard 0	Verify rootless extension runner controls	2026-10-16T04:24:19.4955286Z No VM guests are running outdated hypervisor (qemu) binaries on this host.
+Coverage shard 0	Verify rootless extension runner controls	2026-10-16T04:24:20.6603220Z   % Total    % Received % Xferd  Average Speed   Time    Time     Time  Current
+Coverage shard 0	Verify rootless extension runner controls	2026-10-16T04:24:20.6604056Z                                  Dload  Upload   Total   Spent    Left  Speed
+Coverage shard 0	Verify rootless extension runner controls	2026-10-16T04:24:20.6604489Z 
+Coverage shard 0	Verify rootless extension runner controls	2026-10-16T04:24:20.7611265Z   0     0    0     0    0     0      0      0 --:--:-- --:--:-- --:--:--     0
+Coverage shard 0	Verify rootless extension runner controls	2026-10-16T04:24:20.7611984Z   0     0    0     0    0     0      0      0 --:--:-- --:--:-- --:--:--     0
+Coverage shard 0	Verify rootless extension runner controls	2026-10-16T04:24:20.8045749Z 
+Coverage shard 0	Verify rootless extension runner controls	2026-10-16T04:24:20.8046591Z 100 1939k  100 1939k    0     0  13.1M      0 --:--:-- --:--:-- --:--:-- 13.1M
+Coverage shard 0	Verify rootless extension runner controls	2026-10-16T04:24:20.8153416Z /tmp/tmp.q3BPxiKMDW/conmon: OK
+Coverage shard 0	Verify rootless extension runner controls	2026-10-16T04:24:24.2474864Z Trying to pull docker.io/oven/bun@sha256:9114c058aeae42162ee16dd5084b95fe9473970bb6bcb5b232ab1630f0546895...
+Coverage shard 0	Verify rootless extension runner controls	2026-10-16T04:24:24.5950236Z Getting image source signatures
+Coverage shard 0	Verify rootless extension runner controls	2026-10-16T04:24:24.5956163Z Copying blob sha256:995f23d6717fb18d9e3ee7901ce64cf02d5386f0358688dcb35682d362a9fa11
+Coverage shard 0	Verify rootless extension runner controls	2026-10-16T04:24:24.5957451Z Copying blob sha256:dd000cfe5146b0540e51ab7091b532f4575a75f0b7d02da7e3b5f0c2b4f69931
+Coverage shard 0	Verify rootless extension runner controls	2026-10-16T04:24:24.5958668Z Copying blob sha256:27ee9a8250487842a26b1ffa1215982ba9ae27010bce1997d52f9f8628578d17
+Coverage shard 0	Verify rootless extension runner controls	2026-10-16T04:24:24.5959662Z Copying blob sha256:1ba340e2e4f41ebc3af50c87bbd556db48c0d67b69a845466ea0500df4ff8b59
+Coverage shard 0	Verify rootless extension runner controls	2026-10-16T04:24:24.5960664Z Copying blob sha256:c1bdc9ba2b9ee10de067d50e69caa7454dcd7e80a7f363bc3f26c85ab44175f0
+Coverage shard 0	Verify rootless extension runner controls	2026-10-16T04:24:24.5961703Z Copying blob sha256:ccb86fd70cf1a92d9dddfaaebf11f09cebaec4c7fa60a748c8313b0828b9e41c
+Coverage shard 0	Verify rootless extension runner controls	2026-10-16T04:24:24.6441146Z Copying blob sha256:1b4f41477e9a25fc12a8bc441d03b5ebb9a3bc14d066bd5fa789c596bbea8622
+Coverage shard 0	Verify rootless extension runner controls	2026-10-16T04:24:27.3513768Z Copying config sha256:8165c75cee6a4fca90a1229b3db2b3910e7bc99675f7490df5a112085f224d6d
+Coverage shard 0	Verify rootless extension runner controls	2026-10-16T04:24:27.3531896Z Writing manifest to image destination
+Coverage shard 0	Verify rootless extension runner controls	2026-10-16T04:24:27.3767429Z 8165c75cee6a4fca90a1229b3db2b3910e7bc99675f7490df5a112085f224d6d
+Coverage shard 0	Verify rootless extension runner controls	2026-10-16T04:24:27.4575571Z Trying to pull docker.io/library/postgres@sha256:485935f94cc7165afa896978809c37b592dc07f0a37d2c8f645f12412d0212c8...
+Coverage shard 0	Verify rootless extension runner controls	2026-10-16T04:24:27.6253782Z Getting image source signatures
+Coverage shard 0	Verify rootless extension runner controls	2026-10-16T04:24:27.6256265Z Copying blob sha256:5322d81b9b217c87a43577e23239fc6a88a6f3e085f532e1a1b3d5b33f047656
+Coverage shard 0	Verify rootless extension runner controls	2026-10-16T04:24:27.6257800Z Copying blob sha256:6310eb16bf4251731feab01e8f633bf5e2d75a657ccad97f420b1f83cce457be
+Coverage shard 0	Verify rootless extension runner controls	2026-10-16T04:24:27.6259030Z Copying blob sha256:b3ffe1fd6e790dd0031bc457848413848192d46780df6b0fa215d320328761e3
+Coverage shard 0	Verify rootless extension runner controls	2026-10-16T04:24:27.6259863Z Copying blob sha256:4d710b756578431859d64aba2677b0ec802f3aee2b140d52a08adfd356735af2
+Coverage shard 0	Verify rootless extension runner controls	2026-10-16T04:24:27.6260762Z Copying blob sha256:f122bc3261fca7a06590f6a4049863353c31056e3b750f2b2dbc1bb659f421e8
+Coverage shard 0	Verify rootless extension runner controls	2026-10-16T04:24:27.6261719Z Copying blob sha256:3fa541d8cac9d4fcff05950140a988377f814010f25d91eddf5e3de3fc0eede3
+Coverage shard 0	Verify rootless extension runner controls	2026-10-16T04:24:27.6679698Z Copying blob sha256:9bd242f25e75abc607bab0096841b43ce91e69c72d584ec8637bf557131cded7
+Coverage shard 0	Verify rootless extension runner controls	2026-10-16T04:24:27.6794203Z Copying blob sha256:9d1e9c1e61f48dcb9d1933fa4bdc4bdb7da928a152dafef0f067c3b477fa11c8
+Coverage shard 0	Verify rootless extension runner controls	2026-10-16T04:24:27.6874187Z Copying blob sha256:48dd761b6bfedc28017c2a57e1cd2fda93170658c93e3c5d96142a51bf9b899f
+Coverage shard 0	Verify rootless extension runner controls	2026-10-16T04:24:27.6965218Z Copying blob sha256:00034b17b963695ef825816fbf4147c71f32b66d5c0743dcaee4c4711e8ba8b6
+Coverage shard 0	Verify rootless extension runner controls	2026-10-16T04:24:27.7062622Z Copying blob sha256:8a082189cfe1ba85cc864ec354ce138ffc28d56a4f8a04d910f26fbba45d919a
+Coverage shard 0	Verify rootless extension runner controls	2026-10-16T04:24:27.7384961Z Copying blob sha256:988d57697ad269f5e634484dce52709cd86e00caa62e10f5792a16fbb34ec1e0
+Coverage shard 0	Verify rootless extension runner controls	2026-10-16T04:24:27.7435149Z Copying blob sha256:9f809ec5ff35e5621dfadefb22aaeaa1a2bb5329093f0cf36dcac3d5cb199f71
+Coverage shard 0	Verify rootless extension runner controls	2026-10-16T04:24:27.7622770Z Copying blob sha256:af7708f26521b296d032340dadac5d3f546177d5819709f22e0118e29751f5e9
+Coverage shard 0	Verify rootless extension runner controls	2026-10-16T04:24:32.1967406Z Copying config sha256:80f4c7a5e91618546dce5b4fe60cf03b14c0f9efa7e40157278d122772ced8d2
+Coverage shard 0	Verify rootless extension runner controls	2026-10-16T04:24:32.1986716Z Writing manifest to image destination
+Coverage shard 0	Verify rootless extension runner controls	2026-10-16T04:24:32.2316954Z 80f4c7a5e91618546dce5b4fe60cf03b14c0f9efa7e40157278d122772ced8d2
+Coverage shard 0	Verify rootless extension runner controls	2026-10-16T04:24:34.5866671Z Extension runner kernel controls verified
+Coverage shard 0	Run ./.github/actions/factory-python-base	﻿2026-10-16T04:24:34.6173031Z Prepare all required actions
+Coverage shard 0	Run ./.github/actions/factory-python-base	2026-10-16T04:24:34.6279324Z ##[group]Run ./.github/actions/factory-python-base
+Coverage shard 0	Run ./.github/actions/factory-python-base	2026-10-16T04:24:34.6279673Z env:
+Coverage shard 0	Run ./.github/actions/factory-python-base	2026-10-16T04:24:34.6279910Z   BUN_FEATURE_FLAG_DISABLE_SQL_AUTO_PIPELINING: 1
+Coverage shard 0	Run ./.github/actions/factory-python-base	2026-10-16T04:24:34.6280240Z   BUN_RUNTIME_TRANSPILER_CACHE_PATH: 0
+Coverage shard 0	Run ./.github/actions/factory-python-base	2026-10-16T04:24:34.6280526Z   XDG_RUNTIME_DIR: /run/user/1001
+Coverage shard 0	Run ./.github/actions/factory-python-base	2026-10-16T04:24:34.6280851Z   DBUS_SESSION_BUS_ADDRESS: unix:path=/run/user/1001/bus
+Coverage shard 0	Run ./.github/actions/factory-python-base	2026-10-16T04:24:34.6281174Z ##[endgroup]
+Coverage shard 0	Run ./.github/actions/factory-python-base	2026-10-16T04:24:34.6394623Z ##[start-action display=Pull the pinned Python base by digest;id=__self_2.__run]
+Coverage shard 0	Run ./.github/actions/factory-python-base	2026-10-16T04:24:34.6492854Z ##[group]Run bun scripts/setup-factory-python-base.ts
+Coverage shard 0	Run ./.github/actions/factory-python-base	2026-10-16T04:24:34.6493294Z ^[[36;1mbun scripts/setup-factory-python-base.ts^[[0m
+Coverage shard 0	Run ./.github/actions/factory-python-base	2026-10-16T04:24:34.6556310Z shell: /usr/bin/bash --noprofile --norc -e -o pipefail {0}
+Coverage shard 0	Run ./.github/actions/factory-python-base	2026-10-16T04:24:34.6556687Z env:
+Coverage shard 0	Run ./.github/actions/factory-python-base	2026-10-16T04:24:34.6556936Z   BUN_FEATURE_FLAG_DISABLE_SQL_AUTO_PIPELINING: 1
+Coverage shard 0	Run ./.github/actions/factory-python-base	2026-10-16T04:24:34.6557261Z   BUN_RUNTIME_TRANSPILER_CACHE_PATH: 0
+Coverage shard 0	Run ./.github/actions/factory-python-base	2026-10-16T04:24:34.6557738Z   XDG_RUNTIME_DIR: /run/user/1001
+Coverage shard 0	Run ./.github/actions/factory-python-base	2026-10-16T04:24:34.6558064Z   DBUS_SESSION_BUS_ADDRESS: unix:path=/run/user/1001/bus
+Coverage shard 0	Run ./.github/actions/factory-python-base	2026-10-16T04:24:34.6558398Z ##[endgroup]
+Coverage shard 0	Run ./.github/actions/factory-python-base	2026-10-16T04:24:34.7801767Z factory python base: pull docker.io/library/python@sha256:3121f8b0804aa3698ab750d9a39ea4a42657a385c9b133722b915e55c51551a6
+Coverage shard 0	Run ./.github/actions/factory-python-base	2026-10-16T04:24:34.8181300Z Trying to pull docker.io/library/python@sha256:3121f8b0804aa3698ab750d9a39ea4a42657a385c9b133722b915e55c51551a6...
+Coverage shard 0	Run ./.github/actions/factory-python-base	2026-10-16T04:24:34.9838321Z Getting image source signatures
+Coverage shard 0	Run ./.github/actions/factory-python-base	2026-10-16T04:24:34.9839815Z Copying blob sha256:251fa4afca5fc2d7040789882e09a87df8ee39142886da6be499f5c047824efa
+Coverage shard 0	Run ./.github/actions/factory-python-base	2026-10-16T04:24:34.9840973Z Copying blob sha256:da539b6761059a0a114c6671f1267b57445e3a54da023db5c28be019e40f0284
+Coverage shard 0	Run ./.github/actions/factory-python-base	2026-10-16T04:24:34.9842300Z Copying blob sha256:35ade6973e87c7a996978364cbfbae6f92581167bdf6a3bf54b4dc4549f40afa
+Coverage shard 0	Run ./.github/actions/factory-python-base	2026-10-16T04:24:34.9843697Z Copying blob sha256:af650bea6b21577b4b85c68a0d827914840295c2b3fce5a7f4c2c8223a6f3425
+Coverage shard 0	Run ./.github/actions/factory-python-base	2026-10-16T04:24:36.7056105Z Copying config sha256:64f864dc81f0907bda2e1f08d208687d261f70ad0a67dbe56d88598f31ed7243
+Coverage shard 0	Run ./.github/actions/factory-python-base	2026-10-16T04:24:36.7073880Z Writing manifest to image destination
+Coverage shard 0	Run ./.github/actions/factory-python-base	2026-10-16T04:24:36.7212695Z 64f864dc81f0907bda2e1f08d208687d261f70ad0a67dbe56d88598f31ed7243
+Coverage shard 0	Run ./.github/actions/factory-python-base	2026-10-16T04:24:36.7244161Z factory python base: find docker.io/library/python@sha256:3121f8b0804aa3698ab750d9a39ea4a42657a385c9b133722b915e55c51551a6
+Coverage shard 0	Run ./.github/actions/factory-python-base	2026-10-16T04:24:36.7743280Z ##[end-action id=__self_2.__run;outcome=success;conclusion=success;duration_ms=2134]
+Coverage shard 0	Run ./.github/actions/gate-integrity-deps	﻿2026-10-16T04:24:36.8012235Z Prepare all required actions
+Coverage shard 0	Run ./.github/actions/gate-integrity-deps	2026-10-16T04:24:36.8133638Z ##[group]Run ./.github/actions/gate-integrity-deps
+Coverage shard 0	Run ./.github/actions/gate-integrity-deps	2026-10-16T04:24:36.8133971Z env:
+Coverage shard 0	Run ./.github/actions/gate-integrity-deps	2026-10-16T04:24:36.8134212Z   BUN_FEATURE_FLAG_DISABLE_SQL_AUTO_PIPELINING: 1
+Coverage shard 0	Run ./.github/actions/gate-integrity-deps	2026-10-16T04:24:36.8134560Z   BUN_RUNTIME_TRANSPILER_CACHE_PATH: 0
+Coverage shard 0	Run ./.github/actions/gate-integrity-deps	2026-10-16T04:24:36.8134848Z   XDG_RUNTIME_DIR: /run/user/1001
+Coverage shard 0	Run ./.github/actions/gate-integrity-deps	2026-10-16T04:24:36.8135161Z   DBUS_SESSION_BUS_ADDRESS: unix:path=/run/user/1001/bus
+Coverage shard 0	Run ./.github/actions/gate-integrity-deps	2026-10-16T04:24:36.8135492Z ##[endgroup]
+Coverage shard 0	Run ./.github/actions/gate-integrity-deps	2026-10-16T04:24:36.8210682Z ##[start-action display=Install gate-integrity parser;id=__self_3.__run]
+Coverage shard 0	Run ./.github/actions/gate-integrity-deps	2026-10-16T04:24:36.8325628Z ##[group]Run bun install --cwd .github/gate-integrity-deps --frozen-lockfile --ignore-scripts
+Coverage shard 0	Run ./.github/actions/gate-integrity-deps	2026-10-16T04:24:36.8326328Z ^[[36;1mbun install --cwd .github/gate-integrity-deps --frozen-lockfile --ignore-scripts^[[0m
+Coverage shard 0	Run ./.github/actions/gate-integrity-deps	2026-10-16T04:24:36.8389717Z shell: /usr/bin/bash --noprofile --norc -e -o pipefail {0}
+Coverage shard 0	Run ./.github/actions/gate-integrity-deps	2026-10-16T04:24:36.8390067Z env:
+Coverage shard 0	Run ./.github/actions/gate-integrity-deps	2026-10-16T04:24:36.8390309Z   BUN_FEATURE_FLAG_DISABLE_SQL_AUTO_PIPELINING: 1
+Coverage shard 0	Run ./.github/actions/gate-integrity-deps	2026-10-16T04:24:36.8390697Z   BUN_RUNTIME_TRANSPILER_CACHE_PATH: 0
+Coverage shard 0	Run ./.github/actions/gate-integrity-deps	2026-10-16T04:24:36.8390987Z   XDG_RUNTIME_DIR: /run/user/1001
+Coverage shard 0	Run ./.github/actions/gate-integrity-deps	2026-10-16T04:24:36.8391310Z   DBUS_SESSION_BUS_ADDRESS: unix:path=/run/user/1001/bus
+Coverage shard 0	Run ./.github/actions/gate-integrity-deps	2026-10-16T04:24:36.8391851Z ##[endgroup]
+Coverage shard 0	Run ./.github/actions/gate-integrity-deps	2026-10-16T04:24:36.8507891Z bun install v1.4.2 (744846f84)
+Coverage shard 0	Run ./.github/actions/gate-integrity-deps	2026-10-16T04:24:36.8553421Z 
+Coverage shard 0	Run ./.github/actions/gate-integrity-deps	2026-10-16T04:24:36.8553775Z + typescript@5.9.3
+Coverage shard 0	Run ./.github/actions/gate-integrity-deps	2026-10-16T04:24:36.8554044Z 
+Coverage shard 0	Run ./.github/actions/gate-integrity-deps	2026-10-16T04:24:36.8554223Z 1 package installed [6.00ms]
+Coverage shard 0	Run ./.github/actions/gate-integrity-deps	2026-10-16T04:24:36.8570125Z ##[end-action id=__self_3.__run;outcome=success;conclusion=success;duration_ms=35]
+Coverage shard 0	Run ./.github/actions/setup-python-toolchain	﻿2026-10-16T04:24:36.8796550Z Prepare all required actions
+Coverage shard 0	Run ./.github/actions/setup-python-toolchain	2026-10-16T04:24:36.8797047Z Getting action download info
+Coverage shard 0	Run ./.github/actions/setup-python-toolchain	2026-10-16T04:24:36.9769144Z ##[group]Run ./.github/actions/setup-python-toolchain
+Coverage shard 0	Run ./.github/actions/setup-python-toolchain	2026-10-16T04:24:36.9769488Z env:
+Coverage shard 0	Run ./.github/actions/setup-python-toolchain	2026-10-16T04:24:36.9769733Z   BUN_FEATURE_FLAG_DISABLE_SQL_AUTO_PIPELINING: 1
+Coverage shard 0	Run ./.github/actions/setup-python-toolchain	2026-10-16T04:24:36.9770068Z   BUN_RUNTIME_TRANSPILER_CACHE_PATH: 0
+Coverage shard 0	Run ./.github/actions/setup-python-toolchain	2026-10-16T04:24:36.9770352Z   XDG_RUNTIME_DIR: /run/user/1001
+Coverage shard 0	Run ./.github/actions/setup-python-toolchain	2026-10-16T04:24:36.9770664Z   DBUS_SESSION_BUS_ADDRESS: unix:path=/run/user/1001/bus
+Coverage shard 0	Run ./.github/actions/setup-python-toolchain	2026-10-16T04:24:36.9770988Z ##[endgroup]
+Coverage shard 0	Run ./.github/actions/setup-python-toolchain	2026-10-16T04:24:36.9847027Z ##[start-action display=Install the pinned uv release;id=__self_4.__run]
+Coverage shard 0	Run ./.github/actions/setup-python-toolchain	2026-10-16T04:24:36.9955284Z ##[group]Run set -euo pipefail
+Coverage shard 0	Run ./.github/actions/setup-python-toolchain	2026-10-16T04:24:36.9955645Z ^[[36;1mset -euo pipefail^[[0m
+Coverage shard 0	Run ./.github/actions/setup-python-toolchain	2026-10-16T04:24:36.9955940Z ^[[36;1mversion="$(tr -d '[:space:]' < .uv-version)"^[[0m
+Coverage shard 0	Run ./.github/actions/setup-python-toolchain	2026-10-16T04:24:36.9956376Z ^[[36;1m[ -n "$version" ] || { echo "::error::.uv-version is empty"; exit 1; }^[[0m
+Coverage shard 0	Run ./.github/actions/setup-python-toolchain	2026-10-16T04:24:36.9956813Z ^[[36;1marchive="uv-x86_64-unknown-linux-gnu.tar.gz"^[[0m
+Coverage shard 0	Run ./.github/actions/setup-python-toolchain	2026-10-16T04:24:36.9957315Z ^[[36;1mbase="https://github.com/astral-sh/uv/releases/download/$version"^[[0m
+Coverage shard 0	Run ./.github/actions/setup-python-toolchain	2026-10-16T04:24:36.9958051Z ^[[36;1mcurl --fail --location --retry 3 --output "/tmp/$archive" "$base/$archive"^[[0m
+Coverage shard 0	Run ./.github/actions/setup-python-toolchain	2026-10-16T04:24:36.9958656Z ^[[36;1mcurl --fail --location --retry 3 --output "/tmp/$archive.sha256" "$base/$archive.sha256"^[[0m
+Coverage shard 0	Run ./.github/actions/setup-python-toolchain	2026-10-16T04:24:36.9959256Z ^[[36;1m# The published checksum file names the archive without a directory, so^[[0m
+Coverage shard 0	Run ./.github/actions/setup-python-toolchain	2026-10-16T04:24:36.9959695Z ^[[36;1m# verify from /tmp where both now live.^[[0m
+Coverage shard 0	Run ./.github/actions/setup-python-toolchain	2026-10-16T04:24:36.9960051Z ^[[36;1m(cd /tmp && sha256sum --check "$archive.sha256")^[[0m
+Coverage shard 0	Run ./.github/actions/setup-python-toolchain	2026-10-16T04:24:36.9960402Z ^[[36;1mmkdir -p /tmp/uv-pinned^[[0m
+Coverage shard 0	Run ./.github/actions/setup-python-toolchain	2026-10-16T04:24:36.9960770Z ^[[36;1mtar -xzf "/tmp/$archive" -C /tmp/uv-pinned --strip-components=1^[[0m
+Coverage shard 0	Run ./.github/actions/setup-python-toolchain	2026-10-16T04:24:36.9961209Z ^[[36;1mchmod u+x /tmp/uv-pinned/uv /tmp/uv-pinned/uvx^[[0m
+Coverage shard 0	Run ./.github/actions/setup-python-toolchain	2026-10-16T04:24:36.9961558Z ^[[36;1mecho "/tmp/uv-pinned" >> "$GITHUB_PATH"^[[0m
+Coverage shard 0	Run ./.github/actions/setup-python-toolchain	2026-10-16T04:24:37.0025096Z shell: /usr/bin/bash --noprofile --norc -e -o pipefail {0}
+Coverage shard 0	Run ./.github/actions/setup-python-toolchain	2026-10-16T04:24:37.0025524Z env:
+Coverage shard 0	Run ./.github/actions/setup-python-toolchain	2026-10-16T04:24:37.0025783Z   BUN_FEATURE_FLAG_DISABLE_SQL_AUTO_PIPELINING: 1
+Coverage shard 0	Run ./.github/actions/setup-python-toolchain	2026-10-16T04:24:37.0026118Z   BUN_RUNTIME_TRANSPILER_CACHE_PATH: 0
+Coverage shard 0	Run ./.github/actions/setup-python-toolchain	2026-10-16T04:24:37.0026408Z   XDG_RUNTIME_DIR: /run/user/1001
+Coverage shard 0	Run ./.github/actions/setup-python-toolchain	2026-10-16T04:24:37.0026729Z   DBUS_SESSION_BUS_ADDRESS: unix:path=/run/user/1001/bus
+Coverage shard 0	Run ./.github/actions/setup-python-toolchain	2026-10-16T04:24:37.0027049Z ##[endgroup]
+Coverage shard 0	Run ./.github/actions/setup-python-toolchain	2026-10-16T04:24:37.0179497Z   % Total    % Received % Xferd  Average Speed   Time    Time     Time  Current
+Coverage shard 0	Run ./.github/actions/setup-python-toolchain	2026-10-16T04:24:37.0180317Z                                  Dload  Upload   Total   Spent    Left  Speed
+Coverage shard 0	Run ./.github/actions/setup-python-toolchain	2026-10-16T04:24:37.0180840Z 
+Coverage shard 0	Run ./.github/actions/setup-python-toolchain	2026-10-16T04:24:37.1150963Z   0     0    0     0    0     0      0      0 --:--:-- --:--:-- --:--:--     0
+Coverage shard 0	Run ./.github/actions/setup-python-toolchain	2026-10-16T04:24:37.1151738Z   0     0    0     0    0     0      0      0 --:--:-- --:--:-- --:--:--     0
+Coverage shard 0	Run ./.github/actions/setup-python-toolchain	2026-10-16T04:24:37.2357051Z 
+Coverage shard 0	Run ./.github/actions/setup-python-toolchain	2026-10-16T04:24:37.2358437Z 100 23.0M  100 23.0M    0     0   105M      0 --:--:-- --:--:-- --:--:--  105M
+Coverage shard 0	Run ./.github/actions/setup-python-toolchain	2026-10-16T04:24:37.2453215Z   % Total    % Received % Xferd  Average Speed   Time    Time     Time  Current
+Coverage shard 0	Run ./.github/actions/setup-python-toolchain	2026-10-16T04:24:37.2454291Z                                  Dload  Upload   Total   Spent    Left  Speed
+Coverage shard 0	Run ./.github/actions/setup-python-toolchain	2026-10-16T04:24:37.2455001Z 
+Coverage shard 0	Run ./.github/actions/setup-python-toolchain	2026-10-16T04:24:37.3518867Z   0     0    0     0    0     0      0      0 --:--:-- --:--:-- --:--:--     0
+Coverage shard 0	Run ./.github/actions/setup-python-toolchain	2026-10-16T04:24:37.3519863Z   0     0    0     0    0     0      0      0 --:--:-- --:--:-- --:--:--     0
+Coverage shard 0	Run ./.github/actions/setup-python-toolchain	2026-10-16T04:24:37.3837870Z 
+Coverage shard 0	Run ./.github/actions/setup-python-toolchain	2026-10-16T04:24:37.3838571Z 100   101  100   101    0     0    728      0 --:--:-- --:--:-- --:--:--   728
+Coverage shard 0	Run ./.github/actions/setup-python-toolchain	2026-10-16T04:24:37.4061982Z uv-x86_64-unknown-linux-gnu.tar.gz: OK
+Coverage shard 0	Run ./.github/actions/setup-python-toolchain	2026-10-16T04:24:37.8673642Z ##[end-action id=__self_4.__run;outcome=success;conclusion=success;duration_ms=882]
+Coverage shard 0	Run ./.github/actions/setup-python-toolchain	2026-10-16T04:24:37.8750742Z ##[start-action display=Cache the uv download cache;id=__self_4.__actions_cache]
+Coverage shard 0	Run ./.github/actions/setup-python-toolchain	2026-10-16T04:24:38.0412376Z ##[group]Run actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9
+Coverage shard 0	Run ./.github/actions/setup-python-toolchain	2026-10-16T04:24:38.0412783Z with:
+Coverage shard 0	Run ./.github/actions/setup-python-toolchain	2026-10-16T04:24:38.0413406Z   path: ~/.cache/uv
+Coverage shard 0	Run ./.github/actions/setup-python-toolchain	2026-10-16T04:24:38.0413777Z   key: uv-Linux-d035216d2b5069ee6b952309d4481967c58dcb9c77bc636b208031b307066539
+Coverage shard 0	Run ./.github/actions/setup-python-toolchain	2026-10-16T04:24:38.0414218Z   restore-keys: uv-Linux-
+Coverage shard 0	Run ./.github/actions/setup-python-toolchain	
+Coverage shard 0	Run ./.github/actions/setup-python-toolchain	2026-10-16T04:24:38.0414476Z   enableCrossOsArchive: false
+Coverage shard 0	Run ./.github/actions/setup-python-toolchain	2026-10-16T04:24:38.0414740Z   fail-on-cache-miss: false
+Coverage shard 0	Run ./.github/actions/setup-python-toolchain	2026-10-16T04:24:38.0414977Z   lookup-only: false
+Coverage shard 0	Run ./.github/actions/setup-python-toolchain	2026-10-16T04:24:38.0415197Z   save-always: false
+Coverage shard 0	Run ./.github/actions/setup-python-toolchain	2026-10-16T04:24:38.0415446Z env:
+Coverage shard 0	Run ./.github/actions/setup-python-toolchain	2026-10-16T04:24:38.0415672Z   BUN_FEATURE_FLAG_DISABLE_SQL_AUTO_PIPELINING: 1
+Coverage shard 0	Run ./.github/actions/setup-python-toolchain	2026-10-16T04:24:38.0415996Z   BUN_RUNTIME_TRANSPILER_CACHE_PATH: 0
+Coverage shard 0	Run ./.github/actions/setup-python-toolchain	2026-10-16T04:24:38.0416277Z   XDG_RUNTIME_DIR: /run/user/1001
+Coverage shard 0	Run ./.github/actions/setup-python-toolchain	2026-10-16T04:24:38.0416600Z   DBUS_SESSION_BUS_ADDRESS: unix:path=/run/user/1001/bus
+Coverage shard 0	Run ./.github/actions/setup-python-toolchain	2026-10-16T04:24:38.0416921Z ##[endgroup]
+Coverage shard 0	Run ./.github/actions/setup-python-toolchain	2026-10-16T04:24:38.2335272Z Cache hit for: uv-Linux-d035216d2b5069ee6b952309d4481967c58dcb9c77bc636b208031b307066539
+Coverage shard 0	Run ./.github/actions/setup-python-toolchain	2026-10-16T04:24:38.6417180Z Received 72845691 of 72845691 (100.0%), 195.1 MBs/sec
+Coverage shard 0	Run ./.github/actions/setup-python-toolchain	2026-10-16T04:24:38.6418364Z Cache Size: ~69 MB (72845691 B)
+Coverage shard 0	Run ./.github/actions/setup-python-toolchain	2026-10-16T04:24:38.6450739Z [command]/usr/bin/tar -xf /home/runner/work/_temp/76c0eef8-d9eb-4da0-8a11-13ce3b3a17b4/cache.tzst -P -C /home/runner/work/EZHarness/EZHarness --use-compress-program unzstd
+Coverage shard 0	Run ./.github/actions/setup-python-toolchain	2026-10-16T04:24:39.0977780Z Cache restored successfully
+Coverage shard 0	Run ./.github/actions/setup-python-toolchain	2026-10-16T04:24:39.1089080Z Cache restored from key: uv-Linux-d035216d2b5069ee6b952309d4481967c58dcb9c77bc636b208031b307066539
+Coverage shard 0	Run ./.github/actions/setup-python-toolchain	2026-10-16T04:24:39.1202106Z ##[end-action id=__self_4.__actions_cache;outcome=success;conclusion=success;duration_ms=1245]
+Coverage shard 0	Run ./.github/actions/setup-python-toolchain	2026-10-16T04:24:39.1308545Z ##[start-action display=Report the resolved toolchain;id=__self_4.__run_2]
+Coverage shard 0	Run ./.github/actions/setup-python-toolchain	2026-10-16T04:24:39.1404433Z ##[group]Run set -euo pipefail
+Coverage shard 0	Run ./.github/actions/setup-python-toolchain	2026-10-16T04:24:39.1404771Z ^[[36;1mset -euo pipefail^[[0m
+Coverage shard 0	Run ./.github/actions/setup-python-toolchain	2026-10-16T04:24:39.1405025Z ^[[36;1muv --version^[[0m
+Coverage shard 0	Run ./.github/actions/setup-python-toolchain	2026-10-16T04:24:39.1405361Z ^[[36;1mecho "python pin: $(tr -d '[:space:]' < .python-version)"^[[0m
+Coverage shard 0	Run ./.github/actions/setup-python-toolchain	2026-10-16T04:24:39.1468797Z shell: /usr/bin/bash --noprofile --norc -e -o pipefail {0}
+Coverage shard 0	Run ./.github/actions/setup-python-toolchain	2026-10-16T04:24:39.1469199Z env:
+Coverage shard 0	Run ./.github/actions/setup-python-toolchain	2026-10-16T04:24:39.1469438Z   BUN_FEATURE_FLAG_DISABLE_SQL_AUTO_PIPELINING: 1
+Coverage shard 0	Run ./.github/actions/setup-python-toolchain	2026-10-16T04:24:39.1469785Z   BUN_RUNTIME_TRANSPILER_CACHE_PATH: 0
+Coverage shard 0	Run ./.github/actions/setup-python-toolchain	2026-10-16T04:24:39.1470077Z   XDG_RUNTIME_DIR: /run/user/1001
+Coverage shard 0	Run ./.github/actions/setup-python-toolchain	2026-10-16T04:24:39.1470410Z   DBUS_SESSION_BUS_ADDRESS: unix:path=/run/user/1001/bus
+Coverage shard 0	Run ./.github/actions/setup-python-toolchain	2026-10-16T04:24:39.1470744Z ##[endgroup]
+Coverage shard 0	Run ./.github/actions/setup-python-toolchain	2026-10-16T04:24:39.1598486Z uv 0.11.8 (x86_64-unknown-linux-gnu)
+Coverage shard 0	Run ./.github/actions/setup-python-toolchain	2026-10-16T04:24:39.1620554Z python pin: 3.13.12
+Coverage shard 0	Run ./.github/actions/setup-python-toolchain	2026-10-16T04:24:39.1628787Z ##[end-action id=__self_4.__run_2;outcome=success;conclusion=success;duration_ms=31]
+Coverage shard 0	Run shard (tests + coverage)	﻿2026-10-16T04:24:39.1823727Z ##[group]Run bash scripts/test-coverage.sh
+Coverage shard 0	Run shard (tests + coverage)	2026-10-16T04:24:39.1824134Z ^[[36;1mbash scripts/test-coverage.sh^[[0m
+Coverage shard 0	Run shard (tests + coverage)	2026-10-16T04:24:39.1887411Z shell: /usr/bin/bash -e {0}
+Coverage shard 0	Run shard (tests + coverage)	2026-10-16T04:24:39.1887957Z env:
+Coverage shard 0	Run shard (tests + coverage)	2026-10-16T04:24:39.1888216Z   BUN_FEATURE_FLAG_DISABLE_SQL_AUTO_PIPELINING: 1
+Coverage shard 0	Run shard (tests + coverage)	2026-10-16T04:24:39.1888554Z   BUN_RUNTIME_TRANSPILER_CACHE_PATH: 0
+Coverage shard 0	Run shard (tests + coverage)	2026-10-16T04:24:39.1888866Z   XDG_RUNTIME_DIR: /run/user/1001
+Coverage shard 0	Run shard (tests + coverage)	2026-10-16T04:24:39.1889205Z   DBUS_SESSION_BUS_ADDRESS: unix:path=/run/user/1001/bus
+Coverage shard 0	Run shard (tests + coverage)	2026-10-16T04:24:39.1889539Z   SHARD_INDEX: 0
+Coverage shard 0	Run shard (tests + coverage)	2026-10-16T04:24:39.1889760Z   SHARD_TOTAL: 12
+Coverage shard 0	Run shard (tests + coverage)	2026-10-16T04:24:39.1889983Z   COV_OUT: coverage-shard
+Coverage shard 0	Run shard (tests + coverage)	2026-10-16T04:24:39.1890233Z ##[endgroup]
+Coverage shard 0	Run shard (tests + coverage)	2026-10-16T04:24:39.2959090Z == host-shard mode: shard 0/12 → 167 files ==
+Coverage shard 0	Run shard (tests + coverage)	2026-10-16T04:29:28.0448184Z merged 1002 source files → coverage-shard/lcov_shard_0.info
+Coverage shard 0	Run shard (tests + coverage)	2026-10-16T04:29:28.0723811Z pre-merged 167 per-file lcov(s) → coverage-shard/lcov_shard_0.info
+Coverage shard 0	Run shard (tests + coverage)	2026-10-16T04:29:28.2975953Z emitted per-file timings → coverage-shard/timings-shard-0.json
+Coverage shard 0	Run shard (tests + coverage)	2026-10-16T04:29:28.2977783Z 
+Coverage shard 0	Run shard (tests + coverage)	2026-10-16T04:29:28.2978061Z   2281 pass | 0 fail | 167 files (shard 0/12)
+Coverage shard 0	Run actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a	﻿2026-10-16T04:29:28.5013697Z ##[group]Run actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+Coverage shard 0	Run actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a	2026-10-16T04:29:28.5014173Z with:
+Coverage shard 0	Run actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a	2026-10-16T04:29:28.5014391Z   name: lcov-cov-shard-0
+Coverage shard 0	Run actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a	2026-10-16T04:29:28.5014642Z   path: coverage-shard
+Coverage shard 0	Run actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a	2026-10-16T04:29:28.5014881Z   retention-days: 3
+Coverage shard 0	Run actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a	2026-10-16T04:29:28.5015111Z   if-no-files-found: error
+Coverage shard 0	Run actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a	2026-10-16T04:29:28.5015365Z   compression-level: 6
+Coverage shard 0	Run actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a	2026-10-16T04:29:28.5015589Z   overwrite: false
+Coverage shard 0	Run actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a	2026-10-16T04:29:28.5015828Z   include-hidden-files: false
+Coverage shard 0	Run actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a	2026-10-16T04:29:28.5016082Z   archive: true
+Coverage shard 0	Run actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a	2026-10-16T04:29:28.5016290Z env:
+Coverage shard 0	Run actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a	2026-10-16T04:29:28.5016524Z   BUN_FEATURE_FLAG_DISABLE_SQL_AUTO_PIPELINING: 1
+Coverage shard 0	Run actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a	2026-10-16T04:29:28.5017176Z   BUN_RUNTIME_TRANSPILER_CACHE_PATH: 0
+Coverage shard 0	Run actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a	2026-10-16T04:29:28.5017750Z   XDG_RUNTIME_DIR: /run/user/1001
+Coverage shard 0	Run actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a	2026-10-16T04:29:28.5018281Z   DBUS_SESSION_BUS_ADDRESS: unix:path=/run/user/1001/bus
+Coverage shard 0	Run actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a	2026-10-16T04:29:28.5018731Z ##[endgroup]
+Coverage shard 0	Run actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a	2026-10-16T04:29:28.6602135Z With the provided path, there will be 2 files uploaded
+Coverage shard 0	Run actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a	2026-10-16T04:29:28.6604355Z Artifact name is valid!
+Coverage shard 0	Run actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a	2026-10-16T04:29:28.6605427Z Root directory input is valid!
+Coverage shard 0	Run actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a	2026-10-16T04:29:28.9262848Z Uploading artifact: lcov-cov-shard-0.zip
+Coverage shard 0	Run actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a	2026-10-16T04:29:28.9310930Z Beginning upload of artifact content to blob storage
+Coverage shard 0	Run actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a	2026-10-16T04:29:29.0881603Z Uploaded bytes 273973
+Coverage shard 0	Run actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a	2026-10-16T04:29:29.1012521Z Finished uploading artifact content to blob storage!
+Coverage shard 0	Run actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a	2026-10-16T04:29:29.1013625Z SHA256 digest of uploaded artifact is 9b50e3f12185c948c8e66e06f0e96e832805f8fe0a024067f0c287efd3ca4db9
+Coverage shard 0	Run actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a	2026-10-16T04:29:29.1014607Z Finalizing artifact upload
+Coverage shard 0	Run actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a	2026-10-16T04:29:29.3309370Z Artifact lcov-cov-shard-0 successfully finalized. Artifact ID 12024689536
+Coverage shard 0	Run actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a	2026-10-16T04:29:29.3311010Z Artifact lcov-cov-shard-0 has been successfully uploaded! Final size is 273973 bytes. Artifact ID is 12024689536
+Coverage shard 0	Run actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a	2026-10-16T04:29:29.3312862Z Artifact download URL: https://github.com/ezcorp-org/EZHarness/actions/runs/38850371515/artifacts/12024689536
+Coverage shard 0	Post Run ./.github/actions/setup-python-toolchain	﻿2026-10-16T04:29:29.3706784Z Post job cleanup.
+Coverage shard 0	Post Run ./.github/actions/setup-python-toolchain	2026-10-16T04:29:29.3781287Z ##[start-action display=Cache the uv download cache;id=__c14caaf3-81f8-4f97-adf9-9c0ec07158da.__actions_cache]
+Coverage shard 0	Post Run ./.github/actions/setup-python-toolchain	2026-10-16T04:29:29.5346890Z Post job cleanup.
+Coverage shard 0	Post Run ./.github/actions/setup-python-toolchain	2026-10-16T04:29:29.6559734Z Cache hit occurred on the primary key uv-Linux-d035216d2b5069ee6b952309d4481967c58dcb9c77bc636b208031b307066539, not saving cache.
+Coverage shard 0	Post Run ./.github/actions/setup-python-toolchain	2026-10-16T04:29:29.6641090Z ##[end-action id=__c14caaf3-81f8-4f97-adf9-9c0ec07158da.__actions_cache;outcome=success;conclusion=success;duration_ms=285]
+Coverage shard 0	Post Run ./.github/actions/setup	﻿2026-10-16T04:29:29.6994579Z Post job cleanup.
+Coverage shard 0	Post Run ./.github/actions/setup	2026-10-16T04:29:29.7076960Z ##[start-action display=Cache bun global install cache;id=__2b700971-6c83-4af7-bacd-7bca74a5256d.__actions_cache]
+Coverage shard 0	Post Run ./.github/actions/setup	2026-10-16T04:29:30.0923517Z Post job cleanup.
+Coverage shard 0	Post Run ./.github/actions/setup	2026-10-16T04:29:30.2150751Z Cache hit occurred on the primary key bun-Linux-1cb0b65f53718e04a897d6022305d459ca3163956ac9c65ff703d281bfc19c1c-1dac0a653fe0a5657494557972d43ceb2a90cc64b3a4f001424de9a6fbfafd47, not saving cache.
+Coverage shard 0	Post Run ./.github/actions/setup	2026-10-16T04:29:30.2227785Z ##[end-action id=__2b700971-6c83-4af7-bacd-7bca74a5256d.__actions_cache;outcome=success;conclusion=success;duration_ms=514]
+Coverage shard 0	Post Run ./.github/actions/setup	2026-10-16T04:29:30.2357067Z ##[start-action display=Run oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6;id=__2b700971-6c83-4af7-bacd-7bca74a5256d.__oven-sh_setup-bun]
+Coverage shard 0	Post Run ./.github/actions/setup	2026-10-16T04:29:30.2793337Z Post job cleanup.
+Coverage shard 0	Post Run ./.github/actions/setup	2026-10-16T04:29:30.4784737Z ##[end-action id=__2b700971-6c83-4af7-bacd-7bca74a5256d.__oven-sh_setup-bun;outcome=success;conclusion=success;duration_ms=242]
+Coverage shard 0	Post Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	﻿2026-10-16T04:29:30.5964035Z Post job cleanup.
+Coverage shard 0	Post Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:29:30.6842481Z [command]/usr/bin/git version
+Coverage shard 0	Post Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:29:30.6893087Z git version 2.55.0
+Coverage shard 0	Post Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:29:30.6936363Z Temporarily overriding HOME='/home/runner/work/_temp/9b09e4cd-9612-46b0-8786-448463ed79af' before making global git config changes
+Coverage shard 0	Post Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:29:30.6937473Z Adding repository directory to the temporary git global config as a safe directory
+Coverage shard 0	Post Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:29:30.6944861Z [command]/usr/bin/git config --global --add safe.directory /home/runner/work/EZHarness/EZHarness
+Coverage shard 0	Post Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:29:30.6982034Z Removing SSH command configuration
+Coverage shard 0	Post Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:29:30.6990051Z [command]/usr/bin/git config --local --name-only --get-regexp core\.sshCommand
+Coverage shard 0	Post Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:29:30.7039217Z [command]/usr/bin/git submodule foreach --recursive sh -c "git config --local --name-only --get-regexp 'core\.sshCommand' && git config --local --unset-all 'core.sshCommand' || :"
+Coverage shard 0	Post Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:29:30.7338453Z Removing HTTP extra header
+Coverage shard 0	Post Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:29:30.7339565Z [command]/usr/bin/git config --local --name-only --get-regexp http\.https\:\/\/github\.com\/\.extraheader
+Coverage shard 0	Post Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:29:30.7383501Z [command]/usr/bin/git submodule foreach --recursive sh -c "git config --local --name-only --get-regexp 'http\.https\:\/\/github\.com\/\.extraheader' && git config --local --unset-all 'http.https://github.com/.extraheader' || :"
+Coverage shard 0	Post Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:29:30.7668602Z Removing includeIf entries pointing to credentials config files
+Coverage shard 0	Post Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:29:30.7678484Z [command]/usr/bin/git config --local --name-only --get-regexp ^includeIf\.gitdir:
+Coverage shard 0	Post Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:29:30.7714208Z includeif.gitdir:/home/runner/work/EZHarness/EZHarness/.git.path
+Coverage shard 0	Post Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:29:30.7715120Z includeif.gitdir:/home/runner/work/EZHarness/EZHarness/.git/worktrees/*.path
+Coverage shard 0	Post Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:29:30.7715824Z includeif.gitdir:/github/workspace/.git.path
+Coverage shard 0	Post Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:29:30.7716534Z includeif.gitdir:/github/workspace/.git/worktrees/*.path
+Coverage shard 0	Post Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:29:30.7728685Z [command]/usr/bin/git config --local --get-all includeif.gitdir:/home/runner/work/EZHarness/EZHarness/.git.path
+Coverage shard 0	Post Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:29:30.7758046Z /home/runner/work/_temp/git-credentials-71d68abb-cd50-4934-9fae-a1a2cdaa7804.config
+Coverage shard 0	Post Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:29:30.7770140Z [command]/usr/bin/git config --local --unset includeif.gitdir:/home/runner/work/EZHarness/EZHarness/.git.path \/home\/runner\/work\/_temp\/git\-credentials\-71d68abb\-cd50\-4934\-9fae\-a1a2cdaa7804\.config
+Coverage shard 0	Post Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:29:30.7814518Z [command]/usr/bin/git config --local --get-all includeif.gitdir:/home/runner/work/EZHarness/EZHarness/.git/worktrees/*.path
+Coverage shard 0	Post Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:29:30.7847920Z /home/runner/work/_temp/git-credentials-71d68abb-cd50-4934-9fae-a1a2cdaa7804.config
+Coverage shard 0	Post Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:29:30.7859923Z [command]/usr/bin/git config --local --unset includeif.gitdir:/home/runner/work/EZHarness/EZHarness/.git/worktrees/*.path \/home\/runner\/work\/_temp\/git\-credentials\-71d68abb\-cd50\-4934\-9fae\-a1a2cdaa7804\.config
+Coverage shard 0	Post Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:29:30.7902283Z [command]/usr/bin/git config --local --get-all includeif.gitdir:/github/workspace/.git.path
+Coverage shard 0	Post Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:29:30.7931467Z /github/runner_temp/git-credentials-71d68abb-cd50-4934-9fae-a1a2cdaa7804.config
+Coverage shard 0	Post Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:29:30.7940126Z [command]/usr/bin/git config --local --unset includeif.gitdir:/github/workspace/.git.path \/github\/runner_temp\/git\-credentials\-71d68abb\-cd50\-4934\-9fae\-a1a2cdaa7804\.config
+Coverage shard 0	Post Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:29:30.7990479Z [command]/usr/bin/git config --local --get-all includeif.gitdir:/github/workspace/.git/worktrees/*.path
+Coverage shard 0	Post Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:29:30.8021760Z /github/runner_temp/git-credentials-71d68abb-cd50-4934-9fae-a1a2cdaa7804.config
+Coverage shard 0	Post Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:29:30.8028876Z [command]/usr/bin/git config --local --unset includeif.gitdir:/github/workspace/.git/worktrees/*.path \/github\/runner_temp\/git\-credentials\-71d68abb\-cd50\-4934\-9fae\-a1a2cdaa7804\.config
+Coverage shard 0	Post Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:29:30.8072756Z [command]/usr/bin/git submodule foreach --recursive git config --local --show-origin --name-only --get-regexp remote.origin.url
+Coverage shard 0	Post Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-16T04:29:30.8323595Z Removing credentials config '/home/runner/work/_temp/git-credentials-71d68abb-cd50-4934-9fae-a1a2cdaa7804.config'
+Coverage shard 0	Complete job	﻿2026-10-16T04:29:30.8473234Z Cleaning up orphan processes
+Coverage shard 0	Complete job	2026-10-16T04:29:30.8865752Z Terminate orphan process: pid (3274) (catatonit)

@@ -1,0 +1,31 @@
+# 2026-10-16T03:44:52.190682+00:00 mutant m3-retry-unbounded in src/extensions/runner-rehydration.ts
+# cmd: bun test --timeout 30000 ./src/extensions/runner-rehydration.test.ts
+bun test v1.4.2 (744846f84)
+
+src/extensions/runner-rehydration.test.ts:
+147 |     await expect(createRehydratingRunner(older.runner, source(fakeBlobs().blobs).source).start(request(), noReverse)).rejects.toMatchObject({ reason: "runner_unsupported" });
+148 |   });
+149 | 
+150 |   test("the retry is exactly one: a runner that still misses after the restore answers its own refusal, with two calls in all", async () => {
+151 |     const { runner, calls } = fakeRunner({ alwaysMissing: true });
+152 |     await expect(createRehydratingRunner(runner, source(fakeBlobs().blobs).source).start(request(), noReverse)).rejects.toMatchObject({ code: "artifact_missing" });
+                                                                                                                              ^
+error: expect(received).toMatchObject(expected)
+
+- {
+-   "code": "artifact_missing",
+- }
++ [Error: retried more than once]
+
+- Expected  - 3
++ Received  + 1
+
+      at <anonymous> (/home/dev/work/EZCorp/EZHarness/.worktrees/w4h-32/src/extensions/runner-rehydration.test.ts:152:121)
+(fail) rehydration of a missing runner artifact (W4H-32) > the retry is exactly one: a runner that still misses after the restore answers its own refusal, with two calls in all [0.24ms]
+
+ 14 pass
+ 1 fail
+ 47 expect() calls
+Ran 15 tests across 1 file. [1.99s]
+
+# exit=1

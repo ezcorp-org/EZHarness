@@ -1,0 +1,47 @@
+W4H-32b: relock the S3 release adapter after fc1254003 moved the trusted SDK digest
+Owner w4h-32. Frozen 2026-10-17.
+
+HEAD AND BRANCH
+- FROZEN HEAD acce7a116b5677e0e109f8ef255a016fbe920c32 on wp/w4h-32b-relock, one commit over integ/w00 39baed85a.
+  Worktree /home/dev/work/EZCorp/EZHarness/.worktrees/w4h-32b, clean.
+- Identity over 39baed85a..acce7a116: 1 commit, author and committer archy <281643943+EZArchy@users.noreply.github.com>; 0 other.
+- Files: packages/@ezcorp/factory-sdk/src/references.ts (the artifact literal) and src/factory/s3-release-adapter/lock.json, 3+/3-.
+  No other product change; no gate change.
+
+CAUSE
+push16, ci 39005464033 on 39baed85a: my commit fc1254003 (W4H-32) added Runner.restoreArtifact to
+packages/@ezcorp/extension-contract/src/types.d.ts. bundleTrustedPackages (extension-runner provision.ts) digests the sdk and
+extension-contract trees, so the trusted SDK digest moved, and S3_RELEASE_ADAPTER_LOCK was not relocked in W4H-32.
+
+CLAIMS AND EVIDENCE (root /tmp/factory-platform-evidence/w4h-32b/, hashes.txt lists every file)
+C1. Red at 39baed85a.
+    - red/package.test.log: 3 pass, 1 fail ("the provided SDK bundle and toolchain are the locked ones"). The lock names
+      f3c4fba2…; the bundle gives a8c4f872…; the toolchain is 6095bbe3, unchanged.
+    - Inside the lock: relock/run-20261017T055514Z/red-podman.log, package.podman.integration.test.ts 1 pass, 1 fail.
+C2. Relock (relock.log), the product's bun scripts/relock-s3-release-adapter.ts in the pinned image, inside one gated job
+    (relock-in-lock.sh c340a9a9, launched by launch-when-clear.sh c9144e0e after 3 clear reads; margin 3; 05:55:14Z to 05:55:44Z,
+    exit 0):
+      sdkDigest      sha256:f3c4fba229fcaed6c10fb60f79785e566aaae8b26923bd832d7246b8f169dc26 -> sha256:a8c4f87236d4cbc8225d453650e7bc6786a8d329918d518ad68ccecf7deeb480
+      artifactDigest sha256:54dcd1fd33774934dc1a5a2ec4d4adb19daa059b355856f168d6ee1468d8f0bc -> sha256:04a33827f5aad8a0e3ad36feeb39c62f356a5d0f2a4b71da6948d7bc1323d147
+      sourceDigest, toolchainDigest (6095bbe3…) and image: unchanged.
+    It changed exactly lock.json and references.ts (relock.diff). factory-sdk was rebuilt (sdk-build.log).
+C3. Commit acce7a116 inside the lock. The message names ci 39005464033, both digest moves and fc1254003. Hook: lint "Checked 2 files
+    … No fixes applied"; "no test file maps to the staged changes" (commit.log).
+C4. Green at acce7a116 (green.log): 28 pass, 0 fail. The files: package.test.ts, package.podman.integration.test.ts, relock.test.ts,
+    scripts/relock-s3-release-adapter.test.ts, factory-sdk references-pins.test.ts, scripts/factory-fleet-init-local.test.ts.
+    Baseline of the four non-adapter-unit users at the head: 22/0 (red/baseline-others.log).
+C5. Setup: install --ignore-scripts (root and web), build:packages, svelte-kit sync: exit 0 (setup.log).
+
+LESSONS
+1. A contract type change moves the trusted SDK digest: bundleTrustedPackages digests the sdk AND extension-contract trees. A change
+   to either needs the S3 adapter relock in the SAME package.
+2. Relock in the same package as the change. My W4H-32 test selection missed it.
+3. A test that digests a package tree is selected by what it digests, not by what it imports. package.test.ts imports nothing from
+   extension-contract, but it digests it.
+4. A launcher's "clear" read counts a queued gated-flock wrapper as busy (anchored pgrep on the wrapper), not only a held lock.
+C6. Typecheck at acce7a116 (validator-8's rule since 31ce24621), one gated job w4h32b-typecheck (typecheck-in-lock.sh dae508ba,
+    tc-gate in-lock), 06:29:23Z to 06:30:25Z: EXIT 0, dirty 0, lowest 13.0 GiB (typecheck/run-20261017T062923Z/typecheck.log
+    0b7e19e42ea39fe9; hashes in typecheck-hashes.txt).
+VERDICT: validator-8 ACCEPT acce7a116 (verdict-w4h-32b.txt a76efa971cadd58e). The merge chain is with integrator-5.
+LESSON 5: a TypeScript product file in the change needs the repository typecheck at the exact head among the freeze legs (the
+  validator's rule). Include it in the first gated job, not after the freeze.

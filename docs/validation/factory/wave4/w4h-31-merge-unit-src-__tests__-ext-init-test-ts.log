@@ -1,0 +1,27 @@
+bun test v1.4.2 (744846f84)
+{"ts":"2026-10-16T01:04:04.502Z","level":"info","msg":"Created extension","subsystem":"ext-sdk","name":"my-tool","path":"./my-tool/"}
+{"ts":"2026-10-16T01:04:04.503Z","level":"info","msg":"Next: ezcorp ext verify ./my-tool. Import source into an extension workspace for release review and approval.","subsystem":"ext-sdk"}
+{"ts":"2026-10-16T01:04:04.503Z","level":"info","msg":"Created extension","subsystem":"ext-sdk","name":"test-ext","path":"./test-ext/"}
+{"ts":"2026-10-16T01:04:04.503Z","level":"info","msg":"Next: ezcorp ext verify ./test-ext. Import source into an extension workspace for release review and approval.","subsystem":"ext-sdk"}
+{"ts":"2026-10-16T01:04:04.655Z","level":"info","msg":"Created extension","subsystem":"ext-sdk","name":"my-skill","path":"./my-skill/"}
+{"ts":"2026-10-16T01:04:04.655Z","level":"info","msg":"Next: ezcorp ext verify ./my-skill. Import source into an extension workspace for release review and approval.","subsystem":"ext-sdk"}
+{"ts":"2026-10-16T01:04:04.655Z","level":"info","msg":"Created extension","subsystem":"ext-sdk","name":"my-agent","path":"./my-agent/"}
+{"ts":"2026-10-16T01:04:04.655Z","level":"info","msg":"Next: ezcorp ext verify ./my-agent. Import source into an extension workspace for release review and approval.","subsystem":"ext-sdk"}
+{"ts":"2026-10-16T01:04:04.655Z","level":"info","msg":"Created extension","subsystem":"ext-sdk","name":"my-multi","path":"./my-multi/"}
+{"ts":"2026-10-16T01:04:04.655Z","level":"info","msg":"Next: ezcorp ext verify ./my-multi. Import source into an extension workspace for release review and approval.","subsystem":"ext-sdk"}
+{"ts":"2026-10-16T01:04:04.656Z","level":"info","msg":"Created extension","subsystem":"ext-sdk","name":"my-tool","path":"./my-tool/"}
+{"ts":"2026-10-16T01:04:04.656Z","level":"info","msg":"Next: ezcorp ext verify ./my-tool. Import source into an extension workspace for release review and approval.","subsystem":"ext-sdk"}
+{"ts":"2026-10-16T01:04:04.657Z","level":"info","msg":"Created extension","subsystem":"ext-sdk","name":"my-tool","path":"./my-tool/"}
+{"ts":"2026-10-16T01:04:04.657Z","level":"info","msg":"Next: ezcorp ext verify ./my-tool. Import source into an extension workspace for release review and approval.","subsystem":"ext-sdk"}
+{"ts":"2026-10-16T01:04:04.657Z","level":"info","msg":"Created extension","subsystem":"ext-sdk","name":"dep-tool","path":"./dep-tool/"}
+{"ts":"2026-10-16T01:04:04.657Z","level":"info","msg":"Next: ezcorp ext verify ./dep-tool. Import source into an extension workspace for release review and approval.","subsystem":"ext-sdk"}
+{"ts":"2026-10-16T01:04:04.657Z","level":"info","msg":"Created extension","subsystem":"ext-sdk","name":"my-tool","path":"./my-tool/"}
+{"ts":"2026-10-16T01:04:04.657Z","level":"info","msg":"Next: ezcorp ext verify ./my-tool. Import source into an extension workspace for release review and approval.","subsystem":"ext-sdk"}
+{"ts":"2026-10-16T01:04:04.658Z","level":"info","msg":"Extension type: 1) Tool - MCP tool server, 2) Skill - Prompt & knowledge, 3) Agent - Conversational persona, 4) Multi - Combined","subsystem":"ext-sdk"}
+{"ts":"2026-10-16T01:04:04.658Z","level":"info","msg":"Created extension","subsystem":"ext-sdk","name":"guided","path":"./guided/"}
+{"ts":"2026-10-16T01:04:04.658Z","level":"info","msg":"Next: ezcorp ext verify ./guided. Import source into an extension workspace for release review and approval.","subsystem":"ext-sdk"}
+
+ 15 pass
+ 0 fail
+ 50 expect() calls
+Ran 15 tests across 1 file. [628.00ms]

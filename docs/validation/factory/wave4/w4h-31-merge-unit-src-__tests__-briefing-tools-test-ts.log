@@ -1,0 +1,10 @@
+bun test v1.4.2 (744846f84)
+{"ts":"2026-10-16T01:01:51.803Z","level":"warn","msg":"task snapshot read failed","subsystem":"briefing.tools","conversationId":"30092b7c-d76f-4ea8-8733-4cc7c0958ce3","error":"Error: task-tracking extension not installed — did ensureBundledExtensions() run?"}
+{"ts":"2026-10-16T01:01:51.811Z","level":"info","msg":"briefing tools wired for turn","subsystem":"briefing.tools","conversationId":"c1","userId":"2849d72f-f44b-497e-bf9c-ade4e83d21b7","registered":3,"expected":3}
+{"ts":"2026-10-16T01:01:51.811Z","level":"info","msg":"briefing tools wired for turn","subsystem":"briefing.tools","conversationId":"c1","userId":"2849d72f-f44b-497e-bf9c-ade4e83d21b7","registered":0,"expected":3}
+{"ts":"2026-10-16T01:01:51.815Z","level":"info","msg":"briefing tools wired for turn","subsystem":"briefing.tools","conversationId":"c1","userId":"bb4a2108-d9d5-44ff-8f85-fbdeb4429ece","registered":3,"expected":3}
+
+ 17 pass
+ 0 fail
+ 42 expect() calls
+Ran 17 tests across 1 file. [1098.00ms]
