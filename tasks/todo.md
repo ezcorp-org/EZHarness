@@ -9088,3 +9088,12 @@ Final resource review: 27 tests pass, 93 assertions; helper LCOV63/63. Only base
 - [x] Preserve actual receipts and prepare clean combined SHA handoff; final SHA is recorded in `.cache/combined-ci-repair/commit-result.json`.
 
 Review: merge6bb060484d3b5e10cd9326113098ec1cecd5f21a preserves sensitive2c8d0c and resourcecb3ed9 histories. Only tasknotes conflicted; common history and both appended plans/results retained byte-for-byte before the new combined section. Normal merge hook passed lint and23FDtests. Exact clean merge source passed48touched tests/202assertions and the full supported typecheck (actual0,82.19s): backend, web, backendtests/e2e0excluded, allpackages, strictmypy both lockedprojects on3.13.12. Isolated frozen web install, workspacebuild, and actual Python discovery completed0 first. Minimum available memory during fullcheck12,299,472KiB; no timeout/error/owned survivors; source unchanged. This final task-result update changes notes only, excluded by the compiler. Root owns FF, one source-bound canonicalfast run, CI, staging, and later live work; no duplicate whole gate or primary mutation occurred.
+
+## Real-auth reconciliation status locator repair
+- [x] Preserve hosted strict-mode failure and both accessible statuses.
+- [x] Reproduce actual Playwright assertion with both statuses; negative missing-completion control.
+- [x] Scope ONLY reconciliation assertion using existing role+text pattern; preserve action assertions.
+- [x] Run bounded Chromium consumer/normal lint and independent review.
+- [x] Normal commit with hooks; exact SHA handoff prepared. No push or runtime changes.
+
+Review: Hosted real-auth job 117588508903 fails because the status locator matches two elements. The browser and per-file jobs then refuse incomplete producer data. The old assertion failed in real Chromium for both operation states. All five fixed cases passed, including missing or wrong completion refusal and the retained capacity indicator. Scoped Biome 2.5.14 passed. The full authenticated suite and build were not repeated. No runtime source changed. Independent review passed: native f6a9c1, real Chromium 153, all five cases.

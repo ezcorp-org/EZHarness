@@ -424,7 +424,7 @@ for (const operationState of ["OUTCOME_UNKNOWN", "PROVIDER_PENDING"]) {
 		await expect(page.getByText("Operator recovery required", { exact: true })).toBeVisible();
 		await expect(page.getByText("Refresh or reconcile the saved operation before another lifecycle action.")).toBeVisible();
 		await page.getByRole("button", { name: "Reconcile pending work" }).click();
-		await expect(page.getByRole("status")).toContainText("Reconciliation finished.");
+		await expect(page.getByRole("status").filter({ hasText: "Reconciliation finished." })).toContainText("Reconciliation finished.");
 		expect(actions).toEqual([{ action: "reconcile", limit: 50 }]);
 		await captureEvidence(page, testInfo, `incus-failed-create-with-${operationState.toLowerCase()}`, { fullPage: true });
 	});
