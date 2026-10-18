@@ -9161,3 +9161,11 @@ Independent source/control CLEAR: actual0e34c6 26tests/63assertions; exactstack8
 - [x] Run real consumer, focused denial controls, type/lint, and independent review.
 
 Review: original real backup verifier RED a13829 (two migration markers broke fixed counts); exact key+JSONvalue baseline repair passes full consumer9e17cc and4 real consumer controls/16 assertions48d9bb. Changed-value, extra-row and lost-marker restore controls all refuse. Focused strict TypeScript47ab17 and Biome254c4e pass. Independent SOURCE/CONTROL CLEAR exactscriptb35e49c2/test243123ea; reviewer replay a1c1554PASS/16. No production, schema, dependency, timeout or gate changes.
+
+## Runner probe diagnostic codes
+- [x] Reproduce omitted stable runner codes through the actual setup route.
+- [x] Add finite runner-only code classification; preserve secret redaction.
+- [x] Run focused route tests, typecheck and lint; independent review passed before commit.
+
+Review: actual route RED 8 failed/14 passed; GREEN 23 passed, including actual runtime_profile_changed code. Full web tsc and Biome passed. Diagnostics only; unknown CREATE cause remains unproven.
+Independent reviewer verified all 103 labels, arbitrary-code redaction and non-runner refusal. Root image-profile mismatch is recorded separately; no settlement behavior changed.

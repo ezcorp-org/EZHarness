@@ -217,3 +217,23 @@ test("unknown probe failures expose only fixed diagnostic labels", async () => {
 	const controlsBody = await (await POST(postEvent({ action: "probe", setupId: "setup-a" }))).json();
 	expect(controlsBody.diagnostic.runnerReason).toBe("unverified_guest_controls");
 });
+
+// Same boundary as the real setup probe: a runner failure reaches the route,
+// but the diagnostic must retain only a known code, never its private details.
+test.each(["runtime_profile_changed", "artifact_missing", "isolation_probe_failed", "runner_timeout", "runner_protocol", "unauthorized", "command_failed", "unsafe_socket", "resource_limit_denied"])("probe exposes known runner code %s without private details", async (code) => {
+ failure = Object.assign(new Error("private-token /private/config runner payload"), { name: "RunnerError", code });
+ const response = await POST(postEvent({ action: "probe", setupId: "setup-a" }));
+ const body = await response.json();
+ expect(response.status).toBe(409);
+ expect(body.diagnostic.errorCode).toBe(code);
+ expect(body.diagnostic.errorType).toBe("RunnerError");
+ expect(JSON.stringify(body)).not.toMatch(/private-token|private\/config|runner payload/);
+});
+
+test.each(["secret-token-123", "artifact_missing/private-key", "ARTIFACT_MISSING"])("probe hides arbitrary runner code %s", async (code) => {
+ failure = Object.assign(new Error("private-token"), { name: "RunnerError", code });
+ const body = await (await POST(postEvent({ action: "probe", setupId: "setup-a" }))).json();
+ expect(body.diagnostic).not.toHaveProperty("errorCode");
+ expect(JSON.stringify(body)).not.toContain(code);
+ expect(JSON.stringify(body)).not.toContain("private-token");
+});

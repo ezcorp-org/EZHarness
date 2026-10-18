@@ -48,6 +48,37 @@ async function service(requireRecipe = false): Promise<IncusOperatorSetupService
     activeRelease: installationId => resolveActiveRelease(installationId, getReleaseRuntime()) });
 }
 
+// Fixed runner boundary labels only. RunnerError.code is otherwise an arbitrary
+// string, so neither its code nor its diagnostic message is safe by default.
+const knownRunnerCodes = new Set([
+  "archive_duplicate", "archive_invalid", "archive_unsafe", "artifact_corrupt",
+  "artifact_missing", "attachment_lease", "backpressure_limit", "browser_build_invalid",
+  "browser_config_invalid", "browser_tool_undeclared", "build_failed", "build_output_invalid",
+  "cancelled", "channel_untrusted", "cleanup_failed", "closure_invalid",
+  "command_failed", "command_timeout", "container_exited", "context_expired",
+  "dependency_closure_changed", "dependency_denied", "dependency_identity", "dependency_integrity",
+  "dependency_limit", "dependency_override", "dependency_unavailable", "dependency_unpinned",
+  "device_unenforceable", "duplicate_operation", "duplicate_worker", "event_poll_window",
+  "extension_error", "frame_limit", "host_timeout", "host_unavailable",
+  "image_unavailable", "image_unpinned", "inspect_invalid", "invalid_context",
+  "invalid_dependency", "invalid_device", "invalid_digest", "invalid_files",
+  "invalid_id", "invalid_path", "invalid_request", "invocation_timeout",
+  "isolation_probe_failed", "isolation_unavailable", "lockfile_invalid", "lockfile_required",
+  "lockfile_stale", "material_directory_invalid", "material_untrusted", "memory_limit",
+  "missing_entrypoint", "output_limit", "peer_gateway_failed", "process_spawn_unenforced",
+  "protocol_error", "recovery_effect_denied", "registry_denied", "request_limit",
+  "reserved_path", "resource_limit_denied", "response_limit", "runner_busy",
+  "runner_failed", "runner_protocol", "runner_store_busy", "runner_timeout",
+  "runtime_profile_changed", "sdk_build_failed", "sdk_invalid", "seccomp_unavailable",
+  "sensitive_busy", "sensitive_failed", "sensitive_limit", "sensitive_method",
+  "sensitive_protocol", "sensitive_unavailable", "service_config", "source_digest_mismatch",
+  "source_limit", "startup_effect_denied", "tests_missing", "toolchain_invalid",
+  "toolchain_link", "toolchain_unavailable", "trusted_account_required", "trusted_approval_required",
+  "trusted_binary_changed", "unauthorized", "unknown_method", "unknown_request",
+  "unknown_worker", "unsafe_socket", "unsafe_store", "worker_closed",
+  "worker_exited", "worker_not_running", "worker_start_failed",
+]);
+
 function safeDiagnostic(error: unknown, code: unknown, message: string) {
   const record = error && typeof error === "object" && !Array.isArray(error) ? error as Record<string, unknown> : undefined;
   const name = error instanceof Error ? error.name : record?.name;
@@ -56,7 +87,8 @@ function safeDiagnostic(error: unknown, code: unknown, message: string) {
   const errorCode = typeof code === "string" && ["CAPABILITY_UNAVAILABLE", "CAPABILITY_DENIED", "RUNNER_UNAVAILABLE",
     "RELEASE_NOT_ACTIVE", "EXPIRED_CONTEXT", "INVALID_CONTEXT", "CONTEXT_MISMATCH", "INVALID_CALL_TOKEN",
     "INVALID_REQUEST", "INTERNAL", "UNDECLARED_CONTRIBUTION", "INVALID_PROVIDER_VALUE",
-    "extension_error", "runner_failed", "protocol_error", "dependency_unavailable"].includes(code) ? code : undefined;
+    "extension_error", "runner_failed", "protocol_error", "dependency_unavailable"].includes(code) ? code
+      : errorType === "RunnerError" && typeof code === "string" && knownRunnerCodes.has(code) ? code : undefined;
   // A fixed label for the first stack frame narrows the failing boundary
   // without returning a raw stack, path, network address, or secret.
   const firstFrame = error instanceof Error ? error.stack?.split("\n")[1] ?? "" : "";
