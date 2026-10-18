@@ -9114,3 +9114,11 @@ Review: exact missing-isError TS2322 reproduced; only successful mock result cor
 - [x] Run focused E2E, relevant TypeScript and lint; independent review before commit.
 
 Review: original hosted browser assertion reproduced RED; fixed same-clock fixture GREEN, all15 same-spec tests pass. Strict backend/web E2E typecheck and Biome pass. Independent release review1880660 CLEAR. Production, dependencies, workflow and timeout policy unchanged.
+
+## Factory storage runtime isolation (Sol61 Oct18)
+- [x] Reproduce hosted Podman control failure with exact storage action XDG context.
+- [x] Add actual composite-shell regression for preserved user runtime and owned storage cleanup.
+- [x] Keep private storage runtime scoped to storage up/down; preserve credential export.
+- [x] Run focused behavior/lint/type checks and independent review before commit.
+
+Review: root diagnostic C reproduces unchanged kernel guard failure with storage XDG; A/B pass. Actual composite-shell regression RED on leaked runtime, then 8 tests/42 assertions GREEN with preserved runtime and owned cleanup. Biome and scoped inherited strict TypeScript pass; independent source/control review acab9d CLEAR. Actual repaired guest storage/probe check remains root-owned and pending. No guard change or CI retry is part of this fix.

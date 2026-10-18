@@ -3,7 +3,7 @@ description: >
   Starts or stops the job-local factory object storage from the one committed recipe: scripts/setup-factory-storage.sh
   drives compose.factory-storage.local.yml, which holds the SeaweedFS image digest and the loopback ports. `up` creates
   a fresh, random credential set below a private runtime directory (never a repository secret, never printed) and
-  exports XDG_RUNTIME_DIR and EZCORP_FACTORY_STORAGE_SECRETS_DIR to the later steps. `down` removes the containers,
+  exports EZCORP_FACTORY_STORAGE_SECRETS_DIR to later steps without replacing the user runtime. `down` removes the containers,
   their volumes, and the set. Every job uses this action for both (W4H-5); a job's stop step runs only when its start
   step ran (scripts/factory-storage-action-registration.test.ts holds both rules).
 
@@ -30,9 +30,8 @@ runs:
             storage_dir="$(printf '%s\n' "$setup_output" | sed -n 's#^Factory local storage is ready. Credentials are in \(.*\) below.*#\1#p')"
             test -n "$storage_dir"
             test -d "$storage_dir"
-            echo "XDG_RUNTIME_DIR=$runtime_dir" >> "$GITHUB_ENV"
             echo "EZCORP_FACTORY_STORAGE_SECRETS_DIR=$storage_dir" >> "$GITHUB_ENV"
             ;;
-          down) scripts/setup-factory-storage.sh down ;;
+          down) XDG_RUNTIME_DIR="$RUNNER_TEMP/factory-storage-runtime" scripts/setup-factory-storage.sh down ;;
           *) echo "factory-storage: command must be up or down" >&2; exit 2 ;;
         esac
