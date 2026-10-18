@@ -408,7 +408,7 @@ HTTPServer(("127.0.0.1", int(os.environ["PORT"])), Handler).serve_forever()
             self.assertFalse(any(item["path"].startswith(".ezcorp/")
                                  for item in MODULE.verify(output)["files"]))
 
-    def test_stage_builds_contract_declarations_before_sdk_and_web(self):
+    def test_stage_builds_all_workspace_exports_before_web(self):
         with tempfile.TemporaryDirectory(dir="/tmp") as directory:
             source = Path(directory) / "source"
             self.source_fixture(source)
@@ -416,6 +416,12 @@ HTTPServer(("127.0.0.1", int(os.environ["PORT"])), Handler).serve_forever()
             bun.write_bytes(b"fake bun")
             output = Path(directory) / "release"
             commands = []
+            repository = SCRIPT.parents[2]
+            transport = Path("packages/@ezcorp/factory-transport")
+            transport_manifest = json.loads((repository / transport / "package.json").read_text())
+            transport_import = transport / transport_manifest["exports"]["."]["import"]
+            self.assertIn('import("@ezcorp/factory-transport")',
+                          (repository / "src/factory/installation-startup.ts").read_text())
 
             def fake_run(argv, *, cwd, env):
                 commands.append((tuple(argv[1:]), cwd))
@@ -427,11 +433,16 @@ HTTPServer(("127.0.0.1", int(os.environ["PORT"])), Handler).serve_forever()
                     if contract.exists():
                         for path in contract.iterdir():
                             path.unlink()
-                if argv[1:] == ["run", "--cwd", "packages/@ezcorp/extension-contract", "build"]:
+                if argv[1:] == ["run", "build:packages"]:
                     contract = cwd / "packages/@ezcorp/extension-contract/dist"
                     contract.mkdir(parents=True, exist_ok=True)
                     (contract / "index.js").write_text("export {};\n")
                     (contract / "index.d.ts").write_text("export {};\n")
+                    (cwd / transport_import).parent.mkdir(parents=True, exist_ok=True)
+                    (cwd / transport_import).write_text("export {};\n")
+                if argv[1:] == ["run", "--cwd", "web", "build"]:
+                    self.assertTrue((cwd / transport_import).is_file(),
+                                    "clean web build cannot resolve factory-transport import export")
 
             with patch.object(MODULE, "git_head", return_value="a" * 40), \
                  patch.object(MODULE, "extract_head", side_effect=self.extract_version_fixture), \
@@ -439,13 +450,15 @@ HTTPServer(("127.0.0.1", int(os.environ["PORT"])), Handler).serve_forever()
                  patch.object(MODULE.subprocess, "check_output", return_value="1.3.14\n"):
                 MODULE.stage(source, output, bun, MODULE.sha256(bun))
             build_commands = [parts for parts, _cwd in commands if parts and parts[0] == "run"]
-            self.assertLess(build_commands.index(("run", "--cwd", "packages/@ezcorp/extension-contract", "build")),
-                            build_commands.index(("run", "--cwd", "packages/@ezcorp/sdk", "build")))
-            self.assertLess(build_commands.index(("run", "--cwd", "packages/@ezcorp/extension-contract", "build")),
+            self.assertEqual(build_commands.count(("run", "build:packages")), 1)
+            self.assertLess(build_commands.index(("run", "build:packages")),
+                            build_commands.index(("run", "build:sandbox-tools")))
+            self.assertLess(build_commands.index(("run", "build:packages")),
                             build_commands.index(("run", "--cwd", "web", "build")))
             manifest = MODULE.verify(output)
-            self.assertIn("packages/@ezcorp/extension-contract/dist/index.d.ts",
-                          {entry["path"] for entry in manifest["files"]})
+            files = {entry["path"] for entry in manifest["files"]}
+            self.assertIn("packages/@ezcorp/extension-contract/dist/index.d.ts", files)
+            self.assertIn(transport_import.as_posix(), files)
 
     def test_stage_refuses_a_contract_build_without_published_outputs(self):
         with tempfile.TemporaryDirectory(dir="/tmp") as directory:

@@ -391,10 +391,9 @@ def stage(source, output, bun, expected_bun_sha256):
         executable = str(work / "bin/bun")
         run([executable, "install", "--frozen-lockfile", "--ignore-scripts"], cwd=work, env=env)
         run([executable, "install", "--frozen-lockfile", "--ignore-scripts"], cwd=work / "web", env=env)
-        # The SDK and Vite resolve this workspace's published type entry from
-        # dist. A clean archive has no dist tree, so build the contract first.
-        for package in ("extension-contract", "sdk", "harness-client"):
-            run([executable, "run", "--cwd", f"packages/@ezcorp/{package}", "build"], cwd=work, env=env)
+        # Clean archives have no published workspace outputs. Reuse the same
+        # dependency-ordered builder as postinstall and container builds.
+        run([executable, "run", "build:packages"], cwd=work, env=env)
         run([executable, "run", "build:sandbox-tools"], cwd=work, env=env)
         run([executable, "run", "build:sandbox-supervisor"], cwd=work, env=env)
         run([executable, "run", "--cwd", "web", "build"], cwd=work, env=env)
