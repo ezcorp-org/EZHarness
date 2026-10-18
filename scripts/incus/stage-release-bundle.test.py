@@ -81,8 +81,9 @@ class ReleaseBundleTests(unittest.TestCase):
 
     def dependency_build_fixture(self, argv, *, cwd, env):
         work = Path(argv[0]).parent.parent
+        prefix = "web/node_modules/" if cwd == work / "web" else "node_modules/"
         for relative in MODULE.REQUIRED:
-            if relative.startswith(("node_modules/", "web/node_modules/")):
+            if relative.startswith(prefix):
                 (work / relative).mkdir(parents=True, exist_ok=True)
 
     def test_real_stage_and_file_only_verify_accept_candidate_version(self):
@@ -396,6 +397,8 @@ HTTPServer(("127.0.0.1", int(os.environ["PORT"])), Handler).serve_forever()
                     self.release_fixture(cwd)
                     (cwd / "bin/bun").write_bytes(bun.read_bytes())
                     (cwd / MODULE.RUNTIME_DIR).rmdir()
+                if _argv[1:3] == ["install", "--production"]:
+                    self.dependency_build_fixture(_argv, cwd=cwd, env=env)
 
             with patch.object(MODULE, "git_head", return_value="a" * 40), \
                  patch.object(MODULE, "extract_head", side_effect=self.extract_version_fixture), \
@@ -441,6 +444,8 @@ HTTPServer(("127.0.0.1", int(os.environ["PORT"])), Handler).serve_forever()
                     (contract / "index.d.ts").write_text("export {};\n")
                     (cwd / transport_import).parent.mkdir(parents=True, exist_ok=True)
                     (cwd / transport_import).write_text("export {};\n")
+                if argv[1:3] == ["install", "--production"]:
+                    self.dependency_build_fixture(argv, cwd=cwd, env=env)
                 if argv[1:] == ["run", "--cwd", "web", "build"]:
                     self.assertTrue((cwd / transport_import).is_file(),
                                     "clean web build cannot resolve factory-transport import export")
@@ -461,7 +466,7 @@ HTTPServer(("127.0.0.1", int(os.environ["PORT"])), Handler).serve_forever()
             self.assertIn("packages/@ezcorp/extension-contract/dist/index.d.ts", files)
             self.assertIn(transport_import.as_posix(), files)
 
-    def test_stage_prunes_build_dependencies_before_production_install(self):
+    def test_stage_recreates_production_dependency_trees_after_build(self):
         with tempfile.TemporaryDirectory(dir="/tmp") as directory:
             source = Path(directory) / "source"
             self.source_fixture(source)
@@ -469,6 +474,7 @@ HTTPServer(("127.0.0.1", int(os.environ["PORT"])), Handler).serve_forever()
             bun.write_bytes(b"fake bun")
             output = Path(directory) / "release"
             commands = []
+            production_had_old_tree = []
 
             def fake_run(argv, *, cwd, env):
                 parts = tuple(argv[1:])
@@ -477,7 +483,8 @@ HTTPServer(("127.0.0.1", int(os.environ["PORT"])), Handler).serve_forever()
                     self.release_fixture(cwd)
                     (cwd / "bin/bun").write_bytes(bun.read_bytes())
                     (cwd / MODULE.RUNTIME_DIR).rmdir()
-                    for dependency_root in (cwd, cwd / "web"):
+                    workspace = cwd / "packages/@ezcorp/factory-transport"
+                    for dependency_root in (cwd, cwd / "web", workspace):
                         modules = dependency_root / "node_modules"
                         compiler = modules / "typescript/bin/tsserver"
                         compiler.parent.mkdir(parents=True)
@@ -487,32 +494,29 @@ HTTPServer(("127.0.0.1", int(os.environ["PORT"])), Handler).serve_forever()
                         runtime = modules / "runtime-package/index.js"
                         runtime.parent.mkdir()
                         runtime.write_bytes(b"runtime dependency")
-                if parts == ("prune", "--production"):
-                    # The supported pruner sees the still-present dev package
-                    # and can remove its executable links before dropping it.
-                    binary = cwd / "node_modules/.bin/tsserver"
-                    self.assertTrue(binary.resolve(strict=True).is_file())
-                    binary.unlink()
-                    shutil.rmtree(cwd / "node_modules/typescript")
                 if parts[:2] == ("install", "--production"):
-                    # Reproduce the observed final-install boundary: a dev
-                    # package disappears but its earlier bin link remains.
-                    shutil.rmtree(cwd / "node_modules/typescript", ignore_errors=True)
+                    modules = cwd / "node_modules"
+                    production_had_old_tree.append(os.path.lexists(modules))
+                    self.dependency_build_fixture(argv, cwd=cwd, env=env)
+                    # Reproduce the observed install boundary. Keeping the old
+                    # tree loses a compiler target but retains its stale bin.
+                    shutil.rmtree(modules / "typescript", ignore_errors=True)
+                    runtime = modules / "runtime-package/index.js"
+                    runtime.parent.mkdir(parents=True, exist_ok=True)
+                    runtime.write_bytes(b"runtime dependency")
 
             with patch.object(MODULE, "git_head", return_value="a" * 40), \
                  patch.object(MODULE, "extract_head", side_effect=self.extract_version_fixture), \
                  patch.object(MODULE, "run", side_effect=fake_run), \
                  patch.object(MODULE.subprocess, "check_output", return_value="1.3.14\n"):
                 MODULE.stage(source, output, bun, MODULE.sha256(bun))
-            prune_positions = [index for index, (parts, _cwd) in enumerate(commands)
-                               if parts == ("prune", "--production")]
             production_positions = [index for index, (parts, _cwd) in enumerate(commands)
                                     if parts[:2] == ("install", "--production")]
-            self.assertEqual([commands[index][1] for index in prune_positions], ["release", "web"])
             web_build = next(index for index, (parts, _cwd) in enumerate(commands)
                              if parts == ("run", "--cwd", "web", "build"))
-            self.assertLess(web_build, min(prune_positions))
-            self.assertLess(max(prune_positions), min(production_positions))
+            self.assertLess(web_build, min(production_positions))
+            self.assertEqual(production_had_old_tree, [False, False])
+            self.assertFalse((output / "packages/@ezcorp/factory-transport/node_modules").exists())
             for dependency_root in (output, output / "web"):
                 self.assertFalse(os.path.lexists(dependency_root / "node_modules/.bin/tsserver"))
                 self.assertEqual((dependency_root / "node_modules/runtime-package/index.js").read_bytes(),
@@ -520,6 +524,24 @@ HTTPServer(("127.0.0.1", int(os.environ["PORT"])), Handler).serve_forever()
             self.assertEqual((output / "bun.lock").read_bytes(), b"root lock")
             self.assertEqual((output / "web/bun.lock").read_bytes(), b"web lock")
             self.assertTrue(MODULE.verify(output)["files"])
+
+    def test_dependency_reset_does_not_follow_directory_links(self):
+        with tempfile.TemporaryDirectory(dir="/tmp") as directory:
+            root = Path(directory) / "release"
+            root.mkdir()
+            outside = Path(directory) / "outside"
+            (outside / "node_modules").mkdir(parents=True)
+            preserved = outside / "node_modules/cache-file"
+            preserved.write_bytes(b"shared cache bytes")
+            (root / "node_modules").symlink_to(outside, target_is_directory=True)
+            (root / "linked-source").symlink_to(outside, target_is_directory=True)
+            built = root / "dist/compiled.js"
+            built.parent.mkdir()
+            built.write_bytes(b"compiled output")
+            MODULE.clear_dependency_trees(root)
+            self.assertFalse(os.path.lexists(root / "node_modules"))
+            self.assertEqual(preserved.read_bytes(), b"shared cache bytes")
+            self.assertEqual(built.read_bytes(), b"compiled output")
 
     def test_stage_refuses_a_contract_build_without_published_outputs(self):
         with tempfile.TemporaryDirectory(dir="/tmp") as directory:
@@ -560,7 +582,10 @@ HTTPServer(("127.0.0.1", int(os.environ["PORT"])), Handler).serve_forever()
                     self.release_fixture(cwd)
                     (cwd / "bin/bun").write_bytes(bun.read_bytes())
                     (cwd / MODULE.RUNTIME_DIR).rmdir()
-                    package = cwd / "web/node_modules/fast-uri"
+                if _argv[1:3] == ["install", "--production"]:
+                    self.dependency_build_fixture(_argv, cwd=cwd, env=env)
+                if _argv[1:3] == ["install", "--production"] and cwd.name == "web":
+                    package = cwd / "node_modules/fast-uri"
                     package.mkdir(mode=0o777)
                     os.chmod(package, 0o777)
                     os.link(cached, package / "LICENSE")

@@ -359,6 +359,19 @@ def smoke(root, native_lib_dir=None):
                 "smokeRoot": str(scratch)}
 
 
+def clear_dependency_trees(root):
+    """Remove only dependency trees in the temporary release; never follow links."""
+    for parent, directories, _files in os.walk(root, followlinks=False):
+        if "node_modules" not in directories:
+            continue
+        path = Path(parent) / "node_modules"
+        if path.is_symlink():
+            path.unlink()
+        else:
+            shutil.rmtree(path)
+        directories.remove("node_modules")
+
+
 def stage(source, output, bun, expected_bun_sha256):
     source = source.resolve(strict=True)
     output = output.absolute()
@@ -398,10 +411,9 @@ def stage(source, output, bun, expected_bun_sha256):
         run([executable, "run", "build:sandbox-tools"], cwd=work, env=env)
         run([executable, "run", "build:sandbox-supervisor"], cwd=work, env=env)
         run([executable, "run", "--cwd", "web", "build"], cwd=work, env=env)
-        # Reconcile dev packages and their bin links while their metadata is
-        # still present. A production install alone can leave dangling bins.
-        for dependency_root in dependency_roots:
-            run([executable, "prune", "--production"], cwd=dependency_root, env=env)
+        # Install production dependencies into fresh trees, as container builds
+        # do. In-place pruning can leave stale bins in this locked graph.
+        clear_dependency_trees(work)
         for dependency_root in dependency_roots:
             run([executable, "install", "--production", "--frozen-lockfile", "--ignore-scripts"],
                 cwd=dependency_root, env=env)
