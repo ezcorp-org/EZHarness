@@ -135,7 +135,7 @@ jobs:
       # The coverage gate downloads every lcov-cov-* artifact into ONE folder; a unique name keeps this file (W4H-15).
       - name: Name the LCOV for the merged coverage download
         run: mv coverage-factory-pool/lcov.info coverage-factory-pool/lcov_factory_pool.info
-      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: lcov-cov-factory-pool
           path: coverage-factory-pool/lcov_factory_pool.info
@@ -149,7 +149,7 @@ jobs:
       # The coverage gate downloads every lcov-cov-* artifact into ONE folder; a unique name keeps this file (W4H-15).
       - name: Name the LCOV for the merged coverage download
         run: mv coverage-factory-compute-admissions/lcov.info coverage-factory-compute-admissions/lcov_factory_compute_admissions.info
-      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: lcov-cov-factory-compute-admissions
           path: coverage-factory-compute-admissions/lcov_factory_compute_admissions.info
@@ -162,7 +162,7 @@ jobs:
       # The coverage gate downloads every lcov-cov-* artifact into ONE folder; a unique name keeps this file (W4H-15).
       - name: Name the LCOV for the merged coverage download
         run: mv coverage-factory-provisioning/lcov.info coverage-factory-provisioning/lcov_factory_provisioning.info
-      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: lcov-cov-factory-provisioning
           path: coverage-factory-provisioning/lcov_factory_provisioning.info
@@ -239,7 +239,7 @@ jobs:
       # The coverage gate downloads every lcov-cov-* artifact into ONE folder; a unique name keeps this file (W4H-15).
       - name: Name the LCOV for the merged coverage download
         run: mv coverage-factory-storage/lcov.info coverage-factory-storage/lcov_factory_storage.info
-      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: lcov-cov-factory-storage
           path: coverage-factory-storage/lcov_factory_storage.info
@@ -312,7 +312,7 @@ jobs:
       # The coverage gate downloads every lcov-cov-* artifact into ONE folder; a unique name keeps this file (W4H-15).
       - name: Name the LCOV for the merged coverage download
         run: mv coverage-factory-assurance-release/lcov.info coverage-factory-assurance-release/lcov_factory_assurance_release.info
-      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: lcov-cov-factory-assurance-release
           path: coverage-factory-assurance-release/lcov_factory_assurance_release.info
