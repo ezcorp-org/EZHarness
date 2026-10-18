@@ -3,7 +3,7 @@ import { dirname, join } from "node:path";
 import { randomUUID, timingSafeEqual } from "node:crypto";
 import type { BuildRequest, Runner, RunnerExecution, StartRequest } from "@ezcorp/extension-contract";
 import { validateResourceLimits, validateInvocationContext } from "@ezcorp/extension-contract";
-import { identifier, processSpawn, RunnerError, validateFiles, safeHostError } from "./core";
+import { identifier, processSpawn, RunnerError, RunnerStartRefusedError, validateFiles, safeHostError } from "./core";
 
 import { MAX_SENSITIVE_RESULT_BYTES, requestSensitiveProviderResult, SENSITIVE_PROVIDER_METHOD, sensitiveChannelError } from "./protocol";
 
@@ -257,7 +257,15 @@ export async function startRunnerService(options: RunnerServiceOptions): Promise
         validateResourceLimits(data.limits);
         return respond(200, await options.runner.build(data as BuildRequest));
       }
-      case "/v4/start": return startSession(data);
+      case "/v4/start": {
+        try { return await startSession(data); }
+        catch (error) {
+          // Only the trusted start boundary may attest no worker was launched.
+          // Worker request errors use the ordinary diagnostic path below.
+          if (error instanceof RunnerStartRefusedError) return respond(400, { error: { ...error.diagnostic(), workerStarted: false } });
+          throw error;
+        }
+      }
       case "/v4/request": {
         const session = sessions.get(identifier(data.workerId));
         if (!session || typeof data.method !== "string" || data.method.length > 128) throw new RunnerError("unknown_worker", "Worker is unavailable");

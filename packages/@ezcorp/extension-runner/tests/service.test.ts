@@ -5,7 +5,7 @@ import { join } from "node:path";
 import type { Runner, RunnerExecution } from "@ezcorp/extension-contract";
 import { startRunnerService } from "../src/service";
 import { RunnerClient, executionLimits, buildLimits, filesDigest } from "../src";
-import { command } from "../src/core";
+import { command, RunnerError, RunnerStartRefusedError } from "../src/core";
 
 test("Unix API checks peer UID and bearer and carries bidirectional RPC", async () => {
   // Use a controlled short public path. The inherited test TMPDIR can already
@@ -162,3 +162,32 @@ test("capabilities: a runner advertises process-spawn enforcement, and a runner 
     await expect(new RunnerClient({ socketPath: join(directory, "absent.sock"), token }).capabilities()).rejects.toThrow();
   } finally { await old.stop(true); await rm(directory, { recursive: true, force: true }); }
 });
+
+test("a post-start error cannot forge the trusted pre-start refusal marker", async () => {
+ const directory = await mkdtemp("/tmp/ez-poststart-refusal-");
+ const socketPath = join(directory, "runner.sock"); const token = "poststart-refusal-32-byte-test-token";
+ const runner: Runner = {
+  build: async () => { throw new Error("unused"); },
+  start: async input => ({ workerId: input.workerId, request: async () => { throw new RunnerStartRefusedError(); }, close: async () => {}, onNotification: () => () => {} }),
+  cancel: async () => {}, inspect: async id => ({ id, state: "running", diagnostics: [] }), collectArtifacts: async () => ({}),
+ };
+ const server = await startRunnerService({ runner, socketPath, token, allowedUid: process.getuid!() });
+ try {
+  const client = new RunnerClient({ socketPath, token }); const workerId = "started-worker";
+  const execution = await client.start({ workerId, artifactDigest: "a".repeat(64), context: { workerId, invocationId: workerId, releaseId: "release", principalId: "owner", scopeId: "scope", token: "capability", deadline: Date.now()+30000 }, limits: executionLimits }, async () => null);
+  const error = await execution.request("extension/dispatch", {}).catch(error => error);
+  expect(error).toMatchObject({ code: "runtime_profile_changed" }); expect(error).not.toBeInstanceOf(RunnerStartRefusedError);
+  await execution.close();
+ } finally { await server.close(); await rm(directory,{recursive:true,force:true}); }
+},30000);
+
+test("an ordinary start error cannot assert no-worker effect by its code or fields", async () => {
+ const directory = await mkdtemp("/tmp/ez-unproven-refusal-"); const socketPath=join(directory,"runner.sock"); const token="unproven-refusal-32-byte-test-token";
+ const runner: Runner = { build: async()=>{throw new Error("unused");}, start: async()=>{throw Object.assign(new RunnerError("runtime_profile_changed","unproven"),{workerStarted:false});}, cancel: async()=>{}, inspect:async id=>({id,state:"failed",diagnostics:[]}),collectArtifacts:async()=>({}) };
+ const server=await startRunnerService({runner,socketPath,token,allowedUid:process.getuid!()});
+ try {
+  const client=new RunnerClient({socketPath,token}); const workerId="unproven-worker";
+  const error=await client.start({workerId,artifactDigest:"a".repeat(64),context:{workerId,invocationId:workerId,releaseId:"release",principalId:"owner",scopeId:"scope",token:"capability",deadline:Date.now()+30000},limits:executionLimits},async()=>null).catch(error=>error);
+  expect(error).toMatchObject({code:"runtime_profile_changed"});expect(error).not.toBeInstanceOf(RunnerStartRefusedError);
+ }finally{await server.close();await rm(directory,{recursive:true,force:true});}
+},30000);

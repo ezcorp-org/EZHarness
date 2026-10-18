@@ -1,8 +1,9 @@
 import { expect, test } from "bun:test";
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
+import { createHash } from "node:crypto";
 import { join } from "node:path";
-import { executionLimits, filesDigest, RunnerError } from "../src/core";
+import { executionLimits, filesDigest, RunnerError, RunnerStartRefusedError } from "../src/core";
 import { RunnerClient } from "../src/client";
 import { PodmanRunner } from "../src/podman";
 import { startRunnerService } from "../src/service";
@@ -77,3 +78,35 @@ test("the Unix runner API preserves a missing-artifact error before worker launc
     await rm(root, { recursive: true, force: true });
   }
 });
+
+class ProfileBoundaryRunner extends PodmanRunner {
+  staged = false; launched = false;
+  protected override async prepare(): Promise<void> {}
+  protected override async stage(): Promise<string> { this.staged = true; throw new Error("stage boundary reached"); }
+  protected override async launchDetached(): Promise<never> { this.launched = true; throw new Error("worker boundary reached"); }
+}
+
+for (const mismatch of ["image", "seccomp"] as const) {
+ test(`actual runner ${mismatch} mismatch is a proven pre-start refusal over the authenticated Unix API`, async () => {
+  const root = await mkdtemp(join(tmpdir(), "ez-profile-refusal-"));
+  const seccompPath = join(root, "seccomp.json");
+  await writeFile(seccompPath, "{}");
+  const runner = new ProfileBoundaryRunner({ root, seccompPath });
+  const files = { "extension.ts": "export {};", ".runner/recipe.json": JSON.stringify({ image: mismatch === "image" ? "other-image" : runner.image, seccompDigest: mismatch === "seccomp" ? "0".repeat(64) : createHash("sha256").update("{}").digest("hex") }) };
+  const artifactDigest = filesDigest(files);
+  await mkdir(join(root, "artifacts")); await writeFile(join(root, "artifacts", artifactDigest), JSON.stringify(files));
+  const socketPath = join(root, "runner.sock"); const token = "profile-refusal-32-byte-test-token";
+  const service = await startRunnerService({ runner, socketPath, token, allowedUid: process.getuid!() });
+  let rpc = 0;
+  try {
+   const client = new RunnerClient({ socketPath, token });
+   const workerId = `profile-${mismatch}`;
+   const context = { workerId, invocationId: workerId, releaseId: artifactDigest, principalId: "owner", scopeId: "project", token: "test-token", deadline: Date.now() + 30_000 };
+   const error = await client.start({ workerId, artifactDigest, context, limits: executionLimits }, async () => { rpc++; throw new Error("no RPC"); }).catch(error => error);
+   expect(error).toBeInstanceOf(RunnerStartRefusedError);
+   expect(error).toMatchObject({ code: "runtime_profile_changed" });
+   expect(runner.staged).toBe(false); expect(runner.launched).toBe(false); expect(rpc).toBe(0);
+   expect(await client.inspect(workerId)).toMatchObject({ state: "failed" });
+  } finally { await service.close(); await rm(root, { recursive: true, force: true }); }
+ }, 30_000);
+}

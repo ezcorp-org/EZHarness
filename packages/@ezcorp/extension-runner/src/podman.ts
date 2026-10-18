@@ -6,7 +6,7 @@ import { randomUUID } from "node:crypto";
 import type { ChildProcessWithoutNullStreams } from "node:child_process";
 import type { BuildResult, InvocationContext, ProcessSpawnPolicy, ResourceLimits, Runner, RunnerCapabilities, RunnerInspection, StartRequest, WorkspaceFiles } from "@ezcorp/extension-contract";
 import { canonicalJson, processSpawnPolicy, validateInvocationContext, validateManifest, workspaceFileBytes, workspaceText } from "@ezcorp/extension-contract";
-import { buildLimits, capture, command, digest, executionLimits, filesDigest, identifier, limitsWithin, processSpawn, relativePath, RunnerCommandError, RunnerError, sha256, validateFiles } from "./core";
+import { buildLimits, capture, command, digest, executionLimits, filesDigest, identifier, limitsWithin, processSpawn, relativePath, RunnerCommandError, RunnerError, RunnerStartRefusedError, sha256, validateFiles } from "./core";
 import { bindSensitiveRequestContext, FramedExecution, type FramedTransport, type ReverseRpc } from "./protocol";
 import { fetchLockedDependencies } from "./dependencies";
 import { browserBuild, browserBuilderProgram } from "./browser";
@@ -731,7 +731,7 @@ export class PodmanRunner implements Runner {
     try {
       const artifacts = await this.collectArtifacts(input.artifactDigest);
       const recipe = JSON.parse(workspaceText(artifacts[".runner/recipe.json"] ?? "{}", ".runner/recipe.json"));
-      if (recipe.image !== this.image || recipe.seccompDigest !== sha256(await readFile(this.seccompPath))) throw new RunnerError("runtime_profile_changed", "Runtime image or isolation policy differs from the built release");
+      if (recipe.image !== this.image || recipe.seccompDigest !== sha256(await readFile(this.seccompPath))) throw new RunnerStartRefusedError();
       staged = await this.stage(artifacts);
       const dependencies = JSON.parse(workspaceText(artifacts[".runner/dependencies.json"] ?? "{}", ".runner/dependencies.json"));
       const executable = JSON.parse(workspaceText(artifacts[".runner/executables.json"] ?? "[]", ".runner/executables.json"));

@@ -13,6 +13,13 @@ export class RunnerError extends Error {
   }
 }
 
+/** Only the runner's recipe check before staging or worker launch issues this. */
+export class RunnerStartRefusedError extends RunnerError {
+  constructor() {
+    super("runtime_profile_changed", "Runtime image or isolation policy differs from the built release");
+  }
+}
+
 /**
  * A control command that exited nonzero. The code stays `command_failed`; the
  * exit status is kept so a caller can tell a defined answer (`podman image

@@ -9169,3 +9169,8 @@ Review: original real backup verifier RED a13829 (two migration markers broke fi
 
 Review: actual route RED 8 failed/14 passed; GREEN 23 passed, including actual runtime_profile_changed code. Full web tsc and Biome passed. Diagnostics only; unknown CREATE cause remains unproven.
 Independent reviewer verified all 103 labels, arbitrary-code redaction and non-runner refusal. Root image-profile mismatch is recorded separately; no settlement behavior changed.
+
+## Proven pre-start runtime profile refusal
+- [ ] Reproduce actual image and seccomp mismatch before staging/launch/RPC.
+- [ ] Preserve a start-only trusted failure marker through service/client and classify Incus refusal.
+- [ ] Verify post-start/transport failures stay unknown; focused tests/types/lint and independent review.

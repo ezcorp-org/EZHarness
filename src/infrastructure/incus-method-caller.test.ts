@@ -3,7 +3,7 @@ import { afterEach, expect, mock, test } from "bun:test";
 import { PGlite } from "@electric-sql/pglite";
 import { drizzle } from "drizzle-orm/pglite";
 import { eq } from "drizzle-orm";
-import { RunnerError } from "@ezcorp/extension-runner";
+import { RunnerError, RunnerStartRefusedError } from "@ezcorp/extension-runner";
 import * as schema from "../db/schema";
 import { up as addSandboxController } from "../db/migrations/add-sandbox-controller";
 import type { IncusDispatchScope } from "../sandboxes/incus-dispatcher";
@@ -30,6 +30,8 @@ mock.module("../extensions/release-process", () => ({
     async whenCallsSettled() { settled = true; }
   },
 }));
+const { SandboxController } = await import("../sandboxes/controller");
+const { IncusSandboxProviderDispatcher } = await import("../sandboxes/incus-dispatcher");
 const { IncusMethodCaller } = await import("./incus-method-caller");
 
 const scope: IncusDispatchScope = {
@@ -254,3 +256,37 @@ test("missing or drifted user admission is a proven failure before provider tran
   expect(failed.providerOperationId).toBeNull();
   expect(calls).toHaveLength(0);
 }, DB_TEST_TIMEOUT_MS);
+
+test("only trusted pre-start profile refusal becomes a definitive Incus failure", async () => {
+ const caller = await fixture();
+ releaseError = new RunnerStartRefusedError();
+ await expect(caller.call(scope, "incus/lifecycle/create", create)).rejects.toMatchObject({ code: "RUNTIME_PROFILE_UNAVAILABLE" });
+ for (const error of [new RunnerError("runtime_profile_changed", "same code after worker started"), new RunnerError("runner_timeout", "transport timed out")]) {
+  releaseError = error;
+  await expect(caller.call(scope, "incus/lifecycle/create", create)).rejects.toBe(error);
+ }
+}, DB_TEST_TIMEOUT_MS);
+
+for (const [name, error, state] of [
+ ["proven pre-start refusal", new RunnerStartRefusedError(), "FAILED"],
+ ["post-worker same code", new RunnerError("runtime_profile_changed", "worker error"), "OUTCOME_UNKNOWN"],
+ ["transport timeout", new RunnerError("runner_timeout", "reply unavailable"), "OUTCOME_UNKNOWN"],
+] as const) {
+ test(`actual Incus caller and controller preserve accounting for ${name}`, async () => {
+  const caller = await fixture();
+  await database.update(schema.sandboxBindings).set({ currentOperationId: null }).where(eq(schema.sandboxBindings.id, "binding"));
+  await database.delete(schema.sandboxOperations);
+  await database.insert(schema.sandboxHostCapacities).values({ providerInstallationId: "installation", connectionId: "connection", allocatableMemoryBytes: 268435456, allocatableCpuMillicores: 2000, allocatablePids: 128, allocatableDiskBytes: 4096, allocatableExecutionSlots: 2, safetyMemoryBytes: 0, safetyCpuMillicores: 0, safetyPids: 0, safetyDiskBytes: 0, safetyExecutionSlots: 0 });
+  await database.insert(schema.sandboxReservations).values({ bindingId: "binding", projectId: "project", providerInstallationId: "installation", connectionId: "connection", generation: 1, memoryBytes: 134217728, cpuMillicores: 500, pids: 32, diskBytes: 1024, executionSlots: 1, computeState: "RESERVED", diskState: "RESERVED" });
+  const before = await database.select().from(schema.sandboxReservations);
+  releaseError = error;
+  const controller = new SandboxController(database, new IncusSandboxProviderDispatcher(caller));
+  const operation = await controller.requestAndDispatch({ bindingId: "binding", kind: "CREATE", generation: 1, idempotencyScope: "test", idempotencyKey: "single-create", payload: { profile: "profile", presetId: "preset", presetDigest: "preset-digest", effectiveSettingsDigest: "settings-digest" } });
+  expect(operation.state).toBe(state);
+  expect(operation.providerOperationId).toBeNull();
+  expect(operation.errorCode).toBe(state === "FAILED" ? "RUNTIME_PROFILE_UNAVAILABLE" : "PROVIDER_OUTCOME_UNKNOWN");
+  expect(await database.select().from(schema.sandboxReservations)).toEqual(before);
+  expect(await database.select().from(schema.sandboxOperations)).toHaveLength(1);
+  expect(calls).toHaveLength(1);
+ }, DB_TEST_TIMEOUT_MS);
+}

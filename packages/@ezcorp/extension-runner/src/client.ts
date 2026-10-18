@@ -1,6 +1,6 @@
 import { request } from "node:http";
 import type { BuildRequest, BuildResult, Runner, RunnerCapabilities, RunnerExecution, RunnerInspection, StartRequest, WorkspaceFiles } from "@ezcorp/extension-contract";
-import { RunnerError, safeHostError } from "./core";
+import { RunnerError, RunnerStartRefusedError, safeHostError } from "./core";
 import { MAX_SENSITIVE_RESULT_BYTES, SENSITIVE_PROVIDER_METHOD, SensitiveRunnerExecution, type ReverseRpc } from "./protocol";
 
 type RunnerCall = <Value>(method: string, data: unknown) => Promise<Value>;
@@ -71,7 +71,10 @@ export class RunnerClient implements Runner {
         incoming.on("end", () => {
           try {
             const result = JSON.parse(Buffer.concat(chunks).toString("utf8"));
-            if (incoming.statusCode !== 200 || result.error) reject(new RunnerError(result.error?.code ?? "runner_failed", result.error?.message ?? "Runner request failed", result.error?.stage, result.error?.retryable));
+            if (incoming.statusCode !== 200 || result.error) {
+              if (method === "start" && result.error?.code === "runtime_profile_changed" && result.error?.workerStarted === false) reject(new RunnerStartRefusedError());
+              else reject(new RunnerError(result.error?.code ?? "runner_failed", result.error?.message ?? "Runner request failed", result.error?.stage, result.error?.retryable));
+            }
             else resolve(result);
           } catch { reject(new RunnerError("runner_protocol", "Runner returned invalid JSON")); }
         });

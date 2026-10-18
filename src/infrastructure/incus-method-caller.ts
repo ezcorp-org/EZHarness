@@ -2,7 +2,7 @@ import { permitsLinkedCleanupStop } from "./incus-cleanup-stop-policy";
 import { resourceName } from "./incus-transport/lifecycle";
 import { permitsCreateReadbackDuringQueuedCleanup } from "./incus-create-readback-policy";
 import { eq } from "drizzle-orm";
-import { RunnerError } from "@ezcorp/extension-runner";
+import { RunnerError, RunnerStartRefusedError } from "@ezcorp/extension-runner";
 import { getDb } from "../db/connection";
 import { projects, sandboxBindings, sandboxOperations, sandboxCleanupRecoveries, type SandboxBinding, type SandboxOperation } from "../db/schema";
 import { getReleaseRuntime, ReleaseProcess, resolveActiveRelease } from "../extensions/release-process";
@@ -156,8 +156,11 @@ export class IncusMethodCaller implements HostAuthorizedIncusMethodCaller {
       const response = await process.callIncusSandboxOperation(scope.bindingId, operation, input);
       return response.result;
     } catch (error) {
-      // This runner error is raised only when the pinned worker artifact is
-      // missing before any provider worker can start or admit an Incus effect.
+      // The typed refusal is carried only by the authenticated runner start
+      // boundary, never by a worker response that merely repeats its code.
+      if (error instanceof RunnerStartRefusedError) {
+        throw new IncusDispatchAuthorizationError("RUNTIME_PROFILE_UNAVAILABLE");
+      }
       if (error instanceof RunnerError && error.code === "artifact_missing") {
         throw new IncusDispatchAuthorizationError("ARTIFACT_UNAVAILABLE");
       }
