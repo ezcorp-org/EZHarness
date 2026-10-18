@@ -98,7 +98,7 @@ describe("resolveTrustedLocalRunner, walked in a process's order", () => {
     await expect(resolveTrustedLocalRunner()).rejects.toThrow("pinned digest");
     expect(constructed).toHaveLength(2);
     expect(initializeCalls).toBe(2);
-    const override = { sdkEntrypoint: "/opt/release/packages/@ezcorp/sdk/src/v4/index.ts", toolchainRoot: getProjectRoot() };
+    const override = { sdkEntrypoint: "/opt/release/packages/@ezcorp/sdk/src/v4/index.ts", toolchainRoot: join(getProjectRoot(), "packages", "@ezcorp", "extension-runner") };
     expect(provisions).toEqual([override, override]);
   });
 
@@ -114,10 +114,10 @@ describe("resolveTrustedLocalRunner, walked in a process's order", () => {
     expect(options.bunDigest).toBe(await trustedLocalBunDigest());
     expect(options.dedicatedUid).toBe(process.getuid?.() ?? -1);
     // The provisioned toolchain is spread in, so the runner bundles exactly
-    // what the host provisioned — from the project root, not the bundle.
+    // what the host provisioned — from the installed runner package, not the server bundle.
     expect(options.sdkFiles).toEqual({ "node_modules/@ezcorp/sdk/package.json": "{}" });
     expect(options.toolchainFiles).toEqual({ "node_modules/typescript/package.json": "{}" });
-    expect(provisions).toEqual([{ sdkEntrypoint: join(projectRoot, "packages", "@ezcorp", "sdk", "src", "v4", "index.ts"), toolchainRoot: projectRoot }]);
+    expect(provisions).toEqual([{ sdkEntrypoint: join(projectRoot, "packages", "@ezcorp", "sdk", "src", "v4", "index.ts"), toolchainRoot: join(projectRoot, "packages", "@ezcorp", "extension-runner") }]);
     expect(options.audit).toBe(hooks.audit);
     expect(initializeCalls).toBe(1);
     expect((runner as unknown as { options: unknown }).options).toBe(options);

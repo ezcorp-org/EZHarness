@@ -11,7 +11,7 @@ import tempfile
 import tarfile
 import unittest
 from pathlib import Path
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 
 SCRIPT = Path(__file__).with_name("stage-release-bundle.py")
@@ -292,9 +292,27 @@ class ReleaseBundleTests(unittest.TestCase):
         self.release_fixture(root)
         executable = root / "bin/bun"
         executable.write_text(f'''#!/usr/bin/env python3
+import json
 import os
+import signal
+import sys
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from pathlib import Path
+from socketserver import UnixStreamServer
+
+if sys.argv[-1].endswith("extension-runner/src/main.ts"):
+    signal.signal(signal.SIGTERM, lambda *_args: sys.exit(0))
+    class RunnerHandler(BaseHTTPRequestHandler):
+        def do_POST(self):
+            self.rfile.read(int(self.headers.get("Content-Length", "0")))
+            expected = "Bearer " + Path(os.environ["EZ_EXTENSION_RUNNER_TOKEN_FILE"]).read_text()
+            self.send_response(200 if self.headers.get("Authorization") == expected else 401)
+            self.end_headers()
+            self.wfile.write(json.dumps({{"id": "bundle-smoke", "state": "unknown", "diagnostics": []}}).encode())
+        def log_message(self, *_args):
+            pass
+    UnixStreamServer(os.environ["EZ_EXTENSION_RUNNER_SOCKET"], RunnerHandler).serve_forever()
+    sys.exit(0)
 
 runtime = Path(os.environ["EZCORP_PROJECT_ROOT"]) / ".ezcorp/data"
 runtime.mkdir(mode=0o700)
@@ -359,9 +377,103 @@ HTTPServer(("127.0.0.1", int(os.environ["PORT"])), Handler).serve_forever()
         with tempfile.TemporaryDirectory(dir="/tmp") as directory:
             root = Path(directory)
             self.smoke_fixture(root)
-            self.assertEqual(MODULE.smoke(root)["healthStatus"], 200)
+            result = MODULE.smoke(root)
+            self.assertEqual(result["healthStatus"], 200)
+            self.assertEqual(result["runner"], {"authenticatedInspect": True, "state": "unknown"})
             self.assertEqual(list((root / MODULE.RUNTIME_DIR).iterdir()), [])
             MODULE.verify(root)
+
+    def test_smoke_rejects_worker_startup_failure_before_app_health(self):
+        with tempfile.TemporaryDirectory(dir="/tmp") as directory:
+            root = Path(directory)
+            self.smoke_fixture(root)
+            executable = root / "bin/bun"
+            source = executable.read_text().replace(
+                'if sys.argv[-1].endswith("extension-runner/src/main.ts"):',
+                'if sys.argv[-1].endswith("extension-runner/src/main.ts"):\n    sys.exit("Cannot find module @types/bun/package.json")')
+            executable.write_text(source)
+            self.seal_fixture(root)
+            with self.assertRaisesRegex(ValueError, "runner exited before readiness.*@types/bun"):
+                MODULE.smoke(root)
+            self.assertFalse((root / ".ezcorp/data").exists())
+            MODULE.verify(root)
+
+    def test_smoke_rejects_runner_authentication_failure(self):
+        with tempfile.TemporaryDirectory(dir="/tmp") as directory:
+            root = Path(directory)
+            self.smoke_fixture(root)
+            executable = root / "bin/bun"
+            source = executable.read_text().replace(
+                'self.send_response(200 if self.headers.get("Authorization") == expected else 401)',
+                'self.send_response(401)')
+            executable.write_text(source)
+            self.seal_fixture(root)
+            with self.assertRaisesRegex(ValueError, "runner authenticated inspect failed"):
+                MODULE.smoke(root)
+            self.assertFalse((root / ".ezcorp/data").exists())
+            MODULE.verify(root)
+
+    def test_smoke_rejects_malformed_and_oversize_runner_inspection(self):
+        for replacement in ('b"not-json"', 'b"x" * 65537'):
+            with self.subTest(replacement=replacement), tempfile.TemporaryDirectory(dir="/tmp") as directory:
+                root = Path(directory)
+                self.smoke_fixture(root)
+                executable = root / "bin/bun"
+                source = executable.read_text().replace(
+                    'json.dumps({"id": "bundle-smoke", "state": "unknown", "diagnostics": []}).encode()',
+                    replacement)
+                executable.write_text(source)
+                self.seal_fixture(root)
+                with self.assertRaises((ValueError, json.JSONDecodeError)):
+                    MODULE.smoke(root)
+                self.assertFalse((root / ".ezcorp/data").exists())
+                MODULE.verify(root)
+
+    def test_runner_shutdown_timeout_kills_only_its_owned_process_group(self):
+        with tempfile.TemporaryDirectory(dir="/tmp") as directory:
+            root = Path(directory)
+            with MODULE.socket.socket(MODULE.socket.AF_UNIX, MODULE.socket.SOCK_STREAM) as listener:
+                listener.bind(str(root / "runner.sock"))
+                listener.listen(1)
+                process = Mock(pid=12345, returncode=-MODULE.signal.SIGKILL)
+                process.poll.return_value = None
+                process.wait.side_effect = [subprocess.TimeoutExpired("runner", 10), -MODULE.signal.SIGKILL]
+                connection = Mock()
+                connection.getresponse.return_value.status = 200
+                connection.getresponse.return_value.read.return_value = b'{"id":"bundle-smoke","state":"unknown","diagnostics":[]}'
+                connection.close.side_effect = lambda: connection.sock.close()
+                def signal_group(_pid, sig):
+                    if sig == 0:
+                        raise ProcessLookupError()
+                with patch.object(MODULE.subprocess, "Popen", return_value=process), \
+                     patch.object(MODULE.http.client, "HTTPConnection", return_value=connection), \
+                     patch.object(MODULE.os, "killpg", side_effect=signal_group) as kill:
+                    with self.assertRaisesRegex(ValueError, "runner shutdown failed"):
+                        MODULE.smoke_runner(root, root, {"PATH": os.environ.get("PATH", "")})
+                self.assertEqual(kill.call_args_list, [unittest.mock.call(12345, MODULE.signal.SIGTERM),
+                                                       unittest.mock.call(12345, MODULE.signal.SIGKILL),
+                                                       unittest.mock.call(12345, 0)])
+                self.assertEqual(process.wait.call_args_list, [unittest.mock.call(timeout=10), unittest.mock.call(timeout=5)])
+
+    def test_runner_leader_success_with_leftover_descendants_refuses(self):
+        with tempfile.TemporaryDirectory(dir="/tmp") as directory:
+            root = Path(directory)
+            with MODULE.socket.socket(MODULE.socket.AF_UNIX, MODULE.socket.SOCK_STREAM) as listener:
+                listener.bind(str(root / "runner.sock"))
+                listener.listen(1)
+                process = Mock(pid=23456, returncode=0)
+                process.poll.return_value = 0
+                connection = Mock()
+                connection.getresponse.return_value.status = 200
+                connection.getresponse.return_value.read.return_value = b'{"id":"bundle-smoke","state":"unknown","diagnostics":[]}'
+                connection.close.side_effect = lambda: connection.sock.close()
+                with patch.object(MODULE.subprocess, "Popen", return_value=process), \
+                     patch.object(MODULE.http.client, "HTTPConnection", return_value=connection), \
+                     patch.object(MODULE.os, "killpg") as kill:
+                    with self.assertRaisesRegex(ValueError, "left descendant processes"):
+                        MODULE.smoke_runner(root, root, {"PATH": os.environ.get("PATH", "")})
+                self.assertEqual(kill.call_args_list, [unittest.mock.call(23456, 0),
+                                                       unittest.mock.call(23456, MODULE.signal.SIGKILL)])
 
     def test_smoke_rejects_runtime_files_without_deleting_them(self):
         with tempfile.TemporaryDirectory(dir="/tmp") as directory:

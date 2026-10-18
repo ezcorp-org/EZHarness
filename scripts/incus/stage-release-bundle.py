@@ -4,11 +4,14 @@
 import argparse
 import copy
 import hashlib
+import http.client
 import io
 import json
 import os
 import re
 import shutil
+import secrets
+import signal
 import socket
 import stat
 import subprocess
@@ -301,6 +304,71 @@ def verify(root, *, runtime_source=None, app_uid=None, app_gid=None, owner=0):
     return document
 
 
+def smoke_runner(root, scratch, env):
+    """Start the actual production worker and authenticate its existing inspect API."""
+    token = secrets.token_hex(32)
+    token_file = scratch / "runner-token"
+    token_fd = os.open(token_file, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+    with os.fdopen(token_fd, "w") as stream:
+        stream.write(token)
+    socket_path = scratch / "runner.sock"
+    runner_env = {**env, "HOME": os.environ["HOME"],
+                  "XDG_RUNTIME_DIR": os.environ.get("XDG_RUNTIME_DIR", f"/run/user/{os.geteuid()}"),
+                  "EZ_EXTENSION_RUNNER_SOCKET": str(socket_path),
+                  "EZ_EXTENSION_RUNNER_TOKEN_FILE": str(token_file),
+                  "EZ_EXTENSION_RUNNER_STORE": str(scratch / "runner-store"),
+                  "EZ_EXTENSION_APP_UID": str(os.geteuid())}
+    with (scratch / "runner.log").open("w+") as log:
+        process = subprocess.Popen([str(root / "bin/bun"),
+                                    str(root / "packages/@ezcorp/extension-runner/src/main.ts")],
+                                   cwd=root, env=runner_env, stdout=log, stderr=subprocess.STDOUT,
+                                   start_new_session=True)
+        try:
+            deadline = time.monotonic() + 60
+            while not socket_path.exists():
+                if process.poll() is not None:
+                    log.seek(0)
+                    raise ValueError("bundled runner exited before readiness: " + log.read(4096))
+                require(time.monotonic() < deadline, "bundled runner readiness timed out")
+                time.sleep(0.1)
+            require(stat.S_ISSOCK(socket_path.lstat().st_mode), "bundled runner socket is invalid")
+            connection = http.client.HTTPConnection("localhost", timeout=5)
+            connection.sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+            connection.sock.settimeout(5)
+            connection.sock.connect(str(socket_path))
+            try:
+                connection.request("POST", "/v4/inspect", json.dumps({"id": "bundle-smoke"}),
+                                   {"Authorization": "Bearer " + token, "Content-Type": "application/json"})
+                response = connection.getresponse()
+                body = response.read(65537)
+                require(response.status == 200 and len(body) <= 65536,
+                        "bundled runner authenticated inspect failed")
+                observed = json.loads(body)
+                require(observed == {"id": "bundle-smoke", "state": "unknown", "diagnostics": []},
+                        "bundled runner inspect returned unexpected state")
+            finally:
+                connection.close()
+            require(process.poll() is None, "bundled runner stopped after authenticated inspect")
+        finally:
+            if process.poll() is None:
+                os.killpg(process.pid, signal.SIGTERM)
+            try:
+                process.wait(timeout=10)
+            except subprocess.TimeoutExpired:
+                os.killpg(process.pid, signal.SIGKILL)
+                process.wait(timeout=5)
+            # A successful leader must not leave its private process group behind.
+            try:
+                os.killpg(process.pid, 0)
+            except ProcessLookupError:
+                pass
+            else:
+                os.killpg(process.pid, signal.SIGKILL)
+                raise ValueError("bundled runner left descendant processes after shutdown")
+        require(process.returncode == 0, "bundled runner shutdown failed")
+    return {"authenticatedInspect": True, "state": "unknown"}
+
+
 def smoke(root, native_lib_dir=None):
     require(os.geteuid() != 0, "smoke must run as a non-root user")
     verify(root)
@@ -326,6 +394,7 @@ def smoke(root, native_lib_dir=None):
                "EZCORP_JWT_SECRET": "smoke-only-jwt-secret-32-bytes"}
         if native_lib_dir is not None:
             env["LD_LIBRARY_PATH"] = str(native_lib_dir)
+        runner_result = smoke_runner(root, scratch, env)
         process = subprocess.Popen([str(root / "bin/bun"), str(root / "web/build/index.js")],
                                    cwd=root, env=env, stdout=subprocess.PIPE,
                                    stderr=subprocess.STDOUT, text=True)
@@ -355,7 +424,7 @@ def smoke(root, native_lib_dir=None):
             remove_empty_runtime_dirs(root)
         check_empty_runtime_placeholder(root)
         verify(root)
-        return {"healthStatus": status, "nonRootUid": os.geteuid(),
+        return {"healthStatus": status, "runner": runner_result, "nonRootUid": os.geteuid(),
                 "smokeRoot": str(scratch)}
 
 
