@@ -9122,3 +9122,11 @@ Review: original hosted browser assertion reproduced RED; fixed same-clock fixtu
 - [x] Run focused behavior/lint/type checks and independent review before commit.
 
 Review: root diagnostic C reproduces unchanged kernel guard failure with storage XDG; A/B pass. Actual composite-shell regression RED on leaked runtime, then 8 tests/42 assertions GREEN with preserved runtime and owned cleanup. Biome and scoped inherited strict TypeScript pass; independent source/control review acab9d CLEAR. Actual repaired guest storage/probe check remains root-owned and pending. No guard change or CI retry is part of this fix.
+
+## Context initialization cold import (Sol61 Oct18)
+- [x] Reproduce the cold canonical Vitest leg or faithful full-graph hook timeout.
+- [x] Find the import boundary cause and apply a test-only fix without timeout changes.
+- [x] Preserve all real ensureInitialized assertions; run focused and cold full-leg checks.
+- [x] Run relevant type/lint checks and independent review before commit.
+
+Review: hosted RED retained; natural cold run passed. Controlled real-context transform delay reproduced hook RED and collection-import GREEN. Fixed full Vitest 661 files/8347 tests passed; actual pending initialization still times out at 5 seconds. Web compiler and scoped lint passed. Source review confirmed unchanged four test bodies; final review receipt in cache.
