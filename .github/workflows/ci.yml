@@ -303,7 +303,11 @@ jobs:
       - name: Run the lane-bound reference-data journey
         run: bash scripts/run-factory-lane-tests.sh factory-deployment-operations
       - name: Prove a compatible upgrade preserves data
-        run: bash scripts/verify-docker-upgrade.sh
+        # Match the host account for owned bind-state cleanup and worker peer UID.
+        run: |
+          EZ_UPGRADE_APP_UID="$(id -u)" EZ_UPGRADE_APP_GID="$(id -g)" \
+            EZ_PRODUCTION_RUNNER_APP_UID="$(id -u)" \
+            bash scripts/verify-docker-upgrade.sh
       - name: Prove a rollback restores the previous release
         run: bash scripts/verify-docker-rollback.sh
       - name: Prove a backup restores to a consistent position

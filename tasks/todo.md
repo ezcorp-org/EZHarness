@@ -9130,3 +9130,16 @@ Review: root diagnostic C reproduces unchanged kernel guard failure with storage
 - [x] Run relevant type/lint checks and independent review before commit.
 
 Review: hosted RED retained; natural cold run passed. Controlled real-context transform delay reproduced hook RED and collection-import GREEN. Fixed full Vitest 661 files/8347 tests passed; actual pending initialization still times out at 5 seconds. Web compiler and scoped lint passed. Source review confirmed unchanged four test bodies; final review receipt in cache.
+
+## Factory deployment host UID cleanup (2026-10-19)
+- [x] Reuse passing shipping host UID/GID mapping in factory upgrade only.
+- [x] Verify actual workflow command environment and rollback named-volume boundary.
+- [x] Preserve root Docker RED/GREEN66bff2 and obtain independent review.
+
+Root supplied real Docker proof66bff2: cached official pgvector image f115a941..., root-owned0700 bind output prevents host cleanup; host1001:100 mapping succeeds. Exact owned fixtures removed. No duplicate Docker run planned.
+
+Review: real Docker root/host ownership proof supplied by root66bff2. Actual workflow shell regression RED28e9e5 (two mapping failures), GREEN01aecc (48 tests/165 assertions). Only the two actual workflow command tests were added; rollback inspection remains notes, not a brittle unchanged-source test. Both real host identity and synthetic2345:3456 preserve common app/runner UID. Rollback has engine-owned named volume, no host bind directory cleanup; unchanged. No shared launcher or production source/locks changed. Full combined compiler/gate remains separate; no live Docker/API effects by author.
+
+Additional actual boundary proof (root1c3be6): original gateway7a9c/current6c with exact cached imagef115 and reviewed probe88e56. Root container connected but forwarded=false/0responsebytes; mapped1001:100 forwarded=true/65bytes and backendSO_PEERCRED1001. Exact owned container inventories empty after cleanup. Confirms worker peer identity boundary in Docker, separately from filesystem cleanup66bff2. Full previous-image semantic seed remains unrun; neither boundary proof is claimed as that result.
+
+Independent source/control review CLEAR: reviewer48tests/165assertions483ca2, exact workflow/testpins6d726/8f3ed, productionhelpers unchangeddf6408. Normal commit only; no push or live effect.
