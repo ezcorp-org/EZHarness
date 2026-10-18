@@ -9105,3 +9105,12 @@ Review: Hosted real-auth job 117588508903 fails because the status locator match
 - [x] Independent source/control review; normal commit next.
 
 Review: exact missing-isError TS2322 reproduced; only successful mock result corrected. Focused5tests/19assertions, full supported typecheck(all legs), Biome and diff-check pass. Independent factory review cbed29a3668d5bb67f7276cdbddc35e3192ec038ea576302991272395e2ca261 CLEAR.
+
+
+## Personal GitHub device-code browser failure (Sol61 Oct19)
+- [x] Reproduce hosted expired-code failure in the real mock browser consumer.
+- [x] Test clock-domain and timer-overflow hypothesis before production edits.
+- [x] Apply minimal fixture/product correction as proved; preserve expiry and one-use checks.
+- [x] Run focused E2E, relevant TypeScript and lint; independent review before commit.
+
+Review: original hosted browser assertion reproduced RED; fixed same-clock fixture GREEN, all15 same-spec tests pass. Strict backend/web E2E typecheck and Biome pass. Independent release review1880660 CLEAR. Production, dependencies, workflow and timeout policy unchanged.
