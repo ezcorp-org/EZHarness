@@ -37,7 +37,8 @@
  */
 import { createHash, createPublicKey, createSign, generateKeyPairSync, randomBytes } from "node:crypto";
 import { chmod, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
-import { homedir, tmpdir } from "node:os";
+import { tmpdir } from "node:os";
+import { makeFactoryTempPrivateRoot } from "../../../src/__tests__/helpers/factory-private-root";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { setTimeout as sleep } from "node:timers/promises";
@@ -80,9 +81,9 @@ const NAMESPACE = `${TENANT}.factory`;
 const processes = new StackProcesses();
 const logs = process.env.FACTORY_SERVICES_LOGS ?? await mkdtemp(join(tmpdir(), "factory-services-logs-"));
 await mkdir(logs, { recursive: true });
-// Under the home directory, not the shared temporary directory: the product
-// refuses a private file with a writable foreign ancestor, and /tmp is one.
-const root = await mkdtemp(join(homedir(), ".factory-services-"));
+// Reuse the private fixture root: owned HOME ancestors may be 0750/0755,
+// while the strict reader accepts a private root below root-owned sticky /tmp.
+const root = await makeFactoryTempPrivateRoot("factory-services-");
 await chmod(root, 0o700);
 const secrets = join(root, "secrets");
 const readiness = join(root, "readiness");

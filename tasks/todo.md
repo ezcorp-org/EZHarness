@@ -9143,3 +9143,13 @@ Review: real Docker root/host ownership proof supplied by root66bff2. Actual wor
 Additional actual boundary proof (root1c3be6): original gateway7a9c/current6c with exact cached imagef115 and reviewed probe88e56. Root container connected but forwarded=false/0responsebytes; mapped1001:100 forwarded=true/65bytes and backendSO_PEERCRED1001. Exact owned container inventories empty after cleanup. Confirms worker peer identity boundary in Docker, separately from filesystem cleanup66bff2. Full previous-image semantic seed remains unrun; neither boundary proof is claimed as that result.
 
 Independent source/control review CLEAR: reviewer48tests/165assertions483ca2, exact workflow/testpins6d726/8f3ed, productionhelpers unchangeddf6408. Normal commit only; no push or live effect.
+
+## Factory services secure fixture root (2026-10-19)
+- [x] Reproduce actual supervisor config reader with owned HOME0750/0755.
+- [x] Reuse existing temporary private-root helper; keep guards/timeouts/cleanup.
+- [x] Run focused private-root/consumer controls and independent review.
+Root original stack RED fe384a/099320/43a582/367ad1: supervisor refuses owned nonprivate HOME0750; pool config unavailable. No local service or live replay authorized.
+
+Review evidence: actual old stack-root expression reaches original supervisor private reader refusal f2c8d8. Corrected placement passes real reader/schema under HOME0750 and0755 without changing HOME; first injected readiness constructor stops before keys/listeners/runner/DB. Unchanged private-files negative suite plus regression26tests/63assertions PASS023d58, Biome2filesclean. Focused strict compiler for changed stack+test PASS original7683/c6e317 under existing heavylock/120s bound. No full real stack replay claimed; root owns retainedguest startup after commit. Existing helper, guard, cwd, runners, timeouts and cleanup unchanged.
+
+Independent source/control CLEAR: actual0e34c6 26tests/63assertions; exactstack81607438/test3993586e, HOME0750/0755 and unchanged guard verified. Root alone owns corrected original stack startup.
