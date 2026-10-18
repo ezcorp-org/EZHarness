@@ -389,16 +389,22 @@ def stage(source, output, bun, expected_bun_sha256):
                "BUN_RUNTIME_TRANSPILER_CACHE_PATH": "0",
                "PATH": f"{work / 'bin'}:{os.environ.get('PATH', '')}"}
         executable = str(work / "bin/bun")
-        run([executable, "install", "--frozen-lockfile", "--ignore-scripts"], cwd=work, env=env)
-        run([executable, "install", "--frozen-lockfile", "--ignore-scripts"], cwd=work / "web", env=env)
+        dependency_roots = (work, work / "web")
+        for dependency_root in dependency_roots:
+            run([executable, "install", "--frozen-lockfile", "--ignore-scripts"], cwd=dependency_root, env=env)
         # Clean archives have no published workspace outputs. Reuse the same
         # dependency-ordered builder as postinstall and container builds.
         run([executable, "run", "build:packages"], cwd=work, env=env)
         run([executable, "run", "build:sandbox-tools"], cwd=work, env=env)
         run([executable, "run", "build:sandbox-supervisor"], cwd=work, env=env)
         run([executable, "run", "--cwd", "web", "build"], cwd=work, env=env)
-        run([executable, "install", "--production", "--frozen-lockfile", "--ignore-scripts"], cwd=work, env=env)
-        run([executable, "install", "--production", "--frozen-lockfile", "--ignore-scripts"], cwd=work / "web", env=env)
+        # Reconcile dev packages and their bin links while their metadata is
+        # still present. A production install alone can leave dangling bins.
+        for dependency_root in dependency_roots:
+            run([executable, "prune", "--production"], cwd=dependency_root, env=env)
+        for dependency_root in dependency_roots:
+            run([executable, "install", "--production", "--frozen-lockfile", "--ignore-scripts"],
+                cwd=dependency_root, env=env)
         for name in ("index.js", "index.d.ts"):
             require((work / "packages/@ezcorp/extension-contract/dist" / name).is_file(),
                     f"built extension contract is absent: {name}")

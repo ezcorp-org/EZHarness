@@ -4,6 +4,7 @@ import importlib.util
 import io
 import json
 import os
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -459,6 +460,66 @@ HTTPServer(("127.0.0.1", int(os.environ["PORT"])), Handler).serve_forever()
             files = {entry["path"] for entry in manifest["files"]}
             self.assertIn("packages/@ezcorp/extension-contract/dist/index.d.ts", files)
             self.assertIn(transport_import.as_posix(), files)
+
+    def test_stage_prunes_build_dependencies_before_production_install(self):
+        with tempfile.TemporaryDirectory(dir="/tmp") as directory:
+            source = Path(directory) / "source"
+            self.source_fixture(source)
+            bun = source / "bun"
+            bun.write_bytes(b"fake bun")
+            output = Path(directory) / "release"
+            commands = []
+
+            def fake_run(argv, *, cwd, env):
+                parts = tuple(argv[1:])
+                commands.append((parts, cwd.name))
+                if cwd.name == "release" and not (cwd / "bun.lock").exists():
+                    self.release_fixture(cwd)
+                    (cwd / "bin/bun").write_bytes(bun.read_bytes())
+                    (cwd / MODULE.RUNTIME_DIR).rmdir()
+                    for dependency_root in (cwd, cwd / "web"):
+                        modules = dependency_root / "node_modules"
+                        compiler = modules / "typescript/bin/tsserver"
+                        compiler.parent.mkdir(parents=True)
+                        compiler.write_bytes(b"development compiler")
+                        (modules / ".bin").mkdir()
+                        (modules / ".bin/tsserver").symlink_to("../typescript/bin/tsserver")
+                        runtime = modules / "runtime-package/index.js"
+                        runtime.parent.mkdir()
+                        runtime.write_bytes(b"runtime dependency")
+                if parts == ("prune", "--production"):
+                    # The supported pruner sees the still-present dev package
+                    # and can remove its executable links before dropping it.
+                    binary = cwd / "node_modules/.bin/tsserver"
+                    self.assertTrue(binary.resolve(strict=True).is_file())
+                    binary.unlink()
+                    shutil.rmtree(cwd / "node_modules/typescript")
+                if parts[:2] == ("install", "--production"):
+                    # Reproduce the observed final-install boundary: a dev
+                    # package disappears but its earlier bin link remains.
+                    shutil.rmtree(cwd / "node_modules/typescript", ignore_errors=True)
+
+            with patch.object(MODULE, "git_head", return_value="a" * 40), \
+                 patch.object(MODULE, "extract_head", side_effect=self.extract_version_fixture), \
+                 patch.object(MODULE, "run", side_effect=fake_run), \
+                 patch.object(MODULE.subprocess, "check_output", return_value="1.3.14\n"):
+                MODULE.stage(source, output, bun, MODULE.sha256(bun))
+            prune_positions = [index for index, (parts, _cwd) in enumerate(commands)
+                               if parts == ("prune", "--production")]
+            production_positions = [index for index, (parts, _cwd) in enumerate(commands)
+                                    if parts[:2] == ("install", "--production")]
+            self.assertEqual([commands[index][1] for index in prune_positions], ["release", "web"])
+            web_build = next(index for index, (parts, _cwd) in enumerate(commands)
+                             if parts == ("run", "--cwd", "web", "build"))
+            self.assertLess(web_build, min(prune_positions))
+            self.assertLess(max(prune_positions), min(production_positions))
+            for dependency_root in (output, output / "web"):
+                self.assertFalse(os.path.lexists(dependency_root / "node_modules/.bin/tsserver"))
+                self.assertEqual((dependency_root / "node_modules/runtime-package/index.js").read_bytes(),
+                                 b"runtime dependency")
+            self.assertEqual((output / "bun.lock").read_bytes(), b"root lock")
+            self.assertEqual((output / "web/bun.lock").read_bytes(), b"web lock")
+            self.assertTrue(MODULE.verify(output)["files"])
 
     def test_stage_refuses_a_contract_build_without_published_outputs(self):
         with tempfile.TemporaryDirectory(dir="/tmp") as directory:
