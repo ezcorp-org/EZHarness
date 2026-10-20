@@ -11,7 +11,7 @@ import { timingSafeEqual } from "node:crypto";
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 import type { AddressInfo } from "node:net";
 import { readPrivateText } from "../private-files.ts";
-import { factoryMetricRenderer, type FactoryMetricSample, type FactoryMetricService, type FactoryRegisteredValues } from "./metric-registry.ts";
+import { FACTORY_HELD_ROLE_LABELS, factoryMetricRenderer, type FactoryMetricSample, type FactoryMetricService, type FactoryRegisteredValues } from "./metric-registry.ts";
 
 export const FACTORY_METRICS_CONTENT_TYPE = "text/plain; version=0.0.4; charset=utf-8";
 
@@ -123,11 +123,21 @@ export async function serveFactoryMetrics(
 export const FACTORY_READY_PROBE_TIMEOUT_MS = 2_000;
 
 /**
- * A service whose only family is its own readiness: the gateway, the orchestrator, the supervisor.
+ * A service whose own family is its readiness: the gateway, the orchestrator, the supervisor.
  * A probe that fails or does not answer in time reads as not ready; the endpoint itself stays up (F7).
+ * `heldRoles` (the supervisor's, W4H-35) names the product roles its record holds now: one `factory_service_role_held`
+ * series per registered role, 1 when held.
  */
-export function serveFactoryReadyMetrics(endpoint: FactoryMetricsEndpoint, service: FactoryMetricService, ready: () => boolean | Promise<boolean>, probeTimeoutMs = FACTORY_READY_PROBE_TIMEOUT_MS): Promise<FactoryMetricsListener> {
-  return serveFactoryMetrics(endpoint, service, async () => [{ name: "factory_service_ready", value: await probeReady(ready, probeTimeoutMs) ? 1 : 0 }]);
+export function serveFactoryReadyMetrics(endpoint: FactoryMetricsEndpoint, service: FactoryMetricService, ready: () => boolean | Promise<boolean>, probeTimeoutMs = FACTORY_READY_PROBE_TIMEOUT_MS, heldRoles?: () => readonly string[]): Promise<FactoryMetricsListener> {
+  return serveFactoryMetrics(endpoint, service, async () => [
+    { name: "factory_service_ready", value: await probeReady(ready, probeTimeoutMs) ? 1 : 0 },
+    ...(heldRoles === undefined ? [] : factoryHeldRoleSamples(heldRoles())),
+  ]);
+}
+
+/** One `factory_service_role_held` sample per registered role: 1 for each role in `held`, 0 for the rest. */
+export function factoryHeldRoleSamples(held: readonly string[]): FactoryMetricSample[] {
+  return FACTORY_HELD_ROLE_LABELS.map((role) => ({ name: "factory_service_role_held", labels: { role }, value: held.includes(role) ? 1 : 0 }));
 }
 
 async function probeReady(ready: () => boolean | Promise<boolean>, timeoutMs: number): Promise<boolean> {

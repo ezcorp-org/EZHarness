@@ -3,7 +3,7 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { parse } from "yaml";
 import {
-  FACTORY_ALERT_CASES, FACTORY_ALERT_GROUP, FACTORY_ALERT_RULES, factoryAlertRuleGroups, factoryPrometheusRuleResource,
+  FACTORY_ALERT_CASES, FACTORY_ALERT_GROUP, FACTORY_ALERT_RULES, FACTORY_HOST_METRIC_SERVICES, FACTORY_HOST_SCOPED_ALERT_RULES, factoryAlertRuleGroups, factoryPrometheusRuleResource,
   renderFactoryAlertRuleFile, renderFactoryAlertUnitTests,
 } from "./alert-rules";
 import { FACTORY_METRIC_FAMILIES } from "./metric-registry";
@@ -24,6 +24,30 @@ describe("the C11 alert rules (W4H-34)", () => {
     }
     // And every shipped rule is named in the contract's own rule table.
     for (const rule of FACTORY_ALERT_RULES) expect(CONTRACTS).toContain(`| \`${rule.alert}\` |`);
+  });
+
+  // C11 scope (W4H-35, w4h-34's conditions 1 and 2): one source, the rule's own `scope`; the host-scoped list is derived from it.
+  test("the host-scoped list is derived from each rule's scope, and today names only FactoryServiceRoleHeld (W4H-35)", () => {
+    expect([...FACTORY_HOST_SCOPED_ALERT_RULES]).toEqual(FACTORY_ALERT_RULES.filter((rule) => rule.scope === "host").map((rule) => rule.alert));
+    expect([...FACTORY_HOST_SCOPED_ALERT_RULES]).toEqual(["FactoryServiceRoleHeld"]);
+    for (const rule of FACTORY_ALERT_RULES) expect(["host", "installation"]).toContain(rule.scope);
+  });
+
+  // The guard: a rule cannot move to host scope to drop its tenant assertion. A host-scoped rule reads only families whose registry
+  // services are host services; every other rule reads none of them.
+  test("a host-scoped rule reads only host-service families, and an installation rule reads none of them (W4H-35)", () => {
+    const families = (expr: string) => FACTORY_METRIC_FAMILIES.filter((family) => new RegExp(`\\b${family.name}\\b`).test(expr));
+    const hostOnly = (family: (typeof FACTORY_METRIC_FAMILIES)[number]) => family.services.every((service) => FACTORY_HOST_METRIC_SERVICES.includes(service));
+    expect([...FACTORY_HOST_METRIC_SERVICES]).toEqual(["supervisor"]);
+    for (const rule of FACTORY_ALERT_RULES) {
+      const read = families(rule.expr);
+      if (rule.scope === "host") {
+        expect(read.length).toBeGreaterThan(0);
+        expect(read.filter((family) => !hostOnly(family)).map((family) => family.name)).toEqual([]);
+      } else {
+        expect(read.filter(hostOnly).map((family) => family.name)).toEqual([]);
+      }
+    }
   });
 
   test("the runbook each alert links to exists and lists every alert with its action", () => {

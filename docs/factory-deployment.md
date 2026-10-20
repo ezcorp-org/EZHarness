@@ -541,13 +541,16 @@ is the one list of families and their label sets.
 | Profile | Evaluator | Rules |
 | --- | --- | --- |
 | Self-hosted Compose | The `prometheus` service in `deploy/factory/compose/host.yml`, on host loopback. The host rewrites its target lists on each admission and release. | `deploy/factory/prometheus/factory-alerts.yml` |
-| Hosted Kubernetes | The platform's Prometheus operator. Each tenant namespace gets a `PodMonitor` and the `factory-metrics-scrape` Secret; the system namespace gets the `PrometheusRule` and the pool's `PodMonitor`. Set `monitoringNamespace` to the operator's namespace. | `PrometheusRule` `factory-c11-alerts` |
+| Hosted Kubernetes | The platform's Prometheus operator. Each tenant namespace gets a `PodMonitor` and the `factory-metrics-scrape` Secret; the system namespace gets the `PrometheusRule` and the `PodMonitor` of the pool and the supervisor. Set `kubernetes.monitoring.namespace` in the fleet settings to the operator's namespace. Without `kubernetes.monitoring`, none of these objects is rendered, no rule is evaluated, and the supervisor opens no metrics port. | `PrometheusRule` `factory-c11-alerts` |
 
 `src/factory/observability/alert-rules.ts` renders both rule sets, so the two
-profiles have the same thresholds. A test pins the shipped file to it. Known
-gap: on the hosted profile the supervisor binds `/metrics` on host loopback
-(`hosted-supervisor-metrics-address`), so `FactoryMetricsTargetDown` names it
-until that gap closes.
+profiles have the same thresholds. A test pins the shipped file to it. On the
+hosted profile the supervisor runs on the host network. It binds `/metrics` to
+the node's own address, which the DaemonSet passes from `status.hostIP`, and it
+reads the scrape token from its delivered private copy. It never binds
+`0.0.0.0`. An empty or malformed address stops its start with
+`factory_node_address_unavailable`. A held container-runtime role keeps the
+supervisor ready; `FactoryServiceRoleHeld` pages on it after 1 minute.
 
 Each rule is verified by forcing its condition in a real evaluator:
 `src/factory/observability/alert-evaluator.integration.test.ts`, in the
@@ -567,6 +570,7 @@ Each rule is verified by forcing its condition in a real evaluator:
 | `FactorySecurityDenial` | Any denied cross-tenant broker attempt or detected sandbox escape | Revoke affected attempt/host credentials, fence the host, investigate and recertify before reuse |
 | `FactoryNotificationSendStuck` | A send entered dead letter or an unknown outcome in the last 15 minutes, or a queued send is older than 5 minutes | Inspect the destination and its receiver; never re-drive a destination that does not deduplicate on the idempotency key |
 | `FactoryMetricsTargetDown` | A factory service's /metrics cannot be scraped, or the service reports itself not ready | Restore the service or its metrics endpoint; until then every alert above is blind for that service |
+| `FactoryServiceRoleHeld` | A shared service holds a product role; a dispatch that needs the role is refused by name | Restore the container runtime on that node (its socket, group and service); the supervisor resumes by itself |
 
 For an uncertain release, the inbox lists it at
 `GET /api/factories/projects/:projectId/release/notifications`, and the

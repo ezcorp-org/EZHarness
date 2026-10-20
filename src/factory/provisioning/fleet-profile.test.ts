@@ -47,7 +47,7 @@ describe("factoryFleetProfile", () => {
     const profile = await factoryFleetProfile(hosted, options);
     expect(profile.target).toBeInstanceOf(FactoryKubernetesTarget);
     expect(profile.hostTarget).toBeInstanceOf(FactoryKubernetesHostTarget);
-    expect(profile.hosted).toEqual({ systemNamespace: "ezcorp-factory-fleet-a", runnerRoot: "/srv/ezcorp-runner" });
+    expect(profile.hosted).toEqual({ systemNamespace: "ezcorp-factory-fleet-a", runnerRoot: "/srv/ezcorp-runner", monitored: true });
     const ports = factoryFleetHostIdentity("fleet-a", base.installations.portBase).ports;
     expect(profile.network).toEqual({
       ...KUBERNETES.services,
@@ -79,6 +79,15 @@ test("factoryFleetKubernetesSettings is the renderer's view of the fleet's kuber
   });
 });
 
+// C12 "Kubernetes deployment target" (W4H-35, D-C): monitoring is optional; without it the renderer gets no monitoring namespace and
+// the hosted supervisor is not monitored.
+test("without kubernetes.monitoring, the renderer gets no monitoring namespace and the hosted host is not monitored", () => {
+  const { monitoring: _monitoring, ...unmonitored } = hosted.kubernetes!;
+  const fleet = { ...hosted, kubernetes: unmonitored };
+  expect("monitoringNamespace" in factoryFleetKubernetesSettings(fleet)).toBe(false);
+  expect(factoryFleetKubernetesSettings(hosted).monitoringNamespace).toBe("monitoring");
+});
+
 test("factoryFleetKubernetesSettings carries the supervisor's runtime groups only when the fleet names them (W4H-35 run 12)", () => {
   const withGroups = { ...hosted, kubernetes: { ...hosted.kubernetes!, runtimeGroups: [985] } };
   expect(factoryFleetKubernetesSettings(withGroups).runtimeGroups).toEqual([985]);
@@ -91,7 +100,7 @@ test("the fleet host's pool dials the database as the profile's services see it:
   expect(composeHost.hosted).toBeUndefined();
   const hostedHost = factoryFleetHostSettings(hosted, await factoryFleetProfile(hosted, options));
   expect(hostedHost.database).toEqual({ host: KUBERNETES.services.databaseHost, port: KUBERNETES.services.databasePort });
-  expect(hostedHost.hosted).toEqual({ systemNamespace: KUBERNETES.systemNamespace, runnerRoot: KUBERNETES.runnerRoot });
+  expect(hostedHost.hosted).toEqual({ systemNamespace: KUBERNETES.systemNamespace, runnerRoot: KUBERNETES.runnerRoot, monitored: true });
   expect(hostedHost).toMatchObject({ fleetId: "fleet-a", secretsRoot: base.roots.secrets, operatorRoot: base.roots.operator, runtimeRoot: base.roots.runtime, portBase: base.installations.portBase, resources: base.resources });
   expect(hostedHost.build).toEqual({ image: base.image.reference, revision: base.image.revision, release: REPOSITORY });
 });

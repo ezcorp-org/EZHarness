@@ -24,6 +24,11 @@ export interface FactoryAlertRule {
   /** How long the condition must hold before the alert fires. */
   readonly for: string;
   readonly severity: "page" | "ticket";
+  /**
+   * C11 scope (W4H-35): `installation`, its alerts carry the installation's tenant label from the target list; `host`, it reads only
+   * the host services' families (FACTORY_HOST_METRIC_SERVICES) and its alerts carry no tenant, naming the host by job and instance.
+   */
+  readonly scope: "installation" | "host";
   /** The C11 condition, as an operator reads it. */
   readonly condition: string;
   /** The C11 operator action, verbatim. */
@@ -32,55 +37,55 @@ export interface FactoryAlertRule {
 
 export const FACTORY_ALERT_RULES: readonly FactoryAlertRule[] = Object.freeze([
   {
-    alert: "FactoryReadyWorkStalled", for: "0s", severity: "page",
+    alert: "FactoryReadyWorkStalled", for: "0s", severity: "page", scope: "installation",
     expr: "factory_ready_work_oldest_age_seconds > 30 or factory_runs_without_progress > 0",
     condition: "Ready work age over 30 seconds or no progress for 60 seconds with no declared wait",
     action: "Inspect blocking resource/lease, queue fairness, and healthy spare capacity; never force-release an uncertain holder",
   },
   {
-    alert: "FactoryProjectionLagging", for: "1m", severity: "page",
+    alert: "FactoryProjectionLagging", for: "1m", severity: "page", scope: "installation",
     expr: "factory_projection_lag_seconds > 10 or factory_projection_gap_runs > 0",
     condition: "Projection gap/lag over 10 seconds for 60 seconds",
     action: "Check audit/outbox consumer, recover missing sequence, rebuild from a verified cursor",
   },
   {
-    alert: "FactoryValidatorDigestErroring", for: "0s", severity: "page",
+    alert: "FactoryValidatorDigestErroring", for: "0s", severity: "page", scope: "installation",
     expr: "factory_validator_digests_erroring > 0",
     condition: "Three consecutive validator errors for one digest",
     action: "Quarantine that evaluator for new acceptance; repair/revalidate explicitly",
   },
   {
-    alert: "FactoryUsageUnknownOrBudgetExhausted", for: "0s", severity: "page",
+    alert: "FactoryUsageUnknownOrBudgetExhausted", for: "0s", severity: "page", scope: "installation",
     expr: "factory_usage_unknown_reservations > 0 or factory_budget_exhausted_envelopes > 0",
     condition: "Unknown spend or exhausted budget",
     action: "Stop paid dispatch; reconcile usage or obtain a new explicit allocation within authority",
   },
   {
-    alert: "FactoryReleaseUncertain", for: "0s", severity: "page",
+    alert: "FactoryReleaseUncertain", for: "0s", severity: "page", scope: "installation",
     expr: "factory_release_uncertain_oldest_age_seconds > 60",
     condition: "Uncertain release for over 60 seconds",
     action: "Open the operator inbox with the exact request/receipt lookup; do not auto-retry",
   },
   {
-    alert: "FactoryRequiredRunnerUnavailable", for: "1m", severity: "page",
+    alert: "FactoryRequiredRunnerUnavailable", for: "1m", severity: "page", scope: "installation",
     expr: "factory_interpreter_builds_unavailable > 0 or factory_runner_package_not_ready_attempts > 0",
     condition: "Referenced interpreter/package runner unavailable for 60 seconds",
     action: "Restore the pinned compatible deployment or fail/hold affected runs; never route to incompatible code",
   },
   {
-    alert: "FactoryCheckpointStale", for: "0s", severity: "page",
+    alert: "FactoryCheckpointStale", for: "0s", severity: "page", scope: "installation",
     expr: "factory_checkpoint_sealed == 0 or factory_checkpoint_verified_age_seconds > 900",
     condition: "Verified recovery checkpoint older than 15 minutes",
     action: "Stop new external effect claims; repair backup/barrier/archive before enabling them",
   },
   {
-    alert: "FactorySecurityDenial", for: "0s", severity: "page",
+    alert: "FactorySecurityDenial", for: "0s", severity: "page", scope: "installation",
     expr: "increase(factory_security_denials_total[5m]) > 0",
     condition: "Any denied cross-tenant broker attempt or detected sandbox escape",
     action: "Revoke affected attempt/host credentials, fence the host, investigate and recertify before reuse",
   },
   {
-    alert: "FactoryNotificationSendStuck", for: "0s", severity: "ticket",
+    alert: "FactoryNotificationSendStuck", for: "0s", severity: "ticket", scope: "installation",
     // On growth, not on presence: an old dead letter has no acknowledgement path, so the alert resolves by itself
     // 15 minutes after the last new one (F4).
     expr: "delta(factory_notification_sends{state=~\"dead_letter|outcome_unknown\"}[15m]) > 0 or factory_notification_send_oldest_queued_age_seconds > 300",
@@ -88,14 +93,28 @@ export const FACTORY_ALERT_RULES: readonly FactoryAlertRule[] = Object.freeze([
     action: "Inspect the destination and its receiver; never re-drive a destination that does not deduplicate on the idempotency key",
   },
   {
-    alert: "FactoryMetricsTargetDown", for: "1m", severity: "page",
+    alert: "FactoryMetricsTargetDown", for: "1m", severity: "page", scope: "installation",
     expr: "up{job=~\"factory-.+\"} == 0 or factory_service_ready == 0",
     condition: "A factory service's /metrics cannot be scraped, or the service reports itself not ready",
     action: "Restore the service or its metrics endpoint; until then every alert above is blind for that service",
   },
+  {
+    // W4H-35 (C12 "Container runtime readiness (hosted)"): a held role keeps the record ready, so FactoryMetricsTargetDown stays quiet;
+    // this rule pages on the role instead, after the same minute.
+    alert: "FactoryServiceRoleHeld", for: "1m", severity: "page", scope: "host",
+    expr: "factory_service_role_held == 1",
+    condition: "A shared service holds a product role; a dispatch that needs the role is refused by name",
+    action: "Restore the container runtime on that node (its socket, group and service); the supervisor resumes by itself",
+  },
 ]);
 
 /** The Prometheus rule file, as an object. */
+/** The services one per host, not per installation (C11 M2): their families carry no tenant. */
+export const FACTORY_HOST_METRIC_SERVICES: readonly string[] = Object.freeze(["supervisor"]);
+
+/** The host-scoped rules, derived from each rule's own scope (never kept by hand). */
+export const FACTORY_HOST_SCOPED_ALERT_RULES: readonly string[] = Object.freeze(FACTORY_ALERT_RULES.filter((rule) => rule.scope === "host").map((rule) => rule.alert));
+
 export function factoryAlertRuleGroups(): { readonly groups: readonly unknown[] } {
   return {
     groups: [{
@@ -181,6 +200,10 @@ export const FACTORY_ALERT_CASES: readonly FactoryAlertCase[] = Object.freeze([
   { alert: "FactoryMetricsTargetDown", name: "a target that cannot be scraped", series: [{ series: 'up{job="factory-pool",instance="pool:9465"}', values: "0x12" }], evalTime: "2m", firing: [{ job: "factory-pool", instance: "pool:9465" }] },
   { alert: "FactoryMetricsTargetDown", name: "a service not ready", series: [{ series: 'up{job="factory-gateway",instance="gateway:9466"}', values: "1x12" }, { series: 'factory_service_ready{job="factory-gateway",instance="gateway:9466"}', values: "0x12" }], evalTime: "2m", firing: [{ job: "factory-gateway", instance: "gateway:9466" }] },
   { alert: "FactoryMetricsTargetDown", name: "a target up and ready", series: [{ series: 'up{job="factory-gateway",instance="gateway:9466"}', values: "1x12" }, { series: 'factory_service_ready{job="factory-gateway",instance="gateway:9466"}', values: "1x12" }], evalTime: "2m", firing: [] },
+  // W4H-35 (C12 "Container runtime readiness (hosted)"): the supervisor's held runtime role pages after 1 minute; just under it, quiet.
+  { alert: "FactoryServiceRoleHeld", name: "a role held for 2 minutes", series: [{ series: 'factory_service_role_held{job="factory-supervisor",instance="supervisor:9468",role="container-runtime"}', values: "1x12" }], evalTime: "2m", firing: [{ job: "factory-supervisor", instance: "supervisor:9468", role: "container-runtime" }] },
+  { alert: "FactoryServiceRoleHeld", name: "no role held", series: [{ series: 'factory_service_role_held{job="factory-supervisor",instance="supervisor:9468",role="container-runtime"}', values: "0x12" }], evalTime: "2m", firing: [] },
+  { alert: "FactoryServiceRoleHeld", name: "held just under 1 minute", series: [{ series: 'factory_service_role_held{job="factory-supervisor",instance="supervisor:9468",role="container-runtime"}', values: "0x3 1x8" }], evalTime: "1m45s", firing: [] },
 ]);
 
 function rule(alert: string): FactoryAlertRule {

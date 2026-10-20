@@ -38,7 +38,7 @@ import type { FactoryDatabaseCredential, FactoryDatabaseStep } from "./database"
 import { factoryDatabasePairs } from "./database";
 import { factoryComposeProject } from "./compose-profile";
 import type { FactoryFleetResources } from "./fleet";
-import { FACTORY_KUBERNETES_SUPERVISOR_PATHS, FACTORY_KUBERNETES_SUPERVISOR_STATE, factoryKubernetesServiceUrl } from "./kubernetes-paths";
+import { FACTORY_KUBERNETES_SUPERVISOR_PATHS, FACTORY_KUBERNETES_SUPERVISOR_STATE, FACTORY_NODE_ADDRESS, factoryKubernetesServiceUrl } from "./kubernetes-paths";
 import { factoryFleetResourceName, type FactoryInstallationContext, type FactoryStepResources } from "./installation";
 import { FACTORY_GUEST_BROKER_AUDIENCE, FACTORY_GUEST_BROKER_SCOPE } from "../runner/guest-broker-contract";
 import { FACTORY_HOST_KEY_ID, FACTORY_MESH_FILES, FACTORY_MESH_TOKEN_KEY_ID, FACTORY_POOL_AUDIENCE, factoryMeshIdentities, factoryMeshToken, factoryMeshTokenExpiry } from "./mesh";
@@ -195,12 +195,18 @@ export interface FactoryFleetHostSettings {
    * the pool and each installation's harness by service name, verifying the
    * certificate as `localhost`. Absent: the Compose host's unit and loopback.
    */
-  readonly hosted?: { readonly systemNamespace: string; readonly runnerRoot: string };
+  readonly hosted?: FactoryHostedSettings;
   /** How the pool reaches the database cluster, from inside its container. */
   readonly database: { readonly host: string; readonly port: number };
   /** The fleet's default build, until an upgrade moves the host. */
   readonly build: FactoryFleetHostBuild;
 }
+
+/**
+ * The hosted profile's view of the fleet (W4H-35): the system namespace, the runner root, and whether the fleet names a monitoring
+ * namespace (C12 "Kubernetes deployment target"); without one the supervisor serves no /metrics.
+ */
+export interface FactoryHostedSettings { readonly systemNamespace: string; readonly runnerRoot: string; readonly monitored: boolean }
 
 export interface FactoryFleetHostOptions {
   readonly settings: FactoryFleetHostSettings;
@@ -445,7 +451,13 @@ export class FactoryFleetHost {
       ...(hosted === undefined ? {} : { stateDirectory: resolve(hosted.runnerRoot, FACTORY_KUBERNETES_SUPERVISOR_STATE) }),
       readinessFilePath: hosted === undefined ? resolve(this.paths.readinessDirectory, "supervisor", "supervisor.json") : `${FACTORY_KUBERNETES_SUPERVISOR_PATHS.readinessDirectory}/supervisor.json`,
       readinessHeartbeatMs: 4_000,
-      metrics: { hostname: "127.0.0.1", port: this.identity.ports.supervisorMetrics, scrapeTokenPath: hostSecret(FACTORY_HOST_FILES.metricsScrapeToken) },
+      // C11 M4: on Compose, host loopback and the host's token file; hosted, the node's own address (the marker the supervisor
+      // resolves from the downward API) and the delivered private copy, and no listener at all without monitoring (W4H-35, D-A, N1).
+      ...(hosted === undefined
+        ? { metrics: { hostname: "127.0.0.1", port: this.identity.ports.supervisorMetrics, scrapeTokenPath: hostSecret(FACTORY_HOST_FILES.metricsScrapeToken) } }
+        : hosted.monitored
+          ? { metrics: { hostname: FACTORY_NODE_ADDRESS.marker, port: this.identity.ports.supervisorMetrics, scrapeTokenPath: hostSecret(FACTORY_HOST_FILES.metricsScrapeToken) } }
+          : {}),
       services: {
         // W01i: each harness peer is bound to its own tenant, so the host refuses a launch it names for another (403 forbidden_tenant).
         hostname: hosted === undefined ? "127.0.0.1" : "0.0.0.0", port: this.identity.ports.supervisor, peerTenants: Object.fromEntries(admitted.map((entry) => [entry.harnessIdentity, entry.tenantId])),

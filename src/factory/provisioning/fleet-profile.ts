@@ -24,7 +24,7 @@ import {
 import type { FactoryDeploymentHandle, FactoryDeploymentNetwork, FactoryDeploymentTarget, FactoryInstallationBundle } from "./deployment";
 import type { FactoryFleetSettings } from "./fleet";
 import type { FactoryUpgradeDeployer } from "./fleet-upgrade";
-import { factoryFleetHostIdentity, type FactoryFleetHostRuntime, type FactoryFleetHostSettings } from "./host";
+import { factoryFleetHostIdentity, type FactoryFleetHostRuntime, type FactoryFleetHostSettings, type FactoryHostedSettings } from "./host";
 import type { FactoryIngressReloader } from "./ingress";
 import type { FactoryInstallationContext } from "./installation";
 import { factoryKubernetesServiceUrl } from "./kubernetes-paths";
@@ -52,7 +52,7 @@ export interface FactoryFleetProfile {
   readonly target: FactoryProfileTarget;
   readonly hostTarget: FactoryFleetHostRuntime;
   /** Present for the hosted profile: the fleet host renders the supervisor DaemonSet's documents. */
-  readonly hosted?: { readonly systemNamespace: string; readonly runnerRoot: string };
+  readonly hosted?: FactoryHostedSettings;
   /** How a service sees the fleet's shared infrastructure. */
   readonly network: Omit<FactoryDeploymentNetwork, "publicOrigin" | "portBase" | "temporalServerName">;
   readonly platform: Pick<FactoryPlatformSettings, "ingressAddress" | "ingressPort" | "hostedIngress">;
@@ -72,7 +72,7 @@ export function factoryFleetKubernetesSettings(settings: FactoryFleetSettings): 
   return Object.freeze({
     fleetId: settings.fleetId, systemNamespace: kubernetes.systemNamespace, egressCidrs: kubernetes.egressCidrs, egressPorts: kubernetes.egressPorts,
     runAsUser: kubernetes.runAsUser, runtimeSocketPath: kubernetes.runtimeSocketPath, runnerRoot: kubernetes.runnerRoot, nodeCidrs: kubernetes.nodeCidrs, nodeSelector: kubernetes.nodeSelector,
-    monitoringNamespace: kubernetes.monitoring.namespace,
+    ...(kubernetes.monitoring === undefined ? {} : { monitoringNamespace: kubernetes.monitoring.namespace }),
     ...(kubernetes.runtimeGroups === undefined ? {} : { runtimeGroups: kubernetes.runtimeGroups }),
   });
 }
@@ -131,7 +131,7 @@ async function kubernetesProfile(settings: FactoryFleetSettings, options: Factor
   const profile: FactoryFleetProfile = {
     target,
     hostTarget: new FactoryKubernetesHostTarget({ ...cluster, settings: rendered }),
-    hosted: { systemNamespace: kubernetes.systemNamespace, runnerRoot: kubernetes.runnerRoot },
+    hosted: { systemNamespace: kubernetes.systemNamespace, runnerRoot: kubernetes.runnerRoot, monitored: kubernetes.monitoring !== undefined },
     network: {
       ...kubernetes.services,
       hostAddresses: { pool: factoryKubernetesServiceUrl("factory-pool", kubernetes.systemNamespace, ports.pool), supervisor: factoryKubernetesServiceUrl("factory-supervisor", kubernetes.systemNamespace, ports.supervisor) },

@@ -170,6 +170,26 @@ describe("a service's ready gauge", () => {
     } finally { await rm(root, { recursive: true, force: true }); }
   });
 
+  // C12 "Container runtime readiness (hosted)" with C11 FactoryServiceRoleHeld (W4H-35 merge): the supervisor's endpoint serves the
+  // held-roles family beside its ready gauge, read at each scrape; the gauge stays the record's verdict.
+  test("the supervisor serves its held roles beside the ready gauge, read at each scrape (W4H-35)", async () => {
+    const root = await makeFactoryTempPrivateRoot("w4h-35-held-");
+    try {
+      await chmod(root, 0o700);
+      await writeFile(join(root, "token"), TOKEN, { mode: 0o600 });
+      let held: readonly string[] = ["container-runtime"];
+      const served = await serveFactoryReadyMetrics({ hostname: "127.0.0.1", port: 0, scrapeTokenPath: join(root, "token") }, "supervisor", () => true, undefined, () => held);
+      try {
+        const scrape = async () => (await fetch(`${served.url}/metrics`, { headers: { authorization: `Bearer ${TOKEN}` } })).text();
+        const first = await scrape();
+        expect(first).toContain("factory_service_ready 1");
+        expect(first).toContain('factory_service_role_held{role="container-runtime"} 1');
+        held = [];
+        expect(await scrape()).toContain('factory_service_role_held{role="container-runtime"} 0');
+      } finally { await served.stop(); }
+    } finally { await rm(root, { recursive: true, force: true }); }
+  });
+
   test("a readiness probe that fails or hangs reads as not ready, and the endpoint stays up (F7)", async () => {
     const root = await makeFactoryTempPrivateRoot("ezcorp-metrics-ready-probe-");
     try {

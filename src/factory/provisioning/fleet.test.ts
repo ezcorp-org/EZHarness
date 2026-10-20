@@ -138,21 +138,35 @@ describe("parseFactoryFleetSettings", () => {
     expect(parseFactoryFleetSettings({ ...hosted, resources: gpu, kubernetes: { ...kubernetes, nodeSelector: { "ezcorp.io/gpu": "true" } } }).kubernetes!.nodeSelector).toEqual({ "ezcorp.io/gpu": "true" });
   });
 
+  // The hosted fleet both W4H-35 kubernetes tests below vary.
+  const kubernetes = {
+    kubectl: "/nix/store/kubectl/bin/kubectl", kubeconfigPath: "/srv/operator/kubeconfig", systemNamespace: "ezcorp-factory-fleet-a", monitoring: { namespace: "monitoring" },
+    runAsUser: 10_001, runtimeSocketPath: "/run/podman/podman.sock", runnerRoot: "/srv/ezcorp-runner", nodeCidrs: ["10.89.1.0/24"], nodeSelector: {}, ingress: { listenPort: 8443, nodePort: 30443 },
+    egressCidrs: ["10.89.0.0/24"], egressPorts: [5432],
+    services: { databaseHost: "10.89.0.2", databasePort: 5432, ordinaryEndpoint: "http://10.89.0.3:8333", archiveEndpoint: "http://10.89.0.4:8333", temporalAddress: "10.89.0.5:7233", temporalHttpEndpoint: "https://10.89.0.5:7244" },
+  };
+  const hosted = { ...VALID, profile: "kubernetes", kubernetes };
+
   // C12 row "Supervisor runner root and runtime socket (hosted prerequisites)": the supervisor's runtime group (the node socket's
   // group) is a setting, optional, 1 to 8 distinct positive group ids; a bad one is refused as the kubernetes block.
   test("the hosted supervisor's runtime groups are optional distinct positive group ids (W4H-35 run 12)", () => {
-    const kubernetes = {
-      kubectl: "/nix/store/kubectl/bin/kubectl", kubeconfigPath: "/srv/operator/kubeconfig", systemNamespace: "ezcorp-factory-fleet-a", monitoring: { namespace: "monitoring" },
-      runAsUser: 10_001, runtimeSocketPath: "/run/podman/podman.sock", runnerRoot: "/srv/ezcorp-runner", nodeCidrs: ["10.89.1.0/24"], nodeSelector: {}, ingress: { listenPort: 8443, nodePort: 30443 },
-      egressCidrs: ["10.89.0.0/24"], egressPorts: [5432],
-      services: { databaseHost: "10.89.0.2", databasePort: 5432, ordinaryEndpoint: "http://10.89.0.3:8333", archiveEndpoint: "http://10.89.0.4:8333", temporalAddress: "10.89.0.5:7233", temporalHttpEndpoint: "https://10.89.0.5:7244" },
-    };
-    const hosted = { ...VALID, profile: "kubernetes", kubernetes };
     expect(parseFactoryFleetSettings(hosted).kubernetes!.runtimeGroups).toBeUndefined();
     expect(parseFactoryFleetSettings({ ...hosted, kubernetes: { ...kubernetes, runtimeGroups: [985, 990] } }).kubernetes!.runtimeGroups).toEqual([985, 990]);
     for (const runtimeGroups of [[], [0], [-1], [1.5], ["985"], [985, 985], [1, 2, 3, 4, 5, 6, 7, 8, 9], "985", null]) {
       expect(refusal({ ...hosted, kubernetes: { ...kubernetes, runtimeGroups } }).message).toBe("Fleet settings are invalid: kubernetes.");
     }
+  });
+
+  // C12 "Kubernetes deployment target" (W4H-35, D-C): monitoring is optional; when present it is exactly { namespace } with a valid
+  // namespace name, and it may stand together with runtimeGroups.
+  test("kubernetes.monitoring is optional, exactly { namespace } with a namespace name when present (W4H-35)", () => {
+    const { monitoring: _monitoring, ...withoutMonitoring } = kubernetes;
+    expect(parseFactoryFleetSettings({ ...hosted, kubernetes: withoutMonitoring }).kubernetes!.monitoring).toBeUndefined();
+    expect(parseFactoryFleetSettings({ ...hosted, kubernetes: { ...kubernetes, runtimeGroups: [985] } }).kubernetes!.monitoring).toEqual({ namespace: "monitoring" });
+    for (const monitoring of [{}, { namespace: "" }, { namespace: "Bad_Name" }, { namespace: "monitoring", extra: 1 }, "monitoring", null]) {
+      expect(refusal({ ...hosted, kubernetes: { ...kubernetes, monitoring } }).message).toBe("Fleet settings are invalid: kubernetes.");
+    }
+    expect(refusal({ ...hosted, kubernetes: { ...kubernetes, surprise: 1 } }).message).toBe("Fleet settings are invalid: kubernetes.");
   });
 
   test("a missing storage section names both domains and the section", () => {

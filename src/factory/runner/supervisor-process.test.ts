@@ -6,7 +6,7 @@ import { createGatewayTransport, GatewayStatusError } from "@ezcorp/factory-tran
 import { factoryAttemptLaunchIntentToWire } from "./attempt-wire";
 import { FACTORY_HOST_LAUNCH_PATH } from "./host-launch-service";
 import { FACTORY_HOST_STOP_PATH } from "./host-stop-service";
-import { createPublicKey, generateKeyPairSync } from "node:crypto";
+import { createPublicKey, generateKeyPairSync, randomBytes } from "node:crypto";
 import { chmod, readFile, rm, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { readFactoryServiceReadiness, factorySupervisorReadinessOptions } from "../service-readiness";
@@ -16,6 +16,7 @@ import {
   factorySupervisorRecord,
   FACTORY_SUPERVISOR_FACT_STALENESS_HEARTBEATS,
   FACTORY_SUPERVISOR_PROBE_TIMEOUT_HEARTBEATS,
+  factorySupervisorMetricsEndpoint,
   factorySupervisorStatePaths,
   parseFactorySupervisorProcessConfig,
   factoryContainerRuntimeReachable,
@@ -364,6 +365,63 @@ describe("runConfiguredFactorySupervisor", () => {
       } }),
     }));
     expect(readings).toContainEqual(["ready", true, [{ role: "container-runtime", workPackage: "W16", reason: "container_runtime_unreachable" }]]);
+  });
+
+  // C11 M4 on the hosted profile (W4H-35, D-A): the document names the node-address marker; the supervisor binds to the node's own
+  // address from its environment, and refuses an empty or malformed value by name. Never 0.0.0.0.
+  test("the node-address marker resolves to the node's own IP from the environment, and nothing else is accepted", () => {
+    const endpoint = { hostname: "node-address", port: 9468, scrapeTokenPath: "/run/ezcorp/host-identity/host-metrics-scrape.token" };
+    expect(factorySupervisorMetricsEndpoint(endpoint, { FACTORY_NODE_IP: "172.18.0.2" })).toEqual({ ...endpoint, hostname: "172.18.0.2" });
+    expect(factorySupervisorMetricsEndpoint(endpoint, { FACTORY_NODE_IP: "fd00::2" }).hostname).toBe("fd00::2");
+    for (const value of [undefined, "", "node-1.local", "0.0.0.0", "999.1.1.1"]) {
+      expect(() => factorySupervisorMetricsEndpoint(endpoint, { FACTORY_NODE_IP: value })).toThrow(expect.objectContaining({ code: "factory_node_address_unavailable" }));
+    }
+    const compose = { ...endpoint, hostname: "127.0.0.1" };
+    expect(factorySupervisorMetricsEndpoint(compose, {})).toEqual(compose);
+  });
+
+  // C11 M4 (W4H-35, D-A, M1): in both forms the supervisor's production endpoint refuses a scrape without the token and serves one
+  // with it; the hosted form binds the address the node-address marker resolves to (here the test host's loopback).
+  test("the supervisor's metrics refuse a scrape without the token and serve one with it, on Compose and on the resolved node address", async () => {
+    const root = await privateRoot();
+    const tokenPath = join(root, "metrics-token");
+    const token = randomBytes(24).toString("hex");
+    await writeFile(tokenPath, `${token}\n`, { mode: 0o600 });
+    for (const endpoint of [
+      { hostname: "127.0.0.1", port: 0, scrapeTokenPath: tokenPath },
+      factorySupervisorMetricsEndpoint({ hostname: "node-address", port: 0, scrapeTokenPath: tokenPath }, { FACTORY_NODE_IP: "127.0.0.1" }),
+    ]) {
+      const served = await factorySupervisorProductionDependencies.metrics!(endpoint, () => true, () => ["container-runtime"]);
+      try {
+        expect((await fetch(`${served.url}/metrics`)).status).toBe(401);
+        expect((await fetch(`${served.url}/metrics`, { headers: { authorization: "Bearer wrong-token-fixture" } })).status).toBe(401);
+        const ok = await fetch(`${served.url}/metrics`, { headers: { authorization: `Bearer ${token}` } });
+        expect(ok.status).toBe(200);
+        expect(await ok.text()).toContain('factory_service_role_held{role="container-runtime"} 1');
+      } finally { await served.stop(); }
+    }
+  });
+
+  // C11 FactoryServiceRoleHeld (W4H-35): the metrics endpoint reads the held roles from the same record as the ready gauge.
+  test("the metrics endpoint's held roles are the record's held entries: the runtime role while unreachable, none once it answers", async () => {
+    const root = await privateRoot();
+    await writeHostKey(root);
+    const metrics = { hostname: "127.0.0.1", port: 9470, scrapeTokenPath: join(root, "metrics-token") };
+    const path = await writeConfig(root, { metrics } as never);
+    for (const [reachable, expected] of [[false, ["container-runtime"]], [true, []]] as const) {
+      abortController = new AbortController();
+      let held: () => readonly string[] = () => ["unread"];
+      const seen: (readonly string[])[] = [];
+      await runConfiguredFactorySupervisor(path, abortController.signal, dependencies({
+        runtimeReachable: async () => reachable,
+        metrics: async (_endpoint, _ready, heldRoles) => { held = heldRoles; return { url: "http://127.0.0.1:9470", stop: async () => {} }; },
+        createReadiness: () => ({ write: async (update) => {
+          if (update.lifecycle === "ready") { seen.push(held()); abortController?.abort(); }
+          return { ...update } as never;
+        } }),
+      }));
+      expect(seen).toEqual([expected]);
+    }
   });
 
   test("bounds the probe and names a timeout as its own failure", async () => {

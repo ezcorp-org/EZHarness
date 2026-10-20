@@ -37,7 +37,7 @@ const NGINX = `docker.io/library/nginx@sha256:${"2".repeat(64)}`;
 const files = { "nginx.conf": "events {}\n", "conf/ezcorp-factory.conf": "server {}\n", "certs/tenant-01.crt": "crt", "certs/tenant-01.key": "key" };
 const ingress = () => renderFactoryKubernetesIngress(SETTINGS, { image: NGINX, listenPort: 8443, nodePort: 30443, files });
 
-interface Container { name: string; image: string; command: string[]; env: { name: string; value: string }[]; securityContext: Record<string, unknown>; volumeMounts: { name: string; mountPath: string; subPath?: string; readOnly?: boolean }[]; ports?: { name: string; containerPort: number }[] }
+interface Container { name: string; image: string; command: string[]; env: { name: string; value?: string; valueFrom?: unknown }[]; securityContext: Record<string, unknown>; volumeMounts: { name: string; mountPath: string; subPath?: string; readOnly?: boolean }[]; ports?: { name: string; containerPort: number }[] }
 interface PodSpec { containers: Container[]; initContainers?: Container[]; volumes: Record<string, unknown>[]; hostNetwork?: boolean; securityContext?: Record<string, unknown>; automountServiceAccountToken?: boolean }
 
 const kind = (objects: readonly FactoryKubernetesObject[], name: string) => objects.filter((object) => object.kind === name);
@@ -290,7 +290,7 @@ describe("renderFactoryKubernetesSystem", () => {
     expect(pool.containers[0]!.env).toContainEqual({ name: "HOME", value: "/tmp" });
     expect(pool.containers[0]!.volumeMounts).toContainEqual({ name: "tmp", mountPath: "/tmp" });
     const supervisor = podSpec(kind(system, "DaemonSet")[0]!);
-    expect(supervisor.containers[0]!.env).toEqual([{ name: "HOME", value: "/tmp" }, { name: "CONTAINER_HOST", value: `unix://${SETTINGS.runtimeSocketPath}` }]);
+    expect(supervisor.containers[0]!.env).toEqual([{ name: "HOME", value: "/tmp" }, { name: "CONTAINER_HOST", value: `unix://${SETTINGS.runtimeSocketPath}` }, { name: "FACTORY_NODE_IP", valueFrom: { fieldRef: { fieldPath: "status.hostIP" } } }]);
     expect(supervisor.containers[0]!.volumeMounts).toContainEqual({ name: "tmp", mountPath: "/tmp" });
     expect(supervisor.volumes).toContainEqual({ name: "tmp", emptyDir: { sizeLimit: "64Mi" } });
   });
@@ -484,6 +484,29 @@ describe("factoryKubernetesManifestStream", () => {
 
   test("an empty object list is an empty stream", () => {
     expect(factoryKubernetesManifestStream([])).toBe("\n");
+  });
+});
+
+// C12 "Kubernetes deployment target" (W4H-35, D-C and N1): without kubernetes.monitoring nothing of the platform Prometheus is
+// rendered, and the host-network supervisor opens no metrics port at all.
+describe("a fleet without monitoring (W4H-35)", () => {
+  test("renders no PodMonitor, PrometheusRule, scrape Secret or metrics ingress rule, and no supervisor metrics port or node address", () => {
+    const { monitoringNamespace: _namespace, ...unmonitored } = SETTINGS;
+    const stream = [...renderFactoryKubernetesSystem(unmonitored, bundle.image.reference, bundle.host.ports), ...renderFactoryKubernetesInstallation(bundle, unmonitored)];
+    expect(stream.filter((object) => object.kind === "PodMonitor" || object.kind === "PrometheusRule")).toEqual([]);
+    expect(JSON.stringify(stream)).not.toContain("factory-metrics-scrape");
+    const policy = kind(stream, "NetworkPolicy").find((object) => (object.metadata as { name: string }).name === "installation")!;
+    expect(JSON.stringify(policy)).not.toContain("monitoring");
+    const supervisor = podSpec(kind(stream, "DaemonSet")[0]!).containers[0]!;
+    expect(supervisor.ports).toEqual([{ name: "supervisor", containerPort: bundle.host.ports.supervisor }]);
+    expect(JSON.stringify(supervisor.env)).not.toContain("FACTORY_NODE_IP");
+  });
+
+  test("with monitoring, the supervisor gets its metrics port and the node address from the downward API", () => {
+    const supervisor = podSpec(kind(system, "DaemonSet")[0]!) as unknown as { hostNetwork: boolean; containers: Array<{ ports: unknown[]; env: unknown[] }> };
+    expect(supervisor.hostNetwork).toBe(true);
+    expect(supervisor.containers[0]!.ports).toContainEqual({ name: "supervisor-metrics", containerPort: bundle.host.ports.supervisorMetrics });
+    expect(supervisor.containers[0]!.env).toContainEqual({ name: "FACTORY_NODE_IP", valueFrom: { fieldRef: { fieldPath: "status.hostIP" } } });
   });
 });
 

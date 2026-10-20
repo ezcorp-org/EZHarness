@@ -76,8 +76,11 @@ export interface FactoryFleetKubernetes {
    * container-runtime socket's group, given to the supervisor pod alone as supplementalGroups. Optional; 1 to 8 distinct positive ids.
    */
   readonly runtimeGroups?: readonly number[];
-  /** The platform Prometheus's namespace, the only source allowed to reach a `/metrics` port (C11). */
-  readonly monitoring: { readonly namespace: string };
+  /**
+   * The platform Prometheus's namespace, the only source allowed to reach a `/metrics` port (C11). Optional (C12 "Kubernetes
+   * deployment target"): absent, no PodMonitor, PrometheusRule, metrics ingress rule or hosted supervisor metrics listener is rendered.
+   */
+  readonly monitoring?: { readonly namespace: string };
   readonly ingress: { readonly listenPort: number; readonly nodePort: number };
   readonly egressCidrs: readonly string[];
   readonly egressPorts: readonly number[];
@@ -120,6 +123,13 @@ function port(value: unknown): value is number { return Number.isSafeInteger(val
 function url(value: unknown): value is string { try { return typeof value === "string" && ["http:", "https:"].includes(new URL(value).protocol); } catch { return false; } }
 function keys(value: unknown, expected: string): boolean { return typeof value === "object" && value !== null && !Array.isArray(value) && Object.keys(value).sort().join(",") === expected; }
 
+/** Every `required` key and only `optional` ones besides (comma lists): the optional keys a value carries join the required set. */
+function keysWithOptional(value: unknown, required: string, optional: readonly string[]): boolean {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) return false;
+  const present = optional.filter((key) => Object.hasOwn(value, key));
+  return keys(value, [...required.split(","), ...present].sort().join(","));
+}
+
 function storageDomainValid(entry: FactoryFleetStorageDomain | undefined): boolean {
   return keys(entry, "endpoint,issuer,prefix") && url(entry!.endpoint) && /^[a-z][a-z0-9-]{0,62}$/.test(entry!.prefix)
     && keys(entry!.issuer, "kind,serverIdentityPath") && entry!.issuer.kind === "seeded" && absolute(entry!.issuer.serverIdentityPath);
@@ -145,11 +155,10 @@ function kubernetesValid({ profile, kubernetes, resources }: FactoryFleetSetting
   const k = kubernetes as FactoryFleetKubernetes | undefined;
   const nodeSelector = k?.nodeSelector as unknown;
   const runtimeGroups = k?.runtimeGroups as unknown;
-  return (runtimeGroups === undefined
-    ? keys(k, "egressCidrs,egressPorts,ingress,kubeconfigPath,kubectl,monitoring,nodeCidrs,nodeSelector,runAsUser,runnerRoot,runtimeSocketPath,services,systemNamespace")
-    : keys(k, "egressCidrs,egressPorts,ingress,kubeconfigPath,kubectl,monitoring,nodeCidrs,nodeSelector,runAsUser,runnerRoot,runtimeGroups,runtimeSocketPath,services,systemNamespace") && runtimeGroupsValid(runtimeGroups))
+  return keysWithOptional(k, "egressCidrs,egressPorts,ingress,kubeconfigPath,kubectl,nodeCidrs,nodeSelector,runAsUser,runnerRoot,runtimeSocketPath,services,systemNamespace", ["monitoring", "runtimeGroups"])
+    && (runtimeGroups === undefined || runtimeGroupsValid(runtimeGroups))
     && absolute(k!.kubectl) && absolute(k!.kubeconfigPath) && absolute(k!.runtimeSocketPath) && absolute(k!.runnerRoot) && NAMESPACE.test(k!.systemNamespace)
-    && keys(k!.monitoring, "namespace") && NAMESPACE.test(k!.monitoring.namespace)
+    && (k!.monitoring === undefined || (keys(k!.monitoring, "namespace") && NAMESPACE.test(k!.monitoring.namespace)))
     && Array.isArray(k!.nodeCidrs)
     && Number.isSafeInteger(k!.runAsUser) && k!.runAsUser > 0
     && typeof nodeSelector === "object" && nodeSelector !== null && !Array.isArray(nodeSelector) && Object.values(nodeSelector).every((value) => typeof value === "string")

@@ -46,7 +46,8 @@
  * record degrades.
  */
 import { stat } from "node:fs/promises";
-import { connect } from "node:net";
+import { connect, isIP } from "node:net";
+import { FACTORY_NODE_ADDRESS } from "../provisioning/kubernetes-paths";
 import { createPrivateKey } from "node:crypto";
 import { dirname, join, resolve } from "node:path";
 import { FACTORY_HOST_PREPARATIONS_FOLDER, factoryHostPreparationRecords } from "./host-launch-supervisor";
@@ -202,7 +203,7 @@ export interface FactorySupervisorProcessDependencies {
    */
   readonly runtimeReachable?: () => Promise<boolean>;
   /** Serves the ready gauge on a declared endpoint (C11 M4). */
-  readonly metrics?: (endpoint: FactoryMetricsEndpoint, ready: () => boolean) => Promise<FactoryMetricsListener>;
+  readonly metrics?: (endpoint: FactoryMetricsEndpoint, ready: () => boolean, heldRoles: () => readonly string[]) => Promise<FactoryMetricsListener>;
   /** Names a fault the supervisor survives, by code only. */
   readonly report?: (code: string) => void;
 }
@@ -234,6 +235,20 @@ export function factoryContainerRuntimeReachable(env: Readonly<Record<string, st
     socket.on("data", (chunk: Buffer) => { answer += chunk.toString("latin1"); if (answer.includes("\r\n")) done(ok()); });
     socket.once("end", () => done(ok()));
   });
+}
+
+/**
+ * The supervisor's metrics endpoint with its bind resolved (C11 M4, W4H-35): a document that names the node-address marker binds to
+ * the node's own IP from the environment (the DaemonSet's downward-API variable). An absent, empty, malformed or unspecified
+ * (0.0.0.0, ::) value is refused by name, `factory_node_address_unavailable`; any other hostname is used as written.
+ */
+export function factorySupervisorMetricsEndpoint(endpoint: FactoryMetricsEndpoint, env: Readonly<Record<string, string | undefined>> = process.env): FactoryMetricsEndpoint {
+  if (endpoint.hostname !== FACTORY_NODE_ADDRESS.marker) return endpoint;
+  const address = env[FACTORY_NODE_ADDRESS.env] ?? "";
+  if (isIP(address) === 0 || address === "0.0.0.0" || address === "::") {
+    throw Object.assign(new Error(`factory supervisor: ${FACTORY_NODE_ADDRESS.env} is not the node's own IP address`), { code: "factory_node_address_unavailable" });
+  }
+  return { ...endpoint, hostname: address };
 }
 
 export interface FactorySupervisorMainDependencies {
@@ -577,7 +592,7 @@ export const factorySupervisorProductionDependencies: FactorySupervisorProcessDe
     timer.unref?.();
     signal.addEventListener("abort", done, { once: true });
   }),
-  metrics: (endpoint, ready) => serveFactoryReadyMetrics(endpoint, "supervisor", ready),
+  metrics: (endpoint, ready, heldRoles) => serveFactoryReadyMetrics(endpoint, "supervisor", ready, undefined, heldRoles),
   report: (code) => { console.error(`[factory-supervisor] ${code}`); },
 };
 
@@ -711,11 +726,13 @@ export async function runConfiguredFactorySupervisor(
     held: () => runtimeHeldCode(observation),
   });
   await publish({ lifecycle: "starting", facts: { hostKeyReady: false, runnerReady: false, hostServicesReady: false } });
-  // The gauge is the record's own verdict, computed when scraped, and 0 once this run is stopping.
+  // The gauge is the record's own verdict, computed when scraped, and 0 once this run is stopping. The held roles are the same
+  // record's held entries (C11 FactoryServiceRoleHeld, W4H-35): one source for both families.
   let running = true;
-  const metrics = await startDeclaredFactoryMetrics(config.metrics,
+  const record = () => factorySupervisorRecord(observation, dependencies.now(), stalenessMs);
+  const metrics = await startDeclaredFactoryMetrics(config.metrics === undefined ? undefined : factorySupervisorMetricsEndpoint(config.metrics),
     (endpoint) => (dependencies.metrics ?? factorySupervisorProductionDependencies.metrics!)(endpoint,
-      () => running && factorySupervisorRecord(observation, dependencies.now(), stalenessMs).lifecycle === "ready"),
+      () => running && record().lifecycle === "ready", () => (record().held ?? []).map((entry) => entry.role)),
     dependencies.report ?? factorySupervisorProductionDependencies.report!);
 
   const observing = (async () => {

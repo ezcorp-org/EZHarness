@@ -19,6 +19,7 @@ import {
   type FactoryFleetHostBundle,
   type FactoryFleetHostPaths,
   type FactoryFleetHostRuntime,
+  type FactoryHostedSettings,
 } from "./host";
 import type { FactoryInstallationContext, FactoryStepResources } from "./installation";
 import { FACTORY_GUEST_BROKER_AUDIENCE, FACTORY_GUEST_BROKER_SCOPE } from "../runner/guest-broker-contract";
@@ -76,7 +77,7 @@ function processLock() {
   };
 }
 
-function makeHost(overrides: { readonly now?: () => number; readonly resources?: FactoryFleetResources; readonly hosted?: { readonly systemNamespace: string; readonly runnerRoot: string } } = {}): FactoryFleetHost {
+function makeHost(overrides: { readonly now?: () => number; readonly resources?: FactoryFleetResources; readonly hosted?: FactoryHostedSettings } = {}): FactoryFleetHost {
   return new FactoryFleetHost({
     settings: {
       fleetId: "w16", secretsRoot: join(root, "secrets"), operatorRoot: join(root, "operator"), runtimeRoot: join(root, "runtime"),
@@ -262,8 +263,23 @@ describe("resource profile", () => {
 });
 
 describe("the hosted supervisor document (W4H-35)", () => {
+  // C11 M4 on the hosted profile (W4H-35, D-A and N1): with monitoring, the supervisor binds its /metrics to the node's own address
+  // (the marker its process resolves) and reads the token from its delivered private copy; without monitoring it has no listener.
+  test("with monitoring, the supervisor's metrics bind the node address and read the delivered token; without, it has no metrics listener", async () => {
+    for (const monitored of [true, false]) {
+      const hosted = makeHost({ hosted: { systemNamespace: "ezcorp-factory-w16", runnerRoot: "/srv/ezcorp-runner", monitored } });
+      await hosted.admit(await installation("tenant-01"));
+      const supervisor = runtime.bundles.at(-1)!.supervisor as { metrics?: unknown };
+      if (monitored) {
+        expect(supervisor.metrics).toEqual({ hostname: "node-address", port: runtime.bundles.at(-1)!.identity.ports.supervisorMetrics, scrapeTokenPath: `/run/ezcorp/host-identity/${FACTORY_HOST_FILES.metricsScrapeToken}` });
+      } else {
+        expect(Object.hasOwn(supervisor, "metrics")).toBe(false);
+      }
+    }
+  });
+
   test("names the DaemonSet's container paths, listens on every address, and dials the pool and each harness by service name, verified as localhost", async () => {
-    const hosted = makeHost({ hosted: { systemNamespace: "ezcorp-factory-w16", runnerRoot: "/srv/ezcorp-runner" } });
+    const hosted = makeHost({ hosted: { systemNamespace: "ezcorp-factory-w16", runnerRoot: "/srv/ezcorp-runner", monitored: false } });
     await hosted.admit(await installation("tenant-01"));
     const supervisor = runtime.bundles.at(-1)!.supervisor as {
       hostKeyPath: string; readinessFilePath: string; runnerRoot: string;
@@ -282,7 +298,7 @@ describe("the hosted supervisor document (W4H-35)", () => {
   // readiness records into the kubelet's root-owned emptyDir. Every path their own documents name is judged against the rendered
   // DaemonSet and pool Deployment, with the product's own walk, after the pods' real init commands ran.
   test("every path the pool and the supervisor read or write privately is reached through an owned private directory on their rendered mounts", async () => {
-    const hosted = makeHost({ hosted: { systemNamespace: "ezcorp-factory-w16", runnerRoot: "/srv/ezcorp-runner" } });
+    const hosted = makeHost({ hosted: { systemNamespace: "ezcorp-factory-w16", runnerRoot: "/srv/ezcorp-runner", monitored: true } });
     await hosted.admit(await installation("tenant-01"));
     const bundle = runtime.bundles.at(-1)!;
     const roots = [FACTORY_CONTAINER_PATHS.secrets, FACTORY_CONTAINER_PATHS.readiness, FACTORY_KUBERNETES_SUPERVISOR_PATHS.secrets, FACTORY_KUBERNETES_SUPERVISOR_PATHS.readinessDirectory];
@@ -303,7 +319,7 @@ describe("the hosted supervisor document (W4H-35)", () => {
   // (its tombstones, its preparation records) come from the process's own function on the hosted document, and are judged as durable
   // writes against the rendered DaemonSet: never on a read-only mount, never on an in-memory volume.
   test("the hosted supervisor's durable state sits in an owned, writable, durable directory under the runner root (item 7)", async () => {
-    const hosted = makeHost({ hosted: { systemNamespace: "ezcorp-factory-w16", runnerRoot: "/srv/ezcorp-runner" } });
+    const hosted = makeHost({ hosted: { systemNamespace: "ezcorp-factory-w16", runnerRoot: "/srv/ezcorp-runner", monitored: false } });
     await hosted.admit(await installation("tenant-01"));
     const bundle = runtime.bundles.at(-1)!;
     const state = factorySupervisorStatePaths(parseFactorySupervisorProcessConfig(bundle.supervisor));

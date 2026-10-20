@@ -36,7 +36,7 @@ import { createHash } from "node:crypto";
 import type { FactoryInstallationBundle } from "./deployment";
 import { FACTORY_CONTAINER_PATHS, FACTORY_CONTAINER_SERVICES, FACTORY_HOST_SERVICE_BASE_ENVIRONMENT } from "./deployment";
 import { factoryComposeProject } from "./compose-profile";
-import { FACTORY_KUBERNETES_SUPERVISOR_PATHS, FACTORY_KUBERNETES_SUPERVISOR_STATE } from "./kubernetes-paths";
+import { FACTORY_KUBERNETES_SUPERVISOR_PATHS, FACTORY_KUBERNETES_SUPERVISOR_STATE, FACTORY_NODE_ADDRESS } from "./kubernetes-paths";
 import { FactoryProvisioningError } from "./steps";
 import { factoryImagePinned } from "./image-pin";
 import { factoryPrometheusRuleResource } from "../observability/alert-rules";
@@ -69,7 +69,7 @@ export interface FactoryKubernetesSettings {
   /** The node runtime socket's group, the supervisor pod's supplementalGroups (C12 prerequisites row); absent, none. */
   readonly runtimeGroups?: readonly number[];
   /** Namespace of the platform's Prometheus, the only source allowed to reach a `/metrics` port (C11). */
-  readonly monitoringNamespace: string;
+  readonly monitoringNamespace?: string;
 }
 
 const LIMITS: Readonly<Record<(typeof FACTORY_CONTAINER_SERVICES)[number], { readonly memory: string; readonly cpu: string }>> = Object.freeze({
@@ -219,7 +219,7 @@ export function renderFactoryKubernetesInstallation(bundle: FactoryInstallationB
     { apiVersion: "v1", kind: "ServiceAccount", metadata: metadata("installation"), automountServiceAccountToken: false },
     { apiVersion: "v1", kind: "ResourceQuota", metadata: metadata("installation"), spec: { hard: { "limits.memory": "3Gi", "limits.cpu": "3", pods: "4", "requests.storage": "10Gi" } } },
     ...FACTORY_CONTAINER_SERVICES.map((service) => ({ apiVersion: "v1", kind: "Secret", metadata: metadata(factoryKubernetesSecretName(service)), type: "Opaque" })),
-    { apiVersion: "v1", kind: "Secret", metadata: metadata(FACTORY_KUBERNETES_METRICS_SECRET), type: "Opaque" },
+    ...(settings.monitoringNamespace === undefined ? [] : [{ apiVersion: "v1", kind: "Secret", metadata: metadata(FACTORY_KUBERNETES_METRICS_SECRET), type: "Opaque" }]),
     { apiVersion: "v1", kind: "PersistentVolumeClaim", metadata: metadata("harness-data"), spec: { accessModes: ["ReadWriteOnce"], resources: { requests: { storage: "5Gi" } } } },
     {
       apiVersion: "apps/v1", kind: "Deployment", metadata: metadata("installation"),
@@ -259,8 +259,8 @@ export function renderFactoryKubernetesInstallation(bundle: FactoryInstallationB
           { from: [{ namespaceSelector: { matchLabels: { "kubernetes.io/metadata.name": settings.systemNamespace } }, podSelector: { matchLabels: { "app.kubernetes.io/name": FACTORY_KUBERNETES_INGRESS } } }], ports: [{ protocol: "TCP", port: bundle.ports.harness }] },
           // W01g's guest-broker route: only the fleet host's supervisor, in the system namespace, reaches it.
           { from: [{ namespaceSelector: { matchLabels: { "kubernetes.io/metadata.name": settings.systemNamespace } } }], ports: [{ protocol: "TCP", port: bundle.ports.guestBroker }] },
-          // C11 M4: only the platform's Prometheus reaches /metrics, and each port answers only the scrape token.
-          { from: [{ namespaceSelector: { matchLabels: { "kubernetes.io/metadata.name": settings.monitoringNamespace } } }], ports: FACTORY_CONTAINER_SERVICES.map((service) => ({ protocol: "TCP", port: metricsPorts[service] })) },
+          // C11 M4: only the platform's Prometheus reaches /metrics, and each port answers only the scrape token; no monitoring, no rule.
+          ...(settings.monitoringNamespace === undefined ? [] : [{ from: [{ namespaceSelector: { matchLabels: { "kubernetes.io/metadata.name": settings.monitoringNamespace } } }], ports: FACTORY_CONTAINER_SERVICES.map((service) => ({ protocol: "TCP", port: metricsPorts[service] })) }]),
           // The same route from the supervisor on the host network. No addresses, no rule: an empty peer list admits everything.
           ...(settings.nodeCidrs.length === 0 ? [] : [{ from: settings.nodeCidrs.map((cidr) => ({ ipBlock: { cidr } })), ports: [{ protocol: "TCP", port: bundle.ports.guestBroker }] }]),
         ],
@@ -274,13 +274,13 @@ export function renderFactoryKubernetesInstallation(bundle: FactoryInstallationB
         ],
       },
     },
-    {
+    ...(settings.monitoringNamespace === undefined ? [] : [{
       apiVersion: "monitoring.coreos.com/v1", kind: "PodMonitor", metadata: metadata("installation"),
       spec: {
         selector: { matchLabels: { "ezcorp.io/installation": bundle.installation.installationId } },
         podMetricsEndpoints: FACTORY_CONTAINER_SERVICES.map((service) => metricsEndpoint(METRICS_PORT_NAMES[service], service, bundle.installation.tenantId)),
       },
-    },
+    }]),
   ]));
 }
 
@@ -288,6 +288,7 @@ export function renderFactoryKubernetesInstallation(bundle: FactoryInstallationB
 export function renderFactoryKubernetesSystem(settings: FactoryKubernetesSettings, image: string, ports: { readonly pool: number; readonly supervisor: number; readonly poolMetrics: number; readonly supervisorMetrics: number }): readonly FactoryKubernetesObject[] {
   const namespace = settings.systemNamespace;
   const poolPort = ports.pool;
+  const monitored = settings.monitoringNamespace !== undefined;
   const common = { "app.kubernetes.io/part-of": "ezcorp-factory", "ezcorp.io/fleet": settings.fleetId };
   return pinned(Object.freeze([
     { apiVersion: "v1", kind: "Namespace", metadata: { name: namespace, labels: { ...common, "pod-security.kubernetes.io/enforce": "privileged" } } },
@@ -327,19 +328,21 @@ export function renderFactoryKubernetesSystem(settings: FactoryKubernetesSetting
       },
     },
     { apiVersion: "v1", kind: "Service", metadata: { name: "factory-pool", namespace, labels: common }, spec: { selector: { "app.kubernetes.io/name": "factory-pool" }, ports: [{ name: "pool", port: poolPort, targetPort: poolPort }] } },
-    // C11: the alert rules for the platform's Prometheus operator, and the scrapes of the shared pool and the
-    // supervisor. The supervisor binds its /metrics on host loopback today (gap hosted-supervisor-metrics-address,
-    // tasks/factory/w4h-34-GATES.md): its up series exists and reads 0, so FactoryMetricsTargetDown names it.
-    factoryPrometheusRuleResource(namespace, common),
-    { apiVersion: "v1", kind: "Secret", metadata: { name: FACTORY_KUBERNETES_METRICS_SECRET, namespace, labels: common }, type: "Opaque" },
-    {
-      apiVersion: "monitoring.coreos.com/v1", kind: "PodMonitor", metadata: { name: "factory-pool", namespace, labels: common },
-      spec: { selector: { matchLabels: { "app.kubernetes.io/name": "factory-pool" } }, podMetricsEndpoints: [metricsEndpoint("pool-metrics", "pool")] },
-    },
-    {
-      apiVersion: "monitoring.coreos.com/v1", kind: "PodMonitor", metadata: { name: "factory-supervisor", namespace, labels: common },
-      spec: { selector: { matchLabels: { "app.kubernetes.io/name": "factory-supervisor" } }, podMetricsEndpoints: [metricsEndpoint("supervisor-metrics", "supervisor")] },
-    },
+    // C11, only when the fleet names its monitoring namespace (C12 "Kubernetes deployment target"): the alert rules for the platform's
+    // Prometheus operator, and the scrapes of the shared pool and the supervisor. The supervisor binds its /metrics on the node's own
+    // address (status.hostIP), which closes W4H-34's gap hosted-supervisor-metrics-address.
+    ...(monitored ? [
+      factoryPrometheusRuleResource(namespace, common),
+      { apiVersion: "v1", kind: "Secret", metadata: { name: FACTORY_KUBERNETES_METRICS_SECRET, namespace, labels: common }, type: "Opaque" },
+      {
+        apiVersion: "monitoring.coreos.com/v1", kind: "PodMonitor", metadata: { name: "factory-pool", namespace, labels: common },
+        spec: { selector: { matchLabels: { "app.kubernetes.io/name": "factory-pool" } }, podMetricsEndpoints: [metricsEndpoint("pool-metrics", "pool")] },
+      },
+      {
+        apiVersion: "monitoring.coreos.com/v1", kind: "PodMonitor", metadata: { name: "factory-supervisor", namespace, labels: common },
+        spec: { selector: { matchLabels: { "app.kubernetes.io/name": "factory-supervisor" } }, podMetricsEndpoints: [metricsEndpoint("supervisor-metrics", "supervisor")] },
+      },
+    ] : []),
     {
       apiVersion: "apps/v1", kind: "DaemonSet", metadata: { name: "factory-supervisor", namespace, labels: common },
       spec: {
@@ -357,11 +360,14 @@ export function renderFactoryKubernetesSystem(settings: FactoryKubernetesSetting
             containers: [{
               name: "supervisor", image, imagePullPolicy: "IfNotPresent",
               command: ["bun", "src/factory/runner/supervisor-process.ts", `${FACTORY_KUBERNETES_SUPERVISOR_PATHS.secrets}/supervisor.json`],
-              env: environment({ ...FACTORY_HOST_SERVICE_BASE_ENVIRONMENT.supervisor, CONTAINER_HOST: `unix://${settings.runtimeSocketPath}` }),
+              env: [
+                ...environment({ ...FACTORY_HOST_SERVICE_BASE_ENVIRONMENT.supervisor, CONTAINER_HOST: `unix://${settings.runtimeSocketPath}` }),
+                ...(monitored ? [{ name: FACTORY_NODE_ADDRESS.env, valueFrom: { fieldRef: { fieldPath: "status.hostIP" } } }] : []),
+              ],
               // The ONE privileged workload: it alone reaches the container runtime.
               securityContext: { privileged: true },
               resources: { requests: { memory: "256Mi", cpu: "250m" }, limits: { memory: "2Gi", cpu: "2" } },
-              ports: [{ name: "supervisor", containerPort: ports.supervisor }, { name: "supervisor-metrics", containerPort: ports.supervisorMetrics }],
+              ports: [{ name: "supervisor", containerPort: ports.supervisor }, ...(monitored ? [{ name: "supervisor-metrics", containerPort: ports.supervisorMetrics }] : [])],
               readinessProbe: { exec: { command: ["bun", "src/factory/provisioning/readiness-check.ts", `${FACTORY_KUBERNETES_SUPERVISOR_PATHS.readinessDirectory}/supervisor.json`] }, periodSeconds: 5 },
               volumeMounts: [
                 { name: "runtime-socket", mountPath: settings.runtimeSocketPath },

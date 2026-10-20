@@ -17,3 +17,10 @@ export const FACTORY_KUBERNETES_SUPERVISOR_STATE = "supervisor-state";
 export function factoryKubernetesServiceUrl(service: string, namespace: string, port: number): string {
   return `https://${service}.${namespace}.svc.cluster.local:${port}`;
 }
+
+/**
+ * The hosted supervisor's metrics bind (C11 M4, W4H-35): it runs on the host network, so it binds to the node's own address, which
+ * the DaemonSet hands it in `env` from the downward API (status.hostIP). Its document names `marker` as the hostname; the
+ * supervisor resolves it at start and refuses an empty or malformed value by name. Never 0.0.0.0.
+ */
+export const FACTORY_NODE_ADDRESS = Object.freeze({ env: "FACTORY_NODE_IP", marker: "node-address" });
