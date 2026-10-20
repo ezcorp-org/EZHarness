@@ -976,7 +976,9 @@ export class IncusHostLiveWitness implements HostIncusLiveWitness {
       neighborHealthy: async () => {
         if (!await healthyInstance(neighbor)) return false;
         return withIncusLimitCheck("neighbor_canary", null, async () => {
-          const canary = await this.run(neighbor, ["sh", "-c", "printf %s ezh-neighbor-ok"], 10_000);
+          const workMs = 10_000;
+          const canary = await this.run(neighbor, ["sh", "-c", "printf %s ezh-neighbor-ok"], workMs,
+            this.now() + workMs + PROCESS_OBSERVATION_GRACE_MS);
           return canary.exitCode === 0 && canary.stdout === "ezh-neighbor-ok" && canary.stderr === "";
         });
       },

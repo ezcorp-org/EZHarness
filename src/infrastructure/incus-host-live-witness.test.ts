@@ -19,6 +19,9 @@ import { IncusLiveNetworkProbe } from "./incus-live-network-probe";
 import { IncusQualificationContinuation } from "./incus-qualification-continuation";
 import type { IncusQualificationFixtureService, IncusQualificationStore } from "./incus-qualification";
 import type { ProviderConnectionCredentials } from "./provider-connections/store";
+import { IncusSandboxAdapter, createIncusTransportCommand } from "../../extensions/incus-sandbox/adapter";
+import { createHostIncusTransport } from "../../extensions/incus-sandbox/host-transport";
+import { ProviderRpcBroker, type PreparedIncusAction, type ProviderConnectionResolver } from "./provider-rpc-broker";
 
 const scope = { installationId: "installation", releaseId: "release", connectionId: "connection",
   presetId: INCUS_PRESETS[0]!.id };
@@ -631,7 +634,7 @@ test("only a proven terminal create failure permits automatic cleanup", async ()
 });
 
 async function processObservationHarness(invoke: (operation: string, input: Record<string, unknown>) => Promise<unknown>,
-  authorizationDelay = 0, startAuthorizationDelay = 0) {
+  authorizationDelay = 0, startAuthorizationDelay = 0, workerLifetimeMs = 0) {
   const preset = INCUS_PRESETS[0]!;
   const presetDigest = await sandboxPresetDigest(preset);
   const fixture = { ...scope, operationId: handle.operationId, bindingId: handle.sandboxId,
@@ -643,10 +646,35 @@ async function processObservationHarness(invoke: (operation: string, input: Reco
     desiredState: "RUNNING", observedState: "RUNNING", generation: 1 };
   let clock = 1_000_000;
   const calls: Array<{ operation: string; input: Record<string, unknown> }> = [];
+  const db = { select: () => ({ from: (table: unknown) => ({ where: () => ({
+    limit: async () => table === incusQualificationFixtures ? [fixture] : [binding],
+  }) }) }) } as unknown as Database;
+  const config = { connectionId: scope.connectionId, serverCertificateSha256: "c".repeat(64),
+    project: "ezharness", profile: "ezharness-feature", helperVersion: "0.1.0", guestUser: "sandbox" };
+  const bridge = async (operation: string, input: Record<string, unknown>) => {
+    const prepared: PreparedIncusAction = {
+      installationId: scope.installationId, releaseId: scope.releaseId, releaseDigest: "d".repeat(64), generation: 1,
+      connectionId: scope.connectionId, revision: 1, config, operation: operation as PreparedIncusAction["operation"],
+      method: `incus/${operation.replace(".", "/")}`, bindingId: binding.id, projectId: binding.projectId,
+      bindingGeneration: binding.generation, resourceKey: binding.resourceKey,
+      approvedPreset: { profile: preset.profile, incusProfile: config.profile, presetId: preset.id, presetDigest,
+        effectiveSettingsDigest: fixture.effectiveSettingsDigest, imageFingerprint: preset.imageDigest, limits: preset.limits },
+      approvedGuest: { user: "sandbox", uid: 1000, gid: 1000, helperSha256: preset.helperDigests[0]! },
+      expectedCommand: createIncusTransportCommand(operation as PreparedIncusAction["operation"], input, config),
+    };
+    const broker = new ProviderRpcBroker({} as ProviderConnectionResolver, () => { throw new Error("unexpected probe"); },
+      db, () => ({ request: async () => invoke(operation, input) }));
+    const transport = createHostIncusTransport({ call: async (_method, value) =>
+      broker.request(prepared, value as Record<string, unknown>, Number(input.rpcDeadlineMs)) });
+    const result = await new IncusSandboxAdapter(config, transport, () => clock)
+      .invoke(prepared.operation, input);
+    // Simulated worker lifetime, bounded by the saved actual 2.94–4.94s range.
+    // This is not evidence of the actual deleted canary's completion time.
+    clock += workerLifetimeMs;
+    return result;
+  };
   const candidate = new IncusHostLiveWitness({
-    db: { select: () => ({ from: (table: unknown) => ({ where: () => ({
-      limit: async () => table === incusQualificationFixtures ? [fixture] : [binding],
-    }) }) }) } as unknown as Database,
+    db,
     qualifications: { authorizeFixture: async () => ({ connection: { revision: 1 }, preset, presetDigest,
       effectiveSettingsDigest: fixture.effectiveSettingsDigest }) } as unknown as IncusQualificationStore,
     fixtures: {} as IncusQualificationFixtureService,
@@ -660,7 +688,7 @@ async function processObservationHarness(invoke: (operation: string, input: Reco
       configuration: { kind: "incus", guestUser: "sandbox" } }) as ProviderConnectionCredentials,
     invokeGuest: async (_installation, _binding, operation, input) => {
       calls.push({ operation, input });
-      return invoke(operation, input);
+      return workerLifetimeMs ? bridge(operation, input) : invoke(operation, input);
     },
   });
   return { candidate, calls, binding, advance: (ms: number) => { clock += ms; }, now: () => clock };
@@ -673,6 +701,69 @@ function processOutput(offset: number, eof: boolean) {
 }
 const processTerminal = { ok: true, process: { processId: "process-1", sandboxId: handle.sandboxId, bootId: "boot-1",
   state: "succeeded", startedAt: "2026-09-23T12:00:00.000Z", finishedAt: "2026-09-23T12:00:01.000Z", exitCode: 0, signal: null } };
+
+type CanaryOutcome = "on_time" | "late" | "ambiguous" | "missing_time" | "identity" | "gap" | "wrong_output" | "no_eof";
+async function qualificationCanaryObservation(outcome: CanaryOutcome = "on_time") {
+  const preset = INCUS_PRESETS[0]!;
+  const h = await processObservationHarness(async operation => {
+    if (operation === "processes.start") return { ...processStarted, startedAt: new Date(1_000_000).toISOString() };
+    if (operation === "processes.readOutput") {
+      const stdout = outcome === "wrong_output" ? "wrong" : "ezh-neighbor-ok";
+      const offset = outcome === "gap" ? 1 : 0;
+      return { ok: true, ...(outcome === "gap" ? { gap: { fromOffsetBytes: 0, toOffsetBytes: 1, reason: "retention" } } : {}),
+        chunks: [{ stream: "stdout", offsetBytes: offset, dataBase64: Buffer.from(stdout).toString("base64"), byteLength: stdout.length }],
+        nextCursor: { sandboxId: handle.sandboxId, processId: "process-1", bootId: "boot-1", offsetBytes: offset + stdout.length },
+        eof: outcome !== "no_eof" };
+    }
+    if (outcome === "no_eof") h.advance(10_000);
+    return { ...processTerminal, process: { ...processTerminal.process,
+      bootId: outcome === "identity" ? "wrong-boot" : "boot-1",
+      startedAt: new Date(1_000_000).toISOString(),
+      finishedAt: outcome === "missing_time" ? undefined
+        : new Date(outcome === "late" ? 1_011_000 : outcome === "ambiguous" ? 1_010_000 : 1_001_000).toISOString() } };
+  }, 0, 0, 3_500);
+  const internal = h.candidate as unknown as {
+    owned: (value: typeof handle, running?: boolean) => Promise<unknown>;
+    context: () => Promise<unknown>; backend: unknown; resourceNetwork: unknown;
+    stageMemoryLoad: () => Promise<string>;
+  };
+  const originalOwned = internal.owned.bind(h.candidate);
+  internal.owned = async () => originalOwned(handle, true);
+  internal.context = async () => ({ context: {} });
+  internal.backend = { image: async () => ({ imageDigest: preset.imageDigest, profile: preset.profile,
+    helperDigest: preset.helperDigests[0] }), instance: async () => ({ state: "running", privateNetwork: true,
+    restrictedProject: true, unprivileged: true }) };
+  internal.resourceNetwork = { managementTarget: async () => ({ address: "100.81.181.39", port: 8443 }),
+    hostCanConnect: async () => true };
+  h.candidate.observeEnforcement = async () => ({ memoryMaxBytes: preset.limits.memoryBytes,
+    cpuQuotaMillis: preset.limits.cpuMillis, pidsMax: preset.limits.pids, rootQuotaBytes: preset.limits.diskBytes }) as never;
+  // Stop after the real pre-load canary; no synthetic resource stress is needed.
+  const reachedLoad = new Error("canary accepted before memory staging");
+  internal.stageMemoryLoad = async () => { throw reachedLoad; };
+  const failure = await h.candidate.exerciseLimits({ sandboxId: "primary", operationId: "primary-op" }, handle)
+    .then(() => null, error => error);
+  return { failure, h, reachedLoad };
+}
+
+test("qualification canary preserves its guest deadline across real adapter and broker observation", async () => {
+  const { failure, h, reachedLoad } = await qualificationCanaryObservation();
+  expect(failure.check).toBe("memory_asset");
+  expect(failure.failure()).toBe(reachedLoad);
+  expect(h.calls.map(call => call.operation)).toEqual(["processes.start", "processes.readOutput", "processes.inspect"]);
+  expect(h.calls[0]!.input.processDeadlineMs).toBe(1_010_000);
+  expect(h.calls.slice(1).map(call => call.input.rpcDeadlineMs)).toEqual([1_020_000, 1_020_000]);
+});
+
+test.each<CanaryOutcome>(["late", "ambiguous", "missing_time", "identity", "gap", "wrong_output", "no_eof"])
+  ("qualification canary denies %s evidence through adapter and broker", async outcome => {
+    const { failure, h, reachedLoad } = await qualificationCanaryObservation(outcome);
+    expect(failure).not.toBeNull();
+    expect(failure.check).not.toBe("memory_asset");
+    expect(failure.failure?.()).not.toBe(reachedLoad);
+    expect(h.calls.filter(call => call.operation === "processes.start")).toHaveLength(1);
+    expect(h.calls[0]!.input.processDeadlineMs).toBe(1_010_000);
+    expect(h.calls.every(call => Number(call.input.rpcDeadlineMs) <= 1_020_000)).toBe(true);
+  });
 
 test("a quick guest probe remains observable after slow control calls", async () => {
   const h = await processObservationHarness(async (operation, input) => {
