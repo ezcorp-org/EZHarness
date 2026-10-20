@@ -1,4 +1,4 @@
-import { IncusLimitLoadFailure, incusLimitResource, IncusCpuLoadProofError, incusCpuLoadDiagnostic, type IncusCpuLoadDiagnostic } from "./incus-live-limit-probe";
+import { IncusLimitLoadFailure, incusLimitCheck, type IncusLimitCheck, incusLimitResource, IncusCpuLoadProofError, incusCpuLoadDiagnostic, type IncusCpuLoadDiagnostic } from "./incus-live-limit-probe";
 import { createHash, randomUUID } from "node:crypto";
 import {
   sandboxPresetDigest,
@@ -269,7 +269,7 @@ const diagnosticAssertions: Record<string, readonly string[]> = {
   "Incus live network probe unavailable: ": ["reviewed neighbor control transport is unavailable", "reviewed neighbor control response is invalid", "pinned management peer address is unavailable", "pinned management connection changed", "pinned management connection deadline expired", "protected guest call failed", "invalid neighbor identity", "neighbor fixture ownership changed", "neighbor binding changed or stopped", "backend neighbor identity changed", "backend neighbor state changed", "exact neighbor bridge address is unavailable", "neighbor listener identity missing", "neighbor listener output has a gap", "neighbor listener output changed", "neighbor listener port is invalid", "neighbor listener ended before it was ready", "neighbor listener did not become ready"],
   "Incus resource probe unavailable: ": ["distinct IP-literal targets are required", "management control target is not reachable from the host", "otherSandbox control target is not reachable from the host", "guest control readout failed or exceeded its bound", "guest control readout is invalid JSON", "guest control readout is invalid", "exact fixture root quota is unavailable", "observed controls exceed the reviewed preset", "guest reached a forbidden network target", "guest UID map is not isolated from host root", "CPU cgroup quota is missing", "CPU cgroup quota has an invalid format", "CPU quota cannot be expressed exactly"],
   "Incus live qualification failed: ": ["guest cgroup, storage or network enforcement is unavailable", "controlled limit loads are incomplete", "qualification preparation deadline expired"],
-  "Incus live witness unavailable: ": ["running fixture, root quota, or neighbor network identity changed", "resource probe fixtures have different reviewed scopes", "limit probe needs two distinct running fixtures", "limit probe fixture scopes differ", "guest action failed"],
+  "Incus live witness unavailable: ": ["running fixture, root quota, or neighbor network identity changed", "resource probe fixtures have different reviewed scopes", "limit probe needs two distinct running fixtures", "limit probe fixture scopes differ", "guest action failed", "guest process deadline expired", "guest process exceeded its work deadline", "guest process identity changed", "guest process identity missing", "guest process output has a gap", "guest process output changed", "guest process stream changed", "guest process output exceeded bound", "guest process exit is unavailable", "independent Incus storage-pool readback is unavailable"],
   "Incus limit probe unavailable: ": ["host storage pool has insufficient independent free space for the quota probe", "host storage pool did not recover after the quota probe"],
 };
 for (const [prefix, messages] of Object.entries(diagnosticAssertions)) {
@@ -324,8 +324,8 @@ export function incusPreparationCauseCode(error: unknown): string {
 }
 /** Safe diagnostic fields only. The original provider exception is not projected. */
 export class IncusQualificationPreparationError extends Error {
-  constructor(readonly stage: IncusQualificationPreparationStage, readonly cleanup: "confirmed" | "unverified", readonly causeCode = "unclassified", readonly cpuLoad: IncusCpuLoadDiagnostic | null = null, readonly limitResource: LiveLimitLoadFact["resource"] | null = null, readonly readinessReason?: IncusReadinessFailureReason) {
-    super("Incus qualification preparation failed");
+  constructor(readonly stage: IncusQualificationPreparationStage, readonly cleanup: "confirmed" | "unverified", readonly causeCode = "unclassified", readonly cpuLoad: IncusCpuLoadDiagnostic | null = null, readonly limitResource: LiveLimitLoadFact["resource"] | null = null, readonly readinessReason?: IncusReadinessFailureReason, readonly limitCheck: IncusLimitCheck | null = null, cause?: unknown) {
+    super("Incus qualification preparation failed", { cause });
   }
 }
 
@@ -527,7 +527,8 @@ export async function beginDurableIncusLiveCases(options: IncusLiveRunnerOptions
   if (preservedFailure) throw preservedFailure;
   throw new IncusQualificationPreparationError(stage, errors.length ? "unverified" : "confirmed", incusPreparationCauseCode(failure), failure instanceof IncusCpuLoadProofError ? incusCpuLoadDiagnostic(failure.diagnostic) : null,
     failure instanceof IncusLimitLoadFailure ? incusLimitResource(failure.resource) : null,
-    failure instanceof IncusAdmissionReadinessError ? failure.reason : undefined);
+    failure instanceof IncusAdmissionReadinessError ? failure.reason : undefined,
+    failure instanceof IncusLimitLoadFailure ? incusLimitCheck(failure.check) : null, originalPreparationFailure(failure));
 }
 
 /** Called only in the replacement app process, with a fresh witness and database connection. */

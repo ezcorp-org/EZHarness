@@ -1,4 +1,4 @@
-import { incusLimitResource, incusCpuLoadDiagnostic } from "$server/infrastructure/incus-live-limit-probe";
+import { incusLimitCheck, incusLimitResource, incusCpuLoadDiagnostic } from "$server/infrastructure/incus-live-limit-probe";
 import { IncusStopRequiredError, IncusCleanupRecoveryUnavailableError } from "$server/infrastructure/incus-feature-service";
 import { randomUUID } from "node:crypto";
 import { json } from "@sveltejs/kit";
@@ -20,6 +20,13 @@ const identifier = /^[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}$/;
 function isIdentifier(value: unknown): value is string { return typeof value === "string" && identifier.test(value); }
 function readinessFailureLog(error: IncusQualificationPreparationError) {
   return error.causeCode === "readiness_unavailable" ? { readinessReason: incusReadinessFailureReason(error.readinessReason) } : {};
+}
+function preparationDiagnostic(error: IncusQualificationPreparationError) {
+  const cpuLoad = incusCpuLoadDiagnostic(error.cpuLoad);
+  const limitResource = error.stage === "limit_loads" ? incusLimitResource(error.limitResource) : null;
+  const limitCheck = error.stage === "limit_loads" ? incusLimitCheck(error.limitCheck) : null;
+  return { ...(limitCheck ? { limitCheck } : {}), ...(limitResource ? { limitResource } : {}),
+    stage: error.stage, cleanup: error.cleanup, causeCode: error.causeCode, ...(cpuLoad ? { cpuLoad } : {}) };
 }
 type Action = "create" | "status" | "destroy" | "start" | "stop" | "qualify" | "recoverCleanup";
 const fields = ["action", "installationId", "releaseId", "connectionId", "presetId", "operationId"];
@@ -102,9 +109,7 @@ export const POST: RequestHandler = async ({ locals, request }) => {
     }
     if (error instanceof IncusQualificationPreparationError && input.action === "qualify"
       && preparationStages.has(error.stage) && INCUS_PREPARATION_CAUSE_CODES.has(error.causeCode) && ["confirmed", "unverified"].includes(error.cleanup)) {
-      const cpuLoad = incusCpuLoadDiagnostic(error.cpuLoad);
-      const limitResource = error.stage === "limit_loads" ? incusLimitResource(error.limitResource) : null;
-      const diagnostic = { ...(limitResource ? { limitResource } : {}), stage: error.stage, cleanup: error.cleanup, causeCode: error.causeCode, ...(cpuLoad ? { cpuLoad } : {}) };
+      const diagnostic = preparationDiagnostic(error);
       log.warn("Incus qualification preparation failed", { runId: input.operationId, ...diagnostic,
         ...readinessFailureLog(error) });
       return json({ code: "qualification_preparation_failed", ...diagnostic,

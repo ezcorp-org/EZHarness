@@ -504,7 +504,7 @@ test("running primary guest failure retains safe method/code and confirmed clean
 test("load failure keeps the exact public guest code and resource while omitting its private cause", async () => {
   for (const resource of ["memory", "cpu", "pids", "disk"] as const) {
     const cause = new IncusLiveWitnessError("secret-canary stderr credentials", "processes.readOutput", "DEADLINE_EXCEEDED");
-    const original = witness({ exerciseLimits: async () => { throw new IncusLimitLoadFailure(resource, cause); } });
+    const original = witness({ exerciseLimits: async () => { throw new IncusLimitLoadFailure(resource, cause, "guest_load"); } });
     const durable: DurableIncusLiveWitness = { ...original.value,
       findFixture: async () => { throw new Error("unexpected lookup"); },
       beginRestart: async () => { throw new Error("unexpected restart"); },
@@ -514,11 +514,24 @@ test("load failure keeps the exact public guest code and resource while omitting
       { runId: `load-diagnostic-${resource}`, nonce: "fresh-nonce", deadlineMs: Date.now() + 60_000 }); }
     catch (error) { failure = error; }
     expect(failure).toMatchObject({ stage: "limit_loads", cleanup: "confirmed",
-      causeCode: "guest_processes_readOutput_deadline_exceeded", limitResource: resource });
+      causeCode: "guest_processes_readOutput_deadline_exceeded", limitResource: resource, limitCheck: "guest_load" });
+    expect((failure as Error).cause).toBe(cause);
     expect(JSON.stringify(failure)).not.toContain("secret-canary");
     expect(original.destroyed).toHaveLength(2);
   }
   expect(incusPreparationCauseCode(Object.assign(new Error("secret-canary"), { resource: "memory", cause: new IncusLiveWitnessError("private", "processes.readOutput", "DEADLINE_EXCEEDED") }))).toBe("unclassified");
+});
+
+test("fixed guest process consumer failures use finite causes without exposing other messages", () => {
+  for (const reason of ["guest process deadline expired", "guest process exceeded its work deadline",
+    "guest process identity changed", "guest process identity missing", "guest process output has a gap",
+    "guest process output changed", "guest process stream changed", "guest process output exceeded bound",
+    "guest process exit is unavailable", "independent Incus storage-pool readback is unavailable"]) {
+    const cause = new IncusLiveWitnessError(reason);
+    expect(incusPreparationCauseCode(new IncusLimitLoadFailure("memory", cause, "neighbor_canary")))
+      .toBe(reason.replace(/[^A-Za-z0-9]+/g, "_").toLowerCase());
+    expect(incusPreparationCauseCode(new IncusLiveWitnessError(`${reason} secret`))).toBe("unclassified");
+  }
 });
 
 test("resource tagging cannot hide an unsettled operation or dispatch cleanup for it", async () => {

@@ -1,6 +1,12 @@
 import { afterEach, expect, mock, test } from "bun:test";
 
 const { IncusQualificationPreparationError, INCUS_PREPARATION_CAUSE_CODES } = await import("$server/infrastructure/incus-live-cases");
+const { beginDurableIncusLiveCases: realBegin } = await import("$server/infrastructure/incus-live-cases");
+const { IncusHostLiveWitness: RealWitness, IncusLiveWitnessError } = await import("$server/infrastructure/incus-host-live-witness");
+const { INCUS_PRESETS } = await import("../../../../../../../extensions/incus-sandbox/manifest");
+const { GUEST_HELPER_SHA256 } = await import("$server/infrastructure/incus-guest/protocol");
+const livePreset = { ...INCUS_PRESETS[0]!, imageDigest: "a".repeat(64) };
+let liveFlow: Parameters<typeof realBegin>[0]["witness"] | null = null;
 let preparationError: InstanceType<typeof IncusQualificationPreparationError> | null = null;
 const calls: string[] = [];
 let fail = false;
@@ -32,6 +38,7 @@ mock.module("$server/infrastructure/incus-startup", () => ({
     if (!selectedPinsReady) throw new Error("Incus selected operator pins are unavailable");
     if (unsettledError) throw unsettledError;
     if (!process.env.EZCORP_INCUS_CONTROL_PROBE_ROOT || !fixtureReady) throw new Error("control unavailable");
+    if (liveFlow) return liveFlow;
     return { name: "operator-witness" };
   },
 }));
@@ -42,6 +49,7 @@ mock.module("$server/infrastructure/incus-live-cases", () => ({
     calls.push(`runner.begin:${Boolean(options.witness)}:${options.composeFixtureImageRef ?? "missing"}:${run.runId}`);
     expect(run.nonce).toMatch(/^[a-f0-9-]{36}$/);
     expect(run.deadlineMs).toBeGreaterThan(Date.now());
+    if (liveFlow) return realBegin({ witness: liveFlow }, _scope as Parameters<typeof realBegin>[1], livePreset, run);
     if (preparationError) throw preparationError;
     if (beginResult) return { runId: run.runId, state: "AWAITING_RESTART" };
     throw new Error("mock restart unavailable");
@@ -54,7 +62,7 @@ mock.module("$server/infrastructure/incus-qualification", () => ({
   IncusQualificationStore: class {
     async authorizeFixture(scope: { connectionId: string }) {
       calls.push(`authorize:${scope.connectionId}`);
-      return { preset: { id: "preset" } };
+      return { preset: liveFlow ? livePreset : { id: "preset" } };
     }
   },
   IncusQualificationFixtureService: class {
@@ -100,6 +108,137 @@ function event(locals: Record<string, unknown>, body: unknown, origin: string | 
     method: "POST", headers: { "content-type": contentType, ...(origin ? { origin } : {}) }, body: JSON.stringify(body),
   }) } as unknown as Parameters<typeof POST>[0];
 }
+
+function limitFlow(check: string, failure: Error) {
+  const states = new Map<string, "stopped" | "running" | "absent">();
+  const destroyed: string[] = [];
+  const cleanupWarningCounts: number[] = [];
+  const failAt = (selected: string) => { if (check === selected) throw failure; };
+  const candidate = new RealWitness({ db: {} as never, qualifications: {} as never, fixtures: {} as never,
+    backend: { image: async () => { failAt("host_image"); if (check === "malformed_host_image") return null;
+      return { imageDigest: livePreset.imageDigest,
+      profile: livePreset.profile, helperDigest: GUEST_HELPER_SHA256 }; },
+      instance: async () => { failAt("neighbor_instance"); return { state: "running", privateNetwork: true,
+        restrictedProject: true, unprivileged: true }; } } as never,
+    resourceNetwork: { assertControlCapability: async () => {}, managementTarget: async () => {
+      failAt("management_target"); return { address: "100.81.181.39", port: 8443 };
+    }, neighborTarget: async () => ({ sandboxId: "unused", address: "10.173.0.22", port: 8080 }),
+    hostCanConnect: async () => { failAt("host_connect"); return true; } },
+  });
+  const internal = candidate as unknown as { owned: () => Promise<unknown>; context: () => Promise<unknown> };
+  internal.owned = async () => { failAt("fixture_ownership"); return { scope,
+    selected: { preset: livePreset } }; };
+  internal.context = async () => { failAt("context"); return { context: {} }; };
+  let enforcementReads = 0;
+  Object.assign(candidate, {
+    preflightNetwork: async () => {},
+    observe: async () => ({ profile: livePreset.profile, imageDigest: livePreset.imageDigest,
+      helperDigest: GUEST_HELPER_SHA256, observation: { backendApi: "incus.v1", backendVersion: "6.0.6",
+        architecture: "amd64", storageDriver: "btrfs", isolation: "container", nestedCompose: false } }),
+    controlFacts: async () => ({ baselinePlanDigest: "b".repeat(64), repeatedPlanDigest: "b".repeat(64),
+      changedPlanDigest: "c".repeat(64), unsupportedAdmissionCode: "DENIED_UNSUPPORTED", unsupportedAllocationDelta: 0,
+      missingControlAdmissionCode: "DENIED_CONTROL", missingControlAllocationDelta: 0,
+      driftAdmissionCode: "DENIED_DRIFT", driftAllocationDelta: 0, unqualifiedAdmissionCode: "DENIED_UNQUALIFIED",
+      unqualifiedAllocationDelta: 0, localCanaryBefore: "d".repeat(64), localCanaryAfter: "d".repeat(64) }),
+    createFixture: async (_scope: unknown, _preset: unknown, operationId: string) => {
+      const sandboxId = `sandbox-${operationId}`;
+      if (!states.has(sandboxId)) states.set(sandboxId, "stopped");
+      return { sandboxId, operationId };
+    },
+    inspectFixture: async (handle: { sandboxId: string }) => ({ sandboxId: handle.sandboxId,
+      state: states.get(handle.sandboxId), imageDigest: livePreset.imageDigest, helperDigest: GUEST_HELPER_SHA256,
+      profile: livePreset.profile, workspaceRoot: "/workspace", guestUser: "sandbox", ...livePreset.limits,
+      storageDriver: "btrfs", privateNetwork: true, restrictedProject: true, unprivileged: true,
+      bootId: states.get(handle.sandboxId) === "running" ? "boot-id" : null }),
+    setPower: async (handle: { sandboxId: string }, state: "running" | "stopped") => { states.set(handle.sandboxId, state); },
+    observeEnforcement: async () => {
+      if (++enforcementReads === 2) failAt("enforcement");
+      return { memoryMaxBytes: livePreset.limits.memoryBytes, cpuQuotaMillis: livePreset.limits.cpuMillis,
+        pidsMax: livePreset.limits.pids, rootQuotaBytes: livePreset.limits.diskBytes,
+        privateNetworkProbeBlocked: true, unprivilegedUidMap: true };
+    },
+    run: async () => { failAt("neighbor_canary"); throw new Error("unexpected load"); },
+    destroyFixture: async (handle: { sandboxId: string }) => {
+      cleanupWarningCounts.push(warnings.filter(warning => warning.message === "Incus qualification limit check failed").length);
+      destroyed.push(handle.sandboxId); states.set(handle.sandboxId, "absent");
+    },
+  });
+  return { candidate, destroyed, states, cleanupWarningCounts };
+}
+
+test("HTTP qualification retains exact finite limit checks after real witness failure and fixture cleanup", async () => {
+  process.env.EZCORP_INCUS_CONTROL_PROBE_ROOT = "/operator/probes";
+  witnessReady = true;
+  try {
+    for (const check of ["host_image", "fixture_ownership", "context", "management_target", "enforcement", "host_connect",
+      "malformed_host_image", "neighbor_instance", "neighbor_canary"]) {
+      warnings.length = 0;
+      const failure = Object.assign(new Error("privateKeyPem SECRET stdout exception"),
+        { limitCheck: "spoofed-check", limitResource: "disk", code: "SECRET" });
+      const flow = limitFlow(check, failure);
+      liveFlow = flow.candidate;
+      const response = await POST(event(admin, { ...scope, presetId: livePreset.id, action: "qualify" }));
+      expect(response.status).toBe(409);
+      const body = await response.json();
+      const selectedCheck = check.replace("malformed_", "");
+      const resource = ["host_connect", "host_image", "neighbor_instance", "neighbor_canary"].includes(selectedCheck) ? "memory" : undefined;
+      expect(body).toMatchObject({ code: "qualification_preparation_failed", stage: "limit_loads",
+        cleanup: "confirmed", causeCode: "unclassified", limitCheck: selectedCheck });
+      expect(body.limitResource).toBe(resource);
+      expect(flow.destroyed).toHaveLength(2);
+      expect(flow.cleanupWarningCounts).toEqual([1, 1]);
+      expect([...flow.states.values()]).toEqual(["absent", "absent"]);
+      expect(warnings).toContainEqual({ message: "Incus qualification limit check failed", fields: {
+        stage: "limit_loads", causeCode: "unclassified", limitCheck: selectedCheck, limitResource: resource ?? null } });
+      expect(warnings.some(warning => warning.message === "Incus qualification preparation failed")).toBe(true);
+      expect(JSON.stringify({ body, warnings })).not.toMatch(/SECRET|privateKeyPem|stdout|spoofed-check/);
+    }
+  } finally { liveFlow = null; witnessReady = false; }
+});
+
+test("real neighbor canary process output gap remains classified after HTTP cleanup", async () => {
+  process.env.EZCORP_INCUS_CONTROL_PROBE_ROOT = "/operator/probes";
+  witnessReady = true; warnings.length = 0;
+  const flow = limitFlow("neighbor_canary", new IncusLiveWitnessError("guest process output has a gap"));
+  const guestOperations: string[] = [];
+  const internal = flow.candidate as unknown as { guest: (_handle: unknown, operation: string) => Promise<unknown> };
+  internal.guest = async (_handle, operation) => {
+    guestOperations.push(operation);
+    if (operation === "processes.start") return { processId: "canary-process", bootId: "boot-id" };
+    return { gap: true, chunks: [] };
+  };
+  flow.candidate.run = RealWitness.prototype.run.bind(flow.candidate);
+  liveFlow = flow.candidate;
+  try {
+    const response = await POST(event(admin, { ...scope, presetId: livePreset.id, action: "qualify" }));
+    expect(response.status).toBe(409);
+    expect(await response.json()).toMatchObject({ code: "qualification_preparation_failed", stage: "limit_loads",
+      cleanup: "confirmed", causeCode: "guest_process_output_has_a_gap", limitCheck: "neighbor_canary", limitResource: "memory" });
+    expect(flow.cleanupWarningCounts).toEqual([1, 1]);
+    expect(flow.destroyed).toHaveLength(2);
+    expect(guestOperations).toEqual(["processes.start", "processes.readOutput"]);
+    expect(warnings[0]).toEqual({ message: "Incus qualification limit check failed", fields: {
+      stage: "limit_loads", causeCode: "guest_process_output_has_a_gap", limitCheck: "neighbor_canary", limitResource: "memory" } });
+  } finally { liveFlow = null; witnessReady = false; }
+});
+
+test("preparation check projection rejects spoofed or malformed fields and non-limit stages", async () => {
+  process.env.EZCORP_INCUS_CONTROL_PROBE_ROOT = "/operator/probes";
+  witnessReady = true;
+  try {
+    for (const stage of ["limit_loads", "enforcement"] as const) {
+      for (const check of ["host_image", "SECRET", {}, [], null, 1]) {
+        warnings.length = 0;
+        preparationError = Object.assign(new IncusQualificationPreparationError(stage, "confirmed"), { limitCheck: check });
+        const response = await POST(event(admin, { ...scope, action: "qualify" }));
+        const body = await response.json();
+        expect(response.status).toBe(409);
+        expect(body.limitCheck).toBe(stage === "limit_loads" && check === "host_image" ? check : undefined);
+        expect(JSON.stringify({ body, warnings })).not.toContain("SECRET");
+      }
+    }
+  } finally { preparationError = null; witnessReady = false; }
+});
 
 test("fixture actions require a session administrator and same-origin JSON", async () => {
   calls.length = 0;

@@ -9174,3 +9174,14 @@ Independent reviewer verified all 103 labels, arbitrary-code redaction and non-r
 - [ ] Reproduce actual image and seccomp mismatch before staging/launch/RPC.
 - [ ] Preserve a start-only trusted failure marker through service/client and classify Incus refusal.
 - [ ] Verify post-start/transport failures stay unknown; focused tests/types/lint and independent review.
+
+## 2026-10-20 — Limit preparation diagnostic repair (owned isolated worktree)
+- [x] Inspect exact 214f boundary and report finite diagnostic contract to coordinator before implementation.
+- [x] Reproduce original HTTP409 unclassified failure using real durable preparation and real host witness limit consumer; baseline fails on missing exact check with cleanup confirmed.
+- [x] Preserve finite check and known resource through host logging before cleanup and normal route response; retain original cause internally.
+- [x] Verify fixed cause classification, spoofed/malformed field redaction, consumer failures, targeted tests and types/lint.
+- [ ] Receive independent review; commit only when coordinator instructs.
+
+Review: diagnostic repair only. No live calls, provider changes, timeout changes or cleanup ordering changes. API registry has a descriptive endpoint entry and no response schema for this route.
+
+Verification: exact baseline RED for real HTTP + durable preparation + witness.exerciseLimits + witness.run/readOutput gap: unclassified, no check/resource, cleanup confirmed. GREEN returns neighbor_canary/memory/guest_process_output_has_a_gap and logs before both deletes. Focused suites: route21, probe18, cases28, witness28 (95 pass). Backend source/test and web TypeScript checks passed; actual web check reports zero errors/warnings. Scoped canonical LCOV merge + exported patch/CRAP functions:77/77 measured changed lines covered, maximum touched complexity/CRAP27 (POST); no whole gate claim. Independent review requested from coordinator and reviewer; source frozen.

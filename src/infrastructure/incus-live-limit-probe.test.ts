@@ -1,7 +1,7 @@
 import { expect, test } from "bun:test";
 import { spawnSync } from "node:child_process";
 import { INCUS_PRESETS } from "../../extensions/incus-sandbox/manifest";
-import { exerciseIncusLimits, LIMIT_PROBE_SCRIPT, IncusLimitLoadFailure, incusLimitResource, incusCpuLoadDiagnostic, IncusCpuLoadProofError, type IncusLimitProbeDependencies } from "./incus-live-limit-probe";
+import { exerciseIncusLimits, LIMIT_PROBE_SCRIPT, IncusLimitLoadFailure, incusLimitResource, incusLimitCheck, withIncusLimitCheck, incusCpuLoadDiagnostic, IncusCpuLoadProofError, type IncusLimitProbeDependencies } from "./incus-live-limit-probe";
 
 const preset = INCUS_PRESETS[0]!;
 const memoryPath = `ezh-memory-probe-${"a".repeat(64)}`;
@@ -61,7 +61,7 @@ function harness(fault?: { resource?: string; detail?: boolean; neighbor?: boole
           ? poolFreeBytes - 96 * 1024 * 1024 : poolFreeBytes;
     },
   };
-  return { calls, run: () => exerciseIncusLimits(handle, preset, facts, deps) };
+  return { calls, deps, run: () => exerciseIncusLimits(handle, preset, facts, deps) };
 }
 
 test("real load script compiles before a fixture can run it", () => {
@@ -277,6 +277,39 @@ test("each failed load preserves only its finite resource and privately keeps th
   }
   expect(incusLimitResource("secret-canary")).toBeNull();
   expect(() => new IncusLimitLoadFailure("secret-canary" as "memory", secret)).toThrow("invalid load diagnostic resource");
+});
+
+test("health and disk pool consumer exceptions retain their exact check and known resource", async () => {
+  const secret = new Error("secret-canary credentials stdout");
+  for (const [dependency, check, resource] of [["hostHealthy", "host_health", "memory"],
+    ["neighborHealthy", "neighbor_health", "memory"], ["hostStorageFreeBytes", "storage_pool", "disk"]] as const) {
+    const value = harness();
+    value.deps[dependency] = async () => { throw secret; };
+    let failure: unknown;
+    try { await value.run(); } catch (error) { failure = error; }
+    expect(failure).toBeInstanceOf(IncusLimitLoadFailure);
+    expect(failure).toMatchObject({ resource, check });
+    expect((failure as IncusLimitLoadFailure).failure()).toBe(secret);
+    expect(JSON.stringify(failure)).not.toContain("secret-canary");
+    expect(value.calls).not.toContain(resource);
+  }
+});
+
+test("nested checks preserve the inner consumer and original cause while adding only a known resource", async () => {
+  const secret = new Error("private stdout");
+  for (const innerResource of [null, "cpu"] as const) {
+    const inner = new IncusLimitLoadFailure(innerResource, secret, "host_image");
+    await expect(withIncusLimitCheck("host_health", "memory", async () => { throw inner; }))
+      .rejects.toMatchObject({ resource: "memory", check: "host_image" });
+    await expect(withIncusLimitCheck("host_health", null, async () => { throw inner; }))
+      .rejects.toMatchObject({ resource: innerResource, check: "host_image" });
+  }
+  const malformed = new IncusLimitLoadFailure(null, secret);
+  await expect(withIncusLimitCheck("context", null, async () => { throw malformed; }))
+    .rejects.toMatchObject({ resource: null, check: "context" });
+  expect(await withIncusLimitCheck("context", null, async () => "ok")).toBe("ok");
+  for (const value of ["SECRET", {}, [], null, 1]) expect(incusLimitCheck(value)).toBeNull();
+  expect(incusLimitCheck("host_image")).toBe("host_image");
 });
 
 

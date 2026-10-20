@@ -140,16 +140,34 @@ export function incusLimitResource(value: unknown): Resource | null {
   return RESOURCES.find(resource => resource === value) ?? null;
 }
 export class IncusLimitLoadFailure extends Error {
-  readonly resource: Resource;
+  readonly resource: Resource | null;
   #failure: unknown;
-  constructor(resource: Resource, failure: unknown) {
+  constructor(resource: Resource | null, failure: unknown, readonly check: IncusLimitCheck | null = null) {
     super("Incus limit load failed");
     const selected = incusLimitResource(resource);
-    requireLimit(selected, "invalid load diagnostic resource");
+    requireLimit(resource === null || selected, "invalid load diagnostic resource");
     this.resource = selected;
     this.#failure = failure;
   }
   failure(): unknown { return this.#failure; }
+}
+
+const LIMIT_CHECKS = ["fixture_ownership", "fixture_scope", "context", "management_target", "enforcement",
+  "host_health", "host_connect", "host_image", "neighbor_health", "neighbor_instance", "neighbor_canary",
+  "storage_pool", "memory_asset", "guest_load"] as const;
+export type IncusLimitCheck = typeof LIMIT_CHECKS[number];
+export function incusLimitCheck(value: unknown): IncusLimitCheck | null {
+  return LIMIT_CHECKS.find(check => check === value) ?? null;
+}
+/** Preserve the original failure; only host-selected finite fields may be projected. */
+export async function withIncusLimitCheck<T>(check: IncusLimitCheck, resource: Resource | null,
+  action: () => Promise<T>): Promise<T> {
+  try { return await action(); }
+  catch (error) {
+    throw new IncusLimitLoadFailure(resource ?? (error instanceof IncusLimitLoadFailure ? error.resource : null),
+      error instanceof IncusLimitLoadFailure ? error.failure() : error,
+      error instanceof IncusLimitLoadFailure ? incusLimitCheck(error.check) ?? check : check);
+  }
 }
 
 export interface IncusCpuLoadDiagnostic {
@@ -219,12 +237,15 @@ async function runLimitLoad(handle: LiveFixtureHandle, resource: Resource, attem
   try {
     const argv = ["python3", "-c", LIMIT_PROBE_SCRIPT, resource, String(attempted), String(limit)];
     if (resource === "memory") {
-      const path = await deps.prepareMemoryLoad(handle);
+      const path = await withIncusLimitCheck("memory_asset", resource, () => deps.prepareMemoryLoad(handle));
       requireLimit(/^ezh-memory-probe-[a-f0-9]{64}$/.test(path), "native memory asset path changed");
       argv.push(path);
     }
     return await deps.runGuest(handle, argv, TIMEOUT_MS);
-  } catch (error) { throw new IncusLimitLoadFailure(resource, error); }
+  } catch (error) {
+    if (error instanceof IncusLimitLoadFailure) throw error;
+    throw new IncusLimitLoadFailure(resource, error, "guest_load");
+  }
 }
 
 function requireLoadProof(resource: Resource, attempted: number, limit: number, run: LiveCommandResult): void {
@@ -254,18 +275,21 @@ export async function exerciseIncusLimits(handle: LiveFixtureHandle, preset: San
     requireLimit(Number.isSafeInteger(limit) && limit > 0 && limit <= reviewed(resource, preset)
       && attempted > limit,
       `${resource} observed limit or requested load is invalid`);
-    requireLimit(await deps.hostHealthy() && await deps.neighborHealthy(),
+    const host = () => withIncusLimitCheck("host_health", resource, deps.hostHealthy);
+    const neighbor = () => withIncusLimitCheck("neighbor_health", resource, deps.neighborHealthy);
+    const pool = () => withIncusLimitCheck("storage_pool", resource, deps.hostStorageFreeBytes);
+    requireLimit(await host() && await neighbor(),
       `host or neighbor was unhealthy before ${resource} load`);
-    const poolFreeBefore = resource === "disk" ? await deps.hostStorageFreeBytes() : null;
+    const poolFreeBefore = resource === "disk" ? await pool() : null;
     if (resource === "disk") requireLimit(Number.isSafeInteger(poolFreeBefore)
       && poolFreeBefore! > attempted + 32 * 1024 * 1024,
     "host storage pool has insufficient independent free space for the quota probe");
     requireLoadProof(resource, attempted, limit, await runLimitLoad(handle, resource, attempted, limit, deps));
-    const hostHealthy = await deps.hostHealthy();
-    const neighborHealthy = await deps.neighborHealthy();
+    const hostHealthy = await host();
+    const neighborHealthy = await neighbor();
     requireLimit(hostHealthy && neighborHealthy, `${resource} load affected host or neighbor`);
     if (resource === "disk") {
-      const poolFreeAfter = await deps.hostStorageFreeBytes();
+      const poolFreeAfter = await pool();
       requireLimit(Number.isSafeInteger(poolFreeAfter) && poolFreeAfter > attempted
         && poolFreeBefore! - poolFreeAfter <= 64 * 1024 * 1024,
       "host storage pool did not recover after the quota probe");

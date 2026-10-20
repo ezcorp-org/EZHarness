@@ -18,9 +18,9 @@ import { getReleaseRuntime, ReleaseProcess, resolveActiveRelease,
 import type { IncusSetupRecipe } from "../../scripts/incus/model";
 import { assertIncusQualificationOwner, IncusQualificationOperationUnsettledError, IncusQualificationFixtureService, IncusQualificationStore, type IncusImageReceipt,
   type IncusQualificationScope } from "./incus-qualification";
-import { incusGuestFailureCauseCode, INCUS_WITNESS_GUEST_OPERATIONS, type HostIncusLiveWitness, type LiveFixtureHandle, type LiveFixtureInspection } from "./incus-live-cases";
+import { incusGuestFailureCauseCode, incusPreparationCauseCode, INCUS_WITNESS_GUEST_OPERATIONS, type HostIncusLiveWitness, type LiveFixtureHandle, type LiveFixtureInspection } from "./incus-live-cases";
 import { observeIncusResourceEnforcement, type IncusNetworkTarget } from "./incus-live-resource-probes";
-import { exerciseIncusLimits } from "./incus-live-limit-probe";
+import { exerciseIncusLimits, IncusLimitLoadFailure, incusLimitCheck, incusLimitResource, withIncusLimitCheck } from "./incus-live-limit-probe";
 import { loadIncusMemoryStressAsset } from "./incus-memory-stress-asset";
 import { IncusLiveNetworkProbe } from "./incus-live-network-probe";
 import { HostIncusLiveReadback, type LiveReadbackContext } from "./incus-transport/live-readback";
@@ -939,35 +939,55 @@ export class IncusHostLiveWitness implements HostIncusLiveWitness {
 
   async exerciseLimits(handle: LiveFixtureHandle,
     neighbor: LiveFixtureHandle): ReturnType<HostIncusLiveWitness["exerciseLimits"]> {
+    try { return await this.exerciseLimitChecks(handle, neighbor); }
+    catch (error) {
+      logger.child("incus.witness").warn("Incus qualification limit check failed", {
+        stage: "limit_loads", causeCode: incusPreparationCauseCode(error),
+        limitCheck: error instanceof IncusLimitLoadFailure ? incusLimitCheck(error.check) : null,
+        limitResource: error instanceof IncusLimitLoadFailure ? incusLimitResource(error.resource) : null,
+      });
+      throw error;
+    }
+  }
+
+  private async exerciseLimitChecks(handle: LiveFixtureHandle,
+    neighbor: LiveFixtureHandle): ReturnType<HostIncusLiveWitness["exerciseLimits"]> {
     if (!this.resourceNetwork || handle.sandboxId === neighbor.sandboxId
       || handle.operationId === neighbor.operationId) deny("limit probe needs two distinct running fixtures");
-    const [primary, adjacent] = await Promise.all([this.owned(handle, true), this.owned(neighbor, true)]);
-    if (primary.scope.installationId !== adjacent.scope.installationId
-      || primary.scope.releaseId !== adjacent.scope.releaseId
-      || primary.scope.connectionId !== adjacent.scope.connectionId
-      || primary.scope.presetId !== adjacent.scope.presetId) deny("limit probe fixture scopes differ");
-    const { context } = await this.context(primary.scope, primary.selected.preset);
-    const management = await this.resourceNetwork.managementTarget(context);
-    const healthyInstance = async (fixture: LiveFixtureHandle) => {
+    const [primary, adjacent] = await withIncusLimitCheck("fixture_ownership", null,
+      () => Promise.all([this.owned(handle, true), this.owned(neighbor, true)]));
+    await withIncusLimitCheck("fixture_scope", null, async () => {
+      if (primary.scope.installationId !== adjacent.scope.installationId
+        || primary.scope.releaseId !== adjacent.scope.releaseId
+        || primary.scope.connectionId !== adjacent.scope.connectionId
+        || primary.scope.presetId !== adjacent.scope.presetId) deny("limit probe fixture scopes differ");
+    });
+    const { context } = await withIncusLimitCheck("context", null, () => this.context(primary.scope, primary.selected.preset));
+    const management = await withIncusLimitCheck("management_target", null, () => this.resourceNetwork!.managementTarget(context));
+    const healthyInstance = (fixture: LiveFixtureHandle) => withIncusLimitCheck("neighbor_instance", null, async () => {
       const observed = await this.backend.instance(context, fixture.sandboxId);
       return observed.state === "running" && observed.privateNetwork === true
         && observed.restrictedProject === true && observed.unprivileged === true;
-    };
-    const facts = await this.observeEnforcement(handle, neighbor);
+    });
+    const facts = await withIncusLimitCheck("enforcement", null, () => this.observeEnforcement(handle, neighbor));
     return exerciseIncusLimits(handle, primary.selected.preset, facts, {
       prepareMemoryLoad: fixture => this.stageMemoryLoad(fixture),
       runGuest: (fixture, argv, timeoutMs) => this.run(fixture, argv, timeoutMs),
       neighborHealthy: async () => {
         if (!await healthyInstance(neighbor)) return false;
-        const canary = await this.run(neighbor, ["sh", "-c", "printf %s ezh-neighbor-ok"], 10_000);
-        return canary.exitCode === 0 && canary.stdout === "ezh-neighbor-ok" && canary.stderr === "";
+        return withIncusLimitCheck("neighbor_canary", null, async () => {
+          const canary = await this.run(neighbor, ["sh", "-c", "printf %s ezh-neighbor-ok"], 10_000);
+          return canary.exitCode === 0 && canary.stdout === "ezh-neighbor-ok" && canary.stderr === "";
+        });
       },
       hostHealthy: async () => {
-        if (!await this.resourceNetwork!.hostCanConnect(management)) return false;
-        const readback = await this.backend.image(context);
-        return readback.imageDigest === primary.selected.preset.imageDigest
-          && readback.profile === primary.selected.preset.profile
-          && primary.selected.preset.helperDigests.includes(readback.helperDigest);
+        if (!await withIncusLimitCheck("host_connect", null, () => this.resourceNetwork!.hostCanConnect(management))) return false;
+        return withIncusLimitCheck("host_image", null, async () => {
+          const readback = await this.backend.image(context);
+          return readback.imageDigest === primary.selected.preset.imageDigest
+            && readback.profile === primary.selected.preset.profile
+            && primary.selected.preset.helperDigests.includes(readback.helperDigest);
+        });
       },
       hostStorageFreeBytes: async () => {
         if (!this.backend.poolResources) deny("independent Incus storage-pool readback is unavailable");
