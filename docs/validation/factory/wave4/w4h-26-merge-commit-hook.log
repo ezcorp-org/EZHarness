@@ -1,0 +1,224 @@
+Checked 48 files in 26ms. No fixes applied.
+── Tests (staged) ─────────────────────────────────
+  bun: packages/@ezcorp/factory-sdk/src/guest-materials.test.ts
+bun test v1.4.2 (744846f84)
+
+ 15 pass
+ 0 fail
+ 61 expect() calls
+Ran 15 tests across 1 file. [383.00ms]
+  bun: scripts/check-factory-boundaries.test.ts
+bun test v1.4.2 (744846f84)
+
+ 31 pass
+ 0 fail
+ 39 expect() calls
+Ran 31 tests across 1 file. [1.50s]
+  bun: scripts/factory-fleet-init-local.test.ts
+bun test v1.4.2 (744846f84)
+
+ 5 pass
+ 0 fail
+ 21 expect() calls
+Ran 5 tests across 1 file. [380.00ms]
+  bun: scripts/factory-graph-proof/guest-package.test.ts
+bun test v1.4.2 (744846f84)
+
+ 1 pass
+ 0 fail
+ 9 expect() calls
+Ran 1 test across 1 file. [351.00ms]
+  bun: scripts/podman-guest-job-registration.test.ts
+bun test v1.4.2 (744846f84)
+
+ 9 pass
+ 0 fail
+ 31 expect() calls
+Ran 9 tests across 1 file. [16.36s]
+  bun: src/extensions/extension-lifecycle-service.test.ts
+bun test v1.4.2 (744846f84)
+{"ts":"2026-10-14T05:23:34.175Z","level":"error","msg":"Extension recovery requires attention","subsystem":"ext.author.lifecycle","installationId":"installation","code":"recovery_failed"}
+{"ts":"2026-10-14T05:23:34.175Z","level":"error","msg":"Extension recovery requires attention","subsystem":"ext.author.lifecycle","installationId":"installation","code":"recovery_failed"}
+{"ts":"2026-10-14T05:23:34.175Z","level":"error","msg":"Deferred extension recovery requires attention","subsystem":"ext.author.lifecycle","installationId":"installation","code":"recovery_failed"}
+{"ts":"2026-10-14T05:23:34.176Z","level":"error","msg":"Extension recovery requires attention","subsystem":"ext.author.lifecycle","installationId":"a-blocked","code":"recovery_failed"}
+{"ts":"2026-10-14T05:23:34.176Z","level":"error","msg":"Extension recovery requires attention","subsystem":"ext.author.lifecycle","installationId":"a-recover-fails","code":"recovery_failed"}
+
+ 10 pass
+ 0 fail
+ 21 expect() calls
+Ran 10 tests across 1 file. [356.00ms]
+  bun: src/extensions/__tests__/bundled-bootstrap-v4.test.ts
+bun test v1.4.2 (744846f84)
+{"ts":"2026-10-14T05:23:34.538Z","level":"info","msg":"Bundled source staged; verified releases require human approval","subsystem":"ext.bundled.bootstrap","name":"test","installationId":"fc78bb98-afa2-41b9-a70c-85644c097a18","operationId":"operation","status":"awaiting_approval"}
+{"ts":"2026-10-14T05:23:34.538Z","level":"info","msg":"Bundled source staged; verified releases require human approval","subsystem":"ext.bundled.bootstrap","name":"test","installationId":"fc78bb98-afa2-41b9-a70c-85644c097a18","operationId":"operation","status":"awaiting_approval"}
+{"ts":"2026-10-14T05:23:34.538Z","level":"info","msg":"Bundled source staged; verified releases require human approval","subsystem":"ext.bundled.bootstrap","name":"test","installationId":"legacy","operationId":"operation","status":"awaiting_approval"}
+{"ts":"2026-10-14T05:23:34.538Z","level":"info","msg":"Bundled extensions await an active administrator before source staging","subsystem":"ext.bundled.bootstrap"}
+{"ts":"2026-10-14T05:23:34.538Z","level":"info","msg":"Bundled source staged; verified releases require human approval","subsystem":"ext.bundled.bootstrap","name":"reference-code","installationId":"554747b5-eb28-469d-aeca-92dc715721cd","operationId":"operation","status":"awaiting_approval"}
+{"ts":"2026-10-14T05:23:34.538Z","level":"info","msg":"Bundled source staged; verified releases require human approval","subsystem":"ext.bundled.bootstrap","name":"reference-code","installationId":"554747b5-eb28-469d-aeca-92dc715721cd","operationId":"operation","status":"awaiting_approval"}
+{"ts":"2026-10-14T05:23:34.538Z","level":"info","msg":"Bundled source staged; verified releases require human approval","subsystem":"ext.bundled.bootstrap","name":"reference-code","installationId":"554747b5-eb28-469d-aeca-92dc715721cd","operationId":"operation","status":"awaiting_approval"}
+{"ts":"2026-10-14T05:23:34.538Z","level":"info","msg":"Bundled source staged; verified releases require human approval","subsystem":"ext.bundled.bootstrap","name":"reference-code","installationId":"554747b5-eb28-469d-aeca-92dc715721cd","operationId":"operation","status":"awaiting_approval"}
+{"ts":"2026-10-14T05:23:34.538Z","level":"info","msg":"Bundled extensions await an active administrator before source staging","subsystem":"ext.bundled.bootstrap"}
+{"ts":"2026-10-14T05:23:34.538Z","level":"info","msg":"Bundled source staged; verified releases require human approval","subsystem":"ext.bundled.bootstrap","name":"reference-code","installationId":"554747b5-eb28-469d-aeca-92dc715721cd","operationId":"operation","status":"awaiting_approval"}
+{"ts":"2026-10-14T05:23:34.539Z","level":"info","msg":"Bundled source staged; verified releases require human approval","subsystem":"ext.bundled.bootstrap","name":"reference-code","installationId":"554747b5-eb28-469d-aeca-92dc715721cd","operationId":"operation","status":"awaiting_approval"}
+{"ts":"2026-10-14T05:23:34.539Z","level":"warn","msg":"Bundled installation owner is inactive; manual ownership review required","subsystem":"ext.bundled.bootstrap","name":"reference-code"}
+{"ts":"2026-10-14T05:23:34.539Z","level":"info","msg":"Bundled source staged; verified releases require human approval","subsystem":"ext.bundled.bootstrap","name":"reference-code","installationId":"554747b5-eb28-469d-aeca-92dc715721cd","operationId":"operation","status":"queued"}
+{"ts":"2026-10-14T05:23:34.539Z","level":"error","msg":"Bundled isolated build failed","subsystem":"ext.bundled.bootstrap","name":"reference-code","installationId":"554747b5-eb28-469d-aeca-92dc715721cd","error":"Error: Completed operation must not restart"}
+{"ts":"2026-10-14T05:23:34.540Z","level":"error","msg":"Built-in runner package staging requires attention","subsystem":"ext.bundled.bootstrap","name":"broken","error":"ContractError: Only JSON data is accepted"}
+{"ts":"2026-10-14T05:23:34.540Z","level":"info","msg":"Bundled source staged; verified releases require human approval","subsystem":"ext.bundled.bootstrap","name":"reference-code","installationId":"554747b5-eb28-469d-aeca-92dc715721cd","operationId":"operation","status":"awaiting_approval"}
+
+ 9 pass
+ 0 fail
+ 32 expect() calls
+Ran 9 tests across 1 file. [346.00ms]
+  bun: src/factory/attempt-composition.test.ts
+bun test v1.4.2 (744846f84)
+
+ 14 pass
+ 0 fail
+ 35 expect() calls
+Ran 14 tests across 1 file. [3.58s]
+  bun: src/factory/guest-package-build.test.ts
+bun test v1.4.2 (744846f84)
+
+ 5 pass
+ 0 fail
+ 13 expect() calls
+Ran 5 tests across 1 file. [359.00ms]
+  bun: src/factory/host-preparation-client.integration.test.ts
+bun test v1.4.2 (744846f84)
+
+ 5 pass
+ 0 fail
+ 48 expect() calls
+Ran 5 tests across 1 file. [1244.00ms]
+  bun: src/factory/installation-startup.test.ts
+bun test v1.4.2 (744846f84)
+
+ 57 pass
+ 0 fail
+ 386 expect() calls
+Ran 57 tests across 1 file. [7.07s]
+  bun: src/factory/provisioning/fleet.test.ts
+bun test v1.4.2 (744846f84)
+
+ 14 pass
+ 0 fail
+ 165 expect() calls
+Ran 14 tests across 1 file. [395.00ms]
+  bun: src/factory/reference-code/freeze.test.ts
+bun test v1.4.2 (744846f84)
+
+ 13 pass
+ 0 fail
+ 34 expect() calls
+Ran 13 tests across 1 file. [365.00ms]
+  bun: src/factory/reference-code/guest.test.ts
+bun test v1.4.2 (744846f84)
+
+ 12 pass
+ 0 fail
+ 46 expect() calls
+Ran 12 tests across 1 file. [465.00ms]
+  bun: src/factory/reference-code/runner-install.test.ts
+bun test v1.4.2 (744846f84)
+
+ 4 pass
+ 0 fail
+ 36 expect() calls
+Ran 4 tests across 1 file. [359.00ms]
+  bun: src/factory/reference-code/runner-packages.test.ts
+bun test v1.4.2 (744846f84)
+
+ 10 pass
+ 0 fail
+ 95 expect() calls
+Ran 10 tests across 1 file. [376.00ms]
+  bun: src/factory/reference-code/snapshot.test.ts
+bun test v1.4.2 (744846f84)
+
+ 17 pass
+ 0 fail
+ 43 expect() calls
+Ran 17 tests across 1 file. [364.00ms]
+  bun: src/factory/runner/host-launch-service.test.ts
+bun test v1.4.2 (744846f84)
+
+ 23 pass
+ 0 fail
+ 72 expect() calls
+Ran 23 tests across 1 file. [427.00ms]
+  bun: src/factory/runner/host-launch-supervisor.test.ts
+bun test v1.4.2 (744846f84)
+
+ 21 pass
+ 0 fail
+ 82 expect() calls
+Ran 21 tests across 1 file. [435.00ms]
+  bun: src/factory/runner/supervisor-process.test.ts
+bun test v1.4.2 (744846f84)
+
+ 45 pass
+ 0 fail
+ 208 expect() calls
+Ran 45 tests across 1 file. [3.60s]
+  bun: src/factory/runner/supervisor-services.test.ts
+bun test v1.4.2 (744846f84)
+
+src/factory/runner/supervisor-services.test.ts:
+[factory-host-launch] {"path":"/v1/host/launches","status":401,"error":"unauthorized","detail":"unauthorized"}
+[factory-host-launch] {"path":"/v1/host/unknown","status":401,"error":"unauthorized","detail":"unauthorized"}
+[factory-host-launch] {"path":"/v1/host/launches","status":400,"error":"invalid_intent","detail":"invalid_intent"}
+[factory-host-launch] {"path":"/v1/host/attachments","status":400,"error":"invalid_intent","detail":"invalid_intent"}
+[factory-host-launch] {"path":"/v1/host/results","status":400,"error":"invalid_intent","detail":"invalid_intent"}
+[factory-host-launch] {"path":"/v1/host/unknown","status":404,"error":"not_found","detail":"not_found"}
+[factory-host-launch] {"path":"/v1/host/launches","status":400,"error":"invalid_intent","detail":"invalid_intent"}
+[factory-host-launch] {"path":"/v1/host/launches","status":422,"error":"device_unavailable","detail":"Device /dev/dri/renderD200 granted to worker factory_3dafcfaa6218343276ff42263fe100bab5e2b0475a8d98b9 is not present on host host-services.","attemptId":"attempt-1","workerId":"factory_3dafcfaa6218343276ff42263fe100bab5e2b0475a8d98b9"}
+[factory-host-launch] {"path":"/v1/host/results","status":409,"error":"attempt_uncertain","detail":"This host is not running that attempt.","attemptId":"attempt-1","workerId":"factory_3dafcfaa6218343276ff42263fe100bab5e2b0475a8d98b9"}
+[factory-host-launch] {"path":"/v1/host/launches","status":403,"error":"forbidden_tenant","detail":"forbidden_tenant","attemptId":"attempt-1","workerId":"factory_3dafcfaa6218343276ff42263fe100bab5e2b0475a8d98b9"}
+[factory-host-launch] {"path":"/v1/host/launches","status":409,"error":"worker_stopped","detail":"Worker factory_3dafcfaa6218343276ff42263fe100bab5e2b0475a8d98b9 was stopped on host host-services before it ever ran; it is not started or attached.","attemptId":"attempt-1","workerId":"factory_3dafcfaa6218343276ff42263fe100bab5e2b0475a8d98b9"}
+[factory-host-launch] {"path":"/v1/host/attachments","status":409,"error":"worker_stopped","detail":"Worker factory_3dafcfaa6218343276ff42263fe100bab5e2b0475a8d98b9 was stopped on host host-services before it ever ran; it is not started or attached.","attemptId":"attempt-1","workerId":"factory_3dafcfaa6218343276ff42263fe100bab5e2b0475a8d98b9"}
+[factory-host-launch] {"path":"/v1/host/launches","status":409,"error":"worker_stopped","detail":"Worker factory_3dafcfaa6218343276ff42263fe100bab5e2b0475a8d98b9 was stopped on host host-services before it ever ran; it is not started or attached.","attemptId":"attempt-1","workerId":"factory_3dafcfaa6218343276ff42263fe100bab5e2b0475a8d98b9"}
+
+ 29 pass
+ 0 fail
+ 97 expect() calls
+Ran 29 tests across 1 file. [31.36s]
+  bun: src/factory/runtime-composition.test.ts
+bun test v1.4.2 (744846f84)
+
+ 33 pass
+ 0 fail
+ 114 expect() calls
+Ran 33 tests across 1 file. [638.00ms]
+  bun: src/factory/runtime-workers.test.ts
+bun test v1.4.2 (744846f84)
+
+ 23 pass
+ 0 fail
+ 124 expect() calls
+Ran 23 tests across 1 file. [361.00ms]
+  bun: src/factory/startup-config.test.ts
+bun test v1.4.2 (744846f84)
+
+ 55 pass
+ 0 fail
+ 272 expect() calls
+Ran 55 tests across 1 file. [413.00ms]
+  bun: src/__tests__/extension-lifecycle-service-trusted-local.test.ts
+bun test v1.4.2 (744846f84)
+{"ts":"2026-10-14T05:24:27.758Z","level":"error","msg":"Extension recovery requires attention","subsystem":"ext.author.lifecycle","installationId":"70704a07-c72b-487c-9b23-b01598ccdad2","code":"recovery_failed"}
+{"ts":"2026-10-14T05:24:27.758Z","level":"error","msg":"Extension recovery requires attention","subsystem":"ext.author.lifecycle","installationId":"08c2d86e-d642-4391-81f2-7188e94f8c08","code":"recovery_failed"}
+{"ts":"2026-10-14T05:24:27.758Z","level":"error","msg":"Extension recovery requires attention","subsystem":"ext.author.lifecycle","code":"recovery_failed"}
+
+ 5 pass
+ 0 fail
+ 17 expect() calls
+Ran 5 tests across 1 file. [1062.00ms]
+  bun: src/__tests__/readiness.test.ts
+bun test v1.4.2 (744846f84)
+
+ 8 pass
+ 0 fail
+ 23 expect() calls
+Ran 8 tests across 1 file. [348.00ms]
+[detached HEAD 9bd32cc3b] merge: wp/w4h-26-runner-wiring dd99adfd6 into integ/w00 (the started application registers the reference-code runners and installs the runner packages)

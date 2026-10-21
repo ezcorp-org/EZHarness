@@ -3,7 +3,7 @@ import type { AssistantMessage, Message, Tool, ToolCall } from "@earendil-works/
 import type { FactoryBroker, FactoryOperation } from "../../runtime/factory-execution";
 import { digestObject } from "../../extensions/v4/blobs";
 import { digestBytes } from "../../extensions/v4/digest";
-import { assertFactoryGitPath, FactoryGitObjectError } from "../git-objects";
+import { REFERENCE_CODE_MAX_WRITE_BYTES, referenceCodePathRefusal, referenceCodeRuleLines, referenceCodeWriteFile } from "./candidate-rules";
 import { referenceCodeFilesDigest, type ReferenceCodeFile, type ReferenceCodeSnapshot } from "./snapshot";
 
 /**
@@ -28,7 +28,7 @@ import { referenceCodeFilesDigest, type ReferenceCodeFile, type ReferenceCodeSna
  */
 
 export const REFERENCE_CODE_MAX_AGENT_ITERATIONS = 12;
-export const REFERENCE_CODE_MAX_WRITE_BYTES = 256 * 1024;
+export { REFERENCE_CODE_MAX_WRITE_BYTES };
 
 export type ReferenceCodeGenerationStop = "model-finished" | "iteration-bound" | "model-error";
 
@@ -111,12 +111,7 @@ export function referenceCodeSystemPrompt(input: {
   return [
     "You are the EZCorp reference code factory's generator. You edit one small Bun and TypeScript package to satisfy one request.",
     "",
-    "Rules:",
-    `- You may change files under: ${input.allowedPaths.join(", ")}. Changing anything else will be refused by the protected checks.`,
-    `- These files are protected and must stay byte-identical: ${input.protectedPaths.join(", ")}.`,
-    "- Do not add dependencies. The lockfile is frozen and the checks install with --frozen-lockfile.",
-    "- Do not embed credentials, tokens, or keys of any kind.",
-    `- Your work must satisfy: \`${input.scripts.build}\`, \`${input.scripts.typecheck}\`, and \`${input.scripts.test}\`.`,
+    ...referenceCodeRuleLines(input),
     "- Write complete file contents with write_file. There is no patch tool.",
     "",
     "Read what you need, make the smallest change that satisfies the request, then call finish.",
@@ -173,28 +168,19 @@ function applyToolCall(
   }
 
   const path = args.path;
-  if (typeof path !== "string" || path.length === 0) return refuse("a path is required");
-  try { assertFactoryGitPath(path); }
-  catch (error) {
-    if (error instanceof FactoryGitObjectError) return refuse(`'${path}' is not a path this repository can store`, path);
-    throw error;
-  }
+  const unstorable = referenceCodePathRefusal(path);
+  if (unstorable !== undefined) return refuse(unstorable, typeof path === "string" && path.length > 0 ? path : undefined);
 
   if (name === READ_FILE.name) {
-    const file = files.get(path);
-    if (!file) return refuse(`'${path}' is not in the candidate tree`, path);
-    return { record: { iteration, toolCallId: call.id, name, path, outcome: "ok", detail: `${file.content.byteLength} bytes` }, text: decoder.decode(file.content), finished: false, isError: false };
+    const file = files.get(path as string);
+    if (!file) return refuse(`'${path as string}' is not in the candidate tree`, path as string);
+    return { record: { iteration, toolCallId: call.id, name, path: path as string, outcome: "ok", detail: `${file.content.byteLength} bytes` }, text: decoder.decode(file.content), finished: false, isError: false };
   }
 
   if (name === WRITE_FILE.name) {
-    const content = args.content;
-    if (typeof content !== "string") return refuse("content must be a string", path);
-    const bytes = encoder.encode(content);
-    if (bytes.byteLength > REFERENCE_CODE_MAX_WRITE_BYTES) return refuse(`'${path}' would exceed the ${REFERENCE_CODE_MAX_WRITE_BYTES}-byte write limit`, path);
-    const existing = files.get(path);
-    files.set(path, { path, mode: existing?.mode ?? "100644", content: bytes });
-    const detail = existing === undefined ? `created, ${bytes.byteLength} bytes` : `replaced, ${bytes.byteLength} bytes`;
-    return { record: { iteration, toolCallId: call.id, name, path, outcome: "ok", detail }, text: `Wrote ${path} (${bytes.byteLength} bytes).`, finished: false, isError: false };
+    const written = referenceCodeWriteFile(files, path, args.content);
+    if (!written.ok) return refuse(written.detail, path as string);
+    return { record: { iteration, toolCallId: call.id, name, path: path as string, outcome: "ok", detail: written.detail }, text: `Wrote ${path as string} (${written.bytes} bytes).`, finished: false, isError: false };
   }
 
   return refuse(`'${name}' is not a tool this generator offers`);

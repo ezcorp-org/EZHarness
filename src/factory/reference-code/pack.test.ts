@@ -159,17 +159,16 @@ describe("the contract, as C10 writes it", () => {
     const pinned = referenceCodeRunnerReferences().filter(reference => reference.model !== undefined);
     expect([...new Set(pinned.map(reference => reference.model))]).toEqual(["gpt-6-luna"]);
     expect([...new Set(pinned.map(reference => reference.export))].sort())
-      .toEqual(["generateCandidate", "protectedChecks", "supervisedReview"]);
+      .toEqual(["generateCandidate", "supervisedReview"]);
   });
 
   test("nothing unpinned reaches the model, and the pin's reach is recorded rather than assumed", () => {
     const unpinned = referenceCodeRunnerReferences().filter(reference => reference.model === undefined).map(reference => reference.export);
     expect(unpinned).not.toContain("generateCandidate");
     expect(unpinned).not.toContain("supervisedReview");
-    // `protectedChecks` also carries the pin, although the nine claims it reports run no model.
-    // Filed as an interface question: a model grant a validator never uses is authority it should
-    // not hold. Recorded rather than changed, because `references.ts` is the SDK owner's file.
-    expect([...new Set(unpinned)].sort()).toEqual(["freezeGitTree", "releasePullRequest", "snapshotRepository"]);
+    // `protectedChecks` runs commands and static scans, never a model, so it holds no model pin: a
+    // model grant a validator never uses is authority it should not hold (ruled W4H-28 Q4).
+    expect([...new Set(unpinned)].sort()).toEqual(["freezeGitTree", "protectedChecks", "releasePullRequest", "snapshotRepository"]);
   });
 });
 

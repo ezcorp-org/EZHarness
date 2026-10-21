@@ -1,0 +1,8 @@
+gated-flock w4h-33-commit: start gate mem>=12GiB+3GiB margin 2026-10-16T19:12:24Z
+resource-gate 2026-10-16T19:12:24Z w4h-33-commit outside-lock disk=191G memAvailable=15GiB swapFreeKiB=5053404/17173956 floors disk>=104G mem>=15GiB mem+swap>=18350080KiB (swap component 2621440KiB)
+gated-flock w4h-33-commit: gate green outside the lock, queue for the lock (try 1) 2026-10-16T19:12:24Z
+resource-gate 2026-10-16T19:12:24Z commit-start disk=191G memAvailable=15GiB swapFreeKiB=5053404/17173956 floors disk>=100G mem>=12GiB mem+swap>=14680064KiB (swap component 2097152KiB)
+hook full-run form: EZ_PRECOMMIT_TEST_MAX=154 (the list /tmp/factory-platform-evidence/w00/w4h-merge/w4h-33-test-hygiene-e50aedefd-on-b0b7bedf1/hook-mapped-e50aedefd.txt)
+commit.sh exit=1 2026-10-16T19:14:11Z
+gated-flock w4h-33-commit: bun pin repo=/home/dev/work/EZCorp/EZHarness-worktrees/composable-factory-platform/.worktrees/w00-integration ok bun 1.4.2 /tmp/factory-tools/bun-1.4.2/bun-linux-x64 node v24.14.1 /tmp/factory-tools/node-24.14.1/bin
+gated-flock w4h-33-commit: command exit 1 2026-10-16T19:14:11Z

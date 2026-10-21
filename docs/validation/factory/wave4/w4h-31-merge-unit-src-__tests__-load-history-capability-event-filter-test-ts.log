@@ -1,0 +1,10 @@
+bun test v1.4.2 (744846f84)
+{"ts":"2026-10-16T01:08:59.579Z","level":"info","msg":"skipped: model lacks image input capability","subsystem":"executor.loadHistory.rehydrate","branchLen":4}
+{"ts":"2026-10-16T01:08:59.592Z","level":"info","msg":"skipped: model lacks image input capability","subsystem":"executor.loadHistory.rehydrate","branchLen":3}
+{"ts":"2026-10-16T01:08:59.603Z","level":"info","msg":"skipped: model lacks image input capability","subsystem":"executor.loadHistory.rehydrate","branchLen":3}
+{"ts":"2026-10-16T01:08:59.616Z","level":"info","msg":"skipped: model lacks image input capability","subsystem":"executor.loadHistory.rehydrate","branchLen":4}
+
+ 4 pass
+ 0 fail
+ 19 expect() calls
+Ran 4 tests across 1 file. [976.00ms]

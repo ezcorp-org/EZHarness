@@ -1,17 +1,21 @@
 import { canonicalizeJson, isUnsignedDecimal, jsonEqual, unicodeLength, validateIJson } from "./canonical.js";
 import { validateFactoryApiPayloadDigest } from "./api.js";
 import { validateExpression } from "./expressions.js";
-import { isCompiledExecutionManifest, isCompiledFactory, isCompiledPartitionArtifact, isFactoryApiRequest, isFactoryApiResponse, isFactoryRunnerRequest, isFactoryGuestMaterialRequest, isFactoryGuestMaterialResponse, isFactoryGuestModelRequest, isFactoryGuestModelResponse, isFactoryRunnerResult, isFactoryValidatorClaimReport, isFactoryValidatorReport } from "./schema.js";
+import { isCompiledExecutionManifest, isCompiledFactory, isCompiledPartitionArtifact, isFactoryApiRequest, isFactoryApiResponse, isFactoryRunnerRequest, isFactoryGuestMaterialReadRequest, isFactoryGuestMaterialReadResponse, isFactoryGuestRepositoryReadRequest, isFactoryGuestRepositoryReadResponse, isFactoryGuestMaterialRequest, isFactoryGuestMaterialResponse, isFactoryGuestModelRequest, isFactoryGuestModelResponse, isFactoryRunnerResult, isFactoryValidatorClaimReport, isFactoryValidatorReport } from "./schema.js";
 import {
   FACTORY_LAZY_INPUT_SCHEMA_VERSION,
   FACTORY_GUEST_MATERIAL_BEGIN_SCHEMA_VERSION,
   FACTORY_GUEST_MATERIAL_CHUNK_SCHEMA_VERSION,
   FACTORY_GUEST_MATERIAL_LIMITS,
   FACTORY_GUEST_MATERIAL_OUTPUT_SCHEMA_VERSION,
+  FACTORY_GUEST_MATERIAL_READ_SCHEMA_VERSION,
+  FACTORY_GUEST_REPOSITORY_READ_SCHEMA_VERSION,
   FACTORY_GUEST_MATERIAL_SEAL_SCHEMA_VERSION,
   FACTORY_GUEST_MODEL_LIMITS,
   FACTORY_LIMITS,
   type FactoryGuestMaterialIdentity,
+  type FactoryGuestMaterialReadResponse,
+  type FactoryGuestRepositoryReadResponse,
   type FactoryGuestMaterialRequest,
   type FactoryGuestMaterialResponse,
   type FactoryGuestModelRequest,
@@ -378,13 +382,17 @@ function compareText(left: string, right: string): number {
   return left < right ? -1 : left > right ? 1 : 0;
 }
 
-function validDigest(value: string, prefixed: boolean): boolean {
-  const content = prefixed ? value.startsWith("sha256:") ? value.slice(7) : "" : value;
-  if (content.length !== 64) return false;
-  for (const character of content) {
+/** Exactly `length` lowercase hex characters, checked without a regular expression (the validator's rule). */
+function lowerHex(value: string, length: number): boolean {
+  if (value.length !== length) return false;
+  for (const character of value) {
     if (!((character >= "0" && character <= "9") || (character >= "a" && character <= "f"))) return false;
   }
   return true;
+}
+
+function validDigest(value: string, prefixed: boolean): boolean {
+  return lowerHex(prefixed ? value.startsWith("sha256:") ? value.slice(7) : "" : value, 64);
 }
 
 function safeCounter(value: number, minimum = 0): boolean {
@@ -1118,6 +1126,83 @@ export function validateFactoryGuestMaterialResponse(value: unknown): Validation
   // BARE 64-hex: a COMPLETED runner result's `resultDigest` carries this exact
   // value and `validateFactoryRunnerResult` requires the unprefixed form there.
   return validDigest(response.resultDigest, false) ? { ok: true } : issue("GUEST_MATERIAL_DIGEST", "A promoted output reports its result digest as bare 64-character hex.", ["resultDigest"]);
+}
+
+/** True when a reverse payload names the repository read frame. Routing only, as {@link isFactoryGuestMaterialFrame}. */
+export function isFactoryGuestRepositoryRead(payload: unknown): boolean {
+  return typeof payload === "object" && payload !== null && !Array.isArray(payload)
+    && (payload as { schemaVersion?: unknown }).schemaVersion === FACTORY_GUEST_REPOSITORY_READ_SCHEMA_VERSION;
+}
+
+function validRepositoryOperation(operationId: string, operationIndex: number): ValidationResult {
+  return boundedText(operationId, 1_024) && safeCounter(operationIndex) && operationId.endsWith(`:${operationIndex}`)
+    ? { ok: true }
+    : issue("GUEST_REPOSITORY_OPERATION", "A repository read must name its own journalled operation.", ["operationId"]);
+}
+
+/** One repository read (W4H-28): a declared source's handle and one full commit id, nothing else. */
+export function validateFactoryGuestRepositoryReadRequest(value: unknown): ValidationResult {
+  if (!isFactoryGuestRepositoryReadRequest(value)) return issue("GUEST_REPOSITORY_SCHEMA", "Value does not match the generated FactoryGuestRepositoryRead schema.", []);
+  const operation = validRepositoryOperation(value.operationId, value.operationIndex);
+  if (!operation.ok) return operation;
+  if (!boundedText(value.source, 128)) return issue("GUEST_REPOSITORY_SOURCE", "A repository read names a declared source.", ["source"]);
+  return lowerHex(value.commitSha, 40) ? { ok: true } : issue("GUEST_REPOSITORY_COMMIT", "A repository read names one full 40-hex commit id.", ["commitSha"]);
+}
+
+/** The host's answer: the sealed tree's handle, or a named refusal. */
+export function validateFactoryGuestRepositoryReadResponse(value: unknown): ValidationResult {
+  if (!isFactoryGuestRepositoryReadResponse(value)) return issue("GUEST_REPOSITORY_SCHEMA", "Value does not match the generated FactoryGuestRepositoryReadResponse schema.", []);
+  const response = value as FactoryGuestRepositoryReadResponse;
+  if (!boundedText(response.operationId, 1_024)) return issue("GUEST_REPOSITORY_OPERATION", "A repository answer names its operation.", ["operationId"]);
+  if (response.status === "refused") {
+    return boundedText(response.refusal.message, 4_096) ? { ok: true } : issue("GUEST_REPOSITORY_REFUSAL", "A refusal needs a bounded message.", ["refusal", "message"]);
+  }
+  if (!boundedText(response.material.artifactId, 512)) return issue("GUEST_MATERIAL_READ_ARTIFACT", "A repository answer names the sealed tree's artifact.", ["material", "artifactId"]);
+  return validDigest(response.material.digest, true) ? { ok: true } : issue("GUEST_MATERIAL_DIGEST", "A repository answer names its tree's content digest.", ["material", "digest"]);
+}
+
+/** The most pages one readable whole can have: the staging bound, in one-page steps. */
+const GUEST_MATERIAL_READ_MAX_PAGES = Math.ceil(FACTORY_GUEST_MATERIAL_LIMITS.maxTotalBytes / FACTORY_GUEST_MATERIAL_LIMITS.maxChunkBytes);
+
+/** True when a reverse payload names the material read frame. Routing only, as {@link isFactoryGuestMaterialFrame}. */
+export function isFactoryGuestMaterialRead(payload: unknown): boolean {
+  return typeof payload === "object" && payload !== null && !Array.isArray(payload)
+    && (payload as { schemaVersion?: unknown }).schemaVersion === FACTORY_GUEST_MATERIAL_READ_SCHEMA_VERSION;
+}
+
+function validReadAddress(value: { readonly artifactId: string; readonly digest: string; readonly page: number }): ValidationResult {
+  if (!boundedText(value.artifactId, 512)) return issue("GUEST_MATERIAL_READ_ARTIFACT", "A read names one artifact id.", ["artifactId"]);
+  if (!validDigest(value.digest, true)) return issue("GUEST_MATERIAL_DIGEST", "A read names the `sha256:` digest of the content it expects.", ["digest"]);
+  if (!safeCounter(value.page) || value.page >= GUEST_MATERIAL_READ_MAX_PAGES) return issue("GUEST_MATERIAL_READ_PAGE", `A page index is 0-based and below ${GUEST_MATERIAL_READ_MAX_PAGES}.`, ["page"]);
+  return { ok: true };
+}
+
+/** One read frame (W4H-28). Authority is the host's: the run comes from the verified attempt. */
+export function validateFactoryGuestMaterialReadRequest(value: unknown): ValidationResult {
+  if (!isFactoryGuestMaterialReadRequest(value)) return issue("GUEST_MATERIAL_SCHEMA", "Value does not match the generated FactoryGuestMaterialRead schema.", []);
+  return validReadAddress(value);
+}
+
+/** The host's answer to one read: one bounded page of a bounded whole, or a named refusal. */
+export function validateFactoryGuestMaterialReadResponse(value: unknown): ValidationResult {
+  if (!isFactoryGuestMaterialReadResponse(value)) return issue("GUEST_MATERIAL_SCHEMA", "Value does not match the generated FactoryGuestMaterialReadResponse schema.", []);
+  const response = value as FactoryGuestMaterialReadResponse;
+  const address = validReadAddress(response);
+  if (!address.ok) return address;
+  if (response.status === "refused") {
+    return boundedText(response.refusal.message, 4_096) ? { ok: true } : issue("GUEST_MATERIAL_REFUSAL", "A refusal needs a bounded message.", ["refusal", "message"]);
+  }
+  if (!validMediaType(response.mediaType)) return issue("GUEST_MATERIAL_MEDIA_TYPE", "A page reports the content's media type.", ["mediaType"]);
+  if (!safeCounter(response.totalBytes) || response.totalBytes > FACTORY_GUEST_MATERIAL_LIMITS.maxTotalBytes) {
+    return issue("GUEST_MATERIAL_BYTES", `A readable whole is at most ${FACTORY_GUEST_MATERIAL_LIMITS.maxTotalBytes} bytes.`, ["totalBytes"]);
+  }
+  const pages = Math.max(1, Math.ceil(response.totalBytes / FACTORY_GUEST_MATERIAL_LIMITS.maxChunkBytes));
+  if (response.pageCount !== pages || response.page >= pages) return issue("GUEST_MATERIAL_READ_PAGE", "A page reports the page count its whole needs, and a page inside it.", ["pageCount"]);
+  const start = response.page * FACTORY_GUEST_MATERIAL_LIMITS.maxChunkBytes;
+  if (response.encodedBytes !== Math.min(FACTORY_GUEST_MATERIAL_LIMITS.maxChunkBytes, response.totalBytes - start)) {
+    return issue("GUEST_MATERIAL_CHUNK_BYTES", "A page carries exactly its slice of the whole.", ["encodedBytes"]);
+  }
+  return base64Bytes(response.contentBase64) === response.encodedBytes ? { ok: true } : issue("GUEST_MATERIAL_CHUNK_CONTENT", "A page's base64 content must decode to exactly its declared byte count.", ["contentBase64"]);
 }
 
 export function validateFactoryRunnerResult(value: unknown): ValidationResult {

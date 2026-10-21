@@ -1,0 +1,31 @@
+{
+  "push": "feat/factory-platform-followup-3 created at 486e6a558b38e295ed5f349764e6f3467b90d5af (integ/w00: docs line v9 on the W4H-26 receipts 4ce0e2392, the W4H-26 merge 9bd32cc3b, the W4H-27 merge d4f1c6b0f and their receipts; 55 commits ahead of origin/main 1981febd2) and pushed ONCE from the integ worktree (tc_run lock-free GREEN at 19.1 GiB, lowest 15.4; pre-push hook biome, typecheck incl. the packages, svelte-check 620/0; '[new branch]', exit 0 at 05:52:17Z 2026-10-14; no -u, config unchanged).",
+  "steps": {
+    "1 pre-checks": "pre-checks.log 05:50:53Z by integrator-5/integ-push-prechecks.sh b3f84b281b7ac5f1: integ clean on integ/w00 486e6a558; archy; origin/main 1981febd2 (the expected sha, not moved) an ancestor; branch absent; config cdfec66257fea5b4; disk 116G, MemAvailable 18.2 GiB, SwapFree 7.1 GiB",
+    "2 ff": "not applicable: a new branch",
+    "3 installs": "frozen_installs in the integ worktree exit 0, no changes",
+    "4 push": "push.sh b16eb13c72103e3d via w00/tc-gate.sh 7678da69afb1c809; local = remote = 486e6a558",
+    "5 PR": "PR 341 opened as a DRAFT (base main, the coordinator's title, a one-line body, no labels): MERGEABLE, BLOCKED",
+    "6 hosted": "ci 38518989878 (05:52:31Z - 06:24:32Z) and deps-audit 38518989880 (success); no nightly dispatch"
+  },
+  "result": "59 jobs, attempt 1: 52 success, 4 failure, 3 skipped. A: Factory runner readiness precheck (no online runner has the label 'factory-real'). C: Coverage shard 0, src/factory/guest-sdk-closure.test.ts:127 red in the pooled run and the isolated plain re-run, reproduced on integ/w00 486e6a558 (7 pass, 1 fail): W4H-26's builder consolidation (34d592140) moved the SDK staging of three packagers into src/factory/guest-package-build.ts, which calls factorySdkClosure, and the invariant's throughClosure list kept the three old paths. B: Backend tests (aggregator) and the Per-file coverage gate (coverage producers failed). vs 38418009493: NEW RED 3 (the C and its two cascades), new job 1, same 54; vs 37138524741: fixed 16, still red 4.",
+  "fix": "W4H-29 by the W4H-26 owner: wp/w4h-29-sdk-closure-list 6c15783d9 from 486e6a558, throughClosure = ['src/factory/guest-package-build.ts']; a targeted hold (the test file, Coverage shard 0 as ci.yml runs it, typecheck, gate-integrity main 0, the repository-invariant list), then a second push and hosted run; a second receipts commit follows that run.",
+  "holdGap": "No hold leg ran the invariant test: it reads sources by path and imports none, so neither the hook map, the importers rule nor the guard set selected it. Standing rule from W4H-29 on: w00/invariant-tests.txt (69dbd4fd6c688192, 51 tests) joins every unit.txt through w00/invariant-include.sh (7f80b9a9c12279c5) in w4g-merge/prep.sh (20a023a04789559a).",
+  "checks": {
+    "Gate integrity": "GREEN, 'Gate integrity PASSED: no gate-weakening or test-cheating changes detected.', PR labels 0",
+    "Factory image under shipped isolation": "new job, GREEN, its log has 'REPLAY OK: build-time bundle'",
+    "web shards": "1/2/3 GREEN; checkout+install 46 / 40 / 39 s (1.3 / 1.1 / 1.1x the 35 s median), vitest 208 / 203 / 205 s (1.1 / 1.0 / 1.0x the 198 s median); no WARN line"
+  },
+  "tooling": {
+    "push.sh": "b16eb13c72103e3d",
+    "installs.sh": "4622ba2f9c115afb",
+    "integ-push-prechecks.sh": "b3f84b281b7ac5f1",
+    "w00/wave4i-2/hosted-compare.py": "010f4a93d7110fb2",
+    "integrator-5/log-excerpt.sh": "fd3885337dfd5e35",
+    "integrator-5/poll-ci.sh": "1ecfc487f0b88a0b"
+  },
+  "hostEvents": [
+    "none in the push window (05:50 - 06:25Z 2026-10-14)"
+  ],
+  "receiptsBy": "integrator-5"
+}

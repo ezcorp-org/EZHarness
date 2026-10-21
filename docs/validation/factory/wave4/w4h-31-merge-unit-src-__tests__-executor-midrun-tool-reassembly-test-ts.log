@@ -1,0 +1,28 @@
+bun test v1.4.2 (744846f84)
+{"ts":"2026-10-16T01:03:52.593Z","level":"info","msg":"skipped: model lacks image input capability","subsystem":"executor.loadHistory.rehydrate","branchLen":0}
+{"ts":"2026-10-16T01:03:52.604Z","level":"warn","msg":"run_workflow wire skipped — the conversation row has no owner, so a run could not be authorized","subsystem":"executor.streamChat.setup","conversationId":"7cde21a0-ce0f-4446-a49f-c1c4a0568e17"}
+{"ts":"2026-10-16T01:03:52.607Z","level":"info","msg":"Agent orchestration resolution","subsystem":"executor.streamChat.setup","userMessage":"build me an extension and try it","agents":[],"teams":[],"depth":0}
+{"ts":"2026-10-16T01:03:52.613Z","level":"info","msg":"re-assembled toolset mid-run","subsystem":"executor","runId":"5c58c5bf-e65b-4be6-9469-c4b12e3ca04b","added":["brand-new__do_the_thing"]}
+{"ts":"2026-10-16T01:03:52.619Z","level":"info","msg":"skipped: model lacks image input capability","subsystem":"executor.loadHistory.rehydrate","branchLen":0}
+{"ts":"2026-10-16T01:03:52.623Z","level":"warn","msg":"run_workflow wire skipped — the conversation row has no owner, so a run could not be authorized","subsystem":"executor.streamChat.setup","conversationId":"7cde21a0-ce0f-4446-a49f-c1c4a0568e17"}
+{"ts":"2026-10-16T01:03:52.623Z","level":"info","msg":"Agent orchestration resolution","subsystem":"executor.streamChat.setup","userMessage":"just answer","agents":[],"teams":[],"depth":0}
+{"ts":"2026-10-16T01:03:52.631Z","level":"info","msg":"skipped: model lacks image input capability","subsystem":"executor.loadHistory.rehydrate","branchLen":0}
+{"ts":"2026-10-16T01:03:52.632Z","level":"info","msg":"mode routing binding applied","subsystem":"executor.streamChat.setup","modeId":"b2204788-e8c1-448d-a6ce-4e942d372afd","source":"classifier"}
+{"ts":"2026-10-16T01:03:52.635Z","level":"warn","msg":"run_workflow wire skipped — the conversation row has no owner, so a run could not be authorized","subsystem":"executor.streamChat.setup","conversationId":"7cde21a0-ce0f-4446-a49f-c1c4a0568e17"}
+{"ts":"2026-10-16T01:03:52.636Z","level":"info","msg":"mode-extensions wire","subsystem":"setup-tools.modeExtWire","modeId":"b2204788-e8c1-448d-a6ce-4e942d372afd","modeFound":true,"modeExtIds":["ext-attached"],"modeExtIdCount":1}
+{"ts":"2026-10-16T01:03:52.636Z","level":"info","msg":"mode-extensions resolveExt","subsystem":"setup-tools.modeExtWire","extId":"ext-attached","toolCount":1,"toolNames":["allowed__tool"]}
+{"ts":"2026-10-16T01:03:52.636Z","level":"info","msg":"mode-extensions wired","subsystem":"setup-tools.modeExtWire","finalAgentToolCount":2,"finalAgentToolNames":["allowed__tool","denied__tool"]}
+{"ts":"2026-10-16T01:03:52.636Z","level":"info","msg":"Agent orchestration resolution","subsystem":"executor.streamChat.setup","userMessage":"install and call it","agents":[],"teams":[],"depth":0}
+{"ts":"2026-10-16T01:03:52.643Z","level":"info","msg":"skipped: model lacks image input capability","subsystem":"executor.loadHistory.rehydrate","branchLen":0}
+{"ts":"2026-10-16T01:03:52.646Z","level":"warn","msg":"run_workflow wire skipped — the conversation row has no owner, so a run could not be authorized","subsystem":"executor.streamChat.setup","conversationId":"7cde21a0-ce0f-4446-a49f-c1c4a0568e17"}
+{"ts":"2026-10-16T01:03:52.647Z","level":"info","msg":"Agent orchestration resolution","subsystem":"executor.streamChat.setup","userMessage":"install and call it","agents":[],"teams":[],"depth":0}
+{"ts":"2026-10-16T01:03:52.649Z","level":"warn","msg":"mid-run extension tool refresh failed — tool list unchanged","subsystem":"executor.streamChat.setup","error":"Error: conversation_extensions read failed"}
+{"ts":"2026-10-16T01:03:52.653Z","level":"info","msg":"skipped: model lacks image input capability","subsystem":"executor.loadHistory.rehydrate","branchLen":0}
+{"ts":"2026-10-16T01:03:52.656Z","level":"warn","msg":"run_workflow wire skipped — the conversation row has no owner, so a run could not be authorized","subsystem":"executor.streamChat.setup","conversationId":"7cde21a0-ce0f-4446-a49f-c1c4a0568e17"}
+{"ts":"2026-10-16T01:03:52.656Z","level":"info","msg":"Agent orchestration resolution","subsystem":"executor.streamChat.setup","userMessage":"install and call it","agents":[],"teams":[],"depth":0}
+{"ts":"2026-10-16T01:03:52.659Z","level":"warn","msg":"mid-run toolset re-assembly failed — tool list unchanged","subsystem":"executor","runId":"9933180c-44e4-4c85-97f3-f10318a2760b","error":"TypeError: null is not an object (evaluating 'turnContext.context.tools')"}
+
+ 5 pass
+ 0 fail
+ 12 expect() calls
+Ran 5 tests across 1 file. [1009.00ms]

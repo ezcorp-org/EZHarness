@@ -2,7 +2,7 @@ import { defineExtension, serve } from "@ezcorp/sdk/v4";
 import { FACTORY_VALIDATOR_CLAIMS_SCHEMA_VERSION, type FactoryValidatorClaimReport } from "@ezcorp/factory-sdk/types";
 import { referenceCodeStaticClaims } from "./static-claims";
 import { REFERENCE_CODE_ADVISORY_SNAPSHOT, type ReferenceCodeAdvisorySnapshot } from "./scans";
-import { referenceCodeChangedPaths, sealReferenceCodeSnapshot, type ReferenceCodeFile } from "./snapshot";
+import { referenceCodeChangedPaths, referenceCodeFilesFromWire, sealReferenceCodeSnapshot, type ReferenceCodeWireFile } from "./snapshot";
 
 /**
  * The reference code validator, as it runs inside one isolated guest.
@@ -24,11 +24,7 @@ import { referenceCodeChangedPaths, sealReferenceCodeSnapshot, type ReferenceCod
 export const REFERENCE_CODE_GUEST_SCHEMA_VERSION = "factory.reference-code-guest.v1" as const;
 export const REFERENCE_CODE_GUEST_TOOL = "protectedChecks";
 
-export interface ReferenceCodeGuestFile {
-  readonly path: string;
-  readonly mode: "100644" | "100755";
-  readonly contentBase64: string;
-}
+export type ReferenceCodeGuestFile = ReferenceCodeWireFile;
 
 export interface ReferenceCodeGuestInput {
   readonly schemaVersion: typeof REFERENCE_CODE_GUEST_SCHEMA_VERSION;
@@ -42,9 +38,6 @@ export interface ReferenceCodeGuestInput {
   readonly measuredAtMs: number;
 }
 
-function decode(files: readonly ReferenceCodeGuestFile[]): readonly ReferenceCodeFile[] {
-  return files.map(file => ({ path: file.path, mode: file.mode, content: new Uint8Array(Buffer.from(file.contentBase64, "base64")) }));
-}
 
 /** One strict claim report from one guest payload, with every failure reported as a claim. */
 export function referenceCodeGuestReport(value: unknown): FactoryValidatorClaimReport {
@@ -59,9 +52,9 @@ export function referenceCodeGuestReport(value: unknown): FactoryValidatorClaimR
   const snapshot = sealReferenceCodeSnapshot({
     baseSha: input.baseSha,
     treeSha: input.treeSha,
-    entries: decode(input.snapshotFiles).map(file => ({ path: file.path, mode: file.mode as string, content: file.content })),
+    entries: referenceCodeFilesFromWire(input.snapshotFiles).map(file => ({ path: file.path, mode: file.mode as string, content: file.content })),
   });
-  const files = decode(input.candidateFiles);
+  const files = referenceCodeFilesFromWire(input.candidateFiles);
   const statics = referenceCodeStaticClaims({
     changedPaths: referenceCodeChangedPaths(snapshot.files, files),
     snapshot,

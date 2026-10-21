@@ -1,0 +1,9 @@
+bun test v1.4.2 (744846f84)
+{"ts":"2026-10-16T00:53:18.817Z","level":"error","msg":"Extension recovery requires attention","subsystem":"ext.author.lifecycle","installationId":"dae42cd7-bc1f-4f8d-b7c5-0fa9444e13f2","code":"recovery_failed"}
+{"ts":"2026-10-16T00:53:18.817Z","level":"error","msg":"Extension recovery requires attention","subsystem":"ext.author.lifecycle","installationId":"e29d3352-9998-446e-b31f-303f6b354d2c","code":"recovery_failed"}
+{"ts":"2026-10-16T00:53:18.817Z","level":"error","msg":"Extension recovery requires attention","subsystem":"ext.author.lifecycle","code":"recovery_failed"}
+
+ 5 pass
+ 0 fail
+ 17 expect() calls
+Ran 5 tests across 1 file. [1192.00ms]

@@ -1,0 +1,8 @@
+loads a bundle whose bytes match the build's digest record
+refuses a one-byte change by name
+refuses a bundle whose length differs from the record even when the digest field matches
+refuses a missing bundle or a missing record
+refuses a malformed record
+is what the image build writes, and the production worker start loads it and replays a committed history
+keeps the bundler out of every module the orchestrator process loads
+records audit before effects and replays the saved real-server history

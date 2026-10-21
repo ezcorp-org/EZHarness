@@ -562,9 +562,13 @@ export interface FactoryGuestModelRequest {
  * `provider_auth_failed` (it refused the credential), `provider_rate_limited`
  * (it refused for rate), and `provider_unavailable` (anything else, including
  * every error the host cannot classify; a narrower code is never guessed).
+ * `budget_exceeded` is decided before any claim: the call's bound (its output
+ * bound plus its input at four bytes a token) does not fit what the attempt's
+ * token budget has left.
  */
 export type FactoryGuestModelRefusal =
   | "model_pin_mismatch"
+  | "budget_exceeded"
   | "input_too_large"
   | "operation_busy"
   | "operation_settled"
@@ -755,6 +759,117 @@ export type FactoryGuestMaterialResponse =
   | (FactoryGuestMaterialAnswer & {
     readonly status: "refused";
     readonly refusal: { readonly code: FactoryGuestMaterialRefusal; readonly message: string };
+  });
+
+export const FACTORY_GUEST_REPOSITORY_READ_SCHEMA_VERSION = "factory.guest-repository-read.v1";
+export const FACTORY_GUEST_REPOSITORY_READ_RESPONSE_SCHEMA_VERSION = "factory.guest-repository-read-response.v1";
+/**
+ * The sealed tree a repository read answers with: `{ schemaVersion, commitSha, treeSha,
+ * committedAtSeconds, files: [{ path, mode, contentBase64 }] }`, canonical JSON.
+ */
+export const FACTORY_REPOSITORY_TREE_SCHEMA_VERSION = "factory.repository-tree.v1";
+
+/**
+ * Asks the host plane for one commit of a repository the installation declares (W4H-28).
+ *
+ * A guest never holds a repository credential and has no network. It names a source by the
+ * operator's own handle and one full commit id; the host fetches that commit with its own
+ * credential, reads the complete tree, seals it as a material of this attempt under the named
+ * operation, and answers the handle. The guest reads it with the material read frame.
+ */
+export interface FactoryGuestRepositoryRead {
+  readonly schemaVersion: typeof FACTORY_GUEST_REPOSITORY_READ_SCHEMA_VERSION;
+  /** The journalled operation the sealed tree belongs to. */
+  readonly operationId: string;
+  readonly operationIndex: number;
+  /** The `name` of a source the installation declares. */
+  readonly source: string;
+  /** A full 40-hex commit id; a branch, a tag or a prefix is refused. */
+  readonly commitSha: string;
+}
+
+export type FactoryGuestRepositoryReadRefusal =
+  | "invalid_request"
+  | "repository_source_unknown"
+  | "repository_commit_unknown"
+  | "repository_unavailable"
+  | "repository_too_large"
+  | "deadline_expired"
+  | "unavailable";
+
+export type FactoryGuestRepositoryReadResponse =
+  | {
+    readonly schemaVersion: typeof FACTORY_GUEST_REPOSITORY_READ_RESPONSE_SCHEMA_VERSION;
+    readonly status: "read";
+    readonly operationId: string;
+    /** The sealed tree: its material id and the digest of its content. */
+    readonly material: { readonly artifactId: string; readonly digest: string };
+  }
+  | {
+    readonly schemaVersion: typeof FACTORY_GUEST_REPOSITORY_READ_RESPONSE_SCHEMA_VERSION;
+    readonly status: "refused";
+    readonly operationId: string;
+    readonly refusal: { readonly code: FactoryGuestRepositoryReadRefusal; readonly message: string };
+  };
+
+export const FACTORY_GUEST_MATERIAL_READ_SCHEMA_VERSION = "factory.guest-material-read.v1";
+export const FACTORY_GUEST_MATERIAL_READ_RESPONSE_SCHEMA_VERSION = "factory.guest-material-read-response.v1";
+
+/**
+ * Reads one page of a sealed material or a candidate output of the guest's OWN run (W4H-28).
+ *
+ * A guest on `--network=none` can only learn bytes through its reverse frame, and
+ * an input port carries only a handle: `{ digest, mediaType, storage }` for a
+ * material, or the `{ artifactId, digest, encodedBytes }` reference a validator
+ * is handed. The frame names exactly that: the artifact id and the digest of
+ * the CONTENT the guest expects back. It names no tenant, project or run; the
+ * host reads those from the verified attempt, so a guest cannot address
+ * another run's bytes by asking. Pages are one bounded page each
+ * (`FACTORY_GUEST_MATERIAL_LIMITS.maxChunkBytes`), and a readable whole is at
+ * most `maxTotalBytes`, the same bound staging has.
+ */
+export interface FactoryGuestMaterialRead {
+  readonly schemaVersion: typeof FACTORY_GUEST_MATERIAL_READ_SCHEMA_VERSION;
+  readonly artifactId: string;
+  /** `sha256:` + 64 hex over the content the guest expects. */
+  readonly digest: string;
+  /** 0-based. */
+  readonly page: number;
+}
+
+/**
+ * Why a read was refused. `unknown_material` covers every artifact that is not
+ * a sealed material or candidate output of this run, so a refusal never says
+ * whether an id exists in another scope.
+ */
+export type FactoryGuestMaterialReadRefusal =
+  | "invalid_request"
+  | "unknown_attempt"
+  | "unknown_material"
+  | "deadline_expired"
+  | "digest_mismatch"
+  | "oversize"
+  | "unavailable";
+
+interface FactoryGuestMaterialReadAnswer {
+  readonly schemaVersion: typeof FACTORY_GUEST_MATERIAL_READ_RESPONSE_SCHEMA_VERSION;
+  readonly artifactId: string;
+  readonly digest: string;
+  readonly page: number;
+}
+
+export type FactoryGuestMaterialReadResponse =
+  | (FactoryGuestMaterialReadAnswer & {
+    readonly status: "page";
+    readonly mediaType: string;
+    readonly totalBytes: number;
+    readonly pageCount: number;
+    readonly encodedBytes: number;
+    readonly contentBase64: string;
+  })
+  | (FactoryGuestMaterialReadAnswer & {
+    readonly status: "refused";
+    readonly refusal: { readonly code: FactoryGuestMaterialReadRefusal; readonly message: string };
   });
 
 export interface FactoryMeasuredUsage {

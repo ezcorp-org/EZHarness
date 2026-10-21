@@ -66,7 +66,7 @@ jobs:
       postgres:
         # pgvector on top of the documented PostgreSQL 15 floor — migrate()
         # creates the `vector` extension + HNSW indexes, which need pgvector.
-        image: pgvector/pgvector:pg15
+        image: docker.io/pgvector/pgvector@sha256:9a169499888c9d75ad14d0401be64839d2c325f32e399098261589faff93d65c
         env:
           POSTGRES_USER: postgres
           POSTGRES_PASSWORD: postgres
@@ -251,6 +251,10 @@ jobs:
           ./tests/postgres/factory-key-rotation.test.ts
           ./tests/postgres/factory-pool-checkpoint.test.ts
           ./tests/postgres/factory-wal-backup.test.ts
+          ./tests/postgres/factory-installation-metrics.test.ts
+          ./tests/postgres/factory-metrics-scrape.test.ts
+          ./tests/postgres/factory-notification-sender.test.ts
+          ./tests/postgres/factory-pool-metrics.test.ts
 
       # The coverage gate downloads every lcov-cov-* artifact into ONE folder; a unique name keeps this file (W4H-15).
       - name: Name the LCOV for the merged coverage download
@@ -280,7 +284,7 @@ jobs:
 
     services:
       postgres:
-        image: pgvector/pgvector:pg15
+        image: docker.io/pgvector/pgvector@sha256:9a169499888c9d75ad14d0401be64839d2c325f32e399098261589faff93d65c
         env:
           POSTGRES_USER: postgres
           POSTGRES_PASSWORD: postgres

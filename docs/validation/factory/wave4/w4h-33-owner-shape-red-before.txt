@@ -1,0 +1,6 @@
+removed=docs/OVERVIEW.md exit=0  4 pass 1 todo 0 fail 
+removed=docs/openapi.yaml exit=0  4 pass 1 todo 0 fail 
+removed=src/mcp/tools exit=0  4 pass 1 todo 0 fail 
+removed=ezcorp.config.ts exit=0  4 pass 1 todo 0 fail 
+removed=docs/events.md exit=0  4 pass 1 todo 0 fail 
+removed=src/mcp/tools/chat.ts exit=0  5 pass 0 fail 

@@ -1,4 +1,4 @@
-import { afterAll, beforeAll, beforeEach, describe, expect, test } from "bun:test";
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, spyOn, test } from "bun:test";
 import { closeTestDb, mockDbConnection, setupTestDb } from "../__tests__/helpers/test-pglite";
 
 // The default model check reads the operator's registrations from settings.
@@ -21,10 +21,12 @@ import {
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { KEYLESS_TOKEN, type ProviderCredential } from "./credentials";
+import { KEYLESS_TOKEN, ProviderCredentialUnusableError, ProviderNotConfiguredError, type ProviderCredential } from "./credentials";
 import { oauthSettingKey } from "./credential-store";
 import { encrypt } from "./encryption";
 import { deleteSetting, upsertSetting } from "../db/queries/settings";
+import * as settingsQueries from "../db/queries/settings";
+import { getCredential } from "./credentials";
 
 beforeAll(async () => { await setupTestDb(); });
 afterAll(async () => { await closeTestDb(); });
@@ -300,6 +302,191 @@ describe("the openai pin under a ChatGPT-plan OAuth login (C10 revision, W10c)",
     const answers = await Promise.all([1, 2, 3].map(async () => (await broker.stream(request({ model: model(LUNA.provider, LUNA.model) }))).result()));
     expect(answers.map((a) => (a.content[0] as { text: string }).text)).toEqual([1, 2, 3].map(() => `luna:${OAUTH_TOKEN}`));
     expect(sent.map((s) => [s.model.api, s.options.apiKey])).toEqual([1, 2, 3].map(() => ["openai-codex-responses", OAUTH_TOKEN]));
+  });
+
+  test("a stored login that cannot be used is named as unusable, with its error class, never as not configured (W4H-28)", async () => {
+    // Connected, but expired with no refresh token: the ladder cannot derive a key from it.
+    await upsertSetting(oauthSettingKey(LUNA.provider), encrypt(JSON.stringify({ access: OAUTH_TOKEN, refresh: "", expires: Date.now() - 60_000 })));
+    const readiness = await factoryProviderReadiness(LUNA, { now: () => NOW });
+    expect(readiness).toMatchObject({ ready: false, credentialKind: null, failures: ["provider_credential_unusable"], credentialFailure: { errorClass: "OAuthUnusableError" } });
+    const record = factoryProviderReadinessRecord(readiness);
+    expect(record).toMatchObject({ failures: ["provider_credential_unusable"], credentialFailure: { errorClass: "OAuthUnusableError" } });
+    expect(JSON.stringify(record)).not.toContain(OAUTH_TOKEN);
+    const sent: Array<{ model: Model<Api>; options: { apiKey?: string } }> = [];
+    const broker = createFactoryProviderBroker({ pin: LUNA, stream: capturing(sent) });
+    await expect(broker.stream(request({ model: model(LUNA.provider, LUNA.model) }))).rejects.toThrow(/factory_provider_not_ready: openai\/gpt-6-luna \(provider_credential_unusable\)/);
+    expect(sent).toHaveLength(0);
+  });
+
+  test("a key derivation error carries its class and code into the readiness, and nothing else of it", async () => {
+    const derivation = Object.assign(new Error(`OAuth auth derivation failed for openai-codex: ${OAUTH_TOKEN}`), { name: "ModelsError", code: "oauth" });
+    const unusable = new ProviderCredentialUnusableError("openai", derivation);
+    const readiness = await factoryProviderReadiness(LUNA, { now: () => NOW, resolveCredential: async () => { throw unusable; } });
+    expect(readiness).toMatchObject({ failures: ["provider_credential_unusable"], credentialFailure: { errorClass: "ModelsError", code: "oauth" } });
+    expect(JSON.stringify(factoryProviderReadinessRecord(readiness))).not.toContain(OAUTH_TOKEN);
+    // Only the ladder's typed "nothing configured" refusal is "not configured".
+    const absent = await factoryProviderReadiness(LUNA, { now: () => NOW, resolveCredential: async () => { throw new ProviderNotConfiguredError("openai"); } });
+    expect(absent).toMatchObject({ failures: ["provider_not_configured"] });
+    expect(absent).not.toHaveProperty("credentialFailure");
+    expect(absent).not.toHaveProperty("readinessFailure");
+  });
+
+  test("an error reading the credential is a readiness error with its deepest class and code, never \"not configured\" (W4H-28, C10)", async () => {
+    const refused = Object.assign(new Error("connect ECONNREFUSED postgres://admin:fixture-pw@127.0.0.1:5432"), { name: "PostgresError", code: "ERR_POSTGRES_CONNECTION_REFUSED" });
+    const failed = new Error("Failed query: select value from settings where key = $1", { cause: refused });
+    const readiness = await factoryProviderReadiness(LUNA, { now: () => NOW, resolveCredential: async () => { throw failed; } });
+    expect(readiness).toMatchObject({ ready: false, credentialKind: null, failures: ["provider_readiness_error"], readinessFailure: { errorClass: "PostgresError", code: "ERR_POSTGRES_CONNECTION_REFUSED" } });
+    expect(readiness).not.toHaveProperty("credentialFailure");
+    const record = factoryProviderReadinessRecord(readiness);
+    expect(record).toMatchObject({ failures: ["provider_readiness_error"], readinessFailure: { errorClass: "PostgresError", code: "ERR_POSTGRES_CONNECTION_REFUSED" } });
+    expect(JSON.stringify(record)).not.toContain("fixture-pw");
+    expect(JSON.stringify(record)).not.toContain("Failed query");
+    // A thrown non-Error has a class and no code.
+    const odd = await factoryProviderReadiness(LUNA, { now: () => NOW, resolveCredential: async () => { throw "store down"; } });
+    expect(odd).toMatchObject({ failures: ["provider_readiness_error"], readinessFailure: { errorClass: "string" } });
+    expect(odd.readinessFailure).not.toHaveProperty("code");
+  });
+
+  test("the broker's call-time read names a readiness error the same way, and sends nothing", async () => {
+    let reads = 0;
+    const sent: Array<{ model: Model<Api>; options: { apiKey?: string } }> = [];
+    const broker = createFactoryProviderBroker({
+      pin: LUNA, now: () => NOW, stream: capturing(sent),
+      resolveCredential: async () => { reads += 1; if (reads === 1) return { type: "oauth", token: OAUTH_TOKEN }; throw Object.assign(new Error("Connection closed"), { name: "PostgresError", code: "ERR_POSTGRES_CONNECTION_CLOSED" }); },
+    });
+    const error = await broker.stream(request({ model: model(LUNA.provider, LUNA.model) })).then(() => undefined, (e: unknown) => e);
+    expect(error).toBeInstanceOf(FactoryProviderReadinessError);
+    expect((error as FactoryProviderReadinessError).readiness).toMatchObject({ failures: ["provider_readiness_error"], readinessFailure: { errorClass: "PostgresError", code: "ERR_POSTGRES_CONNECTION_CLOSED" } });
+    expect(sent).toHaveLength(0);
+  });
+
+  describe("the ladder classifies every step (P-F3, C10)", () => {
+    const KEY_PIN: FactoryProviderPin = { provider: "openai", model: "gpt-4.1-mini" };
+    /** A row the current secret cannot decrypt: what a rotated or wrong web secret leaves behind. */
+    const unreadableRow = () => upsertSetting(oauthSettingKey(LUNA.provider), "v1:000000000000000000000000:00000000000000000000000000000000:00");
+    const ACCESS_MODE = "provider:accessMode:openai";
+    afterEach(async () => { await deleteSetting(ACCESS_MODE); });
+    /** The OAuth-row read alone fails, as a database would; every other settings read works. */
+    async function withOAuthRowReadFailing<T>(run: () => Promise<T>): Promise<T> {
+      const real = settingsQueries.getSetting;
+      const spy = spyOn(settingsQueries, "getSetting").mockImplementation(async (key: string) => {
+        if (key === oauthSettingKey(LUNA.provider)) throw new Error("Failed query: select", { cause: Object.assign(new Error("Connection closed"), { name: "PostgresError", code: "ERR_POSTGRES_CONNECTION_CLOSED" }) });
+        return real(key);
+      });
+      try { return await run(); } finally { spy.mockRestore(); }
+    }
+
+    test("P-F3a: an explicit access mode with nothing stored is not configured, by the typed refusal with the same message", async () => {
+      await upsertSetting(ACCESS_MODE, "oauth");
+      const oauth = await getCredential("openai").then(() => undefined, (e: unknown) => e);
+      expect(oauth).toBeInstanceOf(ProviderNotConfiguredError);
+      expect((oauth as Error).message).toBe("No OAuth token for openai");
+      expect(await factoryProviderReadiness(LUNA, { now: () => NOW })).toMatchObject({ failures: ["provider_not_configured"] });
+      await upsertSetting(ACCESS_MODE, "apikey");
+      const key = await getCredential("openai").then(() => undefined, (e: unknown) => e);
+      expect(key).toBeInstanceOf(ProviderNotConfiguredError);
+      expect((key as Error).message).toBe("Missing API key for openai");
+      expect(await factoryProviderReadiness(KEY_PIN, { now: () => NOW, isAvailableModel: () => true })).toMatchObject({ failures: ["provider_not_configured"] });
+    });
+
+    test("P-F3b: a stored OAuth row the secret cannot decrypt is unusable, never not configured", async () => {
+      await unreadableRow();
+      const readiness = await factoryProviderReadiness(LUNA, { now: () => NOW });
+      expect(readiness).toMatchObject({ ready: false, failures: ["provider_credential_unusable"], credentialFailure: { errorClass: "OAuthUnusableError" } });
+      await upsertSetting(oauthSettingKey(LUNA.provider), encrypt("not json"));
+      expect(await factoryProviderReadiness(LUNA, { now: () => NOW })).toMatchObject({ failures: ["provider_credential_unusable"] });
+    });
+
+    test("P-F3b: a database error on the OAuth-row read alone is a readiness error, at readiness, in the record and at the call", async () => {
+      const sent: Array<{ model: Model<Api>; options: { apiKey?: string } }> = [];
+      const broker = createFactoryProviderBroker({ pin: LUNA, stream: capturing(sent) });
+      const { readiness, callError } = await withOAuthRowReadFailing(async () => ({
+        readiness: await factoryProviderReadiness(LUNA, { now: () => NOW }),
+        callError: await broker.stream(request({ model: model(LUNA.provider, LUNA.model) })).then(() => undefined, (e: unknown) => e),
+      }));
+      expect(readiness).toMatchObject({ failures: ["provider_readiness_error"], readinessFailure: { errorClass: "PostgresError", code: "ERR_POSTGRES_CONNECTION_CLOSED" } });
+      expect(factoryProviderReadinessRecord(readiness)).toMatchObject({ failures: ["provider_readiness_error"] });
+      expect(callError).toBeInstanceOf(FactoryProviderReadinessError);
+      expect((callError as Error).message).toMatch(/provider_readiness_error/);
+      expect(sent).toHaveLength(0);
+    });
+
+    test("an unreadable OAuth row with a valid key: ready on the key, with the broken login as one warning", async () => {
+      await unreadableRow();
+      await upsertSetting(API_KEY_SETTING, encrypt(API_KEY));
+      const readiness = await factoryProviderReadiness(KEY_PIN, { now: () => NOW, isAvailableModel: () => true });
+      expect(readiness).toMatchObject({ ready: true, credentialKind: "apikey", failures: [], warnings: [{ code: "provider_credential_unusable", credentialFailure: { errorClass: "OAuthUnusableError" } }] });
+      const record = factoryProviderReadinessRecord(readiness);
+      expect(record).toMatchObject({ warnings: [{ code: "provider_credential_unusable", credentialFailure: { errorClass: "OAuthUnusableError" } }] });
+      expect(JSON.stringify(record)).not.toContain(API_KEY);
+    });
+
+    test("a database error on the OAuth-row read with a valid key refuses at once; the key is not consulted", async () => {
+      await upsertSetting(API_KEY_SETTING, encrypt(API_KEY));
+      const readiness = await withOAuthRowReadFailing(() => factoryProviderReadiness(KEY_PIN, { now: () => NOW, isAvailableModel: () => true }));
+      expect(readiness).toMatchObject({ ready: false, credentialKind: null, failures: ["provider_readiness_error"] });
+    });
+
+    describe("Google discovery and a stored API-key row are broken logins too (C10, S)", () => {
+      const GOOGLE: FactoryProviderPin = { provider: "google", model: "gemini-2.5-flash" };
+      const ENV = ["OPENAI_API_KEY", "GOOGLE_API_KEY"] as const;
+      const savedEnv = Object.fromEntries(ENV.map((name) => [name, process.env[name]]));
+      const realFetch = globalThis.fetch;
+      beforeEach(() => { for (const name of ENV) delete process.env[name]; });
+      afterEach(async () => {
+        for (const name of ENV) { if (savedEnv[name] === undefined) delete process.env[name]; else process.env[name] = savedEnv[name]; }
+        globalThis.fetch = realFetch;
+        await deleteSetting(oauthSettingKey("google"));
+        await deleteSetting("provider:apiKey:google");
+      });
+      /** A Google login with no Cloud project, whose discovery the endpoint refuses. */
+      async function googleLoginDiscoveryFails() {
+        await upsertSetting(oauthSettingKey("google"), encrypt(JSON.stringify({ access: "fixture-google-access", refresh: "fixture-google-refresh", expires: Date.now() + 3_600_000 })));
+        globalThis.fetch = (async () => new Response("denied", { status: 403 })) as unknown as typeof fetch;
+      }
+      const unreadableKey = () => upsertSetting(API_KEY_SETTING, "v1:000000000000000000000000:00000000000000000000000000000000:00");
+
+      test("a failed Google project discovery with no key is unusable, never a readiness error", async () => {
+        await googleLoginDiscoveryFails();
+        expect(await factoryProviderReadiness(GOOGLE, { now: () => NOW, isAvailableModel: () => true }))
+          .toMatchObject({ ready: false, failures: ["provider_credential_unusable"], credentialFailure: { errorClass: "OAuthUnusableError" } });
+      });
+
+      test("a failed Google project discovery with a valid key: ready on the key, with one warning", async () => {
+        await googleLoginDiscoveryFails();
+        await upsertSetting("provider:apiKey:google", encrypt("fixture-google-key"));
+        expect(await factoryProviderReadiness(GOOGLE, { now: () => NOW, isAvailableModel: () => true }))
+          .toMatchObject({ ready: true, credentialKind: "apikey", warnings: [{ code: "provider_credential_unusable", credentialFailure: { errorClass: "OAuthUnusableError" } }] });
+      });
+
+      test("S-2: a stored API key that cannot be decrypted, with no env key, is unusable", async () => {
+        await unreadableKey();
+        expect(await factoryProviderReadiness(KEY_PIN, { now: () => NOW, isAvailableModel: () => true }))
+          .toMatchObject({ ready: false, credentialKind: null, failures: ["provider_credential_unusable"], credentialFailure: { errorClass: "ApiKeyUnusableError" } });
+      });
+
+      test("S-1: the same with an env key: ready on the env key, with the unreadable row as one warning", async () => {
+        await unreadableKey();
+        process.env.OPENAI_API_KEY = "fixture-env-key";
+        const readiness = await factoryProviderReadiness(KEY_PIN, { now: () => NOW, isAvailableModel: () => true });
+        expect(readiness).toMatchObject({ ready: true, credentialKind: "apikey", warnings: [{ code: "provider_credential_unusable", credentialFailure: { errorClass: "ApiKeyUnusableError" } }] });
+        expect(JSON.stringify(factoryProviderReadinessRecord(readiness))).not.toContain("fixture-env-key");
+      });
+
+      test("a broken OAuth row AND an unreadable stored key with an env key: two warnings, one per broken row", async () => {
+        await unreadableRow();
+        await unreadableKey();
+        process.env.OPENAI_API_KEY = "fixture-env-key";
+        expect((await factoryProviderReadiness(KEY_PIN, { now: () => NOW, isAvailableModel: () => true })).warnings?.map((w) => w.credentialFailure.errorClass))
+          .toEqual(["OAuthUnusableError", "ApiKeyUnusableError"]);
+      });
+    });
+
+    test("a login with no usable OAuth key and nothing else configured still reads not configured, and a healthy pin carries no warnings", async () => {
+      expect(await factoryProviderReadiness(LUNA, { now: () => NOW })).toMatchObject({ failures: ["provider_not_configured"] });
+      await signIn();
+      expect(await factoryProviderReadiness(LUNA, { now: () => NOW })).not.toHaveProperty("warnings");
+    });
   });
 
   test("with no stored credential names the missing credential only, because the model is in the catalog", async () => {

@@ -468,7 +468,7 @@ test.describe("Teams API Route Shapes", () => {
 		await mockApi({
 			projects: [proj],
 			routes: {
-				"/api/auth/me": () => ({ user: { id: "admin-1", email: "a@b.com", name: "Admin", role: "admin" } }),
+				"/api/auth/me": () => ({ user: { id: "admin-1", email: "a@b.example", name: "Admin", role: "admin" } }),
 				"/api/users": () => ({ users: [] }),
 				"/api/teams": () => ({ teams }),
 				"/api/auth/invite": () => ({ invites: [] }),
@@ -493,7 +493,7 @@ test.describe("Teams API Route Shapes", () => {
 		await mockApi({
 			projects: [proj],
 			routes: {
-				"/api/auth/me": () => ({ user: { id: "admin-1", email: "a@b.com", name: "Admin", role: "admin" } }),
+				"/api/auth/me": () => ({ user: { id: "admin-1", email: "a@b.example", name: "Admin", role: "admin" } }),
 				"/api/users": () => ({ users: [] }),
 				// Members pattern MUST precede "/api/teams" — matching is
 				// `path.includes(pattern)` in insertion order.
@@ -521,7 +521,7 @@ test.describe("Teams API Route Shapes", () => {
 		await mockApi({
 			projects: [proj],
 			routes: {
-				"/api/auth/me": () => ({ user: { id: "admin-1", email: "a@b.com", name: "Admin", role: "admin" } }),
+				"/api/auth/me": () => ({ user: { id: "admin-1", email: "a@b.example", name: "Admin", role: "admin" } }),
 				"/api/users": () => ({ users: [] }),
 				"/api/auth/invite": () => ({ invites: [] }),
 				"/api/audit-log": () => ({ entries: [] }),

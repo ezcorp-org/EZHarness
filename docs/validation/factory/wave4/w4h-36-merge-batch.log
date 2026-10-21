@@ -1,0 +1,202 @@
+=== heavy 2026-10-16T14:25:24Z
+HEAD 84f1cdb3c4001615b45b0198dfc6d8c4dfc0a395 MERGE_HEAD  index-tree 978ee8e5f5e561c98f891a55d928f47a2d0da8d0
+pin: bun 1.4.2 bunx 1.4.2; BUN_FEATURE_FLAG_DISABLE_SQL_AUTO_PIPELINING=1
+resource-gate 2026-10-16T14:25:24Z hold-start disk=116G memAvailable=17GiB swapFreeKiB=4874388/17173956 floors disk>=100G mem>=6GiB mem+swap>=8388608KiB (swap component 2097152KiB)
+config: 8841afbedf4c59d8 = accepted baseline
+shared config hash at hold start: 8841afbedf4c59d8 (accepted baseline 8841afbedf4c59d8)
+prune scan: exit 0 (prune scan: clean (0 hit(s)))
+resource-gate 2026-10-16T14:25:24Z attestation-check disk=116G memAvailable=17GiB swapFreeKiB=4874412/17173956 floors disk>=100G mem>=6GiB mem+swap>=8388608KiB (swap component 2097152KiB)
+--- START attestation-check 2026-10-16T14:25:24Z
+--- END   attestation-check 2026-10-16T14:25:24Z exit=0 
+guard set: 41 files from guard-suites.sh
+resource-gate 2026-10-16T14:25:25Z guard-set disk=116G memAvailable=17GiB swapFreeKiB=4874460/17173956 floors disk>=100G mem>=6GiB mem+swap>=8388608KiB (swap component 2097152KiB)
+--- START guard-set 2026-10-16T14:25:25Z
+--- END   guard-set 2026-10-16T14:26:38Z exit=0  518 pass 0 fail 
+resource-gate 2026-10-16T14:26:38Z build-factory-sdk disk=116G memAvailable=16GiB swapFreeKiB=5034508/17173956 floors disk>=100G mem>=6GiB mem+swap>=8388608KiB (swap component 2097152KiB)
+--- START build-factory-sdk 2026-10-16T14:26:38Z
+--- END   build-factory-sdk 2026-10-16T14:26:39Z exit=0 
+resource-gate 2026-10-16T14:26:39Z build-factory-transport disk=116G memAvailable=16GiB swapFreeKiB=5038860/17173956 floors disk>=100G mem>=6GiB mem+swap>=8388608KiB (swap component 2097152KiB)
+--- START build-factory-transport 2026-10-16T14:26:39Z
+--- END   build-factory-transport 2026-10-16T14:26:39Z exit=0 
+resource-gate 2026-10-16T14:26:39Z build-factory-orchestrator disk=116G memAvailable=16GiB swapFreeKiB=5041968/17173956 floors disk>=100G mem>=6GiB mem+swap>=8388608KiB (swap component 2097152KiB)
+--- START build-factory-orchestrator 2026-10-16T14:26:39Z
+--- END   build-factory-orchestrator 2026-10-16T14:26:39Z exit=0 
+resource-gate 2026-10-16T14:26:39Z unit-scripts-check-factory-boundaries-test-ts disk=116G memAvailable=16GiB swapFreeKiB=5049808/17173956 floors disk>=100G mem>=6GiB mem+swap>=8388608KiB (swap component 2097152KiB)
+--- START unit-scripts-check-factory-boundaries-test-ts 2026-10-16T14:26:39Z
+--- END   unit-scripts-check-factory-boundaries-test-ts 2026-10-16T14:26:41Z exit=0  31 pass 0 fail 
+resource-gate 2026-10-16T14:26:41Z unit-scripts-check-schema-generate-drift-test-ts disk=116G memAvailable=17GiB swapFreeKiB=5067480/17173956 floors disk>=100G mem>=6GiB mem+swap>=8388608KiB (swap component 2097152KiB)
+--- START unit-scripts-check-schema-generate-drift-test-ts 2026-10-16T14:26:42Z
+--- END   unit-scripts-check-schema-generate-drift-test-ts 2026-10-16T14:26:42Z exit=0  22 pass 0 fail 
+resource-gate 2026-10-16T14:26:42Z unit-scripts-container-workspace-registration-test-ts disk=116G memAvailable=17GiB swapFreeKiB=5067508/17173956 floors disk>=100G mem>=6GiB mem+swap>=8388608KiB (swap component 2097152KiB)
+--- START unit-scripts-container-workspace-registration-test-ts 2026-10-16T14:26:42Z
+--- END   unit-scripts-container-workspace-registration-test-ts 2026-10-16T14:26:43Z exit=0  29 pass 0 fail 
+resource-gate 2026-10-16T14:26:43Z unit-scripts-factory-attempt-queue-registration-test-ts disk=116G memAvailable=17GiB swapFreeKiB=5067520/17173956 floors disk>=100G mem>=6GiB mem+swap>=8388608KiB (swap component 2097152KiB)
+--- START unit-scripts-factory-attempt-queue-registration-test-ts 2026-10-16T14:26:43Z
+--- END   unit-scripts-factory-attempt-queue-registration-test-ts 2026-10-16T14:26:43Z exit=0  2 pass 0 fail 
+resource-gate 2026-10-16T14:26:43Z unit-scripts-factory-c13-inventory-test-ts disk=116G memAvailable=17GiB swapFreeKiB=5067552/17173956 floors disk>=100G mem>=6GiB mem+swap>=8388608KiB (swap component 2097152KiB)
+--- START unit-scripts-factory-c13-inventory-test-ts 2026-10-16T14:26:43Z
+--- END   unit-scripts-factory-c13-inventory-test-ts 2026-10-16T14:26:44Z exit=0  13 pass 0 fail 
+resource-gate 2026-10-16T14:26:44Z unit-scripts-factory-compute-admissions-registration-test-ts disk=116G memAvailable=17GiB swapFreeKiB=5068044/17173956 floors disk>=100G mem>=6GiB mem+swap>=8388608KiB (swap component 2097152KiB)
+--- START unit-scripts-factory-compute-admissions-registration-test-ts 2026-10-16T14:26:44Z
+--- END   unit-scripts-factory-compute-admissions-registration-test-ts 2026-10-16T14:26:45Z exit=0  2 pass 0 fail 
+resource-gate 2026-10-16T14:26:45Z unit-scripts-factory-execution-admission-registration-test-ts disk=116G memAvailable=17GiB swapFreeKiB=5068044/17173956 floors disk>=100G mem>=6GiB mem+swap>=8388608KiB (swap component 2097152KiB)
+--- START unit-scripts-factory-execution-admission-registration-test-ts 2026-10-16T14:26:45Z
+--- END   unit-scripts-factory-execution-admission-registration-test-ts 2026-10-16T14:26:45Z exit=0  2 pass 0 fail 
+resource-gate 2026-10-16T14:26:45Z unit-scripts-factory-graph-proof-harness-hygiene-test-ts disk=116G memAvailable=16GiB swapFreeKiB=5110736/17173956 floors disk>=100G mem>=6GiB mem+swap>=8388608KiB (swap component 2097152KiB)
+--- START unit-scripts-factory-graph-proof-harness-hygiene-test-ts 2026-10-16T14:26:45Z
+--- END   unit-scripts-factory-graph-proof-harness-hygiene-test-ts 2026-10-16T14:26:46Z exit=0  2 pass 0 fail 
+resource-gate 2026-10-16T14:26:46Z unit-scripts-factory-image-shipped-isolation-registration-test-ts disk=116G memAvailable=17GiB swapFreeKiB=5110904/17173956 floors disk>=100G mem>=6GiB mem+swap>=8388608KiB (swap component 2097152KiB)
+--- START unit-scripts-factory-image-shipped-isolation-registration-test-ts 2026-10-16T14:26:46Z
+--- END   unit-scripts-factory-image-shipped-isolation-registration-test-ts 2026-10-16T14:26:46Z exit=0  2 pass 0 fail 
+resource-gate 2026-10-16T14:26:46Z unit-scripts-factory-orchestrator-registration-test-ts disk=116G memAvailable=17GiB swapFreeKiB=5111080/17173956 floors disk>=100G mem>=6GiB mem+swap>=8388608KiB (swap component 2097152KiB)
+--- START unit-scripts-factory-orchestrator-registration-test-ts 2026-10-16T14:26:46Z
+--- END   unit-scripts-factory-orchestrator-registration-test-ts 2026-10-16T14:26:47Z exit=0  7 pass 0 fail 
+resource-gate 2026-10-16T14:26:47Z unit-scripts-factory-postgres-suite-registration-test-ts disk=116G memAvailable=17GiB swapFreeKiB=5113976/17173956 floors disk>=100G mem>=6GiB mem+swap>=8388608KiB (swap component 2097152KiB)
+--- START unit-scripts-factory-postgres-suite-registration-test-ts 2026-10-16T14:26:47Z
+--- END   unit-scripts-factory-postgres-suite-registration-test-ts 2026-10-16T14:26:48Z exit=0  6 pass 0 fail 
+resource-gate 2026-10-16T14:26:48Z unit-scripts-factory-private-root-registration-test-ts disk=116G memAvailable=17GiB swapFreeKiB=5114328/17173956 floors disk>=100G mem>=6GiB mem+swap>=8388608KiB (swap component 2097152KiB)
+--- START unit-scripts-factory-private-root-registration-test-ts 2026-10-16T14:26:48Z
+--- END   unit-scripts-factory-private-root-registration-test-ts 2026-10-16T14:26:48Z exit=0  2 pass 0 fail 
+resource-gate 2026-10-16T14:26:48Z unit-scripts-factory-protected-command-effects-registration-test-ts disk=116G memAvailable=16GiB swapFreeKiB=5114416/17173956 floors disk>=100G mem>=6GiB mem+swap>=8388608KiB (swap component 2097152KiB)
+--- START unit-scripts-factory-protected-command-effects-registration-test-ts 2026-10-16T14:26:48Z
+--- END   unit-scripts-factory-protected-command-effects-registration-test-ts 2026-10-16T14:26:49Z exit=0  2 pass 0 fail 
+resource-gate 2026-10-16T14:26:49Z unit-scripts-factory-provisioning-registration-test-ts disk=116G memAvailable=17GiB swapFreeKiB=5114704/17173956 floors disk>=100G mem>=6GiB mem+swap>=8388608KiB (swap component 2097152KiB)
+--- START unit-scripts-factory-provisioning-registration-test-ts 2026-10-16T14:26:49Z
+--- END   unit-scripts-factory-provisioning-registration-test-ts 2026-10-16T14:26:49Z exit=0  2 pass 0 fail 
+resource-gate 2026-10-16T14:26:49Z unit-scripts-factory-storage-action-registration-test-ts disk=116G memAvailable=17GiB swapFreeKiB=5114724/17173956 floors disk>=100G mem>=6GiB mem+swap>=8388608KiB (swap component 2097152KiB)
+--- START unit-scripts-factory-storage-action-registration-test-ts 2026-10-16T14:26:49Z
+--- END   unit-scripts-factory-storage-action-registration-test-ts 2026-10-16T14:26:50Z exit=0  4 pass 0 fail 
+resource-gate 2026-10-16T14:26:50Z unit-scripts-factory-task-execution-admission-registration-test-ts disk=116G memAvailable=17GiB swapFreeKiB=5114872/17173956 floors disk>=100G mem>=6GiB mem+swap>=8388608KiB (swap component 2097152KiB)
+--- START unit-scripts-factory-task-execution-admission-registration-test-ts 2026-10-16T14:26:50Z
+--- END   unit-scripts-factory-task-execution-admission-registration-test-ts 2026-10-16T14:26:50Z exit=0  2 pass 0 fail 
+resource-gate 2026-10-16T14:26:50Z unit-scripts-factory-validator-materials-registration-test-ts disk=116G memAvailable=17GiB swapFreeKiB=5114908/17173956 floors disk>=100G mem>=6GiB mem+swap>=8388608KiB (swap component 2097152KiB)
+--- START unit-scripts-factory-validator-materials-registration-test-ts 2026-10-16T14:26:50Z
+--- END   unit-scripts-factory-validator-materials-registration-test-ts 2026-10-16T14:26:51Z exit=0  2 pass 0 fail 
+resource-gate 2026-10-16T14:26:51Z unit-scripts-gate-integrity-deps-registration-test-ts disk=116G memAvailable=17GiB swapFreeKiB=5114936/17173956 floors disk>=100G mem>=6GiB mem+swap>=8388608KiB (swap component 2097152KiB)
+--- START unit-scripts-gate-integrity-deps-registration-test-ts 2026-10-16T14:26:51Z
+--- END   unit-scripts-gate-integrity-deps-registration-test-ts 2026-10-16T14:26:51Z exit=0  3 pass 0 fail 
+resource-gate 2026-10-16T14:26:51Z unit-scripts-lcov-artifact-names-registration-test-ts disk=116G memAvailable=16GiB swapFreeKiB=5115056/17173956 floors disk>=100G mem>=6GiB mem+swap>=8388608KiB (swap component 2097152KiB)
+--- START unit-scripts-lcov-artifact-names-registration-test-ts 2026-10-16T14:26:51Z
+--- END   unit-scripts-lcov-artifact-names-registration-test-ts 2026-10-16T14:26:52Z exit=0  4 pass 0 fail 
+resource-gate 2026-10-16T14:26:52Z unit-scripts-lib-ci-registration-test-ts disk=116G memAvailable=16GiB swapFreeKiB=5115068/17173956 floors disk>=100G mem>=6GiB mem+swap>=8388608KiB (swap component 2097152KiB)
+--- START unit-scripts-lib-ci-registration-test-ts 2026-10-16T14:26:52Z
+--- END   unit-scripts-lib-ci-registration-test-ts 2026-10-16T14:26:52Z exit=0  16 pass 0 fail 
+resource-gate 2026-10-16T14:26:52Z unit-scripts-podman-guest-job-registration-test-ts disk=116G memAvailable=17GiB swapFreeKiB=5115068/17173956 floors disk>=100G mem>=6GiB mem+swap>=8388608KiB (swap component 2097152KiB)
+--- START unit-scripts-podman-guest-job-registration-test-ts 2026-10-16T14:26:52Z
+--- END   unit-scripts-podman-guest-job-registration-test-ts 2026-10-16T14:27:09Z exit=0  9 pass 0 fail 
+resource-gate 2026-10-16T14:27:09Z unit-scripts-python-quality-registration-test-ts disk=116G memAvailable=16GiB swapFreeKiB=5308168/17173956 floors disk>=100G mem>=6GiB mem+swap>=8388608KiB (swap component 2097152KiB)
+--- START unit-scripts-python-quality-registration-test-ts 2026-10-16T14:27:09Z
+--- END   unit-scripts-python-quality-registration-test-ts 2026-10-16T14:27:09Z exit=0  9 pass 0 fail 
+resource-gate 2026-10-16T14:27:09Z unit-scripts-uv-toolchain-registration-test-ts disk=116G memAvailable=16GiB swapFreeKiB=5310360/17173956 floors disk>=100G mem>=6GiB mem+swap>=8388608KiB (swap component 2097152KiB)
+--- START unit-scripts-uv-toolchain-registration-test-ts 2026-10-16T14:27:09Z
+--- END   unit-scripts-uv-toolchain-registration-test-ts 2026-10-16T14:27:10Z exit=0  4 pass 0 fail 
+resource-gate 2026-10-16T14:27:10Z unit-scripts-web-shard-timeout-registration-test-ts disk=116G memAvailable=16GiB swapFreeKiB=5310740/17173956 floors disk>=100G mem>=6GiB mem+swap>=8388608KiB (swap component 2097152KiB)
+--- START unit-scripts-web-shard-timeout-registration-test-ts 2026-10-16T14:27:10Z
+--- END   unit-scripts-web-shard-timeout-registration-test-ts 2026-10-16T14:27:11Z exit=0  6 pass 0 fail 
+resource-gate 2026-10-16T14:27:11Z unit-src-db-bun-sql-pipelining-test-ts disk=116G memAvailable=16GiB swapFreeKiB=5310768/17173956 floors disk>=100G mem>=6GiB mem+swap>=8388608KiB (swap component 2097152KiB)
+--- START unit-src-db-bun-sql-pipelining-test-ts 2026-10-16T14:27:11Z
+--- END   unit-src-db-bun-sql-pipelining-test-ts 2026-10-16T14:27:12Z exit=0  13 pass 0 fail 
+resource-gate 2026-10-16T14:27:12Z unit-src-extensions-__tests__-extension-db-isolation-test-ts disk=116G memAvailable=16GiB swapFreeKiB=5311324/17173956 floors disk>=100G mem>=6GiB mem+swap>=8388608KiB (swap component 2097152KiB)
+--- START unit-src-extensions-__tests__-extension-db-isolation-test-ts 2026-10-16T14:27:12Z
+--- END   unit-src-extensions-__tests__-extension-db-isolation-test-ts 2026-10-16T14:27:13Z exit=0  7 pass 0 fail 
+resource-gate 2026-10-16T14:27:13Z unit-src-factory-guest-sdk-closure-test-ts disk=116G memAvailable=16GiB swapFreeKiB=5311328/17173956 floors disk>=100G mem>=6GiB mem+swap>=8388608KiB (swap component 2097152KiB)
+--- START unit-src-factory-guest-sdk-closure-test-ts 2026-10-16T14:27:13Z
+--- END   unit-src-factory-guest-sdk-closure-test-ts 2026-10-16T14:27:13Z exit=0  8 pass 0 fail 
+resource-gate 2026-10-16T14:27:13Z unit-src-__tests__-bundled-source-registration-test-ts disk=116G memAvailable=16GiB swapFreeKiB=5311620/17173956 floors disk>=100G mem>=6GiB mem+swap>=8388608KiB (swap component 2097152KiB)
+--- START unit-src-__tests__-bundled-source-registration-test-ts 2026-10-16T14:27:13Z
+--- END   unit-src-__tests__-bundled-source-registration-test-ts 2026-10-16T14:27:14Z exit=0  30 pass 0 fail 
+resource-gate 2026-10-16T14:27:14Z unit-src-__tests__-combined-runner-legs-test-ts disk=116G memAvailable=16GiB swapFreeKiB=5311636/17173956 floors disk>=100G mem>=6GiB mem+swap>=8388608KiB (swap component 2097152KiB)
+--- START unit-src-__tests__-combined-runner-legs-test-ts 2026-10-16T14:27:14Z
+--- END   unit-src-__tests__-combined-runner-legs-test-ts 2026-10-16T14:27:15Z exit=0  8 pass 0 fail 
+resource-gate 2026-10-16T14:27:15Z unit-src-__tests__-compose-podman-masks-test-ts disk=116G memAvailable=16GiB swapFreeKiB=5312328/17173956 floors disk>=100G mem>=6GiB mem+swap>=8388608KiB (swap component 2097152KiB)
+--- START unit-src-__tests__-compose-podman-masks-test-ts 2026-10-16T14:27:15Z
+--- END   unit-src-__tests__-compose-podman-masks-test-ts 2026-10-16T14:27:16Z exit=0  13 pass 0 fail 
+resource-gate 2026-10-16T14:27:16Z unit-src-__tests__-coverage-leg-lcov-guard-test-ts disk=116G memAvailable=16GiB swapFreeKiB=5312744/17173956 floors disk>=100G mem>=6GiB mem+swap>=8388608KiB (swap component 2097152KiB)
+--- START unit-src-__tests__-coverage-leg-lcov-guard-test-ts 2026-10-16T14:27:16Z
+--- END   unit-src-__tests__-coverage-leg-lcov-guard-test-ts 2026-10-16T14:27:17Z exit=0  48 pass 0 fail 
+resource-gate 2026-10-16T14:27:17Z unit-src-__tests__-dependency-denylist-test-ts disk=116G memAvailable=16GiB swapFreeKiB=5312792/17173956 floors disk>=100G mem>=6GiB mem+swap>=8388608KiB (swap component 2097152KiB)
+--- START unit-src-__tests__-dependency-denylist-test-ts 2026-10-16T14:27:17Z
+--- END   unit-src-__tests__-dependency-denylist-test-ts 2026-10-16T14:27:17Z exit=0  10 pass 0 fail 
+resource-gate 2026-10-16T14:27:17Z unit-src-__tests__-e2e-lanes-test-ts disk=116G memAvailable=16GiB swapFreeKiB=5313088/17173956 floors disk>=100G mem>=6GiB mem+swap>=8388608KiB (swap component 2097152KiB)
+--- START unit-src-__tests__-e2e-lanes-test-ts 2026-10-16T14:27:17Z
+--- END   unit-src-__tests__-e2e-lanes-test-ts 2026-10-16T14:27:23Z exit=0  32 pass 0 fail 
+resource-gate 2026-10-16T14:27:23Z unit-src-__tests__-extension-dependency-audit-test-ts disk=116G memAvailable=16GiB swapFreeKiB=5314120/17173956 floors disk>=100G mem>=6GiB mem+swap>=8388608KiB (swap component 2097152KiB)
+--- START unit-src-__tests__-extension-dependency-audit-test-ts 2026-10-16T14:27:23Z
+--- END   unit-src-__tests__-extension-dependency-audit-test-ts 2026-10-16T14:27:23Z exit=0  2 pass 0 fail 
+resource-gate 2026-10-16T14:27:23Z unit-src-__tests__-factory-ci-registration-test-ts disk=116G memAvailable=16GiB swapFreeKiB=5314340/17173956 floors disk>=100G mem>=6GiB mem+swap>=8388608KiB (swap component 2097152KiB)
+--- START unit-src-__tests__-factory-ci-registration-test-ts 2026-10-16T14:27:23Z
+--- END   unit-src-__tests__-factory-ci-registration-test-ts 2026-10-16T14:27:24Z exit=0  3 pass 0 fail 
+resource-gate 2026-10-16T14:27:24Z unit-src-__tests__-factory-process-boundaries-test-ts disk=116G memAvailable=16GiB swapFreeKiB=5314648/17173956 floors disk>=100G mem>=6GiB mem+swap>=8388608KiB (swap component 2097152KiB)
+--- START unit-src-__tests__-factory-process-boundaries-test-ts 2026-10-16T14:27:24Z
+--- END   unit-src-__tests__-factory-process-boundaries-test-ts 2026-10-16T14:27:29Z exit=0  17 pass 0 fail 
+resource-gate 2026-10-16T14:27:29Z unit-src-__tests__-get-credential-boundary-test-ts disk=116G memAvailable=16GiB swapFreeKiB=5315188/17173956 floors disk>=100G mem>=6GiB mem+swap>=8388608KiB (swap component 2097152KiB)
+--- START unit-src-__tests__-get-credential-boundary-test-ts 2026-10-16T14:27:29Z
+--- END   unit-src-__tests__-get-credential-boundary-test-ts 2026-10-16T14:27:29Z exit=0  2 pass 0 fail 
+resource-gate 2026-10-16T14:27:30Z unit-src-__tests__-git-spawn-context-guard-test-ts disk=116G memAvailable=16GiB swapFreeKiB=5315256/17173956 floors disk>=100G mem>=6GiB mem+swap>=8388608KiB (swap component 2097152KiB)
+--- START unit-src-__tests__-git-spawn-context-guard-test-ts 2026-10-16T14:27:30Z
+--- END   unit-src-__tests__-git-spawn-context-guard-test-ts 2026-10-16T14:27:30Z exit=0  19 pass 0 fail 
+resource-gate 2026-10-16T14:27:30Z unit-src-__tests__-keyless-auth-header-test-ts disk=116G memAvailable=16GiB swapFreeKiB=5315320/17173956 floors disk>=100G mem>=6GiB mem+swap>=8388608KiB (swap component 2097152KiB)
+--- START unit-src-__tests__-keyless-auth-header-test-ts 2026-10-16T14:27:30Z
+--- END   unit-src-__tests__-keyless-auth-header-test-ts 2026-10-16T14:27:31Z exit=0  10 pass 0 fail 
+resource-gate 2026-10-16T14:27:31Z unit-src-__tests__-mock-cleanup-coverage-test-ts disk=116G memAvailable=16GiB swapFreeKiB=5315336/17173956 floors disk>=100G mem>=6GiB mem+swap>=8388608KiB (swap component 2097152KiB)
+--- START unit-src-__tests__-mock-cleanup-coverage-test-ts 2026-10-16T14:27:31Z
+--- END   unit-src-__tests__-mock-cleanup-coverage-test-ts 2026-10-16T14:27:32Z exit=0  44 pass 0 fail 
+resource-gate 2026-10-16T14:27:32Z unit-src-__tests__-phase50-verification-suite-test-ts disk=116G memAvailable=16GiB swapFreeKiB=5315696/17173956 floors disk>=100G mem>=6GiB mem+swap>=8388608KiB (swap component 2097152KiB)
+--- START unit-src-__tests__-phase50-verification-suite-test-ts 2026-10-16T14:27:32Z
+--- END   unit-src-__tests__-phase50-verification-suite-test-ts 2026-10-16T14:27:33Z exit=0  9 pass 0 fail 
+resource-gate 2026-10-16T14:27:33Z unit-src-__tests__-policy-run-start-surface-test-ts disk=116G memAvailable=16GiB swapFreeKiB=5315984/17173956 floors disk>=100G mem>=6GiB mem+swap>=8388608KiB (swap component 2097152KiB)
+--- START unit-src-__tests__-policy-run-start-surface-test-ts 2026-10-16T14:27:33Z
+--- END   unit-src-__tests__-policy-run-start-surface-test-ts 2026-10-16T14:27:34Z exit=0  10 pass 0 fail 
+resource-gate 2026-10-16T14:27:34Z unit-src-__tests__-policy-spawn-deny-surface-test-ts disk=116G memAvailable=16GiB swapFreeKiB=5316000/17173956 floors disk>=100G mem>=6GiB mem+swap>=8388608KiB (swap component 2097152KiB)
+--- START unit-src-__tests__-policy-spawn-deny-surface-test-ts 2026-10-16T14:27:34Z
+--- END   unit-src-__tests__-policy-spawn-deny-surface-test-ts 2026-10-16T14:27:34Z exit=0  7 pass 0 fail 
+resource-gate 2026-10-16T14:27:34Z unit-src-__tests__-scope-enforcement-test-ts disk=116G memAvailable=16GiB swapFreeKiB=5316000/17173956 floors disk>=100G mem>=6GiB mem+swap>=8388608KiB (swap component 2097152KiB)
+--- START unit-src-__tests__-scope-enforcement-test-ts 2026-10-16T14:27:34Z
+--- END   unit-src-__tests__-scope-enforcement-test-ts 2026-10-16T14:27:35Z exit=0  8 pass 0 fail 
+resource-gate 2026-10-16T14:27:35Z unit-src-__tests__-session-scope-surface-test-ts disk=116G memAvailable=16GiB swapFreeKiB=5316000/17173956 floors disk>=100G mem>=6GiB mem+swap>=8388608KiB (swap component 2097152KiB)
+--- START unit-src-__tests__-session-scope-surface-test-ts 2026-10-16T14:27:35Z
+--- END   unit-src-__tests__-session-scope-surface-test-ts 2026-10-16T14:27:35Z exit=0  13 pass 0 fail 
+resource-gate 2026-10-16T14:27:35Z unit-src-__tests__-ts-manifest-e2e-test-ts disk=116G memAvailable=16GiB swapFreeKiB=5316000/17173956 floors disk>=100G mem>=6GiB mem+swap>=8388608KiB (swap component 2097152KiB)
+--- START unit-src-__tests__-ts-manifest-e2e-test-ts 2026-10-16T14:27:35Z
+--- END   unit-src-__tests__-ts-manifest-e2e-test-ts 2026-10-16T14:27:37Z exit=0  19 pass 0 fail 
+resource-gate 2026-10-16T14:27:37Z unit-src-__tests__-visual-evidence-covers-test-ts disk=116G memAvailable=16GiB swapFreeKiB=5323176/17173956 floors disk>=100G mem>=6GiB mem+swap>=8388608KiB (swap component 2097152KiB)
+--- START unit-src-__tests__-visual-evidence-covers-test-ts 2026-10-16T14:27:37Z
+--- END   unit-src-__tests__-visual-evidence-covers-test-ts 2026-10-16T14:27:38Z exit=0  7 pass 0 fail 
+resource-gate 2026-10-16T14:27:38Z unit-src-__tests__-web-vitest-coverage-guard-test-ts disk=116G memAvailable=16GiB swapFreeKiB=5323188/17173956 floors disk>=100G mem>=6GiB mem+swap>=8388608KiB (swap component 2097152KiB)
+--- START unit-src-__tests__-web-vitest-coverage-guard-test-ts 2026-10-16T14:27:38Z
+--- END   unit-src-__tests__-web-vitest-coverage-guard-test-ts 2026-10-16T14:27:41Z exit=0  9 pass 0 fail 
+resource-gate 2026-10-16T14:27:41Z unit-src-__tests__-workflow-approval-chokepoint-test-ts disk=116G memAvailable=16GiB swapFreeKiB=5325920/17173956 floors disk>=100G mem>=6GiB mem+swap>=8388608KiB (swap component 2097152KiB)
+--- START unit-src-__tests__-workflow-approval-chokepoint-test-ts 2026-10-16T14:27:41Z
+--- END   unit-src-__tests__-workflow-approval-chokepoint-test-ts 2026-10-16T14:27:43Z exit=0  10 pass 0 fail 
+resource-gate 2026-10-16T14:27:43Z unit-src-__tests__-workflow-step-output-test-ts disk=116G memAvailable=15GiB swapFreeKiB=5329788/17173956 floors disk>=100G mem>=6GiB mem+swap>=8388608KiB (swap component 2097152KiB)
+--- START unit-src-__tests__-workflow-step-output-test-ts 2026-10-16T14:27:43Z
+--- END   unit-src-__tests__-workflow-step-output-test-ts 2026-10-16T14:27:44Z exit=0  32 pass 0 fail 
+resource-gate 2026-10-16T14:27:44Z unit-src-__tests__-workflow-visibility-reach-test-ts disk=116G memAvailable=16GiB swapFreeKiB=5329804/17173956 floors disk>=100G mem>=6GiB mem+swap>=8388608KiB (swap component 2097152KiB)
+--- START unit-src-__tests__-workflow-visibility-reach-test-ts 2026-10-16T14:27:44Z
+--- END   unit-src-__tests__-workflow-visibility-reach-test-ts 2026-10-16T14:27:44Z exit=0  25 pass 0 fail 
+resource-gate 2026-10-16T14:27:44Z identity-contracts disk=116G memAvailable=15GiB swapFreeKiB=5329860/17173956 floors disk>=100G mem>=6GiB mem+swap>=8388608KiB (swap component 2097152KiB)
+--- START identity-contracts 2026-10-16T14:27:44Z
+--- END   identity-contracts 2026-10-16T14:27:44Z exit=0 
+resource-gate 2026-10-16T14:27:45Z web-server-lcov disk=116G memAvailable=15GiB swapFreeKiB=5329956/17173956 floors disk>=100G mem>=6GiB mem+swap>=8388608KiB (swap component 2097152KiB)
+--- START web-server-lcov 2026-10-16T14:27:45Z
+--- END   web-server-lcov 2026-10-16T14:28:06Z exit=0  Tests 179 passed (179) 
+resource-gate 2026-10-16T14:28:06Z coverage-merge disk=116G memAvailable=15GiB swapFreeKiB=5336976/17173956 floors disk>=100G mem>=6GiB mem+swap>=8388608KiB (swap component 2097152KiB)
+--- START coverage-merge 2026-10-16T14:28:06Z
+--- END   coverage-merge 2026-10-16T14:28:07Z exit=0 
+resource-gate 2026-10-16T14:28:07Z web-build disk=116G memAvailable=15GiB swapFreeKiB=5338292/17173956 floors disk>=100G mem>=6GiB mem+swap>=8388608KiB (swap component 2097152KiB)
+--- START web-build 2026-10-16T14:28:07Z
+--- END   web-build 2026-10-16T14:28:51Z exit=0 
+resource-gate 2026-10-16T14:28:51Z graph-mock-pass disk=116G memAvailable=16GiB swapFreeKiB=5281312/17173956 floors disk>=100G mem>=6GiB mem+swap>=8388608KiB (swap component 2097152KiB)
+--- START graph-mock-pass 2026-10-16T14:28:51Z
+--- END   graph-mock-pass 2026-10-16T14:29:48Z exit=0 
+mock pass w4h-36-docs-v10-7cac5837c-on-c8ae394ca-mock outcome: passed
+resource-gate 2026-10-16T14:29:48Z crap-changed-base disk=116G memAvailable=16GiB swapFreeKiB=5367772/17173956 floors disk>=100G mem>=6GiB mem+swap>=8388608KiB (swap component 2097152KiB)
+--- START crap-changed-base 2026-10-16T14:29:48Z
+--- END   crap-changed-base 2026-10-16T14:29:48Z exit=0 
+origin/main leg expected set: /tmp/factory-platform-evidence/w00/expected-integ-findings-vs-main.txt (0 line(s))
+resource-gate 2026-10-16T14:29:48Z merge-commit-gates disk=116G memAvailable=16GiB swapFreeKiB=5367772/17173956 floors disk>=100G mem>=6GiB mem+swap>=8388608KiB (swap component 2097152KiB)
+--- START merge-commit-gates 2026-10-16T14:29:48Z
+--- END   merge-commit-gates 2026-10-16T14:29:49Z exit=0 
+config: 8841afbedf4c59d8 = accepted baseline
+shared config hash at hold end: 8841afbedf4c59d8 (accepted baseline 8841afbedf4c59d8)
+HEAVY DONE status=0 dirty=0 2026-10-16T14:29:49Z

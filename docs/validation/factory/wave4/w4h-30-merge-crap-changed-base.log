@@ -1,0 +1,11 @@
+CRAP: --changed against 6571f8d5f5b9efedc7196102bc069a085ba43b53 → 2 measured file(s) in diff
+
+CRAP: 4 functions in 2 files (max 30, warn 15)
+
+Worst 4:
+      4.0  cc=  4 cov=100%  src/providers/kilo.ts:403 fetchKiloCatalog
+      1.0  cc=  1 cov=100%  packages/@ezcorp/extension-runner/src/client.ts:21 call
+      1.0  cc=  1 cov=100%  packages/@ezcorp/extension-runner/src/client.ts:22 <anonymous@22>
+      1.0  cc=  1 cov=100%  packages/@ezcorp/extension-runner/src/client.ts:24 request() callback
+
+✓ no touched function exceeds CRAP 30

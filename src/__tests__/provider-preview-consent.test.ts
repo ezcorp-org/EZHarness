@@ -74,7 +74,7 @@ beforeAll(async () => {
   await writeFile(join(workspace, "package.json"), JSON.stringify({ scripts: { dev: "python3 server.py" } }));
   await writeFile(join(workspace, "server.py"), `import http.server,os\nassert os.environ.get('PREVIEW_MARKER')=='preserved prefix'\nhttp.server.HTTPServer(('127.0.0.1',${port}),http.server.SimpleHTTPRequestHandler).serve_forever()\n`);
   await writeFile(join(workspace, "index.html"), "guest preview marker");
-  const owner = await createUser({ email: "provider-preview@test.com", passwordHash: "h", name: "Owner" });
+  const owner = await createUser({ email: "provider-preview@example.test", passwordHash: "h", name: "Owner" });
   userId = owner.id;
   const project = await projects.createProject({ name: "Provider preview", path: "/host/canary-must-not-run" });
   conversationId = (await createConversation(project.id, { userId })).id;

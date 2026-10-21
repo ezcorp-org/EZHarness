@@ -1,0 +1,50 @@
+{
+ "package": "w4h-36",
+ "kind": "docs-only package merge: the docs line v10 contract rows (C05 runner refusal codes, C10 readiness codes and warnings, C03 memoryBytes, the gateway transport ceiling); one file",
+ "branch": "wp/w4h-36-docs-v10",
+ "head": "7cac5837c09502f387f6b2b405d0bcc273f8e615",
+ "base": "c8ae394cac9d801fd1ef4ea8627f5bebe485c86f",
+ "main": "934531e2e9e8fd0c3c97e48527d545ca3476eb5e",
+ "mergeSha": "84f1cdb3c4001615b45b0198dfc6d8c4dfc0a395",
+ "treeEquality": {
+  "trialTree": "978ee8e5f5e561c98f891a55d928f47a2d0da8d0",
+  "mergeTree": "978ee8e5f5e561c98f891a55d928f47a2d0da8d0",
+  "equal": true,
+  "diffEqualsBranch": "diff(c8ae394ca, tree) == diff(c8ae394ca, 7cac5837c)"
+ },
+ "validatorVerdict": "validator-8 FINAL ACCEPT of the four commits and OK to publish on the hold record (verdict-w4h-36.txt sha256 7f6fa1abe98e3a30668d43000749c8693344d9995326c48bb1bfcf6d95b1cf1b; copied as w4h-36-validation.txt)",
+ "ownerReport": {
+  "w4h-36/report.txt": "fa8c6d1f0f2a7bd3",
+  "w4h-36/final/range-diff-3.txt": "dfbe2081a2b0782a",
+  "w4h-36/final/range-pairs.txt": "c2ea6c7b2d36332c"
+ },
+ "commit": {
+  "form": "detached merge, the full-run hook form with an EMPTY list (P1: commit-locked.sh [ -f \"$LIST\" ]), EZ_PRECOMMIT_TEST_MAX=0, PG_HOOK=0, in the heavy lock; rerere off (commit.sh 22db59d4e7eb94e0); no skip variable; archy noreply",
+  "result": "2026-10-16T14:10:20-14:13:09Z exit 0; hook: no test file maps to the staged changes; hook-mapped-staged.txt empty"
+ },
+ "hold": {
+  "run": "2026-10-16T14:23:32-14:29:50Z on 84f1cdb3c (queued behind a W4H-33 owner job), own pg15 w4h-36-hold-pg: HEAVY DONE status=0 dirty=0; 63 legs all exit 0 (51 invariant unit legs, guard 518/0, identity-contracts 0, web server 179/179, attestation, prune clean, crap, merge gates)",
+  "gates": "origin/main leg PASS against the shared w00/expected-integ-findings-vs-main.txt sha256 e3b0c44298fc1c14 (0 lines); base leg Gate integrity PASSED; new-file and patch PASSED (0 files)"
+ },
+ "identity": "publish identity step: identity-check commits c8ae394ca..84f1cdb3c, 5 commits, clean",
+ "published": "integ/w00 c8ae394ca -> 84f1cdb3c at 2026-10-16T14:35:21Z by publish-if-main.sh (remote main 934531e2e = expected; SSH agent bypass per ruling a')",
+ "tools": {
+  "gated-flock.sh": "50d35065e3e0bcae",
+  "heavy-lib.sh": "e9ab2c05a91d7a45",
+  "bun-pin.sh": "cf1aad7852b8afdc",
+  "w4f-merge/hold-w4f.sh": "6da567de911b4896",
+  "merge-commit-gates.sh": "7c449267be86c11c",
+  "identity-check.sh": "ef09124c9d7360ed",
+  "detached-merge/commit.sh": "22db59d4e7eb94e0",
+  "detached-merge/publish.sh": "f55db31d526c443a",
+  "w4g-merge/prep.sh": "33840f938827ec95",
+  "merge-receipt-sources.sh": "0cffdbb100e7de24",
+  "merge-receipts.sh": "56c108f4ec5796b1",
+  "integrator-5/publish-if-main.sh": "8a658ea7fff5fc34"
+ },
+ "pushed": false,
+ "excludedFromReceipts": [],
+ "deviations": [
+  "landed AHEAD of W4H-33 (ruled: merge in what is ready); the void W4H-33 merge 15d71f83b is kept under refs/heads/proof/w4h-33-merge-15d71f83b"
+ ]
+}

@@ -1,0 +1,18 @@
+bun test v1.4.2 (744846f84)
+{"ts":"2026-10-16T00:55:06.260Z","level":"info","msg":"preview detection surfaced to conversation stream","subsystem":"preview.detection-bridge","conversationId":"conv-1","port":5173,"kind":"consent-card"}
+{"ts":"2026-10-16T00:55:06.260Z","level":"info","msg":"preview detection surfaced to conversation stream","subsystem":"preview.detection-bridge","conversationId":"conv-1","port":5173,"kind":"auto-exposed"}
+{"ts":"2026-10-16T00:55:06.260Z","level":"info","msg":"preview detection skipped — nothing surfaced","subsystem":"preview.detection-bridge","conversationId":"conv-1","reason":"x"}
+{"ts":"2026-10-16T00:55:06.260Z","level":"info","msg":"preview detection surfaced to conversation stream","subsystem":"preview.detection-bridge","conversationId":"conv-1","port":5173,"kind":"consent-card"}
+{"ts":"2026-10-16T00:55:06.260Z","level":"warn","msg":"preview detected but no live bus available — card not surfaced","subsystem":"preview.detection-bridge","conversationId":"conv-1","decision":"skipped"}
+{"ts":"2026-10-16T00:55:06.261Z","level":"warn","msg":"preview detection routing failed","subsystem":"preview.detection-bridge","conversationId":"conv-1","error":"boom"}
+{"ts":"2026-10-16T00:55:06.261Z","level":"info","msg":"preview dev server launched as preview uid","subsystem":"preview.spawn-orchestration","conversationId":"conv-1","uid":90000,"command":"bun"}
+{"ts":"2026-10-16T00:55:06.261Z","level":"info","msg":"preview dev server launched as preview uid","subsystem":"preview.spawn-orchestration","conversationId":"conv-kill","uid":90000,"command":"bun"}
+{"ts":"2026-10-16T00:55:06.262Z","level":"info","msg":"preview dev server launched as preview uid","subsystem":"preview.spawn-orchestration","conversationId":"conv-unconf","uid":90000,"command":"bun"}
+{"ts":"2026-10-16T00:55:06.262Z","level":"info","msg":"preview dev server launched as preview uid","subsystem":"preview.spawn-orchestration","conversationId":"conv-nouid","uid":90000,"command":"bun"}
+{"ts":"2026-10-16T00:55:06.262Z","level":"info","msg":"preview dev server launched as preview uid","subsystem":"preview.spawn-orchestration","conversationId":"conv-throw","uid":90000,"command":"bun"}
+{"ts":"2026-10-16T00:55:06.262Z","level":"info","msg":"preview dev server launched as preview uid","subsystem":"preview.spawn-orchestration","conversationId":"conv-cap","uid":90000,"command":"bun"}
+
+ 21 pass
+ 0 fail
+ 48 expect() calls
+Ran 21 tests across 1 file. [459.00ms]

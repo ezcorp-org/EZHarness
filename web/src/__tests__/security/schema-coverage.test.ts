@@ -14,19 +14,19 @@ import { createApiKeySchema, deleteApiKeySchema } from "../../routes/api/setting
 describe("setupSchema", () => {
   test("accepts valid setup input", () => {
     expect(setupSchema.safeParse({
-      name: "Admin", email: "admin@test.com", password: "Secure123",
+      name: "Admin", email: "admin@test.example", password: "Secure123",
     }).success).toBe(true);
   });
 
   test("rejects empty name", () => {
     expect(setupSchema.safeParse({
-      name: "", email: "admin@test.com", password: "Secure123",
+      name: "", email: "admin@test.example", password: "Secure123",
     }).success).toBe(false);
   });
 
   test("rejects short password", () => {
     expect(setupSchema.safeParse({
-      name: "Admin", email: "admin@test.com", password: "short",
+      name: "Admin", email: "admin@test.example", password: "short",
     }).success).toBe(false);
   });
 
@@ -38,28 +38,28 @@ describe("setupSchema", () => {
 
   test("rejects password over 256 chars", () => {
     expect(setupSchema.safeParse({
-      name: "Admin", email: "a@b.com", password: "x".repeat(257),
+      name: "Admin", email: "a@b.example", password: "x".repeat(257),
     }).success).toBe(false);
   });
 });
 
 describe("createInviteSchema", () => {
   test("accepts valid invite", () => {
-    expect(createInviteSchema.safeParse({ email: "user@test.com" }).success).toBe(true);
+    expect(createInviteSchema.safeParse({ email: "user@test.example" }).success).toBe(true);
   });
 
   test("defaults role to member", () => {
-    const result = createInviteSchema.safeParse({ email: "user@test.com" });
+    const result = createInviteSchema.safeParse({ email: "user@test.example" });
     expect(result.success).toBe(true);
     if (result.success) expect(result.data.role).toBe("member");
   });
 
   test("accepts admin role", () => {
-    expect(createInviteSchema.safeParse({ email: "a@b.com", role: "admin" }).success).toBe(true);
+    expect(createInviteSchema.safeParse({ email: "a@b.example", role: "admin" }).success).toBe(true);
   });
 
   test("rejects invalid role", () => {
-    expect(createInviteSchema.safeParse({ email: "a@b.com", role: "superuser" }).success).toBe(false);
+    expect(createInviteSchema.safeParse({ email: "a@b.example", role: "superuser" }).success).toBe(false);
   });
 
   test("rejects invalid email", () => {

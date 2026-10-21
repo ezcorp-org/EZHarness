@@ -72,7 +72,7 @@ After the Incus sandbox extension release is verified, reviewed, and active, an 
 Set these on the **EZHarness engine host**, in its service environment. They never come from a browser request:
 
 ```sh
-EZCORP_INCUS_SETUP_SSH_TARGET=dev@sandbox-server.taile1c5b0.ts.net
+EZCORP_INCUS_SETUP_SSH_TARGET=dev@sandbox-server.example
 EZCORP_INCUS_SETUP_SSH_IDENTITY_FILE=/home/dev/.ssh/id_ed25519_personal
 EZCORP_INCUS_SETUP_SSH_KNOWN_HOSTS_FILE=/home/dev/.ssh/known_hosts
 EZCORP_INCUS_SETUP_SSH_HOST_KEY_SHA256=SHA256:a3VHX02pT5agIluq6K12E9oCuTg09ErbQ5wK9Vvk8Co

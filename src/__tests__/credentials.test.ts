@@ -127,7 +127,17 @@ mock.module("@earendil-works/pi-ai/compat", () => ({
   getProviders: mock(() => []),
 }));
 
-afterAll(() => restoreModuleMocks());
+// beforeEach sets these for the BYOK fallback; restore them after the file so a later file in the same
+// process does not inherit a fixture API key (it made factory-broker.test.ts resolve "apikey" for openai).
+const PROVIDER_ENV_KEYS = ["OPENAI_API_KEY", "ANTHROPIC_API_KEY", "GOOGLE_API_KEY", "OPENROUTER_API_KEY"] as const;
+const providerEnvBefore = Object.fromEntries(PROVIDER_ENV_KEYS.map(key => [key, process.env[key]]));
+afterAll(() => {
+  restoreModuleMocks();
+  for (const key of PROVIDER_ENV_KEYS) {
+    if (providerEnvBefore[key] === undefined) delete process.env[key];
+    else process.env[key] = providerEnvBefore[key];
+  }
+});
 
 // Import after mocks are set up
 const { getCredentialStore } = await import("../providers/credential-store");
@@ -135,6 +145,8 @@ const {
   getCredential,
   getApiKey,
   _clearRefreshLocks,
+  ProviderNotConfiguredError,
+  ApiKeyUnusableError,
 } = await import("../providers/credentials");
 
 // Store original env
@@ -513,12 +525,11 @@ test("getCredential('openai') refreshes token expiring at 59999ms (just under 60
 
 // ── getSetting throws in getApiKey ──────────────────────────────────
 
-test("getApiKey falls back to env var when getSetting throws", async () => {
+test("getApiKey refuses when getSetting throws: a database error is not \"no key\", even with an env key (C10, P-F3)", async () => {
   const { getSetting } = await import("../db/queries/settings");
   (getSetting as any).mockImplementationOnce(() => { throw new Error("DB down"); });
 
-  const key = await getApiKey("openai");
-  expect(key).toBe(FAKE_API_KEY); // from env var fallback
+  await expect(getApiKey("openai")).rejects.toThrow("DB down");
 });
 
 // ── decrypt throws on corrupted stored token (getApiKey path) ───────
@@ -530,6 +541,20 @@ test("getApiKey falls back to env var when decrypt throws on corrupted stored ke
 
   const key = await getApiKey("openai");
   expect(key).toBe(FAKE_API_KEY); // env var fallback
+});
+
+test("a stored key that cannot be decrypted and no env key is never \"no key\": it refuses with the cause kept (C10, P-F3)", async () => {
+  delete process.env.OPENAI_API_KEY;
+  settingsStore["provider:apiKey:openai"] = "corrupted-data";
+  const { decrypt: decryptFn } = await import("../providers/encryption");
+  const cause = new Error("bad data");
+  (decryptFn as any).mockImplementationOnce(() => { throw cause; });
+
+  const error = await getApiKey("openai").then(() => undefined, (e: unknown) => e);
+  expect(error).toBeInstanceOf(ApiKeyUnusableError);
+  expect(error).not.toBeInstanceOf(ProviderNotConfiguredError);
+  expect((error as Error).message).toBe("Stored API key for openai cannot be read");
+  expect((error as Error).cause).toBe(cause);
 });
 
 // ── getApiKey throws when no stored key AND no env var ──────────────

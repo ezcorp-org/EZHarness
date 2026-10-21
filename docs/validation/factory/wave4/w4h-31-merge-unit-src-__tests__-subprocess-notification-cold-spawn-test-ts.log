@@ -1,0 +1,7 @@
+bun test v1.4.2 (744846f84)
+{"ts":"2026-10-16T00:55:38.206Z","level":"warn","msg":"notification dropped — subprocess could not be started","subsystem":"extensions/subprocess","extensionId":"cold-spawn-baddep","method":"ezcorp/event/x:y","error":"Extension \"cold-spawn-baddep\" requires npm package(s) it cannot resolve: totally-not-installed-xyz@^1.0.0 (missing). Install them in the deployment (root package.json + bun install, or rebuild the image), then retry."}
+
+ 5 pass
+ 0 fail
+ 17 expect() calls
+Ran 5 tests across 1 file. [488.00ms]

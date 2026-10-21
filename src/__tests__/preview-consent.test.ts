@@ -34,8 +34,8 @@ let convA: string;
 
 beforeAll(async () => {
   await setupTestDb();
-  const a = await createUser({ email: "consent-a@test.com", passwordHash: "h", name: "A" });
-  const b = await createUser({ email: "consent-b@test.com", passwordHash: "h", name: "B" });
+  const a = await createUser({ email: "consent-a@test.example", passwordHash: "h", name: "A" });
+  const b = await createUser({ email: "consent-b@test.example", passwordHash: "h", name: "B" });
   userA = a.id;
   userB = b.id;
   const proj = await createProject({ name: "P", path: "/tmp/p-consent" });

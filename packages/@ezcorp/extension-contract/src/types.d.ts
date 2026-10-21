@@ -853,6 +853,12 @@ export interface Runner {
   abort?(id: string): Promise<void>;
   inspect(id: string): Promise<RunnerInspection>;
   collectArtifacts(artifactDigest: string): Promise<WorkspaceFiles>;
+  /**
+   * Put a release's artifact back into this runner's store from the host's own copy (C05 "Rehydrate a missing
+   * runner artifact", W4H-32). The runner refuses files that do not digest to `artifactDigest` (`artifact_corrupt`);
+   * an artifact already present is a no-op. A runner without it cannot be rehydrated.
+   */
+  restoreArtifact?(artifactDigest: string, files: WorkspaceFiles): Promise<void>;
   /** What this runner enforces. A runner without it enforces nothing optional. */
   capabilities?(): Promise<RunnerCapabilities>;
 }

@@ -1,0 +1,11 @@
+web/src/__tests__/agent-chat-api.test.ts
+web/src/__tests__/extensions-api.test.ts
+web/src/__tests__/extension-settings-api.test.ts
+web/src/__tests__/memories-api-post.test.ts
+web/src/__tests__/security/schema-coverage.test.ts
+web/src/__tests__/security/validation-routes.test.ts
+web/src/__tests__/sub-conversation.test.ts
+web/src/__tests__/tasks-api.test.ts
+web/src/__tests__/tasks-assignment-api.test.ts
+web/src/__tests__/tasks-stop-retry-api.test.ts
+web/src/__tests__/team-panel-refresh-flow.test.ts

@@ -41,6 +41,7 @@ describe("registerFactoryRuntimeWorkers", () => {
   test("holds a role it cannot drive and names the seam and the owning package", () => {
     const set = registerFactoryRuntimeWorkers(collaborators());
     expect(set.held.map((held) => `${held.role}:${held.workPackage}`)).toEqual([
+      "package-preparation:W4H-26",
       "notification-inbox-delivery:W07/W08",
       "child-settlement:W06",
       "release-outcome:W07/W08",
@@ -246,10 +247,22 @@ describe("registerFactoryRuntimeWorkers", () => {
     expect(undeclared.held.find((held) => held.role === "checkpoint-barrier")!.reason).toBe("recovery is not declared: the startup document has no temporalHttp, so no checkpoint is sealed and effect claims stay closed");
   });
 
+  test("package preparation runs before dispatch when a driver exists, and holds by name without a host launch endpoint (W4H-26)", async () => {
+    let work = true;
+    const set = registerFactoryRuntimeWorkers(collaborators({ packagePreparation: { step: async () => work } }));
+    const names = set.workers.names();
+    expect(names.indexOf("package-preparation")).toBe(names.indexOf("attempt-dispatch") - 1);
+    expect(await set.workers.get("package-preparation").runBatch(new AbortController().signal)).toBe("worked");
+    work = false;
+    expect(await set.workers.get("package-preparation").runBatch(new AbortController().signal)).toBe("idle");
+    expect(registerFactoryRuntimeWorkers(collaborators()).held.find((held) => held.role === "package-preparation")!.reason).toContain("hostLaunch endpoint");
+  });
+
   test("the role list covers every role the plan names", () => {
     expect([...FACTORY_WORKER_ROLES]).toEqual([
       "compute-admission-dispatch",
       "compute-admission-poll",
+      "package-preparation",
       "attempt-dispatch",
       "run-projection",
       "notification-inbox-delivery",
@@ -339,5 +352,58 @@ describe("the validator roles", () => {
     expect(await set.workers.get("validator-material-registration").runBatch(signal)).toBe("idle");
     expect(pending).toBe(-1);
     expect(await set.workers.get("validator-scheduling").runBatch(signal)).toBe("idle");
+  });
+});
+
+/** A driver whose readiness waits on a confirmation the test controls (C11 N8). */
+function awaitingDriver() {
+  const listeners = new Set<() => void>();
+  let confirmed = false;
+  return {
+    driver: {
+      step: async () => false,
+      confirmation: {
+        confirmed: () => confirmed,
+        onConfirmed: (listener: () => void) => { listeners.add(listener); return () => { listeners.delete(listener); }; },
+        pendingReason: "a notification destination is declared and the sender runs, but no receiver has confirmed a delivery yet",
+      },
+    },
+    confirm() { confirmed = true; for (const listener of listeners) listener(); },
+    listeners,
+  };
+}
+
+describe("a role that runs before its readiness is confirmed (C11 N8)", () => {
+  test("notification-send runs its loop but stays held, with its reason, until a delivery is confirmed", () => {
+    const awaiting = awaitingDriver();
+    const set = registerFactoryRuntimeWorkers(collaborators({ seams: factoryRuntimeSeams({ notificationSender: awaiting.driver }) }));
+    expect(set.workers.names()).toContain("notification-send");
+    expect(set.readiness().running).not.toContain("notification-send");
+    expect(set.readiness().held).toContainEqual({ role: "notification-send", seam: "notification-sender", workPackage: "W17", reason: expect.stringContaining("no receiver has confirmed") });
+    let changes = 0;
+    const unsubscribe = set.onReadinessChange(() => { changes += 1; });
+    awaiting.confirm();
+    expect(changes).toBe(1);
+    expect(set.readiness().running).toContain("notification-send");
+    expect(set.readiness().held.map((held) => held.role)).not.toContain("notification-send");
+    unsubscribe();
+    expect(awaiting.listeners.size).toBe(0);
+  });
+
+  test("a confirmed driver is running at once, and a driver without a confirmation is unchanged", () => {
+    const confirmed = awaitingDriver();
+    confirmed.confirm();
+    const set = registerFactoryRuntimeWorkers(collaborators({ seams: factoryRuntimeSeams({ notificationSender: confirmed.driver, physicalStopper: driver() }) }));
+    expect(set.readiness().running).toEqual(expect.arrayContaining(["notification-send", "stop-settlement"]));
+    expect(set.readiness().running).toEqual(set.workers.names());
+    expect(set.readiness().held).toEqual(set.held);
+  });
+
+  test("an undeclared sender holds on the declaration, and a sender that did not compose holds on its cause", () => {
+    const undeclared = registerFactoryRuntimeWorkers(collaborators());
+    expect(undeclared.held.find((held) => held.role === "notification-send")!.reason).toContain("`notifications.destinations`");
+    const broken = registerFactoryRuntimeWorkers(collaborators({ notificationSendHeld: "notification destination 'operators' did not compose (factory_notification_secret_unreadable)" }));
+    expect(broken.held.find((held) => held.role === "notification-send")!.reason).toContain("factory_notification_secret_unreadable");
+    expect(broken.workers.names()).not.toContain("notification-send");
   });
 });

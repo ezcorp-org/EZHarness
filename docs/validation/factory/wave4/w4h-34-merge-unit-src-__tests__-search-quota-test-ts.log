@@ -1,0 +1,8 @@
+bun test v1.4.2 (744846f84)
+{"ts":"2026-10-17T23:40:48.827Z","level":"warn","msg":"hydrate-failed","subsystem":"search.quota","extensionId":"05ce31a2-fca0-409e-809f-799b96b4ef43","error":"Error: connection lost"}
+{"ts":"2026-10-17T23:40:48.827Z","level":"warn","msg":"quota-flush-failed","subsystem":"search.quota","extensionId":"c8b8356f-2db2-40dd-bbbe-d384d19551d5","error":"Error: upsert exploded"}
+
+ 8 pass
+ 0 fail
+ 24 expect() calls
+Ran 8 tests across 1 file. [1070.00ms]

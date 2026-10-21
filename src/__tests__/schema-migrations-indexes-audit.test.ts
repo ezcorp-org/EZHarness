@@ -106,7 +106,7 @@ describe("schema-migrations: FK + UNIQUE invariants", () => {
     const pg = getTestPglite();
     await pg.query(
       `INSERT INTO users (id, email, password_hash, name, role) VALUES ($1,$2,'x','U','member')`,
-      ["u-sdk-restrict", "sdk-restrict@x.com"],
+      ["u-sdk-restrict", "sdk-restrict@x.example"],
     );
     await pg.query(
       `INSERT INTO sdk_capability_calls (id, extension_id, on_behalf_of, capability, action, success, duration_ms)
@@ -163,7 +163,7 @@ describe("schema-migrations: FK + UNIQUE invariants", () => {
     const pg = getTestPglite();
     await pg.query(
       `INSERT INTO users (id, email, password_hash, name, role) VALUES ($1,$2,'x','A','member')`,
-      ["u-rating", "rating@x.com"],
+      ["u-rating", "rating@x.example"],
     );
     await pg.query(
       `INSERT INTO marketplace_listings (id, author_id, name, description, slug, category, latest_version)

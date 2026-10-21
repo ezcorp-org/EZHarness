@@ -1,0 +1,8 @@
+# 2026-10-17T01:51:44Z head 13c439661d3d1a414b0669943f29fa151267838f + declare form (uncommitted) cmd: bun --config=/tmp/factory-platform-evidence/w00/w4h-merge/w4h-24-web-shard-timeout/bunfig-testfiles.toml test --coverage ./src/factory/guest-package-harness-install.test.ts
+bun test v1.4.2 (744846f84)
+
+ 3 pass
+ 0 fail
+ 10 expect() calls
+Ran 3 tests across 1 file. [5.03s]
+# exit=0

@@ -1,0 +1,6 @@
+snapshot tests: test/integration/extension.test.ts test/integration/install.test.ts test/integration/on-behalf-of.test.ts test/integration/tool-handlers.test.ts test/shape.test.ts test/unit/cli-doctor.test.ts test/unit/cli-install.test.ts test/unit/client.test.ts test/unit/e2e-poll.test.ts test/unit/extension-bridge.test.ts test/unit/mcp-server.test.ts test/unit/tool-responses-links.test.ts test/unit/tools-agents.test.ts test/unit/tools-chat.test.ts test/unit/tools-discover.test.ts test/unit/tools-error-branches.test.ts test/unit/tools-orchestrate.test.ts test/unit/urls.test.ts
+bun test v1.4.2 (744846f84)
+Test filter "./test/unit/deployed-preconditions.test.ts" had no matches
+
+exit=1
+script-exit=1

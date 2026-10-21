@@ -1,0 +1,8 @@
+# 2026-10-15T23:41:05Z cwd=/home/dev/work/EZCorp/EZHarness/.worktrees/w4h-32 cmd: bun test --timeout 30000 ./src/extensions/runner-rehydration.test.ts ./src/__tests__/readiness.test.ts ./src/extensions/runner-connection.test.ts
+bun test v1.4.2 (744846f84)
+
+ 35 pass
+ 0 fail
+ 128 expect() calls
+Ran 35 tests across 3 files. [2.05s]
+# exit=0 end=2026-10-15T23:41:07Z

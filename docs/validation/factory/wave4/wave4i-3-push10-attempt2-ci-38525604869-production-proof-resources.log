@@ -1,0 +1,243 @@
+excerpt of job-115726707532.log (547 lines, 46081 bytes, sha256 44b888bbb612d24e431ae7066878347f4247d77d648975b9e808170f150ea75a): the first 80 and the last 160 lines, ANSI and timestamps stripped; the full log stays in the evidence dir
+----- first 80 -----
+Current runner version: '2.337.0'
+##[group]Runner Image Provisioner
+Hosted Compute Agent
+Version: 20261002.596
+Commit: c3d12f3313a95f25162a1503be624f3b0617f8c0
+Build Date: 2026-10-02T22:28:27Z
+Worker ID: {30e56e9e-a76e-4f84-8e89-ad895ac388df}
+Region: westus3
+Cloud: Azure
+##[endgroup]
+##[group]Operating System
+Ubuntu
+24.04.5
+LTS
+##[endgroup]
+##[group]Runner Image
+Image: ubuntu-24.04
+Version: 20261004.327.1
+Included Software: https://github.com/actions/runner-images/blob/ubuntu24/20261004.327/images/ubuntu/Ubuntu2404-Readme.md
+Image Release: https://github.com/actions/runner-images/releases/tag/ubuntu24%2F20261004.327
+##[endgroup]
+##[group]GITHUB_TOKEN Permissions
+Contents: read
+Metadata: read
+##[endgroup]
+Secret source: Actions
+Cache mode: write
+Prepare workflow directory
+Prepare all required actions
+Getting action download info
+Download action repository 'actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1' (SHA:3d3c42e5aac5ba805825da76410c181273ba90b1)
+Download action repository 'actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c' (SHA:3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c)
+Download action repository 'actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a' (SHA:043fb46d1a93c77aae656e7c1c64a875d1fc6a0a)
+Complete job name: Production proof (resources)
+##[group]Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+with:
+  repository: ezcorp-org/EZHarness
+  token: ***
+  ssh-strict: true
+  ssh-user: git
+  persist-credentials: true
+  clean: true
+  sparse-checkout-cone-mode: true
+  fetch-depth: 1
+  fetch-tags: false
+  show-progress: true
+  lfs: false
+  submodules: false
+  set-safe-directory: true
+  allow-unsafe-pr-checkout: false
+env:
+  BUN_FEATURE_FLAG_DISABLE_SQL_AUTO_PIPELINING: 1
+  BUN_RUNTIME_TRANSPILER_CACHE_PATH: 0
+##[endgroup]
+Syncing repository: ezcorp-org/EZHarness
+##[group]Getting Git version info
+Working directory is '/home/runner/work/EZHarness/EZHarness'
+[command]/usr/bin/git version
+git version 2.55.0
+##[endgroup]
+Temporarily overriding HOME='/home/runner/work/_temp/a19d8837-6cea-4c7b-b8dd-ee5e4f3a9d37' before making global git config changes
+Adding repository directory to the temporary git global config as a safe directory
+[command]/usr/bin/git config --global --add safe.directory /home/runner/work/EZHarness/EZHarness
+Deleting the contents of '/home/runner/work/EZHarness/EZHarness'
+##[group]Determining repository object format
+##[endgroup]
+##[group]Initializing the repository
+[command]/usr/bin/git init /home/runner/work/EZHarness/EZHarness
+hint: Using 'master' as the name for the initial branch. This default branch name
+hint: will change to "main" in Git 3.0. To configure the initial branch name
+hint: to use in all of your new repositories, which will suppress this warning,
+hint: call:
+hint:
+hint: 	git config --global init.defaultBranch <name>
+hint:
+hint: Names commonly chosen instead of 'master' are 'main', 'trunk' and
+hint: 'development'. The just-created branch can be renamed via this command:
+hint:
+hint: 	git branch -m <name>
+hint:
+----- last 160 -----
+Getting image source signatures
+Copying blob sha256:5322d81b9b217c87a43577e23239fc6a88a6f3e085f532e1a1b3d5b33f047656
+Copying blob sha256:4d710b756578431859d64aba2677b0ec802f3aee2b140d52a08adfd356735af2
+Copying blob sha256:b3ffe1fd6e790dd0031bc457848413848192d46780df6b0fa215d320328761e3
+Copying blob sha256:6310eb16bf4251731feab01e8f633bf5e2d75a657ccad97f420b1f83cce457be
+Copying blob sha256:3fa541d8cac9d4fcff05950140a988377f814010f25d91eddf5e3de3fc0eede3
+Copying blob sha256:f122bc3261fca7a06590f6a4049863353c31056e3b750f2b2dbc1bb659f421e8
+Copying blob sha256:9bd242f25e75abc607bab0096841b43ce91e69c72d584ec8637bf557131cded7
+Copying blob sha256:9d1e9c1e61f48dcb9d1933fa4bdc4bdb7da928a152dafef0f067c3b477fa11c8
+Copying blob sha256:48dd761b6bfedc28017c2a57e1cd2fda93170658c93e3c5d96142a51bf9b899f
+Copying blob sha256:00034b17b963695ef825816fbf4147c71f32b66d5c0743dcaee4c4711e8ba8b6
+Copying blob sha256:8a082189cfe1ba85cc864ec354ce138ffc28d56a4f8a04d910f26fbba45d919a
+Copying blob sha256:988d57697ad269f5e634484dce52709cd86e00caa62e10f5792a16fbb34ec1e0
+Copying blob sha256:9f809ec5ff35e5621dfadefb22aaeaa1a2bb5329093f0cf36dcac3d5cb199f71
+Copying blob sha256:af7708f26521b296d032340dadac5d3f546177d5819709f22e0118e29751f5e9
+Copying config sha256:80f4c7a5e91618546dce5b4fe60cf03b14c0f9efa7e40157278d122772ced8d2
+Writing manifest to image destination
+80f4c7a5e91618546dce5b4fe60cf03b14c0f9efa7e40157278d122772ced8d2
+Extension runner kernel controls verified
+##[group]Run actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
+with:
+  name: production-candidate-image
+  path: .cache/production-candidate
+  merge-multiple: false
+  repository: ezcorp-org/EZHarness
+  run-id: 38525604869
+  skip-decompress: false
+  digest-mismatch: error
+env:
+  BUN_FEATURE_FLAG_DISABLE_SQL_AUTO_PIPELINING: 1
+  BUN_RUNTIME_TRANSPILER_CACHE_PATH: 0
+  XDG_RUNTIME_DIR: /run/user/1001
+  DBUS_SESSION_BUS_ADDRESS: unix:path=/run/user/1001/bus
+##[endgroup]
+Downloading single artifact
+Preparing to download the following artifacts:
+- production-candidate-image (ID: 11875931395, Size: 1864065839, Expected Digest: sha256:666ae5efff75179ea6036630783953c8a829d181f485f8cd099967f777b01fed)
+Redirecting to blob download url: https://productionresultssa5.blob.core.windows.net/actions-results/414d763c-3a1d-861c-97bb-faf3198b1a94/workflow-job-run-147e9214-0beb-5bd5-b73b-1ad31ce92036/artifacts/4c6e28551a5c2ec8f1ef160da186105707fede83fa5d295a86d722e955c08d07.zip
+Starting download of artifact to: /home/runner/work/EZHarness/EZHarness/.cache/production-candidate
+(node:3212) [DEP0005] DeprecationWarning: Buffer() is deprecated due to security and usability issues. Please use the Buffer.alloc(), Buffer.allocUnsafe(), or Buffer.from() methods instead.
+(Use `node --trace-deprecation ...` to show where the warning was created)
+SHA256 digest of downloaded artifact is 666ae5efff75179ea6036630783953c8a829d181f485f8cd099967f777b01fed
+Artifact download completed successfully.
+Total of 1 artifact(s) downloaded
+Download artifact has finished successfully
+##[group]Run bun scripts/production-image-artifact.ts load .cache/production-candidate "$GITHUB_SHA" "$EXPECTED_IMAGE_ID"
+bun scripts/production-image-artifact.ts load .cache/production-candidate "$GITHUB_SHA" "$EXPECTED_IMAGE_ID"
+shell: /usr/bin/bash -e {0}
+env:
+  BUN_FEATURE_FLAG_DISABLE_SQL_AUTO_PIPELINING: 1
+  BUN_RUNTIME_TRANSPILER_CACHE_PATH: 0
+  XDG_RUNTIME_DIR: /run/user/1001
+  DBUS_SESSION_BUS_ADDRESS: unix:path=/run/user/1001/bus
+  EXPECTED_IMAGE_ID: sha256:1da85cdbf6f4b1b8d02e91efb5dfc5718f9307369476445d334f30b0c6548485
+##[endgroup]
+##[group]Run BUILDX_BUILDER=default EZ_SHIPPING_CANDIDATE_IMAGE=ezcorp:ci-production \
+BUILDX_BUILDER=default EZ_SHIPPING_CANDIDATE_IMAGE=ezcorp:ci-production \
+  EZ_SHIPPING_RECEIPT_ROOT=.cache/production-lifecycle \
+  EZ_SHIPPING_APP_UID="$(id -u)" EZ_SHIPPING_APP_GID="$(id -g)" \
+  EZ_SHIPPING_RUNNER_APP_UID=1001 \
+  VERIFY_UPGRADE_CANDIDATE_SOURCE="$GITHUB_SHA" \
+  bash scripts/verify-shipping-production-suite.sh
+shell: /usr/bin/bash --noprofile --norc -e -o pipefail {0}
+env:
+  BUN_FEATURE_FLAG_DISABLE_SQL_AUTO_PIPELINING: 1
+  BUN_RUNTIME_TRANSPILER_CACHE_PATH: 0
+  XDG_RUNTIME_DIR: /run/user/1001
+  DBUS_SESSION_BUS_ADDRESS: unix:path=/run/user/1001/bus
+  EZ_SHIPPING_SHARD: resources
+  EZ_SHIPPING_EXPECTED_IMAGE_ID: sha256:1da85cdbf6f4b1b8d02e91efb5dfc5718f9307369476445d334f30b0c6548485
+##[endgroup]
+ Network ezcorp-production-lifecycle-139199142_default  Creating
+ Network ezcorp-production-lifecycle-139199142_default  Created
+ Container ezcorp-production-lifecycle-139199142-app  Creating
+ Container ezcorp-production-lifecycle-139199142-app  Created
+ Container ezcorp-production-lifecycle-139199142-app  Starting
+ Container ezcorp-production-lifecycle-139199142-app  Started
+300 |     ...(warm ? { warm } : {}),
+301 |     ...(kernelMemory ? { kernelMemory } : { kernelMemoryError }),
+302 |     ...(relationCacheWarmKernelMemory ? { warmKernelMemory: relationCacheWarmKernelMemory } : {}),
+303 |     ...(runner ? { runner } : {}),
+304 |   });
+305 |   throw new Error(reason);
+                  ^
+error: Cycle 9 app socket descriptors grew above the first lifecycle sample.
+      at failResourceCheck (/home/runner/work/EZHarness/EZHarness/scripts/verify-shipping-runtime-resources.ts:305:13)
+
+##[error]
+      at failResourceCheck (/home/runner/work/EZHarness/EZHarness/scripts/verify-shipping-runtime-resources.ts:305:13)
+
+Bun v1.4.2 (Linux x64)
+runtime-resources	1	2026-10-14T07:12:43.178Z	2026-10-14T07:23:14.619Z	631441	runtime-resources
+##[error]Process completed with exit code 1.
+##[group]Run actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+with:
+  name: production-proof-resources
+  path: .cache/production-lifecycle/
+  retention-days: 3
+  if-no-files-found: error
+  compression-level: 6
+  overwrite: false
+  include-hidden-files: false
+  archive: true
+env:
+  BUN_FEATURE_FLAG_DISABLE_SQL_AUTO_PIPELINING: 1
+  BUN_RUNTIME_TRANSPILER_CACHE_PATH: 0
+  XDG_RUNTIME_DIR: /run/user/1001
+  DBUS_SESSION_BUS_ADDRESS: unix:path=/run/user/1001/bus
+##[endgroup]
+With the provided path, there will be 10 files uploaded
+Artifact name is valid!
+Root directory input is valid!
+Uploading artifact: production-proof-resources.zip
+Beginning upload of artifact content to blob storage
+Uploaded bytes 80216
+Finished uploading artifact content to blob storage!
+SHA256 digest of uploaded artifact is 9e6b6a6ed880502de2033dca1da9ea64d07fbf38d6e302e9db61693e95958531
+Finalizing artifact upload
+Artifact production-proof-resources successfully finalized. Artifact ID 11876224567
+Artifact production-proof-resources has been successfully uploaded! Final size is 80216 bytes. Artifact ID is 11876224567
+Artifact download URL: https://github.com/ezcorp-org/EZHarness/actions/runs/38525604869/artifacts/11876224567
+Post job cleanup.
+##[start-action display=Cache bun global install cache;id=__9eed663d-e812-4177-aff7-9c5a25c1d8c0.__actions_cache]
+##[end-action id=__9eed663d-e812-4177-aff7-9c5a25c1d8c0.__actions_cache;outcome=skipped;conclusion=skipped;duration_ms=0]
+##[start-action display=Run oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6;id=__9eed663d-e812-4177-aff7-9c5a25c1d8c0.__oven-sh_setup-bun]
+##[end-action id=__9eed663d-e812-4177-aff7-9c5a25c1d8c0.__oven-sh_setup-bun;outcome=skipped;conclusion=skipped;duration_ms=0]
+Post job cleanup.
+[command]/usr/bin/git version
+git version 2.55.0
+Temporarily overriding HOME='/home/runner/work/_temp/0ed9b264-ffe4-438d-a1fc-142092a83cc7' before making global git config changes
+Adding repository directory to the temporary git global config as a safe directory
+[command]/usr/bin/git config --global --add safe.directory /home/runner/work/EZHarness/EZHarness
+Removing SSH command configuration
+[command]/usr/bin/git config --local --name-only --get-regexp core\.sshCommand
+[command]/usr/bin/git submodule foreach --recursive sh -c "git config --local --name-only --get-regexp 'core\.sshCommand' && git config --local --unset-all 'core.sshCommand' || :"
+Removing HTTP extra header
+[command]/usr/bin/git config --local --name-only --get-regexp http\.https\:\/\/github\.com\/\.extraheader
+[command]/usr/bin/git submodule foreach --recursive sh -c "git config --local --name-only --get-regexp 'http\.https\:\/\/github\.com\/\.extraheader' && git config --local --unset-all 'http.https://github.com/.extraheader' || :"
+Removing includeIf entries pointing to credentials config files
+[command]/usr/bin/git config --local --name-only --get-regexp ^includeIf\.gitdir:
+includeif.gitdir:/home/runner/work/EZHarness/EZHarness/.git.path
+includeif.gitdir:/home/runner/work/EZHarness/EZHarness/.git/worktrees/*.path
+includeif.gitdir:/github/workspace/.git.path
+includeif.gitdir:/github/workspace/.git/worktrees/*.path
+[command]/usr/bin/git config --local --get-all includeif.gitdir:/home/runner/work/EZHarness/EZHarness/.git.path
+/home/runner/work/_temp/git-credentials-61fa3f19-6d23-4f16-ae4b-9caf7b36b21f.config
+[command]/usr/bin/git config --local --unset includeif.gitdir:/home/runner/work/EZHarness/EZHarness/.git.path \/home\/runner\/work\/_temp\/git\-credentials\-61fa3f19\-6d23\-4f16\-ae4b\-9caf7b36b21f\.config
+[command]/usr/bin/git config --local --get-all includeif.gitdir:/home/runner/work/EZHarness/EZHarness/.git/worktrees/*.path
+/home/runner/work/_temp/git-credentials-61fa3f19-6d23-4f16-ae4b-9caf7b36b21f.config
+[command]/usr/bin/git config --local --unset includeif.gitdir:/home/runner/work/EZHarness/EZHarness/.git/worktrees/*.path \/home\/runner\/work\/_temp\/git\-credentials\-61fa3f19\-6d23\-4f16\-ae4b\-9caf7b36b21f\.config
+[command]/usr/bin/git config --local --get-all includeif.gitdir:/github/workspace/.git.path
+/github/runner_temp/git-credentials-61fa3f19-6d23-4f16-ae4b-9caf7b36b21f.config
+[command]/usr/bin/git config --local --unset includeif.gitdir:/github/workspace/.git.path \/github\/runner_temp\/git\-credentials\-61fa3f19\-6d23\-4f16\-ae4b\-9caf7b36b21f\.config
+[command]/usr/bin/git config --local --get-all includeif.gitdir:/github/workspace/.git/worktrees/*.path
+/github/runner_temp/git-credentials-61fa3f19-6d23-4f16-ae4b-9caf7b36b21f.config
+[command]/usr/bin/git config --local --unset includeif.gitdir:/github/workspace/.git/worktrees/*.path \/github\/runner_temp\/git\-credentials\-61fa3f19\-6d23\-4f16\-ae4b\-9caf7b36b21f\.config
+[command]/usr/bin/git submodule foreach --recursive git config --local --show-origin --name-only --get-regexp remote.origin.url
+Removing credentials config '/home/runner/work/_temp/git-credentials-61fa3f19-6d23-4f16-ae4b-9caf7b36b21f.config'
+Cleaning up orphan processes
+Terminate orphan process: pid (2795) (catatonit)

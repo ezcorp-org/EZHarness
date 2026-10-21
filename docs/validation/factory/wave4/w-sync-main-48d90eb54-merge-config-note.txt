@@ -1,0 +1,1 @@
+shared .git/config c405ccfcdad7afa7 -> fa7b119002faba83 accepted as the baseline by the lead's rule (2026-10-03): only branch/remote sections changed; added ['branch "fix/validation-followups-oct13"']; removed []; changed []; no [user]; [core]/[extensions] unchanged

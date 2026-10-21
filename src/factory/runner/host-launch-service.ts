@@ -1,3 +1,5 @@
+import type { BuildResult, WorkspaceFiles } from "@ezcorp/extension-contract";
+import { filesDigest } from "@ezcorp/extension-runner";
 import type { FactoryRunnerResult } from "@ezcorp/factory-sdk";
 import { validateFactoryRunnerResult } from "@ezcorp/factory-sdk";
 import type { FactoryPrivateRequest, FactoryPrivateResponse } from "../private-https";
@@ -34,6 +36,29 @@ export interface FactoryHostLaunchSupervisor {
    * there will never be one, and otherwise returns when `signal` ends the wait.
    */
   result(intent: FactoryAttemptLaunchIntent, signal: AbortSignal): Promise<FactoryRunnerResult>;
+  /**
+   * Builds a package in this host's own leased store, the only place a launch can find it. The route
+   * has already checked the source against its digest; absent, the host refuses every preparation.
+   */
+  prepare?(preparation: FactoryHostPreparation, signal: AbortSignal): Promise<FactoryHostPrepared>;
+}
+
+/**
+ * One package to prepare on this host (C05 "Prepare a bound package for dispatch", W4H-26): the
+ * release source, the digest the product's binding expects of it, and the build identity.
+ */
+export interface FactoryHostPreparation {
+  readonly tenantId: string;
+  readonly operationId: string;
+  readonly sourceDigest: string;
+  readonly files: WorkspaceFiles;
+  readonly entrypoint: string;
+}
+
+/** The host's build of a prepared package, with the artifact files its own store now holds. */
+export interface FactoryHostPrepared {
+  readonly result: BuildResult;
+  readonly artifacts: WorkspaceFiles;
 }
 
 /** One line in the host's own log for a request it could not answer with a result. */
@@ -55,6 +80,7 @@ export interface FactoryHostLaunchServiceOptions {
   readonly guestTenants?: FactoryHostGuestTenants;
   readonly launchTimeoutMs?: number;
   readonly resultTimeoutMs?: number;
+  readonly prepareTimeoutMs?: number;
   /** Where every refusal is written. Absent, it is the process's standard error, which is the supervisor log. */
   readonly report?: (entry: FactoryHostLaunchReport) => void;
 }
@@ -76,6 +102,20 @@ function standardErrorReport(entry: FactoryHostLaunchReport): void {
   console.error(`[factory-host-launch] ${JSON.stringify(entry)}`);
 }
 
+/**
+ * How long one preparation call waits for the host's build. It stays inside the transport's 300 s
+ * request cap with the client's margin; a build past it answers `host_timeout` and the role retries.
+ */
+export const FACTORY_HOST_PREPARATION_TIMEOUT_MS = 240_000;
+
+export const FACTORY_HOST_PREPARATION_PATH = "/v1/host/preparations";
+/**
+ * The preparation reply's bound, on both sides (W4H-28). The reply carries the built artifact's bytes
+ * only so the product can recompute their digest. A package's locked dependency closure travels as
+ * base64 in its `.runner/dependencies.json`: the reference-code validator's toolchain (TypeScript and
+ * its type packages) is about 40 MB of reply. Every other host-service reply stays at 4 MiB.
+ */
+export const FACTORY_HOST_PREPARATION_REPLY_BYTES = 64 * 1024 * 1024;
 export const FACTORY_HOST_LAUNCH_PATH = "/v1/host/launches";
 export const FACTORY_HOST_ATTACH_PATH = "/v1/host/attachments";
 export const FACTORY_HOST_RESULT_PATH = "/v1/host/results";
@@ -116,6 +156,7 @@ export function createFactoryHostLaunchRouteHandler(options: FactoryHostLaunchSe
     guestTenants: options.guestTenants,
     launchTimeoutMs: options.launchTimeoutMs ?? FACTORY_HOST_LAUNCH_TIMEOUT_MS,
     resultTimeoutMs: options.resultTimeoutMs ?? FACTORY_HOST_RESULT_WINDOW_MS,
+    prepareTimeoutMs: options.prepareTimeoutMs ?? FACTORY_HOST_PREPARATION_TIMEOUT_MS,
     report: options.report ?? standardErrorReport,
   });
   if (!snapshot.hostId) throw new Error("Factory host launch service needs its own host and at least one authorized peer.");
@@ -143,6 +184,10 @@ export function createFactoryHostLaunchRouteHandler(options: FactoryHostLaunchSe
       catch { refuse(400, "invalid_request"); }
       if (!body || typeof body !== "object" || Array.isArray(body)) refuse(400, "invalid_request");
       const fields = body as Record<string, unknown>;
+      if (request.path === FACTORY_HOST_PREPARATION_PATH) {
+        timer = setTimeout(() => controller.abort(), snapshot.prepareTimeoutMs);
+        return json(200, await answerPreparation(snapshot.supervisor, fields, peerTenant, controller.signal));
+      }
       if (request.path !== FACTORY_HOST_LAUNCH_PATH && request.path !== FACTORY_HOST_ATTACH_PATH && request.path !== FACTORY_HOST_RESULT_PATH) refuse(404, "not_found");
       try { intent = factoryAttemptLaunchIntentFromWire(fields.intent); }
       catch { refuse(400, "invalid_intent"); }
@@ -167,17 +212,46 @@ export function createFactoryHostLaunchRouteHandler(options: FactoryHostLaunchSe
       return json(200, { result });
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
-      if (error instanceof HostLaunchRouteError) return refused(error.status, error.code, message);
-      if (controller.signal.aborted) return refused(504, "host_timeout", message);
-      const code = error instanceof FactoryAttemptRuntimeError ? error.code : undefined;
-      // The guest ran here and ended without an answer: the detail is the runner's own account of it.
-      if (code === "guest_exited") return refused(502, "guest_exited", message);
-      // A granted device this host does not have: refused before any container existed (W02d R4).
-      if (code === "device_unavailable") return refused(422, "device_unavailable", message);
-      // A worker this host stopped before it ever ran (a durable tombstone, W02d R8) is never started or attached.
-      if (code === "worker_stopped") return refused(409, "worker_stopped", message);
-      if (code === "attempt_unknown" || message.includes("not running") || message.includes("uncertain")) return refused(409, "attempt_uncertain", message);
-      return refused(500, "host_failed", message);
+      const [status, code] = hostRefusalFor(error, message, controller.signal.aborted);
+      return refused(status, code, message);
     } finally { if (timer) clearTimeout(timer); }
   };
+}
+
+/** The status and code a route answers for an error, in the order the cases are told apart. */
+function hostRefusalFor(error: unknown, message: string, aborted: boolean): readonly [number, string] {
+  if (error instanceof HostLaunchRouteError) return [error.status, error.code];
+  if (aborted) return [504, "host_timeout"];
+  const code = error instanceof FactoryAttemptRuntimeError ? error.code : undefined;
+  // The guest ran here and ended without an answer: the detail is the runner's own account of it.
+  if (code === "guest_exited") return [502, "guest_exited"];
+  // A granted device this host does not have: refused before any container existed (W02d R4).
+  if (code === "device_unavailable") return [422, "device_unavailable"];
+  // A worker this host stopped before it ever ran (a durable tombstone, W02d R8) is never started or attached.
+  if (code === "worker_stopped") return [409, "worker_stopped"];
+  if (code === "attempt_unknown" || message.includes("not running") || message.includes("uncertain")) return [409, "attempt_uncertain"];
+  return [500, "host_failed"];
+}
+
+/**
+ * One preparation, refused before anything is built unless it is for the calling peer's own tenant
+ * (the same identity binding as a launch) and its bytes are the digest the product's binding names.
+ */
+async function answerPreparation(supervisor: FactoryHostLaunchSupervisor, fields: Record<string, unknown>, peerTenant: string, signal: AbortSignal): Promise<FactoryHostPrepared> {
+  const preparation = factoryHostPreparationFromWire(fields);
+  if (preparation.tenantId !== peerTenant) refuse(403, FACTORY_HOST_FORBIDDEN_TENANT);
+  if (filesDigest(preparation.files) !== preparation.sourceDigest) refuse(409, "source_digest_mismatch");
+  if (supervisor.prepare === undefined) refuse(501, "preparation_unavailable");
+  return supervisor.prepare(preparation, signal);
+}
+
+const SHA256_HEX = /^[0-9a-f]{64}$/;
+
+/** A preparation body, exactly: a tenant, a build identity, a source digest, string files, an entry. */
+export function factoryHostPreparationFromWire(value: Record<string, unknown>): FactoryHostPreparation {
+  const { tenantId, operationId, sourceDigest, files, entrypoint } = value;
+  const text = (field: unknown) => typeof field === "string" && field.length > 0 && field.length <= 512;
+  if (Object.keys(value).sort().join(",") !== "entrypoint,files,operationId,sourceDigest,tenantId" || !text(tenantId) || !text(operationId) || !text(entrypoint)
+    || typeof sourceDigest !== "string" || !SHA256_HEX.test(sourceDigest) || !files || typeof files !== "object" || Array.isArray(files)) refuse(400, "invalid_preparation");
+  return Object.freeze({ tenantId: tenantId as string, operationId: operationId as string, sourceDigest, files: files as WorkspaceFiles, entrypoint: entrypoint as string });
 }

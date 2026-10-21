@@ -1,0 +1,22 @@
+bun test v1.4.2 (744846f84)
+{"ts":"2026-10-16T01:07:52.513Z","level":"info","msg":"tick: sweep applied","subsystem":"perm-expiry.daemon","applied":1,"skipped":0,"audits":1}
+{"ts":"2026-10-16T01:07:53.537Z","level":"info","msg":"tick: sweep applied","subsystem":"perm-expiry.daemon","applied":1,"skipped":0,"audits":1}
+{"ts":"2026-10-16T01:07:53.738Z","level":"warn","msg":"perm-expiry sweep disabled by EZCORP_DISABLE_PERM_SWEEP=1","subsystem":"perm-expiry.daemon"}
+{"ts":"2026-10-16T01:07:53.739Z","level":"warn","msg":"perm-expiry sweep disabled by EZCORP_DISABLE_PERM_SWEEP=1","subsystem":"perm-expiry.daemon"}
+{"ts":"2026-10-16T01:07:53.741Z","level":"warn","msg":"host-maintenance-daemon refused to start (sibling alive)","subsystem":"perm-expiry.daemon","lockfile":"/tmp/ezcorp-test-lock-sibling-1792112873741.pid"}
+{"ts":"2026-10-16T01:07:53.800Z","level":"warn","msg":"EZCORP_PERM_SWEEP_INTERVAL_MS invalid — using default","subsystem":"perm-expiry.daemon","raw":"abc","defaultMs":3600000}
+{"ts":"2026-10-16T01:07:53.800Z","level":"warn","msg":"EZCORP_PERM_SWEEP_INTERVAL_MS invalid — using default","subsystem":"perm-expiry.daemon","raw":"-100","defaultMs":3600000}
+{"ts":"2026-10-16T01:07:53.801Z","level":"warn","msg":"EZCORP_PERM_SWEEP_INTERVAL_MS invalid — using default","subsystem":"perm-expiry.daemon","raw":"0","defaultMs":3600000}
+{"ts":"2026-10-16T01:07:53.801Z","level":"warn","msg":"EZCORP_PERM_SWEEP_INTERVAL_MS below floor — clamped","subsystem":"perm-expiry.daemon","raw":"100","requestedMs":100,"clampedMs":1000}
+{"ts":"2026-10-16T01:07:53.802Z","level":"warn","msg":"EZCORP_PERM_SWEEP_INTERVAL_MS invalid — using default","subsystem":"perm-expiry.daemon","raw":"Infinity","defaultMs":3600000}
+{"ts":"2026-10-16T01:07:53.802Z","level":"warn","msg":"EZCORP_PERM_SWEEP_INTERVAL_MS below floor — clamped","subsystem":"perm-expiry.daemon","raw":"100","requestedMs":100,"clampedMs":1000}
+{"ts":"2026-10-16T01:07:55.305Z","level":"warn","msg":"tick: sweep crashed — daemon continues","subsystem":"perm-expiry.daemon","error":"simulated clock failure"}
+{"ts":"2026-10-16T01:07:55.314Z","level":"info","msg":"tick: sweep applied","subsystem":"perm-expiry.daemon","applied":1,"skipped":0,"audits":1}
+{"ts":"2026-10-16T01:07:55.322Z","level":"warn","msg":"tick: per-extension errors during apply","subsystem":"perm-expiry.daemon","errorCount":1,"firstError":{"extensionId":"ext-fail-B","reason":"extension-grant-update-failed","details":"simulated DB failure (test stub)"},"applied":1,"skipped":0}
+{"ts":"2026-10-16T01:07:55.329Z","level":"info","msg":"tick: sweep applied","subsystem":"perm-expiry.daemon","applied":2,"skipped":0,"audits":2}
+{"ts":"2026-10-16T01:07:55.335Z","level":"info","msg":"tick: sweep applied","subsystem":"perm-expiry.daemon","applied":1,"skipped":0,"audits":1}
+
+ 27 pass
+ 0 fail
+ 71 expect() calls
+Ran 27 tests across 1 file. [3.78s]

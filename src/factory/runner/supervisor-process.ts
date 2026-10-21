@@ -46,9 +46,10 @@
  * record degrades.
  */
 import { createPrivateKey } from "node:crypto";
-import { resolve } from "node:path";
+import { dirname, join, resolve } from "node:path";
+import { FACTORY_HOST_PREPARATIONS_FOLDER, factoryHostPreparationRecords } from "./host-launch-supervisor";
 import { fileURLToPath } from "node:url";
-import type { Runner } from "@ezcorp/extension-contract";
+import type { Runner, WorkspaceFiles } from "@ezcorp/extension-contract";
 import { isFactoryGuestMaterialFrame, type FactoryRunnerRequest } from "@ezcorp/factory-sdk";
 import { readPrivatePath } from "../private-files";
 import { createFactoryGuestBrokerClient } from "./guest-broker-client";
@@ -57,6 +58,7 @@ import { isFactoryHostPeerTenants, type FactoryHostPeerTenants } from "./host-pe
 import { FactoryHostBrokerUnavailableError, factoryHostBrokerUnavailable, startFactoryHostServices } from "./supervisor-services";
 import { FactoryHostTombstones } from "./host-tombstones";
 import { loadFactoryStopHostKeys } from "../stop-host-keys";
+import { serveFactoryReadyMetrics, startDeclaredFactoryMetrics, wellFormedFactoryMetricsEndpoint, type FactoryMetricsEndpoint, type FactoryMetricsListener } from "../observability/metrics-listener";
 import { createFactorySupervisorPoolClient } from "./supervisor-pool-client";
 import {
   createFactoryServiceReadinessWriter,
@@ -98,6 +100,8 @@ export interface FactorySupervisorProcessConfig {
   readonly runnerRoot: string;
   readonly readinessFilePath: string;
   readonly readinessHeartbeatMs?: number;
+  /** Where this supervisor serves `/metrics` (C11 M4); absent, it serves none. */
+  readonly metrics?: FactoryMetricsEndpoint;
   /**
    * Where this host publishes its launch and stop services.
    *
@@ -180,6 +184,10 @@ export interface FactorySupervisorProcessDependencies {
   readonly startServices: (config: FactorySupervisorProcessConfig, runner: FactoryHostRunner) => Promise<{ stop(): void }>;
   readonly wait: (milliseconds: number, signal: AbortSignal) => Promise<void>;
   readonly now: () => number;
+  /** Serves the ready gauge on a declared endpoint (C11 M4). */
+  readonly metrics?: (endpoint: FactoryMetricsEndpoint, ready: () => boolean) => Promise<FactoryMetricsListener>;
+  /** Names a fault the supervisor survives, by code only. */
+  readonly report?: (code: string) => void;
 }
 
 export interface FactorySupervisorMainDependencies {
@@ -253,13 +261,14 @@ function endpointSection(value: unknown): boolean {
 /** Strict parser. The document names paths and identities, never a key value. */
 export function parseFactorySupervisorProcessConfig(value: unknown): FactorySupervisorProcessConfig {
   const required = ["schemaVersion", "installationId", "hostId", "hostKeyPath", "hostKeyId", "runnerRoot", "readinessFilePath"];
-  const allowed = new Set([...required, "readinessHeartbeatMs", "services"]);
+  const allowed = new Set([...required, "readinessHeartbeatMs", "services", "metrics"]);
   if (!record(value) || required.some((key) => !Object.hasOwn(value, key)) || Object.keys(value).some((key) => !allowed.has(key))
     || value.schemaVersion !== CONFIG_SCHEMA
     || !text(value.installationId) || !text(value.hostId) || !text(value.hostKeyPath) || !text(value.hostKeyId)
     || !text(value.runnerRoot) || !text(value.readinessFilePath)
     || (value.readinessHeartbeatMs !== undefined && !integer(value.readinessHeartbeatMs, 1_000, 60_000))
-    || (value.services !== undefined && !serviceSection(value.services))) {
+    || (value.services !== undefined && !serviceSection(value.services))
+    || (value.metrics !== undefined && !wellFormedFactoryMetricsEndpoint(value.metrics))) {
     // The unbound peer list is gone. Naming its replacement tells an operator
     // with an old document what to write instead of a bare refusal.
     if (record(value) && record(value.services) && Object.hasOwn(value.services, "allowedPeers")) {
@@ -292,7 +301,27 @@ export type FactoryHostRunner = Runner & {
 
 export type FactoryHostRunnerLoader = () => Promise<new (options: { root: string }) => FactoryHostRunner>;
 
-const loadPodmanRunner: FactoryHostRunnerLoader = async () => (await import("@ezcorp/extension-runner")).PodmanRunner as never;
+/** What `provisionToolchain` hands a runner: the bundled SDK and the pinned TypeScript toolchain. */
+type FactoryRunnerToolchain = { readonly sdkFiles: WorkspaceFiles; readonly toolchainFiles: WorkspaceFiles };
+
+/**
+ * The host's runner class, constructed with the pinned toolchain (W4H-26). A launch never needed it,
+ * but preparing a package builds it here, in the store a launch reads, and the v4 build refuses
+ * `toolchain_unavailable` without it. Provisioned once per load, from this checkout, exactly as the
+ * extension runner service provisions the release build, so the two builds agree byte for byte.
+ */
+export function factoryProvisionedRunnerLoader(load: () => Promise<{
+  readonly PodmanRunner: new (options: { root: string } & FactoryRunnerToolchain) => FactoryHostRunner;
+  provisionToolchain(): Promise<FactoryRunnerToolchain>;
+}>): FactoryHostRunnerLoader {
+  return async () => {
+    const { PodmanRunner, provisionToolchain } = await load();
+    const toolchain = await provisionToolchain();
+    return class extends PodmanRunner { constructor(options: { root: string }) { super({ ...options, ...toolchain }); } };
+  };
+}
+
+const loadPodmanRunner: FactoryHostRunnerLoader = factoryProvisionedRunnerLoader(async () => await import("@ezcorp/extension-runner") as never);
 
 /**
  * The host's runner, held for the process lifetime, and probed repeatedly.
@@ -394,6 +423,8 @@ export async function startFactoryConfiguredHostServices(
     runner,
     signingKey,
     tombstones,
+    // Beside the host key, like the tombstones: a preparation survives a restart (W4H-26).
+    preparationRecords: factoryHostPreparationRecords(join(dirname(config.hostKeyPath), FACTORY_HOST_PREPARATIONS_FOLDER)),
     tls: { ca: utf8(ca), cert: utf8(cert), key: utf8(key) },
     hostname: services.hostname,
     port: services.port,
@@ -477,6 +508,8 @@ export const factorySupervisorProductionDependencies: FactorySupervisorProcessDe
     timer.unref?.();
     signal.addEventListener("abort", done, { once: true });
   }),
+  metrics: (endpoint, ready) => serveFactoryReadyMetrics(endpoint, "supervisor", ready),
+  report: (code) => { console.error(`[factory-supervisor] ${code}`); },
 };
 
 interface SupervisorObservation {
@@ -588,6 +621,12 @@ export async function runConfiguredFactorySupervisor(
   const runnerProbe = dependencies.createRunnerProbe();
   let services: { stop(): void } | undefined;
   await readiness.write({ lifecycle: "starting", facts: { hostKeyReady: false, runnerReady: false, hostServicesReady: false } });
+  // The gauge is the record's own verdict, computed when scraped, and 0 once this run is stopping.
+  let running = true;
+  const metrics = await startDeclaredFactoryMetrics(config.metrics,
+    (endpoint) => (dependencies.metrics ?? factorySupervisorProductionDependencies.metrics!)(endpoint,
+      () => running && factorySupervisorRecord(observation, dependencies.now(), stalenessMs).lifecycle === "ready"),
+    dependencies.report ?? factorySupervisorProductionDependencies.report!);
 
   const observing = (async () => {
     while (!signal.aborted) {
@@ -634,6 +673,8 @@ export async function runConfiguredFactorySupervisor(
     // Release every held resource before recording the stop, so a supervisor
     // that has said `stopped` really is holding nothing: the listener first, so
     // no launch arrives for a runner that is closing, then the store lease.
+    running = false;
+    await metrics?.stop();
     services?.stop();
     services = undefined;
     await runnerProbe.close();

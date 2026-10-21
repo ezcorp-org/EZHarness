@@ -1,0 +1,20 @@
+prep-8fb4474e9 rc=1 6s
+c8 rc=1 1s
+img-8fb4474e9 rc=0 295s
+d8 rc=1 2s
+dm8 rc=0 12s
+rmi-8fb4474e9 rc=0
+worktree /home/dev/work/EZCorp/EZHarness-worktrees/composable-factory-platform/.worktrees/i5-legcd-8fb4474e9 removed rc=0
+prep-31ce24621 rc=1 5s
+c31 rc=1 1s
+img-31ce24621 rc=0 223s
+d31 rc=0 14s
+rmi-31ce24621 rc=0
+worktree /home/dev/work/EZCorp/EZHarness-worktrees/composable-factory-platform/.worktrees/i5-legcd-31ce24621 removed rc=0
+== re-run of (c) 2026-10-17T02:18:55Z
+prep-8fb4474e9 rc=0 7s
+c8 rc=1 226s
+worktree /home/dev/work/EZCorp/EZHarness-worktrees/composable-factory-platform/.worktrees/i5-legc2-8fb4474e9 removed rc=0
+prep-31ce24621 rc=0 9s
+c31 rc=0 126s
+worktree /home/dev/work/EZCorp/EZHarness-worktrees/composable-factory-platform/.worktrees/i5-legc2-31ce24621 removed rc=0

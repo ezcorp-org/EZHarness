@@ -1,0 +1,15 @@
+bun test v1.4.2 (744846f84)
+{"ts":"2026-10-16T01:01:57.965Z","level":"info","msg":"Watchdog deferring","subsystem":"executor.watchdog","runId":"run-builtin-1","conversationId":"conv-builtin-1","idleMs":15000,"reason":"tool readFile in flight"}
+{"ts":"2026-10-16T01:01:57.965Z","level":"info","msg":"Watchdog deferring","subsystem":"executor.watchdog","runId":"run-builtin-1","conversationId":"conv-builtin-1","idleMs":15000,"reason":"tool shell in flight"}
+{"ts":"2026-10-16T01:01:57.966Z","level":"info","msg":"Watchdog deferring","subsystem":"executor.watchdog","runId":"run-builtin-1","conversationId":"conv-builtin-1","idleMs":15000,"reason":"tool shell in flight"}
+{"ts":"2026-10-16T01:01:57.966Z","level":"info","msg":"Watchdog deferral ended","subsystem":"executor.watchdog","runId":"run-builtin-1","conversationId":"conv-builtin-1","reason":"tool shell in flight","deferredMs":585000}
+{"ts":"2026-10-16T01:01:57.966Z","level":"error","msg":"Watchdog tripped, interrupting run","subsystem":"executor.watchdog","runId":"run-builtin-1","conversationId":"conv-builtin-1","idleMs":90000,"reason":"Tool shell exceeded its 600000ms call timeout"}
+{"ts":"2026-10-16T01:01:57.967Z","level":"info","msg":"Watchdog deferring","subsystem":"executor.watchdog","runId":"run-builtin-1","conversationId":"conv-builtin-1","idleMs":15000,"reason":"tool read_page in flight"}
+{"ts":"2026-10-16T01:01:57.993Z","level":"info","msg":"Watchdog deferring","subsystem":"executor.watchdog","runId":"run-builtin-1","conversationId":"conv-builtin-1","idleMs":15000,"reason":"tool read_page in flight"}
+{"ts":"2026-10-16T01:01:57.993Z","level":"info","msg":"Watchdog deferral ended","subsystem":"executor.watchdog","runId":"run-builtin-1","conversationId":"conv-builtin-1","reason":"tool read_page in flight","deferredMs":315000}
+{"ts":"2026-10-16T01:01:57.993Z","level":"error","msg":"Watchdog tripped, interrupting run","subsystem":"executor.watchdog","runId":"run-builtin-1","conversationId":"conv-builtin-1","idleMs":90000,"reason":"Tool read_page exceeded its 330000ms call timeout"}
+
+ 7 pass
+ 0 fail
+ 152 expect() calls
+Ran 7 tests across 1 file. [475.00ms]

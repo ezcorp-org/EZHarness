@@ -1,0 +1,44 @@
+Gate integrity FAILED (41 finding(s)):
+  threshold key removed: "src/extensions/mcp-sandbox.ts" (was 91) — removing a key removes a gate
+  threshold key removed: "src/runtime/preview/preview-netns.ts" (was 100) — removing a key removes a gate
+  test file DELETED: docs/extensions/examples/task-stack/sandbox-load.test.ts — removing a test removes a gate — needs the gate-change-approved label
+  test file DELETED: docs/extensions/examples/todo-tracker/sandbox-load.test.ts — removing a test removes a gate — needs the gate-change-approved label
+  test file DELETED: src/__tests__/build-allowed-env-injection.test.ts — removing a test removes a gate — needs the gate-change-approved label
+  test file DELETED: src/__tests__/mcp-bridge.test.ts — removing a test removes a gate — needs the gate-change-approved label
+  test file DELETED: src/__tests__/mcp-conntrack-guard.test.ts — removing a test removes a gate — needs the gate-change-approved label
+  test file DELETED: src/__tests__/mcp-launcher-fs-jail.test.ts — removing a test removes a gate — needs the gate-change-approved label
+  test file DELETED: src/__tests__/mcp-netns-fallback.test.ts — removing a test removes a gate — needs the gate-change-approved label
+  test file DELETED: src/__tests__/mcp-netns-integration.test.ts — removing a test removes a gate — needs the gate-change-approved label
+  test file DELETED: src/__tests__/mcp-netns-raw-socket-blocked.test.ts — removing a test removes a gate — needs the gate-change-approved label
+  test file DELETED: src/__tests__/mcp-proxy.test.ts — removing a test removes a gate — needs the gate-change-approved label
+  test file DELETED: src/__tests__/mcp-sandbox-require-sandbox.test.ts — removing a test removes a gate — needs the gate-change-approved label
+  test file DELETED: src/__tests__/mcp-sandbox.test.ts — removing a test removes a gate — needs the gate-change-approved label
+  test file DELETED: src/__tests__/mcp-seccomp-compile.test.ts — removing a test removes a gate — needs the gate-change-approved label
+  test file DELETED: src/__tests__/mcp-seccomp-enforce-flip.test.ts — removing a test removes a gate — needs the gate-change-approved label
+  test file DELETED: src/__tests__/mcp-seccomp-enforce-integration.test.ts — removing a test removes a gate — needs the gate-change-approved label
+  test file DELETED: src/__tests__/mcp-seccomp-profile.test.ts — removing a test removes a gate — needs the gate-change-approved label
+  test file DELETED: src/__tests__/mcp-stage1-soak-reader.test.ts — removing a test removes a gate — needs the gate-change-approved label
+  test file DELETED: src/__tests__/mcp-stage2-conntrack-soak.test.ts — removing a test removes a gate — needs the gate-change-approved label
+  test file DELETED: src/__tests__/mcp-stage2-ipv6-disabled.test.ts — removing a test removes a gate — needs the gate-change-approved label
+  test file DELETED: src/__tests__/mcp-stage2-orphan-sweep.test.ts — removing a test removes a gate — needs the gate-change-approved label
+  test file DELETED: src/__tests__/mcp-veth-allocator.test.ts — removing a test removes a gate — needs the gate-change-approved label
+  test file DELETED: src/__tests__/mcp-veth-bridge-integration.test.ts — removing a test removes a gate — needs the gate-change-approved label
+  test file DELETED: src/__tests__/mcp-veth-probe.test.ts — removing a test removes a gate — needs the gate-change-approved label
+  test file DELETED: src/__tests__/network-wrapper.integration.test.ts — removing a test removes a gate — needs the gate-change-approved label
+  test file DELETED: src/__tests__/network-wrapper.test.ts — removing a test removes a gate — needs the gate-change-approved label
+  test file DELETED: src/__tests__/preview-netns.test.ts — removing a test removes a gate — needs the gate-change-approved label
+  test file DELETED: src/__tests__/sandbox-ez-code-render.test.ts — removing a test removes a gate — needs the gate-change-approved label
+  test file DELETED: src/__tests__/security/sandbox-preload-egress-enforcement.test.ts — removing a test removes a gate — needs the gate-change-approved label
+  test file DELETED: src/__tests__/security/sandbox-preload-inprocess.test.ts — removing a test removes a gate — needs the gate-change-approved label
+  test file DELETED: src/__tests__/security/sb2-network-egress.test.ts — removing a test removes a gate — needs the gate-change-approved label
+  test file DELETED: src/__tests__/security/sb3-child-process-escape.test.ts — removing a test removes a gate — needs the gate-change-approved label
+  test file DELETED: src/__tests__/security/sb4-fs-egress.test.ts — removing a test removes a gate — needs the gate-change-approved label
+  test file DELETED: src/__tests__/subprocess-spawn-cwd.test.ts — removing a test removes a gate — needs the gate-change-approved label
+  test file DELETED: src/__tests__/tool-executor-schedule-daemon.test.ts — removing a test removes a gate — needs the gate-change-approved label
+  test file DELETED: web/src/__tests__/security/bundled-creds.test.ts — removing a test removes a gate — needs the gate-change-approved label
+  test file DELETED: web/src/__tests__/security/system-user.test.ts — removing a test removes a gate — needs the gate-change-approved label
+  src/__tests__/permission-enforcement.test.ts: test file GUTTED in place: removes 32 assertion/test line(s), adds 0 (net -32 of 56 at base — >50% loss) — hollowing out a surviving test file needs the gate-change-approved label
+  src/__tests__/sandbox-seam-a-b.test.ts: test file GUTTED in place: removes 28 assertion/test line(s), adds 0 (net -28 of 54 at base — >50% loss) — hollowing out a surviving test file needs the gate-change-approved label
+  web/src/__tests__/security/openai-extension-creds.test.ts: test file GUTTED in place: removes 31 assertion/test line(s), adds 0 (net -31 of 60 at base — >50% loss) — hollowing out a surviving test file needs the gate-change-approved label
+
+If a change here is legitimate, a maintainer must apply the `gate-change-approved` label (sets GATE_CHANGE_APPROVED=1).

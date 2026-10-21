@@ -1,0 +1,12 @@
+bun test v1.4.2 (744846f84)
+{"ts":"2026-10-16T00:48:06.363Z","level":"warn","msg":"call-provenance resolve miss — token unknown or already released","subsystem":"ext.call-provenance","liveEntries":0}
+{"ts":"2026-10-16T00:48:06.363Z","level":"warn","msg":"call-provenance resolve miss — token unknown or already released","subsystem":"ext.call-provenance","liveEntries":0}
+{"ts":"2026-10-16T00:48:06.364Z","level":"warn","msg":"call-provenance resolve miss — token unknown or already released","subsystem":"ext.call-provenance","liveEntries":0}
+{"ts":"2026-10-16T00:48:06.364Z","level":"warn","msg":"call-provenance resolve miss — token unknown or already released","subsystem":"ext.call-provenance","liveEntries":0}
+{"ts":"2026-10-16T00:48:06.378Z","level":"warn","msg":"call-provenance resolve miss — token unknown or already released","subsystem":"ext.call-provenance","liveEntries":2}
+{"ts":"2026-10-16T00:48:06.378Z","level":"warn","msg":"call-provenance resolve miss — token unknown or already released","subsystem":"ext.call-provenance","liveEntries":1}
+
+ 26 pass
+ 0 fail
+ 101 expect() calls
+Ran 26 tests across 1 file. [689.00ms]

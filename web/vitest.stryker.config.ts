@@ -4,7 +4,8 @@
  * using vitest.config.ts, which this file derives from so the two cannot drift
  * on aliases, stubs or environment.
  *
- * It changes exactly one thing: it drops `*.server.test.ts` from `include`.
+ * It changes exactly two things: it drops `*.server.test.ts` from `include`,
+ * and it points `$server` at the repository's src/ from inside the sandbox.
  *
  * WHY. Stryker runs the suite inside a sandbox under web/.stryker-tmp/, seeded
  * from git. vitest.config.ts aliases `$server` to `resolve(__dirname, "../src")` —
@@ -26,8 +27,25 @@
  *     file took 18m51s with 93 timeouts), so scripts/mutation.ts instead FAILS
  *     LOUDLY on any file that comes back 100% NoCoverage. Read the
  *     `related` trap in web/stryker.config.json before changing either side.
+ *
+ * `$server` IN THE SANDBOX. The non-server tests import repository src/ too,
+ * through `$lib` modules (model-selector-logic.ts reads
+ * `$server/runtime/routing/default-selection`). Inside the sandbox "../src" is
+ * web/.stryker-tmp/src, which does not exist, so such a test failed to load and
+ * every mutant of its subject "survived" with no test run (W4H-33b:
+ * send-message.ts, 21 mutants). The alias therefore names the real src/ next to
+ * the real web/: it is never mutated, so reading it in place is safe.
  */
+import { resolve } from "node:path";
+import strykerOptions from "./stryker.config.json";
 import base from "./vitest.config";
+
+/** web/ itself: the folder above Stryker's temp folder when loaded from a sandbox. */
+const sandboxMarker = `/${strykerOptions.tempDirName}/`;
+const configDirectory = import.meta.dirname;
+const webDirectory = configDirectory.includes(sandboxMarker)
+	? configDirectory.slice(0, configDirectory.indexOf(sandboxMarker))
+	: configDirectory;
 
 const baseTest = base.test ?? {};
 const baseInclude = baseTest.include ?? [];
@@ -47,4 +65,8 @@ if (include.length === baseInclude.length) {
   );
 }
 
-export default { ...base, test: { ...baseTest, include } };
+export default {
+	...base,
+	resolve: { ...base.resolve, alias: { ...base.resolve?.alias, $server: resolve(webDirectory, "../src") } },
+	test: { ...baseTest, include },
+};

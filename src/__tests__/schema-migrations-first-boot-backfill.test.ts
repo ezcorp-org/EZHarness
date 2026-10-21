@@ -45,7 +45,7 @@ describe("schema-migrations: first-boot backfill order + no-op guards", () => {
     // Seed a chat run whose conversation is owned but whose user_id is NULL —
     // exactly the historical shape the IDOR backfill targets.
     const pg = getTestPglite();
-    await pg.query(`INSERT INTO users (id, email, password_hash, name, role) VALUES ($1,$2,'x','U','member')`, [USER, "fb1@x.com"]);
+    await pg.query(`INSERT INTO users (id, email, password_hash, name, role) VALUES ($1,$2,'x','U','member')`, [USER, "fb1@x.example"]);
     await pg.query(`INSERT INTO projects (id, name, path) VALUES ($1,'fb1','/tmp/fb1')`, [PROJECT]);
     await pg.query(`INSERT INTO conversations (id, project_id, title, user_id) VALUES ($1,$2,'c',$3)`, [CONV, PROJECT, USER]);
     await pg.query(`INSERT INTO runs (id, agent_name, status, started_at, conversation_id, user_id) VALUES ($1,'chat','success',NOW(),$2,NULL)`, [RUN, CONV]);
@@ -169,7 +169,7 @@ describe("schema-migrations: first-boot backfill order + no-op guards", () => {
     const PROJECT = "p-fb-throw";
     const CONV = "conv-fb-throw";
     const RUN = "run-fb-throw";
-    await pg.query(`INSERT INTO users (id, email, password_hash, name, role) VALUES ($1,$2,'x','U','member')`, [USER, "fbt@x.com"]);
+    await pg.query(`INSERT INTO users (id, email, password_hash, name, role) VALUES ($1,$2,'x','U','member')`, [USER, "fbt@x.example"]);
     await pg.query(`INSERT INTO projects (id, name, path) VALUES ($1,'fbt','/tmp/fbt')`, [PROJECT]);
     await pg.query(`INSERT INTO conversations (id, project_id, title, user_id) VALUES ($1,$2,'c',$3)`, [CONV, PROJECT, USER]);
     await pg.query(`INSERT INTO runs (id, agent_name, status, started_at, conversation_id, user_id) VALUES ($1,'chat','success',NOW(),$2,NULL)`, [RUN, CONV]);

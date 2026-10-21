@@ -1,0 +1,23 @@
+bun test v1.4.2 (744846f84)
+
+packages/@ezcorp/ai-kit/test/unit/deployed-preconditions.test.ts:
+86 |       { id: "22222222-2222-4222-8222-222222222222", name: "writer" },
+87 |       { id: "33333333-3333-4333-8333-333333333333", name: "crew", category: "team", references: { autoSpinUp: true } },
+88 |     ];
+89 |     const { code, output } = await runSuite("fanout");
+90 |     expect(code).not.toBe(0);
+91 |     for (const name of CASES) expect(output).toContain(`(fail) e2e: four fan-out mechanisms > ${name}`);
+                                                  ^
+error: expect(received).toContain(expected)
+
+Expected to contain: "(fail) e2e: four fan-out mechanisms > (c) assign_task"
+Received: "bun test v1.4.2 (744846f84)\nskip: precondition an agent missing; tracked: ai-kit-deployed-lane\n\ntest/e2e/fanout.test.ts:\n220 |       // replaying the bearer token — plus not trusting a response body a\n221 |       // redirect could steer us to.\n222 |       redirect: \"error\",\n223 |     });\n224 |     if (!res.ok) {\n225 |       throw new EzcorpApiError(res.status, url.toString(), await res.text());\n                  ^\nEzcorpApiError: EZCorp API 500 at http://127.0.0.1:45719/api/conversations: {\"error\":\"stub: broken\"}\n status: 500,\n    url: \"http://127.0.0.1:45719/api/conversations\",\n   body: \"{\\\"error\\\":\\\"stub: broken\\\"}\",\n\n      at request (/home/dev/work/EZCorp/EZHarness/.worktrees/w4h-33/packages/@ezcorp/ai-kit/src/client.ts:225:13)\n      at async <anonymous> (/home/dev/work/EZCorp/EZHarness/.worktrees/w4h-33/packages/@ezcorp/ai-kit/src/client.ts:492:33)\n      at async spawnChats (/home/dev/work/EZCorp/EZHarness/.worktrees/w4h-33/packages/@ezcorp/ai-kit/src/client.ts:490:35)\n      at async <anonymous> (/home/dev/work/EZCorp/EZHarness/.worktrees/w4h-33/packages/@ezcorp/ai-kit/test/e2e/fanout.test.ts:46:32)\n(fail) e2e: four fan-out mechanisms > (d) spawn_chats — batch of 3 independent root conversations [2.10ms]\n220 |       // replaying the bearer token — plus not trusting a response body a\n221 |       // redirect could steer us to.\n222 |       redirect: \"error\",\n223 |     });\n224 |     if (!res.ok) {\n225 |       throw new EzcorpApiError(res.status, url.toString(), await res.text());\n                  ^\nEzcorpApiError: EZCorp API 500 at http://127.0.0.1:45719/api/conversations: {\"error\":\"stub: broken\"}\n status: 500,\n    url: \"http://127.0.0.1:45719/api/conversations\",\n   body: \"{\\\"error\\\":\\\"stub: broken\\\"}\",\n\n      at request (/home/dev/work/EZCorp/EZHarness/.worktrees/w4h-33/packages/@ezcorp/ai-kit/src/client.ts:225:13)\n      at async <anonymous> (/home/dev/work/EZCorp/EZHarness/.worktrees/w4h-33/packages/@ezcorp/ai-kit/test/e2e/fanout.test.ts:60:26)\n(fail) e2e: four fan-out mechanisms > (a) parallel ![agent:…] mentions spawn concurrent sub-conversations [0.19ms]\n220 |       // replaying the bearer token — plus not trusting a response body a\n221 |       // redirect could steer us to.\n222 |       redirect: \"error\",\n223 |     });\n224 |     if (!res.ok) {\n225 |       throw new EzcorpApiError(res.status, url.toString(), await res.text());\n                  ^\nEzcorpApiError: EZCorp API 500 at http://127.0.0.1:45719/api/conversations: {\"error\":\"stub: broken\"}\n status: 500,\n    url: \"http://127.0.0.1:45719/api/conversations\",\n   body: \"{\\\"error\\\":\\\"stub: broken\\\"}\",\n\n      at request (/home/dev/work/EZCorp/EZHarness/.worktrees/w4h-33/packages/@ezcorp/ai-kit/src/client.ts:225:13)\n      at async <anonymous> (/home/dev/work/EZCorp/EZHarness/.worktrees/w4h-33/packages/@ezcorp/ai-kit/test/e2e/fanout.test.ts:71:26)\n(fail) e2e: four fan-out mechanisms > (b) ![team:…] with autoSpinUp spawns every member [0.21ms]\n(skip) e2e: four fan-out mechanisms > (c) assign_task + start_assignment spawns a sub-conversation\n\n 0 pass\n 1 skip\n 3 fail\nRan 4 tests across 1 file. [23.00ms]\n"
+
+      at <anonymous> (/home/dev/work/EZCorp/EZHarness/.worktrees/w4h-33/packages/@ezcorp/ai-kit/test/unit/deployed-preconditions.test.ts:91:46)
+(fail) fanout: preconditions 'agents researcher and writer', 'autoSpinUp team', 'an agent' > present, behaviour wrong: each of the three cases runs and FAILS, and none skips [25.49ms]
+
+ 5 pass
+ 1 fail
+ 23 expect() calls
+Ran 6 tests across 1 file. [516.00ms]
+exit=1

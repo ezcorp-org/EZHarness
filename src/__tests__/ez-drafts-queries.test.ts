@@ -24,8 +24,8 @@ let userB: string;
 
 beforeAll(async () => {
   await setupTestDb();
-  const a = await createUser({ email: "drafts-a@test.com", passwordHash: "h", name: "A" });
-  const b = await createUser({ email: "drafts-b@test.com", passwordHash: "h", name: "B" });
+  const a = await createUser({ email: "drafts-a@test.example", passwordHash: "h", name: "A" });
+  const b = await createUser({ email: "drafts-b@test.example", passwordHash: "h", name: "B" });
   userA = a.id;
   userB = b.id;
 });

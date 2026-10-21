@@ -1,0 +1,17 @@
+#!/usr/bin/env python3
+# socket-counts.py <proof label dir> (integrator-5, W4H-30 hold): for the NEWEST hold-* run under <dir>, print each resources pass's
+# per-sample app socket counts (r4-resource-samples.json: appFdClasses.socket; appFds; established TCP) and BIND: every pass completed
+# all its cycles with no failure record. Exit 1 on a missing receipt, an incomplete pass or a failure record.
+import glob, json, os, sys
+runs = sorted(glob.glob(os.path.join(sys.argv[1], 'hold-*')))
+if not runs: print('no hold run'); sys.exit(1)
+st = 0; passes = sorted(glob.glob(os.path.join(runs[-1], 'receipts-proof-resources-*', 'runtime-resources', 'runtime', 'r4-resource-samples.json')))
+print('run', runs[-1], 'passes', len(passes))
+if not passes: st = 1
+for p in passes:
+    d = json.load(open(p)); ss = [d['baseline'], d['relationCacheWarmup']] + d['samples']
+    print(os.path.relpath(p, runs[-1]).split('/')[0], 'cycles', d['completedCycles'], '/', d['cycles'], 'failure' if 'failure' in d else 'no failure')
+    print('  sockets per sample (cycle:count)', ' '.join(f"{s['cycle']}:{(s.get('appFdClasses') or {}).get('socket', '-')}" for s in ss))
+    print('  appFds', ' '.join(str(s['appFds']) for s in ss), '| established TCP', ' '.join(str(s['appEstablishedTcpConnections']) for s in ss))
+    if 'failure' in d or d['completedCycles'] != d['cycles']: st = 1
+print('BINDING', 'PASS' if st == 0 else 'FAIL'); sys.exit(st)

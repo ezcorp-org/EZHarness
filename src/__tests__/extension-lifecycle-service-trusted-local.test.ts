@@ -45,14 +45,16 @@ mock.module("../extensions/trusted-local-runner", () => ({
 }));
 
 import { validateManifest } from "@ezcorp/extension-contract";
-import { trustedLocalImage } from "@ezcorp/extension-runner";
+import { RunnerError, trustedLocalImage } from "@ezcorp/extension-runner";
 import { users } from "../db/schema";
 import { listAuditLog } from "../db/queries/audit-log";
 import { findTrustedLocalApproval } from "../db/queries/extension-trusted-local-approvals";
 import { ExtensionRegistry } from "../extensions/registry";
-import { getExtensionLifecycle, resetExtensionServices } from "../extensions/extension-lifecycle-service";
+import { getExtensionLifecycle, getExtensionReleaseBlobs, getExtensionRunner, resetExtensionServices } from "../extensions/extension-lifecycle-service";
+import { DatabaseLifecycleRepository } from "../db/queries/extension-releases";
+import { sql } from "drizzle-orm";
 import { trustedLocalBunDigest, UNSANDBOXED_ACK_SENTENCE } from "../extensions/runner-mode";
-import { digestObject } from "../extensions/v4/blobs";
+import { digestObject, FileBlobStore, getFiles, putFiles } from "../extensions/v4/blobs";
 
 const ENV = ["EZCORP_EXTENSION_RUNNER", "EZCORP_EXTENSIONS_UNSANDBOXED_ACK", "EZCORP_EXTENSION_RUNNER_SOCKET", "EZCORP_EXTENSION_RUNNER_TOKEN", "EZCORP_EXTENSION_RUNNER_TOKEN_FILE", "EZCORP_EXTENSION_BLOB_ROOT"] as const;
 const previous = new Map<string, string | undefined>();
@@ -86,6 +88,33 @@ afterAll(async () => {
 });
 
 describe("extension lifecycle service in trusted-local mode", () => {
+  test("the release store a factory preparation reads is the one the lifecycle writes (W4H-26)", async () => {
+    const files = { "extension.ts": "export {};" };
+    const digest = await putFiles(await getExtensionReleaseBlobs(), files, "workspace");
+    expect(await getFiles(new FileBlobStore(blobRoot), digest, "workspace")).toEqual(files);
+  });
+
+  test("the runner every lifecycle path uses restores a missing artifact from the release blobs it writes (W4H-32)", async () => {
+    const files = { "extension.js": "export {};", ".runner/recipe.json": "{}" };
+    const artifactDigest = await putFiles(await getExtensionReleaseBlobs(), files, "artifact");
+    await new DatabaseLifecycleRepository(getTestDb()).create({ installation: { id: "w4h32-installation", ownerId: ADMIN_USER.id, scope: "global", generation: 1, enabled: false, uninstalled: false, status: "active", grants: [], acknowledgedGeneration: 1 } as never, workspaces: {}, revisions: {}, operations: {}, releases: { "w4h32-release": { id: "w4h32-release", installationId: "w4h32-installation", artifactDigest } as never }, approvals: {} });
+    const held = new Set<string>();
+    const restored: string[] = [];
+    fakeRunner = {
+      async collectArtifacts(digest: string) { if (!held.has(digest)) throw new RunnerError("artifact_missing", "The release's artifact is not in this runner's store"); return files; },
+      async restoreArtifact(digest: string) { restored.push(digest); held.add(digest); },
+    };
+    try {
+      expect(await (await getExtensionRunner()).collectArtifacts(artifactDigest)).toEqual(files);
+      expect(restored).toEqual([artifactDigest]);
+    } finally {
+      fakeRunner = undefined;
+      // Only this test's rows: a later recovery sweep must not find a fixture installation it cannot recover.
+      await getTestDb().execute(sql`DELETE FROM extension_release_records WHERE installation_id = 'w4h32-installation'`);
+      await getTestDb().execute(sql`DELETE FROM extension_release_installations WHERE id = 'w4h32-installation'`);
+    }
+  });
+
   test("initialisation installs the runner's approval store and audit sink exactly once", async () => {
     await getExtensionLifecycle();
     await getExtensionLifecycle();

@@ -1,0 +1,9 @@
+bun test v1.4.2 (744846f84)
+{"ts":"2026-10-16T01:16:50.868Z","level":"warn","msg":"GitHub release fetch failed","subsystem":"update-check","error":"Error: network down"}
+{"ts":"2026-10-16T01:16:50.868Z","level":"warn","msg":"GitHub release fetch non-ok","subsystem":"update-check","status":403}
+{"ts":"2026-10-16T01:16:50.869Z","level":"warn","msg":"Could not persist update-check cache","subsystem":"update-check","error":"Error: EISDIR: illegal operation on a directory, open '/tmp/ezcorp-update-test-Ly2Lyp/.update-check.json'"}
+
+ 22 pass
+ 0 fail
+ 53 expect() calls
+Ran 22 tests across 1 file. [479.00ms]

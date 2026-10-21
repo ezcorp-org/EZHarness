@@ -162,6 +162,41 @@ describe("factory pool process lifecycle", () => {
     expect(updates.at(-1)).toMatchObject({ lifecycle: "stopped", databaseReady: false });
   });
 
+  test("serves its declared metrics endpoint over the ledger with its configured tenants, and keeps serving admission when it cannot (C11 M4)", async () => {
+    const metrics = { hostname: "127.0.0.1", port: 9465, scrapeTokenPath: "/run/ezcorp/secrets/pool-metrics-token" };
+    const { paths } = await fixture({ metrics, identities: { tenants: { "cert-a": { tenantId: "tenant-a", tokenSubject: "a" }, "cert-a2": { tenantId: "tenant-a", tokenSubject: "a2" }, "cert-b": { tenantId: "tenant-b", tokenSubject: "b" } }, supervisors: {} } });
+    const served: Array<{ endpoint: unknown; registered: unknown; samples: unknown[]; stopped: boolean }> = [];
+    const database = new ProcessDatabase(); const controller = new AbortController(); const updates: FactoryPoolReadinessUpdate[] = [];
+    await runConfiguredFactoryPoolProcess(paths.config, controller.signal, {
+      ...dependencies(database, controller, updates),
+      metrics: async (endpoint, collect, registered) => {
+        const entry = { endpoint, registered, samples: [...await collect()], stopped: false };
+        served.push(entry);
+        return { url: "http://127.0.0.1:9465", stop: async () => { entry.stopped = true; } };
+      },
+    });
+    expect(served).toHaveLength(1);
+    expect(served[0]).toMatchObject({ endpoint: metrics, registered: { tenant: ["tenant-a", "tenant-b"] }, stopped: true });
+    expect(served[0]!.samples).toContainEqual({ name: "factory_pool_tenant_holds", labels: { tenant: "tenant-b" }, value: 0 });
+
+    const reports: string[] = [];
+    const failing = new AbortController(); const failingUpdates: FactoryPoolReadinessUpdate[] = [];
+    await runConfiguredFactoryPoolProcess(paths.config, failing.signal, {
+      ...dependencies(new ProcessDatabase(), failing, failingUpdates),
+      metrics: async () => { throw Object.assign(new Error("secret path /run/x"), { code: "factory_metrics_token_unreadable" }); },
+      report: (code) => { reports.push(code); },
+    });
+    expect(reports).toEqual(["factory_metrics_token_unreadable"]);
+    expect(failingUpdates.some(value => value.lifecycle === "ready" && value.listenerReady)).toBe(true);
+    expect(failingUpdates.at(-1)).toMatchObject({ lifecycle: "stopped" });
+  });
+
+  test("refuses a malformed metrics endpoint in its configuration", async () => {
+    const { config } = await fixture();
+    expect(() => parseFactoryPoolProcessConfig({ ...config, metrics: { hostname: "127.0.0.1", port: 0, scrapeTokenPath: "/x" } })).toThrow("factory pool config is invalid");
+    expect(parseFactoryPoolProcessConfig({ ...config, metrics: { hostname: "127.0.0.1", port: 9465, scrapeTokenPath: "/x" } }).metrics).toEqual({ hostname: "127.0.0.1", port: 9465, scrapeTokenPath: "/x" });
+  });
+
   test("accepts Bun row objects and publishes a successful production heartbeat before shutdown", async () => {
     const { paths } = await fixture(); const database = new ProcessDatabase(); database.resultRowsObject = true;
     const controller = new AbortController(); const updates: FactoryPoolReadinessUpdate[] = [];

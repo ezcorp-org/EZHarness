@@ -48,8 +48,8 @@ describe("upsertRating atomic + race-safe", () => {
 
   beforeEach(async () => {
     await setupTestDb();
-    authorId = (await createUser({ email: "author@t.com", passwordHash: "h", name: "A" })).id;
-    userId = (await createUser({ email: "rater@t.com", passwordHash: "h", name: "R" })).id;
+    authorId = (await createUser({ email: "author@t.example", passwordHash: "h", name: "A" })).id;
+    userId = (await createUser({ email: "rater@t.example", passwordHash: "h", name: "R" })).id;
   });
   afterAll(async () => await closeTestDb());
 

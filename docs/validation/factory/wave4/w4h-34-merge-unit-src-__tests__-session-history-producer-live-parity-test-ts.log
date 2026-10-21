@@ -1,0 +1,39 @@
+bun test v1.4.2 (744846f84)
+{"ts":"2026-10-17T23:42:06.610Z","level":"info","msg":"skipped: model lacks image input capability","subsystem":"executor.loadHistory.rehydrate","branchLen":4}
+{"ts":"2026-10-17T23:42:06.632Z","level":"info","msg":"skipped: model lacks image input capability","subsystem":"executor.loadHistory.rehydrate","branchLen":4}
+{"ts":"2026-10-17T23:42:06.648Z","level":"info","msg":"skipped: model lacks image input capability","subsystem":"executor.loadHistory.rehydrate","branchLen":4}
+{"ts":"2026-10-17T23:42:06.656Z","level":"info","msg":"skipped: model lacks image input capability","subsystem":"executor.loadHistory.rehydrate","branchLen":4}
+{"ts":"2026-10-17T23:42:06.665Z","level":"info","msg":"skipped: model lacks image input capability","subsystem":"executor.loadHistory.rehydrate","branchLen":2}
+{"ts":"2026-10-17T23:42:06.671Z","level":"info","msg":"skipped: model lacks image input capability","subsystem":"executor.loadHistory.rehydrate","branchLen":2}
+{"ts":"2026-10-17T23:42:06.685Z","level":"info","msg":"skipped: model lacks image input capability","subsystem":"executor.loadHistory.rehydrate","branchLen":6}
+{"ts":"2026-10-17T23:42:06.695Z","level":"info","msg":"skipped: model lacks image input capability","subsystem":"executor.loadHistory.rehydrate","branchLen":6}
+{"ts":"2026-10-17T23:42:06.699Z","level":"info","msg":"skipped: model lacks image input capability","subsystem":"executor.loadHistory.rehydrate","branchLen":0}
+{"ts":"2026-10-17T23:42:06.702Z","level":"info","msg":"skipped: model lacks image input capability","subsystem":"executor.loadHistory.rehydrate","branchLen":0}
+{"ts":"2026-10-17T23:42:06.714Z","level":"info","msg":"walked","subsystem":"executor.loadHistory.rehydrate","assistantsInBranch":1,"toolRowsFound":0,"urlsSeen":0,"statMisses":0,"imagesInjected":0,"totalBytes":0,"cwd":"/tmp/live-parity-AbC7MA"}
+{"ts":"2026-10-17T23:42:06.722Z","level":"info","msg":"walked","subsystem":"executor.loadHistory.rehydrate","assistantsInBranch":1,"toolRowsFound":0,"urlsSeen":0,"statMisses":0,"imagesInjected":0,"totalBytes":0,"cwd":"/tmp/live-parity-AbC7MA"}
+{"ts":"2026-10-17T23:42:06.738Z","level":"info","msg":"walked","subsystem":"executor.loadHistory.rehydrate","assistantsInBranch":1,"toolRowsFound":0,"urlsSeen":1,"statMisses":0,"imagesInjected":1,"totalBytes":8,"cwd":"/tmp/live-parity-ucGezK"}
+{"ts":"2026-10-17T23:42:06.746Z","level":"info","msg":"walked","subsystem":"executor.loadHistory.rehydrate","assistantsInBranch":1,"toolRowsFound":0,"urlsSeen":1,"statMisses":0,"imagesInjected":1,"totalBytes":8,"cwd":"/tmp/live-parity-ucGezK"}
+{"ts":"2026-10-17T23:42:06.756Z","level":"info","msg":"walked","subsystem":"executor.loadHistory.rehydrate","assistantsInBranch":1,"toolRowsFound":1,"urlsSeen":1,"statMisses":0,"imagesInjected":1,"totalBytes":8,"cwd":"/tmp/live-parity-6rOu0K"}
+{"ts":"2026-10-17T23:42:06.764Z","level":"info","msg":"walked","subsystem":"executor.loadHistory.rehydrate","assistantsInBranch":1,"toolRowsFound":1,"urlsSeen":1,"statMisses":0,"imagesInjected":1,"totalBytes":8,"cwd":"/tmp/live-parity-6rOu0K"}
+{"ts":"2026-10-17T23:42:06.771Z","level":"info","msg":"skipped: model lacks image input capability","subsystem":"executor.loadHistory.rehydrate","branchLen":2}
+{"ts":"2026-10-17T23:42:06.777Z","level":"info","msg":"skipped: model lacks image input capability","subsystem":"executor.loadHistory.rehydrate","branchLen":2}
+{"ts":"2026-10-17T23:42:06.780Z","level":"warn","msg":"session history producer failed — using legacy branch for this turn (delete the conversation's agent_sessions row to force a fresh backfill)","subsystem":"executor.loadHistory.rehydrate","conversationId":"9b51ec6b-0aa7-4dcc-8fb8-a3b54e1e233c","error":"SessionError: Entry does-not-exist not found"}
+{"ts":"2026-10-17T23:42:06.781Z","level":"info","msg":"skipped: model lacks image input capability","subsystem":"executor.loadHistory.rehydrate","branchLen":2}
+{"ts":"2026-10-17T23:42:06.791Z","level":"info","msg":"skipped: model lacks image input capability","subsystem":"executor.loadHistory.rehydrate","branchLen":4}
+{"ts":"2026-10-17T23:42:06.797Z","level":"info","msg":"skipped: model lacks image input capability","subsystem":"executor.loadHistory.rehydrate","branchLen":4}
+{"ts":"2026-10-17T23:42:06.798Z","level":"info","msg":"skipped: model lacks image input capability","subsystem":"executor.loadHistory.rehydrate","branchLen":4}
+{"ts":"2026-10-17T23:42:06.809Z","level":"info","msg":"skipped: model lacks image input capability","subsystem":"executor.loadHistory.rehydrate","branchLen":3}
+{"ts":"2026-10-17T23:42:06.811Z","level":"info","msg":"skipped: model lacks image input capability","subsystem":"executor.loadHistory.rehydrate","branchLen":2}
+{"ts":"2026-10-17T23:42:06.814Z","level":"info","msg":"skipped: model lacks image input capability","subsystem":"executor.loadHistory.rehydrate","branchLen":2}
+{"ts":"2026-10-17T23:42:06.825Z","level":"info","msg":"skipped: model lacks image input capability","subsystem":"executor.loadHistory.rehydrate","branchLen":3}
+{"ts":"2026-10-17T23:42:06.828Z","level":"info","msg":"skipped: model lacks image input capability","subsystem":"executor.loadHistory.rehydrate","branchLen":2}
+{"ts":"2026-10-17T23:42:06.830Z","level":"info","msg":"skipped: model lacks image input capability","subsystem":"executor.loadHistory.rehydrate","branchLen":3}
+{"ts":"2026-10-17T23:42:06.832Z","level":"info","msg":"skipped: model lacks image input capability","subsystem":"executor.loadHistory.rehydrate","branchLen":3}
+{"ts":"2026-10-17T23:42:06.844Z","level":"info","msg":"skipped: model lacks image input capability","subsystem":"executor.loadHistory.rehydrate","branchLen":2}
+{"ts":"2026-10-17T23:42:06.846Z","level":"info","msg":"skipped: model lacks image input capability","subsystem":"executor.loadHistory.rehydrate","branchLen":3}
+{"ts":"2026-10-17T23:42:06.850Z","level":"info","msg":"skipped: model lacks image input capability","subsystem":"executor.loadHistory.rehydrate","branchLen":3}
+
+ 13 pass
+ 0 fail
+ 30 expect() calls
+Ran 13 tests across 1 file. [2.76s]

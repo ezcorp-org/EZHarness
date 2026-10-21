@@ -1,0 +1,35 @@
+bun test v1.4.2 (744846f84)
+{"ts":"2026-10-16T00:55:02.164Z","level":"info","msg":"preview:detected","subsystem":"preview.port-watcher","conversationId":"conv1","port":5173}
+{"ts":"2026-10-16T00:55:02.165Z","level":"info","msg":"preview:detected","subsystem":"preview.port-watcher","conversationId":"conv1","port":3001}
+{"ts":"2026-10-16T00:55:02.165Z","level":"info","msg":"preview:detected","subsystem":"preview.port-watcher","conversationId":"conv1","port":5173}
+{"ts":"2026-10-16T00:55:02.165Z","level":"info","msg":"preview:detected","subsystem":"preview.port-watcher","conversationId":"conv1","port":5173}
+{"ts":"2026-10-16T00:55:02.165Z","level":"info","msg":"preview:detected","subsystem":"preview.port-watcher","conversationId":"conv1","port":5173}
+{"ts":"2026-10-16T00:55:02.165Z","level":"info","msg":"preview:detected","subsystem":"preview.port-watcher","conversationId":"conv1","port":5173}
+{"ts":"2026-10-16T00:55:02.165Z","level":"info","msg":"preview:detected","subsystem":"preview.port-watcher","conversationId":"conv1","port":5173}
+{"ts":"2026-10-16T00:55:02.165Z","level":"info","msg":"preview:detected","subsystem":"preview.port-watcher","conversationId":"conv1","port":4321}
+{"ts":"2026-10-16T00:55:02.165Z","level":"info","msg":"preview:detected","subsystem":"preview.port-watcher","conversationId":"conv1","port":5173}
+{"ts":"2026-10-16T00:55:02.165Z","level":"info","msg":"preview:detected","subsystem":"preview.port-watcher","conversationId":"conv2","port":5173}
+{"ts":"2026-10-16T00:55:02.165Z","level":"info","msg":"preview:detected","subsystem":"preview.port-watcher","conversationId":"conv1","port":5173}
+{"ts":"2026-10-16T00:55:02.165Z","level":"warn","msg":"preview-port-watcher: source read failed for conversation","subsystem":"preview.port-watcher","conversationId":"conv1","error":"boom"}
+{"ts":"2026-10-16T00:55:02.165Z","level":"info","msg":"preview:detected","subsystem":"preview.port-watcher","conversationId":"conv2","port":5173}
+{"ts":"2026-10-16T00:55:02.165Z","level":"info","msg":"preview:detected","subsystem":"preview.port-watcher","conversationId":"conv1","port":5173}
+{"ts":"2026-10-16T00:55:02.165Z","level":"warn","msg":"preview-port-watcher: onDetected handler threw","subsystem":"preview.port-watcher","conversationId":"conv1","port":5173,"error":"handler boom"}
+{"ts":"2026-10-16T00:55:02.165Z","level":"info","msg":"preview:detected","subsystem":"preview.port-watcher","conversationId":"conv1","port":4000}
+{"ts":"2026-10-16T00:55:02.166Z","level":"warn","msg":"PreviewPortWatcher disabled by EZCORP_DISABLE_PREVIEW_WATCHER=1","subsystem":"preview.port-watcher"}
+{"ts":"2026-10-16T00:55:02.416Z","level":"info","msg":"preview:detected","subsystem":"preview.port-watcher","conversationId":"conv1","port":5173}
+{"ts":"2026-10-16T00:55:02.869Z","level":"warn","msg":"preview-port-watcher: tick-failed","subsystem":"preview.port-watcher","error":"Error: tick exploded"}
+{"ts":"2026-10-16T00:55:03.018Z","level":"warn","msg":"PreviewPortWatcher refused to start (sibling alive)","subsystem":"preview.port-watcher","lockfile":"/tmp/prev-watcher-sib-t666t2/watcher.pid"}
+{"ts":"2026-10-16T00:55:03.020Z","level":"warn","msg":"EZCORP_PREVIEW_WATCHER_POLL_MS invalid — using default","subsystem":"preview.port-watcher","raw":"garbage","defaultMs":2000}
+{"ts":"2026-10-16T00:55:03.020Z","level":"info","msg":"preview:detected","subsystem":"preview.port-watcher","conversationId":"conv1","port":5173}
+{"ts":"2026-10-16T00:55:03.020Z","level":"info","msg":"preview conversation idle — reaping","subsystem":"preview.port-watcher","conversationId":"conv1","idleReapTicks":2}
+{"ts":"2026-10-16T00:55:03.020Z","level":"info","msg":"preview:detected","subsystem":"preview.port-watcher","conversationId":"conv1","port":5173}
+{"ts":"2026-10-16T00:55:03.020Z","level":"info","msg":"preview:detected","subsystem":"preview.port-watcher","conversationId":"conv1","port":5173}
+{"ts":"2026-10-16T00:55:03.020Z","level":"info","msg":"preview:detected","subsystem":"preview.port-watcher","conversationId":"conv1","port":5173}
+{"ts":"2026-10-16T00:55:03.021Z","level":"info","msg":"preview:detected","subsystem":"preview.port-watcher","conversationId":"conv1","port":5173}
+{"ts":"2026-10-16T00:55:03.021Z","level":"info","msg":"preview conversation idle — reaping","subsystem":"preview.port-watcher","conversationId":"conv1","idleReapTicks":1}
+{"ts":"2026-10-16T00:55:03.021Z","level":"warn","msg":"preview-port-watcher: idle reap handler threw","subsystem":"preview.port-watcher","conversationId":"conv1","error":"reap boom"}
+
+ 29 pass
+ 0 fail
+ 64 expect() calls
+Ran 29 tests across 1 file. [1345.00ms]

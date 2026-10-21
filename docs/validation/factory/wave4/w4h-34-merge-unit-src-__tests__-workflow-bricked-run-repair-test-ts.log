@@ -1,0 +1,9 @@
+bun test v1.4.2 (744846f84)
+{"ts":"2026-10-17T23:43:21.085Z","level":"warn","msg":"repaired workflow runs terminalized by the daemon claim race","subsystem":"workflow.runs","repaired":1}
+{"ts":"2026-10-17T23:43:21.088Z","level":"warn","msg":"repaired workflow runs terminalized by the daemon claim race","subsystem":"workflow.runs","repaired":1}
+{"ts":"2026-10-17T23:43:21.101Z","level":"warn","msg":"repaired workflow runs terminalized by the daemon claim race","subsystem":"workflow.runs","repaired":1}
+
+ 10 pass
+ 0 fail
+ 32 expect() calls
+Ran 10 tests across 1 file. [2.23s]

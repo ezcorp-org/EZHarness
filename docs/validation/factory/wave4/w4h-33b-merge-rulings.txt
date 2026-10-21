@@ -1,0 +1,9 @@
+W4H-33b hold rulings (team-lead, received 2026-10-17 ~03:2xZ; recorded by integrator-5)
+1. Route A: hold-w4f.sh b2c155eff1d367db is the ONE place for hold leg (b) (lane-forms). No (b) line in the W4H-33b extra-legs; v4 f8dd7edf208a938e stands.
+   extra-legs.sh.with-b 4c2066cc3f47cca5 is a record only, never installed. This replaces the earlier item "add the (b) line to the W4H-33b extra-legs.sh".
+   validator-8: hold-w4f.sh.new OK (route A); with-b NOT OK'd (double run).
+2. Price-chart option A for this hold: the OK'd v4 runs unchanged; a second run would be the same cov-shard form, a corroboration only.
+   In this hold the price-chart file is not in the merge diff, so (b) did not run it; it ran once (extra-legs price-chart-host-lane, 6 pass).
+   For every LATER extra-legs file: no price-chart line; the (b) cov-shard row is the evidence for the price-chart condition.
+3. The hold launch of 02:52:44Z stands under the pre-authorization (validator-8 COMMIT OK of 7f8317656; lock condition 15.1 / 15.4 GiB).
+   The gate waited (14 GiB < 15) and entered the lock at 03:01:48Z; heavy.exit 0 at 03:18:18Z.

@@ -238,6 +238,7 @@ describe("startFactoryRuntime opens admission only after the probes pass", () =>
         tenantId: "tenant-01",
         running: ["compute-admission-dispatch", "compute-admission-poll", "attempt-dispatch", "run-projection", "checkpoint-barrier"],
         held: [
+          { role: "package-preparation", workPackage: "W4H-26", reason: expect.stringContaining("hostLaunch endpoint") },
           { role: "notification-inbox-delivery", workPackage: "W07/W08", reason: expect.any(String) },
           { role: "child-settlement", workPackage: "W06", reason: expect.any(String) },
           { role: "release-outcome", workPackage: "W07/W08", reason: expect.any(String) },
@@ -261,6 +262,34 @@ describe("startFactoryRuntime opens admission only after the probes pass", () =>
     expect(report.workers.every((worker) => worker.running)).toBe(true);
     expect(report.heldWorkers.map((held) => held.role)).toContain("stop-settlement");
     expect(report.seams.every((seam) => !seam.present)).toBe(true);
+  });
+
+  test("a notification sender stays held until a receiver confirms a delivery, then readiness says running (C11 N8)", async () => {
+    const root = await privateRoot();
+    await writeReadyRecords(root);
+    const listeners = new Set<() => void>();
+    let confirmed = false;
+    const notificationSender = {
+      step: async () => false,
+      confirmation: {
+        confirmed: () => confirmed,
+        onConfirmed: (listener: () => void) => { listeners.add(listener); return () => { listeners.delete(listener); }; },
+        pendingReason: "a notification destination is declared and the sender runs, but no receiver has confirmed a delivery yet",
+      },
+    };
+    const runtime = await start(root, { seams: { notificationSender } });
+    const factory = () => (getReadiness().detail as { factory: { running: string[]; held: { role: string; reason: string }[] } }).factory;
+    expect(factory().running).not.toContain("notification-send");
+    expect(factory().held.find((held) => held.role === "notification-send")!.reason).toContain("no receiver has confirmed");
+    expect(runtime.report().heldWorkers.map((held) => held.role)).toContain("notification-send");
+    confirmed = true;
+    for (const listener of listeners) listener();
+    expect(factory().running).toContain("notification-send");
+    expect(factory().held.map((held) => held.role)).not.toContain("notification-send");
+    expect(runtime.report().heldWorkers.map((held) => held.role)).not.toContain("notification-send");
+    await runtime.stop();
+    // A stopped runtime no longer listens, so a late confirmation publishes nothing.
+    expect(listeners.size).toBe(0);
   });
 
   test("a held checkpoint barrier opens admission but never reports ready", async () => {

@@ -1,0 +1,11 @@
+bun test v1.4.2 (744846f84)
+
+src/__tests__/first-party-sealed-test-references.test.ts:
+(pass) sealed first-party tests name only files the release keeps > a sealed test naming a left-out suite (also by a template) is a finding; a kept target is not [0.48ms]
+(pass) sealed first-party tests name only files the release keeps > every first-party release snapshot in the tree [315.34ms]
+
+ 2 pass
+ 0 fail
+ 3 expect() calls
+Ran 2 tests across 1 file. [673.00ms]
+exit=0

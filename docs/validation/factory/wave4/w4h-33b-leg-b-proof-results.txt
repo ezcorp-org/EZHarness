@@ -1,0 +1,10 @@
+prep-8fb4474e9 rc=0 7s
+b8 rc=1 5s
+worktree /home/dev/work/EZCorp/EZHarness-worktrees/composable-factory-platform/.worktrees/i5-legb-8fb4474e9 removed rc=0
+prep-ef5e29a25 rc=0 7s
+b-new rc=0 17s
+orphan rc=1 0s
+mut-lookup rc=1 1s
+drift-row rc=1 0s
+podman-outside rc=1 0s
+worktree /home/dev/work/EZCorp/EZHarness-worktrees/composable-factory-platform/.worktrees/i5-legb-ef5e29a25 removed rc=0

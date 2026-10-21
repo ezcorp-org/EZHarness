@@ -1,0 +1,17 @@
+final legs at 5deb91a25 2026-10-16T08:19:35Z
+static rc=0
+  static legs at 5deb91a25c7dcba0a4d87230cfe282f6f7e53d0f 2026-10-16T08:19:35Z
+  build:packages rc=0
+  typecheck rc=0
+  lint rc=0
+  check-boundaries rc=0
+  factory-boundaries rc=0
+  schema-drift rc=0
+focused rc=0
+guard rc=0
+gate-integrity default rc=0
+gate-integrity main rc=0
+gate-integrity base rc=0
+red rc=0
+worst rc=0
+done 2026-10-16T08:31:27Z

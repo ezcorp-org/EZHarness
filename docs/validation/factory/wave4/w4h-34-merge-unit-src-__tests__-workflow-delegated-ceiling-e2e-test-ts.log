@@ -1,0 +1,22 @@
+bun test v1.4.2 (744846f84)
+{"ts":"2026-10-17T23:43:26.460Z","level":"warn","msg":"workflow run parked at boundary — delegated token budget spent","subsystem":"workflow","workflowRunId":"599eb5a8-1fc0-4cd8-8910-88ef4e23d2a5","delegationId":"d-5a3f5ecc","spent":200,"maxTokensPerRun":150}
+{"ts":"2026-10-17T23:43:26.461Z","level":"info","msg":"delegated workflow finished","subsystem":"ext.workflows.handler","extension":"ceiling-ext","workflow":"nightly-report","workflowRunId":"599eb5a8-1fc0-4cd8-8910-88ef4e23d2a5","status":"suspended","delegationId":"d-5a3f5ecc"}
+{"ts":"2026-10-17T23:43:26.709Z","level":"info","msg":"delegated workflow finished","subsystem":"ext.workflows.handler","extension":"ceiling-ext","workflow":"nightly-report","workflowRunId":"b2032f34-b541-46e2-9714-d0ae2667ec77","status":"success","delegationId":"d-42b3f912"}
+{"ts":"2026-10-17T23:43:26.950Z","level":"warn","msg":"workflow run parked at boundary — delegated token budget spent","subsystem":"workflow","workflowRunId":"a3659565-ab26-4fd1-bc3a-f4843ef8c0ca","delegationId":"d-3437e4db","spent":200,"maxTokensPerRun":150}
+{"ts":"2026-10-17T23:43:26.950Z","level":"info","msg":"delegated workflow finished","subsystem":"ext.workflows.handler","extension":"ceiling-ext","workflow":"nightly-report","workflowRunId":"a3659565-ab26-4fd1-bc3a-f4843ef8c0ca","status":"suspended","delegationId":"d-3437e4db"}
+{"ts":"2026-10-17T23:43:27.184Z","level":"warn","msg":"workflow run parked at boundary — delegated token budget spent","subsystem":"workflow","workflowRunId":"40148d1e-f004-4436-9915-80fecf7b1aac","delegationId":"d-2d17f01d","spent":200,"maxTokensPerRun":150}
+{"ts":"2026-10-17T23:43:27.184Z","level":"info","msg":"delegated workflow finished","subsystem":"ext.workflows.handler","extension":"ceiling-ext","workflow":"nightly-report","workflowRunId":"40148d1e-f004-4436-9915-80fecf7b1aac","status":"suspended","delegationId":"d-2d17f01d"}
+{"ts":"2026-10-17T23:43:27.426Z","level":"warn","msg":"workflow run parked at boundary — delegated token budget spent","subsystem":"workflow","workflowRunId":"05f8d4a2-4cff-4b5a-9636-81504f88b142","delegationId":"d-c8016f25","spent":200,"maxTokensPerRun":150}
+{"ts":"2026-10-17T23:43:27.427Z","level":"info","msg":"delegated workflow finished","subsystem":"ext.workflows.handler","extension":"ceiling-ext","workflow":"nightly-report","workflowRunId":"05f8d4a2-4cff-4b5a-9636-81504f88b142","status":"suspended","delegationId":"d-c8016f25"}
+{"ts":"2026-10-17T23:43:27.664Z","level":"warn","msg":"workflow run parked at boundary — delegated token budget spent","subsystem":"workflow","workflowRunId":"a4e835d1-7c11-4930-9c62-4225565259ca","delegationId":"d-87b39759","spent":200,"maxTokensPerRun":150}
+{"ts":"2026-10-17T23:43:27.665Z","level":"info","msg":"delegated workflow finished","subsystem":"ext.workflows.handler","extension":"ceiling-ext","workflow":"nightly-report","workflowRunId":"a4e835d1-7c11-4930-9c62-4225565259ca","status":"suspended","delegationId":"d-87b39759"}
+{"ts":"2026-10-17T23:43:27.936Z","level":"warn","msg":"workflow run parked at boundary — delegated token budget spent","subsystem":"workflow","workflowRunId":"a64a47ec-69d4-4401-a51d-7265aa185602","delegationId":"d-24e3897e","spent":200,"maxTokensPerRun":150}
+{"ts":"2026-10-17T23:43:27.936Z","level":"info","msg":"delegated workflow finished","subsystem":"ext.workflows.handler","extension":"ceiling-ext","workflow":"nightly-report","workflowRunId":"a64a47ec-69d4-4401-a51d-7265aa185602","status":"suspended","delegationId":"d-24e3897e"}
+{"ts":"2026-10-17T23:43:28.196Z","level":"info","msg":"delegated workflow finished","subsystem":"ext.workflows.handler","extension":"ceiling-ext","workflow":"looped-report","workflowRunId":"f73c0c9f-bf27-46dc-931e-9c94fcf47f71","status":"success","delegationId":"d-f5b900b5"}
+{"ts":"2026-10-17T23:43:28.428Z","level":"warn","msg":"workflow run parked at boundary — delegated token budget spent","subsystem":"workflow","workflowRunId":"cd82420d-cfcf-4ae6-9cc2-3ea4fc1eaa78","delegationId":"d-bedd2759","spent":200,"maxTokensPerRun":150}
+{"ts":"2026-10-17T23:43:28.429Z","level":"info","msg":"delegated workflow finished","subsystem":"ext.workflows.handler","extension":"ceiling-ext","workflow":"nightly-report","workflowRunId":"cd82420d-cfcf-4ae6-9cc2-3ea4fc1eaa78","status":"suspended","delegationId":"d-bedd2759"}
+
+ 10 pass
+ 0 fail
+ 80 expect() calls
+Ran 10 tests across 1 file. [4.45s]

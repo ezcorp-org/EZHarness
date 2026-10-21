@@ -1,0 +1,2 @@
+tc-gate 2026-10-17T06:29:23Z w4h32b-typecheck GREEN: MemAvailable=16.4GiB >= 12GiB (in-lock=1); start
+tc-gate 2026-10-17T06:30:25Z w4h32b-typecheck END: exit=0; MemAvailable before 16.4GiB, lowest during 13.0GiB, after 16.5GiB

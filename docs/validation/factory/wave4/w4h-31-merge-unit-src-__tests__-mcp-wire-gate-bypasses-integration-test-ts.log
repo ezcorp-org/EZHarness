@@ -1,0 +1,8 @@
+bun test v1.4.2 (744846f84)
+{"ts":"2026-10-16T01:10:03.995Z","level":"error","msg":"MCP extension has no capability grant — every tool call will be denied","subsystem":"extensions/registry","extension":"admins-mcp","extensionId":"8060096d-74c9-421e-a872-9260c598b6a4","reason":"the one-shot MCP capability backfill has not run for this row (migrate skipped, or its row update failed)","remedy":"resolve the failed migration and restart, or re-save the server from the MCP edit form to re-issue the grant"}
+{"ts":"2026-10-16T01:10:04.012Z","level":"error","msg":"MCP extension has no capability grant — every tool call will be denied","subsystem":"extensions/registry","extension":"admins-mcp","extensionId":"8060096d-74c9-421e-a872-9260c598b6a4","reason":"the one-shot MCP capability backfill has not run for this row (migrate skipped, or its row update failed)","remedy":"resolve the failed migration and restart, or re-save the server from the MCP edit form to re-issue the grant"}
+
+ 18 pass
+ 0 fail
+ 36 expect() calls
+Ran 18 tests across 1 file. [1034.00ms]

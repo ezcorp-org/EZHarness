@@ -1,0 +1,18 @@
+bun test v1.4.2 (744846f84)
+{"ts":"2026-10-17T04:29:59.449Z","level":"info","msg":"Bundled source staged; verified releases require human approval","subsystem":"ext.bundled.bootstrap","name":"candidate","installationId":"e870e779-805c-40e8-a139-ffbf2e07f17e","operationId":"d32dba2d-db99-421d-854f-e8dd911ad36e","status":"queued"}
+{"ts":"2026-10-17T04:29:59.459Z","level":"info","msg":"Bundled source staged; verified releases require human approval","subsystem":"ext.bundled.bootstrap","name":"candidate","installationId":"e870e779-805c-40e8-a139-ffbf2e07f17e","operationId":"47819daa-3a5b-4a34-8404-24d81b206e82","status":"queued"}
+{"ts":"2026-10-17T04:29:59.754Z","level":"info","msg":"Bundled source staged; verified releases require human approval","subsystem":"ext.bundled.bootstrap","name":"candidate","installationId":"e870e779-805c-40e8-a139-ffbf2e07f17e","operationId":"3bca7f7a-5d71-41d9-87a5-8f47b5b3640d","status":"queued"}
+{"ts":"2026-10-17T04:29:59.757Z","level":"info","msg":"Bundled source staged; verified releases require human approval","subsystem":"ext.bundled.bootstrap","name":"candidate","installationId":"e870e779-805c-40e8-a139-ffbf2e07f17e","operationId":"3bca7f7a-5d71-41d9-87a5-8f47b5b3640d","status":"queued"}
+{"ts":"2026-10-17T04:29:59.761Z","level":"info","msg":"Bundled source staged; verified releases require human approval","subsystem":"ext.bundled.bootstrap","name":"candidate","installationId":"e870e779-805c-40e8-a139-ffbf2e07f17e","operationId":"3e1b3465-7a2a-4f2b-bbb3-1caa08a3e6cd","status":"queued"}
+{"ts":"2026-10-17T04:29:59.765Z","level":"info","msg":"Bundled source staged; verified releases require human approval","subsystem":"ext.bundled.bootstrap","name":"candidate","installationId":"e870e779-805c-40e8-a139-ffbf2e07f17e","operationId":"3e1b3465-7a2a-4f2b-bbb3-1caa08a3e6cd","status":"queued"}
+{"ts":"2026-10-17T04:29:59.767Z","level":"error","msg":"Bundled isolated build failed","subsystem":"ext.bundled.bootstrap","name":"candidate","installationId":"e870e779-805c-40e8-a139-ffbf2e07f17e","error":"Error: PGlite is closed"}
+{"ts":"2026-10-17T04:29:59.768Z","level":"error","msg":"Bundled isolated build failed","subsystem":"ext.bundled.bootstrap","name":"candidate","installationId":"e870e779-805c-40e8-a139-ffbf2e07f17e","error":"Error: PGlite is closed"}
+{"ts":"2026-10-17T04:29:59.768Z","level":"error","msg":"Bundled isolated build failed","subsystem":"ext.bundled.bootstrap","name":"candidate","installationId":"e870e779-805c-40e8-a139-ffbf2e07f17e","error":"Error: PGlite is closed"}
+{"ts":"2026-10-17T04:29:59.768Z","level":"error","msg":"Bundled isolated build failed","subsystem":"ext.bundled.bootstrap","name":"candidate","installationId":"e870e779-805c-40e8-a139-ffbf2e07f17e","error":"Error: PGlite is closed"}
+{"ts":"2026-10-17T04:29:59.768Z","level":"error","msg":"Bundled isolated build failed","subsystem":"ext.bundled.bootstrap","name":"candidate","installationId":"e870e779-805c-40e8-a139-ffbf2e07f17e","error":"Error: PGlite is closed"}
+{"ts":"2026-10-17T04:29:59.768Z","level":"error","msg":"Bundled isolated build failed","subsystem":"ext.bundled.bootstrap","name":"candidate","installationId":"e870e779-805c-40e8-a139-ffbf2e07f17e","error":"Error: PGlite is closed"}
+
+ 2 pass
+ 0 fail
+ 5 expect() calls
+Ran 2 tests across 1 file. [1212.00ms]

@@ -1,0 +1,26 @@
+bun test v1.4.2 (744846f84)
+{"ts":"2026-10-16T01:03:28.402Z","level":"warn","msg":"embed-worker: embedding not ready — entering degraded mode","subsystem":"embed-worker"}
+{"ts":"2026-10-16T01:03:28.409Z","level":"warn","msg":"embed-worker: ANALYZE message_chunks failed — continuing","subsystem":"embed-worker","error":"ANALYZE boom"}
+{"ts":"2026-10-16T01:03:28.412Z","level":"warn","msg":"embed-worker: embedding not ready — entering degraded mode","subsystem":"embed-worker"}
+{"ts":"2026-10-16T01:03:28.415Z","level":"warn","msg":"embed-worker: embedding not ready — entering degraded mode","subsystem":"embed-worker"}
+{"ts":"2026-10-16T01:03:28.415Z","level":"info","msg":"embed-worker: embedding ready — resuming drain, resetting pending attempts","subsystem":"embed-worker"}
+{"ts":"2026-10-16T01:03:28.423Z","level":"warn","msg":"embed-worker: row embed failed","subsystem":"embed-worker","messageId":"test-msg-vrctjw","newAttempts":1,"exhausted":false,"error":"embed fail"}
+{"ts":"2026-10-16T01:03:28.428Z","level":"warn","msg":"embed-worker: row embed failed","subsystem":"embed-worker","messageId":"test-msg-41vztt","newAttempts":1,"exhausted":false,"error":"embed fail"}
+{"ts":"2026-10-16T01:03:28.430Z","level":"warn","msg":"embed-worker: row embed failed","subsystem":"embed-worker","messageId":"test-msg-41vztt","newAttempts":2,"exhausted":false,"error":"embed fail"}
+{"ts":"2026-10-16T01:03:28.432Z","level":"warn","msg":"embed-worker: row embed failed","subsystem":"embed-worker","messageId":"test-msg-41vztt","newAttempts":3,"exhausted":true,"error":"embed fail"}
+{"ts":"2026-10-16T01:03:28.438Z","level":"info","msg":"embed-worker: boot recovery — reset stale in-flight jobs","subsystem":"embed-worker","recovered":1}
+{"ts":"2026-10-16T01:03:28.442Z","level":"info","msg":"embed-worker: boot recovery — reset stale in-flight jobs","subsystem":"embed-worker","recovered":1}
+{"ts":"2026-10-16T01:03:28.444Z","level":"warn","msg":"EmbedWorker disabled by EZCORP_DISABLE_EMBED_WORKER=1","subsystem":"embed-worker"}
+{"ts":"2026-10-16T01:03:29.456Z","level":"warn","msg":"embed-worker: tick-failed","subsystem":"embed-worker","error":"Error: boom tick"}
+{"ts":"2026-10-16T01:03:30.461Z","level":"warn","msg":"embed-worker: row embed failed","subsystem":"embed-worker","messageId":"test-msg-ux2wht","newAttempts":1,"exhausted":false,"error":"transient embed fail"}
+{"ts":"2026-10-16T01:03:31.539Z","level":"warn","msg":"EmbedWorker refused to start (sibling alive)","subsystem":"embed-worker","lockfile":"/tmp/ezcorp-embed-lock-sibling-1792112611539.pid"}
+{"ts":"2026-10-16T01:03:31.598Z","level":"warn","msg":"EZCORP_EMBED_POLL_INTERVAL_MS invalid — using default","subsystem":"embed-worker","raw":"abc","defaultMs":3000}
+{"ts":"2026-10-16T01:03:31.599Z","level":"warn","msg":"EZCORP_EMBED_POLL_INTERVAL_MS invalid — using default","subsystem":"embed-worker","raw":"0","defaultMs":3000}
+{"ts":"2026-10-16T01:03:31.599Z","level":"warn","msg":"EZCORP_EMBED_POLL_INTERVAL_MS invalid — using default","subsystem":"embed-worker","raw":"-5","defaultMs":3000}
+{"ts":"2026-10-16T01:03:31.599Z","level":"warn","msg":"EZCORP_EMBED_POLL_INTERVAL_MS invalid — using default","subsystem":"embed-worker","raw":"Infinity","defaultMs":3000}
+{"ts":"2026-10-16T01:03:31.600Z","level":"warn","msg":"EZCORP_EMBED_POLL_INTERVAL_MS below floor — clamped","subsystem":"embed-worker","raw":"100","requestedMs":100,"clampedMs":1000}
+
+ 42 pass
+ 0 fail
+ 94 expect() calls
+Ran 42 tests across 1 file. [4.19s]

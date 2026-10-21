@@ -1,0 +1,9 @@
+bun test v1.4.2 (744846f84)
+{"ts":"2026-10-16T01:02:38.426Z","level":"warn","msg":"summarizeModel resolve failed; using the turn model","subsystem":"compaction.summarize","pick":"bogus/model","error":"Error: no such model"}
+{"ts":"2026-10-16T01:02:38.426Z","level":"warn","msg":"summary generation failed; falling back to trim","subsystem":"compaction.summarize","reason":"Summarization failed: boom"}
+{"ts":"2026-10-16T01:02:38.426Z","level":"warn","msg":"summary generation threw; falling back to trim","subsystem":"compaction.summarize","error":"Error: provider down"}
+
+ 16 pass
+ 0 fail
+ 34 expect() calls
+Ran 16 tests across 1 file. [475.00ms]

@@ -1,0 +1,6 @@
+trial commit dd241531a40a3a69ed910f121364652d87703ede
+origin-main rc=1
+base rc=1
+main match rc=0 origin/main leg: PASS (findings equal the expected integ set)
+base match rc=0 base leg: PASS (findings equal the expected integ set)
+scratch worktree removed

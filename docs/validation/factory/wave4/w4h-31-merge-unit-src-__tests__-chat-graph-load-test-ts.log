@@ -1,0 +1,8 @@
+bun test v1.4.2 (744846f84)
+{"ts":"2026-10-16T01:02:25.352Z","level":"warn","msg":"session tree unavailable — degrading to the flat message chain","subsystem":"chatGraph","conversationId":"conv-1","error":"session storage unavailable"}
+{"ts":"2026-10-16T01:02:25.353Z","level":"warn","msg":"session tree unavailable — degrading to the flat message chain","subsystem":"chatGraph","conversationId":"conv-1","error":"storage offline"}
+
+ 9 pass
+ 0 fail
+ 29 expect() calls
+Ran 9 tests across 1 file. [448.00ms]

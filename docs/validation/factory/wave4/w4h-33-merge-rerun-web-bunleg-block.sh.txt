@@ -1,0 +1,8 @@
+# web-bunleg-changed (team-lead 2026-10-16, after the W4H-33 hold: changed web bun-pool files ran only in the commit hook): every CHANGED web
+# test file that the product classifier web_bunleg_files names runs here with bun and a junit report (w00/web-bunleg-changed.sh); N > 0 when
+# any is listed; a missing classifier or a missing listed file is red by name; none changed: a named NOTEST pass line. A file the folder's
+# extra-legs.sh runs as a named file_leg is left out ("covered by leg <name>", ruling (a)); per file: 0 passed testcases is red by name.
+WBC=/tmp/factory-platform-evidence/w00/web-bunleg-changed.sh; bash $WBC --list $D/diff-files.txt $D/web-bunleg-changed.txt $D/extra-legs.sh > $D/web-bunleg-changed.list.log 2>&1; wbc=$?
+if [ $wbc != 0 ]; then NOTEST=1 leg web-bunleg-changed bash -c 'cat "$1"; exit 2' _ $D/web-bunleg-changed.list.log
+elif [ -s $D/web-bunleg-changed.txt ]; then leg web-bunleg-changed bash $WBC --run $D/web-bunleg-changed.txt $D/web-bunleg-changed-junit
+else NOTEST=1 leg web-bunleg-changed bash $WBC --run $D/web-bunleg-changed.txt $D/web-bunleg-changed-junit; fi

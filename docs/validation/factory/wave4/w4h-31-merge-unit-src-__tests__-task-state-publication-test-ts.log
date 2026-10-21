@@ -1,0 +1,7 @@
+bun test v1.4.2 (744846f84)
+{"ts":"2026-10-16T01:16:18.657Z","level":"info","msg":"Reconciled interrupted assignments","subsystem":"boot-reconcile-assignments","conversationId":"f91aacd2-71fe-4e3a-b4e9-1cfdcdea0b15","count":1}
+
+ 4 pass
+ 0 fail
+ 27 expect() calls
+Ran 4 tests across 1 file. [2.18s]

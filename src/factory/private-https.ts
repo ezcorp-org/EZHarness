@@ -20,6 +20,11 @@ export interface FactoryPrivateHttpsOptions {
   readonly port?: number;
   readonly maxBodyBytes?: number;
   readonly maxResponseBytes?: number;
+  /**
+   * Routes whose reply may exceed `maxResponseBytes`, each up to its own named bound (W4H-28): the
+   * one reply that carries a built package's artifacts. Every other route keeps `maxResponseBytes`.
+   */
+  readonly routeResponseBytes?: Readonly<Record<string, number>>;
   readonly requestTimeoutMs?: number;
   handle(request: FactoryPrivateRequest): Promise<FactoryPrivateResponse>;
 }
@@ -36,13 +41,17 @@ const MAX_HEADER_BYTES = 16 * 1024;
  * buffered per connection, so this ceiling bounds memory as well as framing.
  */
 export const FACTORY_PRIVATE_MAX_ENVELOPE_BYTES = 9 * 1024 * 1024;
+/** The ceiling a named route's reply bound may take (W4H-28). The reply is buffered, so this bounds memory too. */
+export const FACTORY_PRIVATE_MAX_ROUTE_RESPONSE_BYTES = 64 * 1024 * 1024;
 
 /** One bounded request per private mTLS connection; peer identity comes only from TLS. */
 export function startFactoryPrivateHttps(options: FactoryPrivateHttpsOptions): { url: string; stop(): void } {
   const maxBody = options.maxBodyBytes ?? 64 * 1024;
   const maxResponse = options.maxResponseBytes ?? 64 * 1024;
   const timeout = options.requestTimeoutMs ?? 15_000;
-  if (!Number.isSafeInteger(maxBody) || maxBody < 1 || maxBody > FACTORY_PRIVATE_MAX_ENVELOPE_BYTES || !Number.isSafeInteger(maxResponse) || maxResponse < 1 || maxResponse > FACTORY_PRIVATE_MAX_ENVELOPE_BYTES || !Number.isSafeInteger(timeout) || timeout < 1 || timeout > 60_000) throw new Error("Invalid private HTTPS limits.");
+  const routeResponse = new Map(Object.entries(options.routeResponseBytes ?? {}));
+  if (!Number.isSafeInteger(maxBody) || maxBody < 1 || maxBody > FACTORY_PRIVATE_MAX_ENVELOPE_BYTES || !Number.isSafeInteger(maxResponse) || maxResponse < 1 || maxResponse > FACTORY_PRIVATE_MAX_ENVELOPE_BYTES || !Number.isSafeInteger(timeout) || timeout < 1 || timeout > 60_000
+    || [...routeResponse.values()].some(bound => !Number.isSafeInteger(bound) || bound < 1 || bound > FACTORY_PRIVATE_MAX_ROUTE_RESPONSE_BYTES)) throw new Error("Invalid private HTTPS limits.");
   function flush(socket: Bun.Socket<Connection>): void {
     const state = socket.data;
     if (state.closed || !state.output) return;
@@ -57,7 +66,8 @@ export function startFactoryPrivateHttps(options: FactoryPrivateHttpsOptions): {
     const state = socket.data;
     if (state.closed || state.output) return;
     clearTimeout(state.timer);
-    if (!Number.isSafeInteger(response.status) || response.status < 200 || response.status > 599 || response.body.byteLength > maxResponse || (response.contentType !== undefined && response.contentType !== "application/json" && response.contentType !== "application/octet-stream")) {
+    const bound = (state.request && routeResponse.get(state.request.path)) ?? maxResponse;
+    if (!Number.isSafeInteger(response.status) || response.status < 200 || response.status > 599 || response.body.byteLength > bound || (response.contentType !== undefined && response.contentType !== "application/json" && response.contentType !== "application/octet-stream")) {
       response = { status: 500, body: Buffer.from('{"error":"invalid_response"}') };
     }
     const header = `HTTP/1.1 ${response.status} ${STATUS_CODES[response.status] ?? "Result"}\r\ncontent-type: ${response.contentType ?? "application/json"}\r\ncontent-length: ${response.body.byteLength}\r\ncache-control: no-store\r\nconnection: close\r\n\r\n`;

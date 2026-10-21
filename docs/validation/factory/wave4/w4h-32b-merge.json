@@ -1,0 +1,45 @@
+{
+ "package": "w4h-32b",
+ "kind": "package merge: W4H-32b, the S3 release adapter relock after W4H-32 (fc1254003, a contract-type change) moved the trusted SDK digest; the push16 hosted red (ci 39005464033, coverage shards 4 and 6)",
+ "branch": "wp/w4h-32b-relock",
+ "head": "acce7a116b5677e0e109f8ef255a016fbe920c32",
+ "base": "39baed85a154e8934848ff56afd53a486b98b127",
+ "main": "934531e2e9e8fd0c3c97e48527d545ca3476eb5e",
+ "mergeSha": "98245c2d46101f94f4b18f8f8baf8d01e3a229f4",
+ "treeEquality": {
+  "trialTree": "08f7159201f8d17adc93d5208c99744a3337112c",
+  "mergeTree": "08f7159201f8d17adc93d5208c99744a3337112c",
+  "equal": true
+ },
+ "validatorVerdict": "validator-8 hold OK, plain green, naming 98245c2d46101f94f4b18f8f8baf8d01e3a229f4 (verdict-w4h-32b.txt 9a5be92e5001a5a6; copied as w4h-32b-validation.txt)",
+ "ownerReport": {
+  "w4h-32b/report.txt": "a2115d5a4cf02e68"
+ },
+ "gateChange": "none of W4H-32b's own: origin/main leg equals the expected set ea41e0e9a9bb5462; base leg clean; new-file and patch PASS",
+ "identity": "R1 (merge-identity-lib.sh 0a8a21c2bd07e142), package mode: fork point 39baed85a, 1 commit clean, 2 staged files clean; publish step 2 commits clean",
+ "commit": {
+  "form": "detached merge; the hook maps 0 lines (EZ_PRECOMMIT_TEST_MAX=0, 'no test file maps to the staged changes - skipping'); rerere off; archy noreply",
+  "try1": "exit 0"
+ },
+ "hold": {
+  "run": "06:39:39-06:55:18Z in the lock with an own pg15: 95 legs, all exit 0, status=0 dirty=0",
+  "legs": {
+   "adapter_explicit": "package.test.ts 4/0, package.podman.integration.test.ts 2/0",
+   "e_sdk_digest": "first mandatory run: touched via lock.json, selected both adapter tests, 4/0 and 2/0",
+   "a_bundle_build": "28 of 28, EMPTY set",
+   "b_lane_forms_v6": "PASS, lane moves 0",
+   "c_mutation_lane": "PASS",
+   "d_preview_hosted_conmon": "7/0"
+  }
+ },
+ "published": "integ/w00 39baed85a -> 98245c2d4 at 2026-10-17T06:56:30Z by publish-if-main.sh with config.sh; remote main 934531e2e = expected",
+ "pushed": false,
+ "excludedFromReceipts": [
+  "the owner's helper scripts (*.sh) and the report backup",
+  "heavy-build-* and heavy-web-build (standard)"
+ ],
+ "deviations": [
+  "commit-locked.sh guard changed to accept an EMPTY hook list (validator OK)",
+  "no case-check leg: no owner red-on-base table; the red-first cases are the two adapter tests (validator OK)"
+ ]
+}

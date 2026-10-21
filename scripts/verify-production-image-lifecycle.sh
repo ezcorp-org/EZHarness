@@ -274,9 +274,9 @@ curl -fsS "$origin/api/health" >/dev/null
 
 cookie_file="$run_root/session.cookie"
 key_file="$run_root/api.key"
-setup_code="$(curl -sS -c "$cookie_file" -o "$run_root/setup.json" -w '%{http_code}' -H 'content-type: application/json' --data '{"email":"test@test.com","password":"Test123!","name":"Production lifecycle"}' "$origin/api/auth/setup")"
+setup_code="$(curl -sS -c "$cookie_file" -o "$run_root/setup.json" -w '%{http_code}' -H 'content-type: application/json' --data '{"email":"test@test.example","password":"Test123!","name":"Production lifecycle"}' "$origin/api/auth/setup")"
 if [[ "$setup_code" != 201 ]]; then
-  login_code="$(curl -sS -c "$cookie_file" -o "$run_root/login.json" -w '%{http_code}' -H 'content-type: application/json' --data '{"email":"test@test.com","password":"Test123!"}' "$origin/api/auth/login")"
+  login_code="$(curl -sS -c "$cookie_file" -o "$run_root/login.json" -w '%{http_code}' -H 'content-type: application/json' --data '{"email":"test@test.example","password":"Test123!"}' "$origin/api/auth/login")"
   [[ "$login_code" == 200 ]] || { cat "$run_root/login.json" >&2; exit 1; }
 else
   login_code="not-needed"

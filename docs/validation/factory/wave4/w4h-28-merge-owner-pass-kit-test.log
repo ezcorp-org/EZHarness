@@ -1,0 +1,11 @@
+bun test v1.4.2 (744846f84)
+
+pass-kit.test.ts:
+{"label":"ab3","outcome":"failed","failure":"extension reference-code activation failed: [{\"code\":\"runner_internal_error\",\"errorClass\":\"Error\",\"errorCode\":\"ENOENT\"}]"}
+{"label":"life","outcome":"passed","failure":null}
+{"label":"steps","outcome":"failed","failure":"timed out after 1s waiting for nothing"}
+
+ 6 pass
+ 0 fail
+ 32 expect() calls
+Ran 6 tests across 1 file. [3.10s]

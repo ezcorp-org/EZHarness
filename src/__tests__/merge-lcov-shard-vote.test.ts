@@ -145,7 +145,8 @@ async function merge(
   outName: string,
 ): Promise<{ da: Map<number, number>; text: string }> {
   const outPath = join(root, outName);
-  const proc = Bun.spawnSync(["bun", MERGE_SCRIPT, globPat, outPath], { cwd: root });
+  // The fixture sources live in the sandbox, outside the repository: declare it a source root.
+  const proc = Bun.spawnSync(["bun", MERGE_SCRIPT, globPat, outPath, "--source-root", root], { cwd: root });
   expect(proc.stderr.toString()).toBe("");
   expect(proc.exitCode).toBe(0);
   const text = await Bun.file(outPath).text();

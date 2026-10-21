@@ -43,7 +43,7 @@ let projectId = "";
 beforeAll(async () => {
   await setupTestDb();
   const u = await createUser({
-    email: "loadhist-capevent@test.com",
+    email: "loadhist-capevent@test.example",
     passwordHash: "h",
     name: "LH-CAP",
   });

@@ -1,0 +1,243 @@
+excerpt of job-115704107156.log (795 lines, 62133 bytes, sha256 c33f90d0731496d8082043f687513b95163245eb3f821c810b0352b445058f3d): the first 80 and the last 160 lines, ANSI and timestamps stripped; the full log stays in the evidence dir
+----- first 80 -----
+Current runner version: '2.337.0'
+##[group]Runner Image Provisioner
+Hosted Compute Agent
+Version: 20261002.596
+Commit: c3d12f3313a95f25162a1503be624f3b0617f8c0
+Build Date: 2026-10-02T22:28:27Z
+Worker ID: {406e757e-fa6a-4ad9-8c9d-cac99970d64b}
+Region: eastus2
+Cloud: Azure
+##[endgroup]
+##[group]Operating System
+Ubuntu
+24.04.5
+LTS
+##[endgroup]
+##[group]Runner Image
+Image: ubuntu-24.04
+Version: 20261004.327.1
+Included Software: https://github.com/actions/runner-images/blob/ubuntu24/20261004.327/images/ubuntu/Ubuntu2404-Readme.md
+Image Release: https://github.com/actions/runner-images/releases/tag/ubuntu24%2F20261004.327
+##[endgroup]
+##[group]GITHUB_TOKEN Permissions
+Contents: read
+Metadata: read
+##[endgroup]
+Secret source: Actions
+Cache mode: write
+Prepare workflow directory
+Prepare all required actions
+Getting action download info
+Download action repository 'actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1' (SHA:3d3c42e5aac5ba805825da76410c181273ba90b1)
+Download action repository 'actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a' (SHA:043fb46d1a93c77aae656e7c1c64a875d1fc6a0a)
+Complete job name: Coverage shard 0
+##[group]Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+with:
+  repository: ezcorp-org/EZHarness
+  token: ***
+  ssh-strict: true
+  ssh-user: git
+  persist-credentials: true
+  clean: true
+  sparse-checkout-cone-mode: true
+  fetch-depth: 1
+  fetch-tags: false
+  show-progress: true
+  lfs: false
+  submodules: false
+  set-safe-directory: true
+  allow-unsafe-pr-checkout: false
+env:
+  BUN_FEATURE_FLAG_DISABLE_SQL_AUTO_PIPELINING: 1
+  BUN_RUNTIME_TRANSPILER_CACHE_PATH: 0
+##[endgroup]
+Syncing repository: ezcorp-org/EZHarness
+##[group]Getting Git version info
+Working directory is '/home/runner/work/EZHarness/EZHarness'
+[command]/usr/bin/git version
+git version 2.55.0
+##[endgroup]
+Temporarily overriding HOME='/home/runner/work/_temp/53a8ded9-b45f-4add-86ab-ac6776158f9b' before making global git config changes
+Adding repository directory to the temporary git global config as a safe directory
+[command]/usr/bin/git config --global --add safe.directory /home/runner/work/EZHarness/EZHarness
+Deleting the contents of '/home/runner/work/EZHarness/EZHarness'
+##[group]Determining repository object format
+##[endgroup]
+##[group]Initializing the repository
+[command]/usr/bin/git init /home/runner/work/EZHarness/EZHarness
+hint: Using 'master' as the name for the initial branch. This default branch name
+hint: will change to "main" in Git 3.0. To configure the initial branch name
+hint: to use in all of your new repositories, which will suppress this warning,
+hint: call:
+hint:
+hint: 	git config --global init.defaultBranch <name>
+hint:
+hint: Names commonly chosen instead of 'master' are 'main', 'trunk' and
+hint: 'development'. The just-created branch can be renamed via this command:
+hint:
+hint: 	git branch -m <name>
+hint:
+hint: Disable this message with "git config set advice.defaultBranchName false"
+----- last 160 -----
+  BUN_FEATURE_FLAG_DISABLE_SQL_AUTO_PIPELINING: 1
+  BUN_RUNTIME_TRANSPILER_CACHE_PATH: 0
+  XDG_RUNTIME_DIR: /run/user/1001
+  DBUS_SESSION_BUS_ADDRESS: unix:path=/run/user/1001/bus
+  SHARD_INDEX: 0
+  SHARD_TOTAL: 12
+  COV_OUT: coverage-shard
+##[endgroup]
+== host-shard mode: shard 0/12 → 168 files ==
+
+--- pooled coverage failure: src/factory/guest-sdk-closure.test.ts (exit 1) ---
+bun test v1.4.2 (744846f84)
+
+##[group]src/factory/guest-sdk-closure.test.ts:
+(pass) relativeImports > names the flat file of every relative import form, and nothing else [0.45ms]
+(pass) factorySdkClosure > stages everything the seeds reach, transitively, rewritten for a flat workspace [0.99ms]
+(pass) factorySdkClosure > an import the SDK does not have is refused by name, with the file that imports it [0.33ms]
+(pass) factorySdkClosure > the real SDK: the staging client's closure reaches every module types.ts imports, console-types.ts included [5.05ms]
+(pass) unresolvedImports > names each relative import that no staged file answers [0.14ms]
+(pass) every relative import in the staged factory-services lane guest names a staged file [6.97ms]
+122 |     "scripts/check-schema-generate-drift.ts", // compares the generated schemas with their generator
+123 |     "scripts/coverage-config.ts", // names the SDK sources in the coverage source set
+124 |   ];
+125 |   const candidates = sources(["scripts", "src", "web/e2e", "web/src", "packages", "extensions", "worker"])
+126 |     .filter(path => SDK_SOURCE_DIRECTORY.test(readFileSync(join(REPO, path), "utf8")));
+127 |   expect(candidates).toEqual([...throughClosure, ...schemasOnly, ...notPackagers].sort());
+                           ^
+error: expect(received).toEqual(expected)
+
+  [
+    "scripts/check-factory-boundaries.ts",
+    "scripts/check-schema-generate-drift.ts",
+    "scripts/coverage-config.ts",
+-   "scripts/factory-graph-proof/guest-package.ts",
+-   "src/factory/reference-code/guest.ts",
++   "src/factory/guest-package-build.ts",
+    "src/factory/reference-data/guest.ts",
+    "src/factory/runner/python-guest.ts",
+-   "web/e2e/factory-services/guest.ts",
+  ]
+
+- Expected  - 3
++ Received  + 1
+
+      at <anonymous> (/home/runner/work/EZHarness/EZHarness/src/factory/guest-sdk-closure.test.ts:127:22)
+
+##[error]  [
+    "scripts/check-factory-boundaries.ts",
+    "scripts/check-schema-generate-drift.ts",
+    "scripts/coverage-config.ts",
+-   "scripts/factory-graph-proof/guest-package.ts",
+-   "src/factory/reference-code/guest.ts",
++   "src/factory/guest-package-build.ts",
+    "src/factory/reference-data/guest.ts",
+    "src/factory/runner/python-guest.ts",
+-   "web/e2e/factory-services/guest.ts",
+  ]
+
+- Expected  - 3
++ Received  + 1
+
+      at <anonymous> (/home/runner/work/EZHarness/EZHarness/src/factory/guest-sdk-closure.test.ts:127:22)
+(fail) every source that names the SDK source directory stages SDK modules through the closure helper, or is named [109.45ms]
+(pass) the SDK-directory pattern recognises every way a source can name it, and nothing near it [0.23ms]
+
+##[endgroup]
+
+ 7 pass
+ 1 fail
+ 26 expect() calls
+Ran 8 tests across 1 file. [2.02s]
+merged 976 source files → coverage-shard/lcov_shard_0.info
+pre-merged 168 per-file lcov(s) → coverage-shard/lcov_shard_0.info
+emitted per-file timings → coverage-shard/timings-shard-0.json
+
+  2274 pass | 1 fail | 168 files (shard 0/12)
+
+Retry sweep: 1 failed pass/fail-set (P) file(s) — re-running each once, serial + isolated + PLAIN (no --coverage):
+  - src/factory/guest-sdk-closure.test.ts: STILL FAILING after isolated re-run (exit 1)
+          "src/factory/reference-data/guest.ts",
+          "src/factory/runner/python-guest.ts",
+      -   "web/e2e/factory-services/guest.ts",
+        ]
+      
+      - Expected  - 3
+      + Received  + 1
+      
+            at <anonymous> (/home/runner/work/EZHarness/EZHarness/src/factory/guest-sdk-closure.test.ts:127:22)
+      
+##[error]  [
+    "scripts/check-factory-boundaries.ts",
+    "scripts/check-schema-generate-drift.ts",
+    "scripts/coverage-config.ts",
+-   "scripts/factory-graph-proof/guest-package.ts",
+-   "src/factory/reference-code/guest.ts",
++   "src/factory/guest-package-build.ts",
+    "src/factory/reference-data/guest.ts",
+    "src/factory/runner/python-guest.ts",
+-   "web/e2e/factory-services/guest.ts",
+  ]
+
+- Expected  - 3
++ Received  + 1
+
+      at <anonymous> (/home/runner/work/EZHarness/EZHarness/src/factory/guest-sdk-closure.test.ts:127:22)
+      (fail) every source that names the SDK source directory stages SDK modules through the closure helper, or is named [67.79ms]
+      (pass) the SDK-directory pattern recognises every way a source can name it, and nothing near it [0.18ms]
+      
+##[endgroup]
+      
+       7 pass
+       1 fail
+       26 expect() calls
+      Ran 8 tests across 1 file. [967.00ms]
+
+Shard FAILED: 1 pass/fail-set (P) file(s) failed the pooled run AND the isolated plain re-run:
+  - src/factory/guest-sdk-closure.test.ts
+##[error]Process completed with exit code 1.
+Post job cleanup.
+##[start-action display=Cache the uv download cache;id=__cdacd48e-228a-4e75-8718-9c8d71d4f82c.__actions_cache]
+##[end-action id=__cdacd48e-228a-4e75-8718-9c8d71d4f82c.__actions_cache;outcome=skipped;conclusion=skipped;duration_ms=0]
+Post job cleanup.
+##[start-action display=Cache bun global install cache;id=__461a8b6c-7c62-4a8d-8434-108fe3204c60.__actions_cache]
+##[end-action id=__461a8b6c-7c62-4a8d-8434-108fe3204c60.__actions_cache;outcome=skipped;conclusion=skipped;duration_ms=0]
+##[start-action display=Run oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6;id=__461a8b6c-7c62-4a8d-8434-108fe3204c60.__oven-sh_setup-bun]
+##[end-action id=__461a8b6c-7c62-4a8d-8434-108fe3204c60.__oven-sh_setup-bun;outcome=skipped;conclusion=skipped;duration_ms=0]
+Post job cleanup.
+[command]/usr/bin/git version
+git version 2.55.0
+Temporarily overriding HOME='/home/runner/work/_temp/6da31a01-680a-4a0c-be09-86a69865a6dd' before making global git config changes
+Adding repository directory to the temporary git global config as a safe directory
+[command]/usr/bin/git config --global --add safe.directory /home/runner/work/EZHarness/EZHarness
+Removing SSH command configuration
+[command]/usr/bin/git config --local --name-only --get-regexp core\.sshCommand
+[command]/usr/bin/git submodule foreach --recursive sh -c "git config --local --name-only --get-regexp 'core\.sshCommand' && git config --local --unset-all 'core.sshCommand' || :"
+Removing HTTP extra header
+[command]/usr/bin/git config --local --name-only --get-regexp http\.https\:\/\/github\.com\/\.extraheader
+[command]/usr/bin/git submodule foreach --recursive sh -c "git config --local --name-only --get-regexp 'http\.https\:\/\/github\.com\/\.extraheader' && git config --local --unset-all 'http.https://github.com/.extraheader' || :"
+Removing includeIf entries pointing to credentials config files
+[command]/usr/bin/git config --local --name-only --get-regexp ^includeIf\.gitdir:
+includeif.gitdir:/home/runner/work/EZHarness/EZHarness/.git.path
+includeif.gitdir:/home/runner/work/EZHarness/EZHarness/.git/worktrees/*.path
+includeif.gitdir:/github/workspace/.git.path
+includeif.gitdir:/github/workspace/.git/worktrees/*.path
+[command]/usr/bin/git config --local --get-all includeif.gitdir:/home/runner/work/EZHarness/EZHarness/.git.path
+/home/runner/work/_temp/git-credentials-4c422212-1912-453e-b44a-85e6aaed6ade.config
+[command]/usr/bin/git config --local --unset includeif.gitdir:/home/runner/work/EZHarness/EZHarness/.git.path \/home\/runner\/work\/_temp\/git\-credentials\-4c422212\-1912\-453e\-b44a\-85e6aaed6ade\.config
+[command]/usr/bin/git config --local --get-all includeif.gitdir:/home/runner/work/EZHarness/EZHarness/.git/worktrees/*.path
+/home/runner/work/_temp/git-credentials-4c422212-1912-453e-b44a-85e6aaed6ade.config
+[command]/usr/bin/git config --local --unset includeif.gitdir:/home/runner/work/EZHarness/EZHarness/.git/worktrees/*.path \/home\/runner\/work\/_temp\/git\-credentials\-4c422212\-1912\-453e\-b44a\-85e6aaed6ade\.config
+[command]/usr/bin/git config --local --get-all includeif.gitdir:/github/workspace/.git.path
+/github/runner_temp/git-credentials-4c422212-1912-453e-b44a-85e6aaed6ade.config
+[command]/usr/bin/git config --local --unset includeif.gitdir:/github/workspace/.git.path \/github\/runner_temp\/git\-credentials\-4c422212\-1912\-453e\-b44a\-85e6aaed6ade\.config
+[command]/usr/bin/git config --local --get-all includeif.gitdir:/github/workspace/.git/worktrees/*.path
+/github/runner_temp/git-credentials-4c422212-1912-453e-b44a-85e6aaed6ade.config
+[command]/usr/bin/git config --local --unset includeif.gitdir:/github/workspace/.git/worktrees/*.path \/github\/runner_temp\/git\-credentials\-4c422212\-1912\-453e\-b44a\-85e6aaed6ade\.config
+[command]/usr/bin/git submodule foreach --recursive git config --local --show-origin --name-only --get-regexp remote.origin.url
+Removing credentials config '/home/runner/work/_temp/git-credentials-4c422212-1912-453e-b44a-85e6aaed6ade.config'
+Cleaning up orphan processes
+Terminate orphan process: pid (3072) (catatonit)

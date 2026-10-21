@@ -9,6 +9,9 @@ import type { PoolResourceClass, PoolSql } from "./ledger";
 import { loadFactoryGpuHostProfiles, type FactoryGpuHostProfiles } from "./gpu-host-profiles";
 import { PoolAdmissionService, type PoolAdmissionIdentityConfig } from "./service";
 import { startBunPoolAdmissionHttps, type BunPoolAdmissionHttpsOptions } from "./service-server";
+import type { FactoryMetricSample, FactoryRegisteredValues } from "../observability/metric-registry";
+import { serveFactoryMetrics, startDeclaredFactoryMetrics, wellFormedFactoryMetricsEndpoint, type FactoryMetricsEndpoint, type FactoryMetricsListener } from "../observability/metrics-listener";
+import { collectFactoryPoolMetrics } from "../observability/pool-metrics";
 
 const CONFIG_SCHEMA = "factory.pool-process.v1";
 const MAX_CONFIG_BYTES = 64 * 1024;
@@ -57,6 +60,8 @@ export interface FactoryPoolProcessConfig {
   };
   readonly readinessFilePath: string;
   readonly readinessHeartbeatMs?: number;
+  /** Where this pool serves `/metrics` (C11 M4); absent, it serves none. */
+  readonly metrics?: FactoryMetricsEndpoint;
 }
 
 export interface FactoryPoolProcessDependencies {
@@ -64,6 +69,10 @@ export interface FactoryPoolProcessDependencies {
   readonly start: (options: BunPoolAdmissionHttpsOptions) => Promise<PoolListener>;
   readonly readiness: (config: FactoryPoolProcessConfig) => FactoryPoolReadinessWriter;
   readonly wait?: (milliseconds: number, signal: AbortSignal) => Promise<void>;
+  /** Starts the metrics listener; production serves the pool's families (C11 M4). */
+  readonly metrics?: (endpoint: FactoryMetricsEndpoint, collect: () => Promise<readonly FactoryMetricSample[]>, registered: FactoryRegisteredValues) => Promise<FactoryMetricsListener>;
+  /** Names a fault the pool survives, by code only. */
+  readonly report?: (code: string) => void;
 }
 
 export interface FactoryPoolMainDependencies {
@@ -97,7 +106,7 @@ type PoolResourcesConfig = FactoryPoolProcessConfig["resources"];
 
 function validRoot(value: unknown): value is Record<string, unknown> {
   const required = ["schemaVersion", "poolId", "hostname", "port", "database", "tls", "tokens", "identities", "resources", "readinessFilePath"];
-  return record(value) && exact(value, required, ["readinessHeartbeatMs"]) && value.schemaVersion === CONFIG_SCHEMA && text(value.poolId) && text(value.hostname, 253) && integer(value.port, 1, 65_535) && absolutePath(value.readinessFilePath) && (value.readinessHeartbeatMs === undefined || integer(value.readinessHeartbeatMs, 1_000, 60_000));
+  return record(value) && exact(value, required, ["readinessHeartbeatMs", "metrics"]) && (value.metrics === undefined || wellFormedFactoryMetricsEndpoint(value.metrics)) && value.schemaVersion === CONFIG_SCHEMA && text(value.poolId) && text(value.hostname, 253) && integer(value.port, 1, 65_535) && absolutePath(value.readinessFilePath) && (value.readinessHeartbeatMs === undefined || integer(value.readinessHeartbeatMs, 1_000, 60_000));
 }
 function validDatabase(database: unknown): boolean {
   return record(database) && exact(database, ["credentialsPath", "expectedDatabase", "expectedRole"]) && absolutePath(database.credentialsPath) && text(database.expectedDatabase, 256) && text(database.expectedRole, 256);
@@ -234,7 +243,21 @@ const productionDependencies: FactoryPoolProcessDependencies = {
   start: startBunPoolAdmissionHttps,
   readiness: config => createFactoryPoolReadinessWriter(config),
   wait: waitForHeartbeat,
+  metrics: (endpoint, collect, registered) => serveFactoryMetrics(endpoint, "pool", collect, registered),
+  report: (code) => { console.error(`factory pool: ${code}`); },
 };
+
+/**
+ * The declared metrics listener, labelled with the tenants this pool's own
+ * identity configuration registers. One that cannot bind is reported by code
+ * and admission keeps serving; the evaluator's target-down alert names it.
+ */
+function servePoolMetrics(config: FactoryPoolProcessConfig, database: PoolDatabase, dependencies: FactoryPoolProcessDependencies): Promise<FactoryMetricsListener | undefined> {
+  const tenants = [...new Set(Object.values(config.identities.tenants).map((certificate) => certificate.tenantId))].sort();
+  return startDeclaredFactoryMetrics(config.metrics,
+    (endpoint) => (dependencies.metrics ?? productionDependencies.metrics!)(endpoint, () => collectFactoryPoolMetrics(database, tenants), { tenant: tenants }),
+    dependencies.report ?? productionDependencies.report!);
+}
 
 /** Runs the existing pool service from one private, reference-only config. */
 export async function runConfiguredFactoryPoolProcess(configPath: string, signal: AbortSignal, dependencies: FactoryPoolProcessDependencies = productionDependencies): Promise<void> {
@@ -245,6 +268,7 @@ export async function runConfiguredFactoryPoolProcess(configPath: string, signal
   const heartbeatMs = config.readinessHeartbeatMs ?? 5_000;
   let database: PoolDatabase | undefined;
   let listener: PoolListener | undefined;
+  let metrics: FactoryMetricsListener | undefined;
   let databaseReady = false;
   let schemaReady = false;
   let failureCode: string | undefined;
@@ -271,6 +295,7 @@ export async function runConfiguredFactoryPoolProcess(configPath: string, signal
     phase = "listener_unavailable";
     listener = await dependencies.start({ hostname: config.hostname, port: config.port, tls: material.tls, identities: config.identities, tokens: { issuer: config.tokens.issuer, audience: config.tokens.audience, publicKeys: material.publicKeys }, service });
     await readiness.write({ lifecycle: "ready", databaseReady, schemaReady, listenerReady: true });
+    metrics = await servePoolMetrics(config, database, dependencies);
     while (!signal.aborted) {
       await (dependencies.wait ?? waitForHeartbeat)(heartbeatMs, signal);
       if (signal.aborted) break;
@@ -281,6 +306,7 @@ export async function runConfiguredFactoryPoolProcess(configPath: string, signal
   } catch {
     failureCode ??= phase;
   } finally {
+    await metrics?.stop();
     try { listener?.stop(); } catch { failureCode ??= "listener_close_failed"; }
     try { await database?.close(); } catch { failureCode ??= "database_close_failed"; }
     if (failureCode === undefined) await readiness.write({ lifecycle: "stopped", databaseReady: false, schemaReady: false, listenerReady: false });

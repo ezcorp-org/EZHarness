@@ -1,0 +1,30 @@
+# 2026-10-17T05:50:38Z head 39baed85a154e8934848ff56afd53a486b98b127 dirty 0 cmd: bun test --timeout 30000 ./src/factory/s3-release-adapter/package.test.ts
+bun test v1.4.2 (744846f84)
+
+src/factory/s3-release-adapter/package.test.ts:
+ 7 |   expect(await s3ReleaseAdapterSourceDigest()).toBe(S3_RELEASE_ADAPTER_LOCK.sourceDigest);
+ 8 |   expect(Object.keys(await s3ReleaseAdapterFiles()).sort()).toEqual(["extension.ts", "feature.test.ts"]);
+ 9 | });
+10 | 
+11 | test("the provided SDK bundle and toolchain are the locked ones: a change to either moves the artifact, so it goes red here first", async () => {
+12 |   expect(await s3ReleaseAdapterProvidedDigests()).toEqual({ sdkDigest: S3_RELEASE_ADAPTER_LOCK.sdkDigest, toolchainDigest: S3_RELEASE_ADAPTER_LOCK.toolchainDigest });
+                                                       ^
+error: expect(received).toEqual(expected)
+
+@@ -1,3 +1,3 @@
+  {
+-   "sdkDigest": "sha256:f3c4fba229fcaed6c10fb60f79785e566aaae8b26923bd832d7246b8f169dc26",
++   "sdkDigest": "sha256:a8c4f87236d4cbc8225d453650e7bc6786a8d329918d518ad68ccecf7deeb480",
+    "toolchainDigest": "sha256:6095bbe3725f4d14a676e502a3723b94e172beeb7864bbb9c773a461f2ad4969",
+
+- Expected  - 1
++ Received  + 1
+
+      at <anonymous> (/home/dev/work/EZCorp/EZHarness/.worktrees/w4h-32b/src/factory/s3-release-adapter/package.test.ts:12:51)
+(fail) the provided SDK bundle and toolchain are the locked ones: a change to either moves the artifact, so it goes red here first [296.83ms]
+
+ 3 pass
+ 1 fail
+ 5 expect() calls
+Ran 4 tests across 1 file. [779.00ms]
+# exit=1

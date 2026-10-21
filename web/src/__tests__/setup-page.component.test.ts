@@ -92,7 +92,7 @@ describe("Setup page (+page.svelte)", () => {
     const { container, getByText } = render(SetupPage);
     await fillInputs(container, {
       name: "",
-      email: "a@b.co",
+      email: "a@b.example",
       password: "Abcdefg1",
       confirmPassword: "Abcdefg1",
     });
@@ -128,7 +128,7 @@ describe("Setup page (+page.svelte)", () => {
     const { container, getByText } = render(SetupPage);
     await fillInputs(container, {
       name: "Ada",
-      email: "a@b.co",
+      email: "a@b.example",
       password: "Aa1",
       confirmPassword: "Aa1",
     });
@@ -142,7 +142,7 @@ describe("Setup page (+page.svelte)", () => {
     const { container, getByText } = render(SetupPage);
     await fillInputs(container, {
       name: "Ada",
-      email: "a@b.co",
+      email: "a@b.example",
       password: "alllowercase1",
       confirmPassword: "alllowercase1",
     });
@@ -156,7 +156,7 @@ describe("Setup page (+page.svelte)", () => {
     const { container, getByText } = render(SetupPage);
     await fillInputs(container, {
       name: "Ada",
-      email: "a@b.co",
+      email: "a@b.example",
       password: "ALLUPPERCASE1",
       confirmPassword: "ALLUPPERCASE1",
     });
@@ -170,7 +170,7 @@ describe("Setup page (+page.svelte)", () => {
     const { container, getByText } = render(SetupPage);
     await fillInputs(container, {
       name: "Ada",
-      email: "a@b.co",
+      email: "a@b.example",
       password: "NoDigitsHere",
       confirmPassword: "NoDigitsHere",
     });
@@ -184,7 +184,7 @@ describe("Setup page (+page.svelte)", () => {
     const { container, getByText } = render(SetupPage);
     await fillInputs(container, {
       name: "Ada",
-      email: "a@b.co",
+      email: "a@b.example",
       password: "Abcdefg1",
       confirmPassword: "Different1",
     });
@@ -241,7 +241,7 @@ describe("Setup page (+page.svelte)", () => {
     const { container, findByText, queryByText } = render(SetupPage);
     await fillInputs(container, {
       name: "Ada",
-      email: "a@b.co",
+      email: "a@b.example",
       password: "Abcdefg1",
       confirmPassword: "Abcdefg1",
     });
@@ -263,7 +263,7 @@ describe("Setup page (+page.svelte)", () => {
     const { container, findByText } = render(SetupPage);
     await fillInputs(container, {
       name: "Ada",
-      email: "a@b.co",
+      email: "a@b.example",
       password: "Abcdefg1",
       confirmPassword: "Abcdefg1",
     });
@@ -281,7 +281,7 @@ describe("Setup page (+page.svelte)", () => {
     const { container, getByText } = render(SetupPage);
     await fillInputs(container, {
       name: "Ada",
-      email: "a@b.co",
+      email: "a@b.example",
       password: "Abcdefg1",
       confirmPassword: "Abcdefg1",
     });

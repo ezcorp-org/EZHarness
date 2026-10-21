@@ -18,6 +18,7 @@ import {
   FACTORY_SUPERVISOR_PROBE_TIMEOUT_HEARTBEATS,
   parseFactorySupervisorProcessConfig,
   factoryHostRunnerProbe,
+  factoryProvisionedRunnerLoader,
   runConfiguredFactorySupervisor,
   startFactoryConfiguredHostServices,
   runFactorySupervisorMain,
@@ -282,6 +283,40 @@ describe("runConfiguredFactorySupervisor", () => {
     expect(observed).toMatchObject({ service: "host-supervisor", instanceId: "host-01", lifecycle: "ready", facts: { hostKeyReady: true, runnerReady: true , hostServicesReady: false } });
   });
 
+  test("serves ready on its declared metrics endpoint exactly when its record is ready, and survives an endpoint that cannot start (C11 M4)", async () => {
+    const root = await privateRoot();
+    await writeHostKey(root);
+    const metrics = { hostname: "127.0.0.1", port: 9468, scrapeTokenPath: join(root, "metrics-token") };
+    expect(parseFactorySupervisorProcessConfig({ ...config(root), metrics }).metrics).toEqual(metrics);
+    expect(() => parseFactorySupervisorProcessConfig({ ...config(root), metrics: { ...metrics, port: 0 } })).toThrow("factory supervisor config is invalid");
+    const path = await writeConfig(root, { metrics } as never);
+    abortController = new AbortController();
+    const readings: Array<[string, boolean]> = [];
+    let ready: () => boolean = () => false;
+    let stopped = false;
+    await runConfiguredFactorySupervisor(path, abortController.signal, dependencies({
+      metrics: async (endpoint, isReady) => {
+        expect(endpoint).toEqual(metrics);
+        ready = isReady;
+        return { url: "http://127.0.0.1:9468", stop: async () => { stopped = true; } };
+      },
+      createReadiness: () => ({ write: async (update) => { readings.push([update.lifecycle, ready()]); return { ...update } as never; } }),
+    }));
+    // The gauge is the record's own verdict: ready exactly when a ready record is written, not while starting.
+    expect(readings).toContainEqual(["ready", true]);
+    expect(readings).toContainEqual(["starting", false]);
+    expect(ready()).toBe(false);
+    expect(stopped).toBe(true);
+
+    abortController = new AbortController();
+    const reports: string[] = [];
+    await runConfiguredFactorySupervisor(path, abortController.signal, dependencies({
+      metrics: async () => { throw Object.assign(new Error(`cannot read ${metrics.scrapeTokenPath}`), { code: "factory_metrics_token_unreadable" }); },
+      report: (code) => { reports.push(code); },
+    }));
+    expect(reports).toEqual(["factory_metrics_token_unreadable"]);
+  });
+
   test("bounds the probe and names a timeout as its own failure", async () => {
     const root = await privateRoot();
     await writeHostKey(root);
@@ -426,6 +461,22 @@ describe("factoryHostRunnerProbe", () => {
 
     await probe.probe(config);
     expect(constructed).toHaveLength(2);
+  });
+
+  test("the host's runner is constructed with the pinned toolchain, provisioned once per load (W4H-26)", async () => {
+    const constructed: unknown[] = [];
+    let provisioned = 0;
+    const toolchain = { sdkFiles: { "node_modules/@ezcorp/sdk/package.json": "{}" }, toolchainFiles: { "node_modules/typescript/package.json": "{}" } };
+    class PodmanRunner {
+      constructor(options: unknown) { constructed.push(options); }
+    }
+    const load = factoryProvisionedRunnerLoader(async () => ({ PodmanRunner: PodmanRunner as never, provisionToolchain: async () => { provisioned += 1; return toolchain; } }));
+    const Runner = await load();
+    new Runner({ root: "/tmp/w4h26-runner-root" });
+    new Runner({ root: "/tmp/w4h26-runner-root-2" });
+    // Each construction carries the toolchain; the toolchain was provisioned once, at the load.
+    expect(constructed).toEqual([{ root: "/tmp/w4h26-runner-root", ...toolchain }, { root: "/tmp/w4h26-runner-root-2", ...toolchain }]);
+    expect(provisioned).toBe(1);
   });
 
   test("closing before any probe is safe", async () => {

@@ -1,0 +1,21 @@
+bun test v1.4.2 (744846f84)
+{"ts":"2026-10-16T00:55:05.711Z","level":"warn","msg":"preview uid pool exhausted — refusing new allocation","subsystem":"preview.uid-pool","conversationId":"overflow","poolSize":9001,"active":9001}
+{"ts":"2026-10-16T00:55:05.711Z","level":"warn","msg":"preview uid QUARANTINED — kill unconfirmed, uid withheld from pool","subsystem":"preview.uid-pool","conversationId":"conv-1","uid":90000,"quarantinedCount":1}
+{"ts":"2026-10-16T00:55:05.711Z","level":"warn","msg":"preview uid QUARANTINED — kill unconfirmed, uid withheld from pool","subsystem":"preview.uid-pool","conversationId":"victim","uid":90000,"quarantinedCount":1}
+{"ts":"2026-10-16T00:55:05.714Z","level":"warn","msg":"preview uid QUARANTINED — kill unconfirmed, uid withheld from pool","subsystem":"preview.uid-pool","conversationId":"c-0","uid":90000,"quarantinedCount":1}
+{"ts":"2026-10-16T00:55:05.714Z","level":"warn","msg":"preview uid pool exhausted — refusing new allocation","subsystem":"preview.uid-pool","conversationId":"overflow","poolSize":9001,"active":9000}
+{"ts":"2026-10-16T00:55:05.714Z","level":"info","msg":"preview data-dir locked down to 0700, app-uid-owned (keystone)","subsystem":"preview.uid-pool","path":"/proj/.ezcorp/data"}
+{"ts":"2026-10-16T00:55:05.714Z","level":"info","msg":"preview data-dir locked down to 0700, app-uid-owned (keystone)","subsystem":"preview.uid-pool","path":"/proj/.ezcorp/data"}
+{"ts":"2026-10-16T00:55:05.714Z","level":"warn","msg":"preview data-dir lockdown FAILED — could not create data dir","subsystem":"preview.uid-pool","path":"/proj/.ezcorp/data","reason":"mkdir 0700 failed: EACCES"}
+{"ts":"2026-10-16T00:55:05.714Z","level":"warn","msg":"preview data-dir lockdown FAILED — uid-mode previews unsafe","subsystem":"preview.uid-pool","path":"/proj/.ezcorp/data","reason":"chmod 0700 failed: EPERM"}
+{"ts":"2026-10-16T00:55:05.714Z","level":"warn","msg":"preview data-dir lockdown did not stick","subsystem":"preview.uid-pool","path":"/proj/.ezcorp/data","reason":"data dir is 600 after chmod, expected 700"}
+{"ts":"2026-10-16T00:55:05.714Z","level":"warn","msg":"preview data-dir lockdown FAILED — owner is not the app uid","subsystem":"preview.uid-pool","path":"/proj/.ezcorp/data","reason":"data dir owned by uid 90001, expected app uid 1000 — refusing (ownership not app-exclusive)"}
+{"ts":"2026-10-16T00:55:05.714Z","level":"warn","msg":"preview data-dir lockdown FAILED — group/other bits present","subsystem":"preview.uid-pool","path":"/proj/.ezcorp/data","reason":"data dir has group/other bits 40 set after chmod — refusing"}
+{"ts":"2026-10-16T00:55:05.714Z","level":"info","msg":"preview data-dir locked down to 0700, app-uid-owned (keystone)","subsystem":"preview.uid-pool","path":"/proj/.ezcorp/data"}
+{"ts":"2026-10-16T00:55:05.715Z","level":"info","msg":"preview data-dir locked down to 0700, app-uid-owned (keystone)","subsystem":"preview.uid-pool","path":"/tmp/prev-uid-lockdown-U4EMlH/.ezcorp/data"}
+{"ts":"2026-10-16T00:55:05.715Z","level":"info","msg":"preview data-dir locked down to 0700, app-uid-owned (keystone)","subsystem":"preview.uid-pool","path":"/tmp/prev-uid-existing-T8bcZY/.ezcorp/data"}
+
+ 26 pass
+ 0 fail
+ 18165 expect() calls
+Ran 26 tests across 1 file. [461.00ms]

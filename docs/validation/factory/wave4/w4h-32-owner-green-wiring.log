@@ -1,0 +1,10 @@
+# 2026-10-15T23:41:19Z cwd=/home/dev/work/EZCorp/EZHarness/.worktrees/w4h-32 cmd: bun test --timeout 30000 ./src/__tests__/extension-lifecycle-service-trusted-local.test.ts ./src/factory/attempt-composition.test.ts
+bun test v1.4.2 (744846f84)
+{"ts":"2026-10-15T23:41:21.036Z","level":"error","msg":"Extension recovery requires attention","subsystem":"ext.author.lifecycle","installationId":"w4h32-installation","code":"recovery_failed"}
+{"ts":"2026-10-15T23:41:21.036Z","level":"error","msg":"Extension recovery requires attention","subsystem":"ext.author.lifecycle","code":"recovery_failed"}
+
+ 21 pass
+ 0 fail
+ 56 expect() calls
+Ran 21 tests across 2 files. [4.41s]
+# exit=0 end=2026-10-15T23:41:24Z

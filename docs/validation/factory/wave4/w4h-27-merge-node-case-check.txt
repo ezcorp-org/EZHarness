@@ -1,0 +1,9 @@
+PASS: loads a bundle whose bytes match the build's digest record
+PASS: refuses a one-byte change by name
+PASS: refuses a bundle whose length differs from the record even when the digest field matches
+PASS: refuses a missing bundle or a missing record
+PASS: refuses a malformed record
+PASS: is what the image build writes, and the production worker start loads it and replays a committed history
+PASS: keeps the bundler out of every module the orchestrator process loads
+PASS: records audit before effects and replays the saved real-server history
+ABSENT (as required): the replay suite's bundle differs from the built bundle

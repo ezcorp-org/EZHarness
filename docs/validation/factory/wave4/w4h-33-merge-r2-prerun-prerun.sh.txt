@@ -1,0 +1,14 @@
+#!/usr/bin/env bash
+# W4H-33 R2 pre-run (integrator-5; team-lead's ruling path (a), 2026-10-16): ONE short in-lock job at the merge commit b6414ec0b. It runs only
+# the child-cov wrapper and the real-auth specs leg (the hold's form), so the real child run gives the lcov and the printed skip lines from
+# which tracked-skip-lines.txt is written. Outputs in r2-prerun/; the hold's own childcov/ stays untouched.
+set -u
+I=/home/dev/work/EZCorp/EZHarness-worktrees/composable-factory-platform/.worktrees/w00-integration
+R=/tmp/factory-platform-evidence/w00/w4h-merge/w4h-33-test-hygiene-e50aedefd-on-b0b7bedf1/r2-prerun; M=b6414ec0b137272e413da5e0db9b4421bc7ac386
+cd "$I" || exit 2
+[ "$(git rev-parse HEAD)" = $M ] && [ -z "$(git status --porcelain)" ] || { echo "REFUSED: worktree not clean at $M"; exit 3; }
+export PATH=/tmp/factory-tools/bun-1.4.2/bun-linux-x64:/tmp/factory-tools/node-24.14.1/bin:$PATH
+bash /tmp/factory-platform-evidence/w00/child-cov-bun.sh "$R/childcov" > "$R/child-cov-bun.log" 2>&1 || { echo "child-cov-bun failed"; exit 1; }
+cd web && env PATH="$R/childcov/bin:$PATH" CHILD_COV_DIR="$R/childcov/lcov" CHILD_COV_MATCH=packages/@ezcorp/ai-kit/test/e2e/ timeout 3600 bunx playwright test --config playwright.real.config.ts e2e/real-auth/sub-conversation-flow.spec.ts e2e/real-auth/ai-kit-public-api.spec.ts --project=chromium --reporter=list > "$R/real-auth-specs.log" 2>&1; rc=$?
+cd "$I"; echo "real-auth-specs exit=$rc $(date -u +%FT%TZ)"; [ -z "$(git status --porcelain)" ] || echo "WARNING: worktree dirty after the run: $(git status --porcelain | head -5)"
+exit $rc

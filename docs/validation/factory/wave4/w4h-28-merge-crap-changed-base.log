@@ -1,0 +1,24 @@
+CRAP: --changed against b7dbd9210c31676e1e7ec67ef608c1510e840016 → 61 measured file(s) in diff
+
+CRAP: 250 functions in 61 files (max 30, warn 15)
+
+Worst 15:
+     21.0  cc= 21 cov=100%  src/providers/credentials.ts:372 getCredential
+     19.0  cc= 19 cov=100%  src/factory/runner/guest-broker-service.ts:79 <anonymous@79>
+     19.0  cc= 19 cov=100%  src/providers/codex-login-import.ts:88 codexLoginCredential
+     18.0  cc= 18 cov=100%  packages/@ezcorp/extension-runner/src/service.ts:131 startRunnerService
+     18.0  cc= 18 cov=100%  src/factory/private-https.ts:48 startFactoryPrivateHttps
+     18.0  cc= 18 cov=100%  src/factory/release-github-request.ts:152 rejectRepositoryControlledInstall
+     18.0  cc= 18 cov=100%  src/factory/release-github-request.ts:177 assertPublicationEnvelope
+     16.0  cc= 16 cov=100%  packages/@ezcorp/factory-sdk/src/guest-materials.ts:319 readFactoryGuestMaterial
+     15.0  cc= 15 cov=100%  packages/@ezcorp/extension-runner/src/podman.ts:616 build
+     15.0  cc= 15 cov=100%  src/factory/startup-config.ts:677 leaves
+     14.0  cc= 14 cov=100%  src/factory/private-https.ts:65 respond
+     14.0  cc= 14 cov=100%  src/factory/reference-code/checks.ts:107 referenceCodeProtectedChecks
+     14.0  cc= 14 cov=100%  src/factory/runner/guest-model-broker.ts:182 call
+     13.0  cc= 13 cov=100%  src/factory/release-github-request.ts:198 collectPublicationFiles
+     12.0  cc= 12 cov=100%  packages/@ezcorp/factory-sdk/src/validation.ts:1187 validateFactoryGuestMaterialReadResponse
+
+8 function(s) above the warn line (not failing).
+
+✓ no touched function exceeds CRAP 30

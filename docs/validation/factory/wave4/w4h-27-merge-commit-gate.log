@@ -1,0 +1,12 @@
+resource-gate 2026-10-14T02:11:44Z w4h-27-commit outside-lock disk=112G memAvailable=17GiB swapFreeKiB=7747060/17173956 floors disk>=104G swap>=2621440KiB mem>=12GiB
+gated-flock w4h-27-commit: gate green outside the lock, queue for the lock (try 1) 2026-10-14T02:11:44Z
+resource-gate 2026-10-14T02:11:44Z commit-start disk=112G memAvailable=17GiB swapFreeKiB=7747060/17173956 floors disk>=100G swap>=2097152KiB mem>=12GiB
+own-pg: w4h-27-commit-pg (docker.io/pgvector/pgvector:pg15 4b4956e2ab1f, server 15.19) on 127.0.0.1:44065
+commit.sh exit=1 2026-10-14T02:17:43Z
+gated-flock w4h-27-commit: command exit 1 2026-10-14T02:17:43Z
+resource-gate 2026-10-14T03:13:38Z w4h-27-commit-r5 outside-lock disk=119G memAvailable=18GiB swapFreeKiB=7698248/17173956 floors disk>=104G swap>=2621440KiB mem>=12GiB
+gated-flock w4h-27-commit-r5: gate green outside the lock, queue for the lock (try 1) 2026-10-14T03:13:38Z
+resource-gate 2026-10-14T03:13:38Z commit-start disk=119G memAvailable=18GiB swapFreeKiB=7698248/17173956 floors disk>=100G swap>=2097152KiB mem>=12GiB
+own-pg: w4h-27-commit-pg (docker.io/pgvector/pgvector:pg15 4b4956e2ab1f, server 15.19) on 127.0.0.1:36439
+commit.sh exit=0 2026-10-14T03:18:33Z
+gated-flock w4h-27-commit-r5: command exit 0 2026-10-14T03:18:33Z

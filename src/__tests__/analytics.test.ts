@@ -200,7 +200,7 @@ describe("analytics queries", () => {
             action: "user.login",
             userId: "u1",
             userName: "John",
-            userEmail: "john@test.com",
+            userEmail: "john@test.example",
             metadata: null,
             createdAt: new Date(),
           },
@@ -335,14 +335,14 @@ describe("analytics queries", () => {
     test("projects user + tool pair counts with name/email, successCount, errorCount", async () => {
       queryResults = [
         [
-          { userId: "u1", userName: "Alice", userEmail: "a@x.com", toolName: "read_file", count: 9, successCount: 7 },
+          { userId: "u1", userName: "Alice", userEmail: "a@x.example", toolName: "read_file", count: 9, successCount: 7 },
           { userId: "u2", userName: null,    userEmail: null,       toolName: "search",    count: 2, successCount: 2 },
         ],
       ];
 
       const r = await getToolUsageByUser(30);
       expect(r[0]).toEqual({
-        userId: "u1", userName: "Alice", userEmail: "a@x.com",
+        userId: "u1", userName: "Alice", userEmail: "a@x.example",
         toolName: "read_file", count: 9, successCount: 7, errorCount: 2,
       });
       expect(r[1]!.userName).toBe("Unknown");

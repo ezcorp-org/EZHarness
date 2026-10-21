@@ -23,7 +23,7 @@ test("a missing runner artifact fails before worker launch with a precise diagno
     const runner = new UnstartedRunner({ root });
     const artifactDigest = filesDigest({ "extension.ts": "export {};" });
     await expect(runner.collectArtifacts(artifactDigest)).rejects.toMatchObject({
-      code: "artifact_missing", message: "Runner artifact is missing from its local store",
+      code: "artifact_missing", message: "The release's artifact is not in this runner's store",
     });
     const workerId = "missing-artifact-worker";
     const context = { workerId, invocationId: "missing-artifact-invocation", releaseId: artifactDigest,
@@ -33,8 +33,7 @@ test("a missing runner artifact fails before worker launch with a precise diagno
     expect(failure).toBeInstanceOf(RunnerError);
     expect(failure).toMatchObject({ code: "artifact_missing" });
     expect(runner.launchCalled).toBe(false);
-    expect(await runner.inspect(workerId)).toMatchObject({ state: "failed",
-      diagnostics: [{ code: "artifact_missing" }] });
+    expect(await runner.inspect(workerId)).toEqual({ id: workerId, state: "unknown", diagnostics: [] });
   } finally {
     await rm(root, { recursive: true, force: true });
   }
@@ -69,10 +68,9 @@ test("the Unix runner API preserves a missing-artifact error before worker launc
     const failure = await client.start({ workerId, artifactDigest, context, limits: executionLimits },
       async () => { throw new Error("Unexpected host call"); }).catch((error: unknown) => error);
     expect(failure).toBeInstanceOf(RunnerError);
-    expect(failure).toMatchObject({ code: "artifact_missing", message: "Runner artifact is missing from its local store" });
+    expect(failure).toMatchObject({ code: "artifact_missing", message: "The release's artifact is not in this runner's store" });
     expect(runner.launchCalled).toBe(false);
-    expect(await client.inspect(workerId)).toMatchObject({ state: "failed",
-      diagnostics: [{ code: "artifact_missing" }] });
+    expect(await client.inspect(workerId)).toEqual({ id: workerId, state: "unknown", diagnostics: [] });
   } finally {
     await service.close();
     await rm(root, { recursive: true, force: true });

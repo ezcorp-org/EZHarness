@@ -1,0 +1,1816 @@
+$ tsc -b tsconfig.build.json --force && bun run build:workflow-bundle && node --test --experimental-strip-types test/*.test.ts
+$ node --experimental-strip-types src/workflow-bundle-build.ts
+2026-10-18T00:37:11.958Z [INFO] asset workflow-bundle-a3734174b49374315187.js 2.67 MiB [emitted] [immutable] (name: main)
+runtime modules 883 bytes 4 modules
+javascript modules 776 KiB
+  modules by path ../../../node_modules/.bun/ 462 KiB 79 modules
+  modules by path ../factory-sdk/dist/*.js 258 KiB 9 modules
+  modules by path ./src/ 57 KiB 8 modules
+  optional modules 30 bytes [optional]
+    __temporal_custom_payload_converter (ignored) 15 bytes [optional] [built] [code generated]
+    __temporal_custom_failure_converter (ignored) 15 bytes [optional] [built] [code generated]
+json modules 233 KiB
+  ../../../node_modules/.bun/@temporalio+workflow@1.23.0/node_modules/@temporalio/...(truncated) 1010 bytes [built] [code generated]
+  ../factory-sdk/dist/factory-definition.schema.json 18.5 KiB [built] [code generated]
+  ../factory-sdk/dist/compiled-factory.schema.json 21.6 KiB [built] [code generated]
+  ../factory-sdk/dist/compiled-execution-manifest.schema.json 3.13 KiB [built] [code generated]
+  ../factory-sdk/dist/compiled-partition-artifact.schema.json 17.4 KiB [built] [code generated]
+  + 15 modules
+webpack 5.111.1 compiled successfully in 451 ms
+2026-10-18T00:37:11.962Z [INFO] Workflow bundle created { size: '2.67MB' }
+{"schemaVersion":"factory.workflow-bundle.v1","sha256":"sha256:287ec0ba6dfcb19c92f314cf17a6d91750909892e49b848afc646b49e7ccaa2d","bytes":2803196}
+▶ paged compiled factory loading
+  ✔ loads a hierarchical manifest through recorded, ordered pages (1.893854ms)
+  ✔ rejects manifest identity, definition, cycles, and page-count faults (6.111307ms)
+  ✔ rejects discontinuous pages, byte drift, invalid JSON, and digest drift (1.126259ms)
+✔ paged compiled factory loading (9.916867ms)
+▶ factory outbox dispatcher
+  ✔ uses the durable command ID as the Temporal start request ID (1.651802ms)
+  ✔ uses a stable workflow identity for a partition interpreter (0.538934ms)
+  ✔ acknowledges only a repeated start with the same durable identity (0.588624ms)
+  ✔ signals the existing workflow with a stable inbox event (0.297472ms)
+  ✔ addresses partition notifications to their partition interpreter (0.206792ms)
+  ✔ rejects invalid durable identities and payloads (0.579015ms)
+  ✔ reconciles acknowledged and pending decisions by durable identity (0.431353ms)
+  ✔ settles a recovered unknown claim only after identity reconciliation (0.268282ms)
+  ✔ settles only after an acknowledged delivery (0.273042ms)
+  ✔ retries known pre-send connection failures and parks uncertain errors (0.404483ms)
+  ✔ settles an uncertain send as delivered when the workflow receipt confirms it (0.181611ms)
+✔ factory outbox dispatcher (8.386655ms)
+✔ uses the real Node Temporal PayloadCodec context for factory workflow and partition identities (3.646878ms)
+✔ measures the actual Temporal protobuf boundary after codec encryption (13.267133ms)
+✔ carries a 256 MiB material by reference inside the C08 encoded argument limit (50.336472ms)
+✔ loads a private pre-wrapped key in Node 24 and binds real Temporal workflow payloads (8.580137ms)
+✔ fails Node readiness for missing, empty, foreign, malformed, private, and wrong-master wrap files (13.321854ms)
+✔ holds a KMS wrap: a key ARN with slashes and a wrap larger than an operator wrap (2.112146ms)
+[2m2026-10-18T00:37:12.830515Z[0m [33m WARN[0m [2mtemporalio_sdk_core::worker[0m[2m:[0m Temporal Server 1.16.0 or newer is required to guarantee that the latest heartbeat details are preserved when an activity fails; the server did not advertise the activity_failure_include_heartbeat capability, so heartbeat details may be lost on failure
+2026-10-18T00:37:12.831Z [INFO] Worker state changed {
+  sdkComponent: 'worker',
+  taskQueue: 'factory-orchestrator',
+  state: 'RUNNING'
+}
+2026-10-18T00:37:12.832Z [INFO] No Nexus services registered, not polling for Nexus tasks { sdkComponent: 'worker', taskQueue: 'factory-orchestrator' }
+2026-10-18T00:37:13.853Z [INFO] Worker state changed {
+  sdkComponent: 'worker',
+  taskQueue: 'factory-orchestrator',
+  state: 'STOPPING'
+}
+2026-10-18T00:37:13.853Z [INFO] Worker state changed {
+  sdkComponent: 'worker',
+  taskQueue: 'factory-orchestrator',
+  state: 'DRAINING'
+}
+2026-10-18T00:37:13.853Z [INFO] Worker state changed {
+  sdkComponent: 'worker',
+  taskQueue: 'factory-orchestrator',
+  state: 'DRAINED'
+}
+2026-10-18T00:37:13.854Z [INFO] Worker state changed {
+  sdkComponent: 'worker',
+  taskQueue: 'factory-orchestrator',
+  state: 'STOPPED'
+}
+▶ authenticated factory gateway activities
+  ✔ keeps production readiness closed when the real server cannot prove its task queue poller (1350.659733ms)
+  ✔ shares a bounded credential-reloading HTTP transport without Temporal imports (63.366303ms)
+  ✔ an IP endpoint sends no IP server name and is verified against the IP; a different IP name fails by name (3.401646ms)
+  ✔ rejects caller URLs before sending private credentials (0.768996ms)
+  ✔ uses verified mutual TLS, scoped routes, and immutable page digests (9.339443ms)
+  ✔ reloads the service token and client identity after credential rotation (4.696087ms)
+  ✔ keeps a fully escaped 32 KiB page below the 64 KiB activity boundary (2.63134ms)
+2026-10-18T00:37:13.948Z [WARN] Activity failed {
+  sdkComponent: 'worker',
+  isLocal: false,
+  attempt: 1,
+  namespace: 'test',
+  taskToken: 'dGVzdA==',
+  activityId: 'test',
+  activityType: 'unknown',
+  taskQueue: 'test',
+  workflowId: 'test',
+  workflowRunId: '00000000-0000-0000-0000-000000000000',
+  workflowType: 'test',
+  error: Error: error:0480006C:PEM routines::no start line
+      at node:internal/tls/secure-context:70:13
+      at Array.forEach (<anonymous>)
+      at setCerts (node:internal/tls/secure-context:68:3)
+      at configSecureContext (node:internal/tls/secure-context:191:5)
+      at Object.createSecureContext (node:internal/tls/common:113:3)
+      at Object.connect (node:internal/tls/wrap:1738:48)
+      at Agent.createConnection (node:https:367:18)
+      at Agent.createSocket (node:_http_agent:399:26)
+      at Agent.addRequest (node:_http_agent:339:10)
+      at new ClientRequest (node:_http_client:404:16) {
+    library: 'PEM routines',
+    reason: 'no start line',
+    code: 'ERR_OSSL_PEM_NO_START_LINE'
+  },
+  durationMs: 0
+}
+2026-10-18T00:37:13.951Z [WARN] Activity failed {
+  sdkComponent: 'worker',
+  isLocal: false,
+  attempt: 1,
+  namespace: 'test',
+  taskToken: 'dGVzdA==',
+  activityId: 'test',
+  activityType: 'unknown',
+  taskQueue: 'test',
+  workflowId: 'test',
+  workflowRunId: '00000000-0000-0000-0000-000000000000',
+  workflowType: 'test',
+  error: Error: self-signed certificate in certificate chain
+      at TLSSocket.onConnectSecure (node:internal/tls/wrap:1653:34)
+      at TLSSocket.emit (node:events:508:28)
+      at TLSSocket._finishInit (node:internal/tls/wrap:1099:8)
+      at ssl.onhandshakedone (node:internal/tls/wrap:885:12) {
+    code: 'SELF_SIGNED_CERT_IN_CHAIN'
+  },
+  durationMs: 2
+}
+2026-10-18T00:37:13.954Z [WARN] Activity failed {
+  sdkComponent: 'worker',
+  isLocal: false,
+  attempt: 1,
+  namespace: 'test',
+  taskToken: 'dGVzdA==',
+  activityId: 'test',
+  activityType: 'unknown',
+  taskQueue: 'test',
+  workflowId: 'test',
+  workflowRunId: '00000000-0000-0000-0000-000000000000',
+  workflowType: 'test',
+  error: Error [ERR_TLS_CERT_ALTNAME_INVALID]: Hostname/IP does not match certificate's altnames: IP: 127.0.0.1 is not in the cert's list: 
+      at Object.checkServerIdentity (node:tls:455:12)
+      at TLSSocket.onConnectSecure (node:internal/tls/wrap:1663:27)
+      at TLSSocket.emit (node:events:508:28)
+      at TLSSocket._finishInit (node:internal/tls/wrap:1099:8)
+      at ssl.onhandshakedone (node:internal/tls/wrap:885:12) {
+    code: 'ERR_TLS_CERT_ALTNAME_INVALID',
+    reason: "IP: 127.0.0.1 is not in the cert's list: ",
+    host: '127.0.0.1',
+    cert: {
+      subject: [Object: null prototype],
+      issuer: [Object: null prototype],
+      subjectaltname: 'DNS:localhost',
+      infoAccess: undefined,
+      ca: false,
+      modulus: 'C029DF2A32690C7BE9AFEA664471BAE59BBE49BBBCA7C37322981B6DBB18A9E09984195FA7A959FCDA0F52000DE2194FFC236154136353FCBD7517BE2C7A7856A83BFF80FE163CBA1426177A18783D7653219E139A9EE060188353468C85D7923DA924437E34B624DEE3FCB3C23E798EFFCD376B9002E97BCB7C32EA0ACE2FC63F943CFA59C8147984442D06770ADAF50B5606CDD7A2698D1EAA33BA994BDB6CF99B75209C8C761E4B1D551B99158B3D1A41DA9E3198BABD488548F3B824D29F0A10B83C891B6A775F46917967714A75E4DECA76B6B7D44E608905677C756C72939C28D68435589C3A493471E7F1AF6D287633497EB9A090229BAD21C6564403',
+      exponent: '0x10001',
+      pubkey: <Buffer 30 82 01 22 30 0d 06 09 2a 86 48 86 f7 0d 01 01 01 05 00 03 82 01 0f 00 30 82 01 0a 02 82 01 01 00 c0 29 df 2a 32 69 0c 7b e9 af ea 66 44 71 ba e5 9b ... 244 more bytes>,
+      bits: 2048,
+      valid_from: 'Oct 18 00:37:12 2026 GMT',
+      valid_to: 'Oct 19 00:37:12 2026 GMT',
+      fingerprint: '33:78:37:A9:6D:40:8A:59:E9:53:D6:AE:AB:2E:61:4E:91:58:3E:0F',
+      fingerprint256: '55:FF:8C:57:7D:BE:97:F3:93:9A:DA:97:7D:98:43:78:8B:2F:A0:FD:F8:29:B8:FE:91:EF:64:A0:26:39:66:DD',
+      fingerprint512: '85:9D:39:CC:3F:DA:A0:90:39:B6:8B:59:C5:C6:2E:79:6C:BD:5B:A8:BC:62:98:9C:9B:D8:81:1B:29:1D:4C:45:49:B6:08:15:56:DC:8C:70:41:66:D3:E2:71:9D:A5:57:85:1D:E2:88:E7:58:7F:26:B2:18:05:19:EC:D7:A7:0E',
+      ext_key_usage: [Array],
+      serialNumber: '096B96B8D68D17C3995860909BC6F4E614D06ADE',
+      raw: <Buffer 30 82 03 29 30 82 02 11 a0 03 02 01 02 02 14 09 6b 96 b8 d6 8d 17 c3 99 58 60 90 9b c6 f4 e6 14 d0 6a de 30 0d 06 09 2a 86 48 86 f7 0d 01 01 0b 05 00 ... 763 more bytes>,
+      asn1Curve: undefined,
+      nistCurve: undefined,
+      issuerCertificate: [Object]
+    }
+  },
+  durationMs: 2
+}
+  ✔ rejects no client certificate, an untrusted CA, and a hostname mismatch (6.389859ms)
+2026-10-18T00:37:13.956Z [WARN] Activity failed {
+  sdkComponent: 'worker',
+  isLocal: false,
+  attempt: 1,
+  namespace: 'test',
+  taskToken: 'dGVzdA==',
+  activityId: 'test',
+  activityType: 'unknown',
+  taskQueue: 'test',
+  workflowId: 'test',
+  workflowRunId: '00000000-0000-0000-0000-000000000000',
+  workflowType: 'test',
+  error: GatewayStatusError: factory gateway returned HTTP 503
+      at requireSuccess (file:///home/dev/work/EZCorp/EZHarness-worktrees/composable-factory-platform/.worktrees/w00-integration/packages/@ezcorp/factory-transport/dist/index.js:34:15)
+      at Object.request (file:///home/dev/work/EZCorp/EZHarness-worktrees/composable-factory-platform/.worktrees/w00-integration/packages/@ezcorp/factory-transport/dist/index.js:169:20)
+      at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+      at async request (file:///home/dev/work/EZCorp/EZHarness-worktrees/composable-factory-platform/.worktrees/w00-integration/packages/@ezcorp/factory-orchestrator/src/gateway-activities.ts:58:14)
+      at async recordTransition (file:///home/dev/work/EZCorp/EZHarness-worktrees/composable-factory-platform/.worktrees/w00-integration/packages/@ezcorp/factory-orchestrator/src/gateway-activities.ts:80:7)
+      at async Activity.execute (/home/dev/work/EZCorp/EZHarness-worktrees/composable-factory-platform/.worktrees/w00-integration/node_modules/.bun/@temporalio+worker@1.23.0+cf39f8fdfb45fa05/node_modules/@temporalio/worker/lib/activity.js:104:20)
+      at async waitForActual (node:assert:646:5)
+      at async strict.rejects (node:assert:769:25)
+      at async TestContext.<anonymous> (file:///home/dev/work/EZCorp/EZHarness-worktrees/composable-factory-platform/.worktrees/w00-integration/packages/@ezcorp/factory-orchestrator/test/gateway-activities.test.ts:369:5)
+      at async Test.run (node:internal/test_runner/test:1125:7) {
+    response: {
+      statusCode: 503,
+      headers: [Object],
+      body: <Buffer 75 6e 61 76 61 69 6c 61 62 6c 65>
+    }
+  },
+  durationMs: 0
+}
+2026-10-18T00:37:13.956Z [WARN] Activity failed {
+  sdkComponent: 'worker',
+  isLocal: false,
+  attempt: 1,
+  namespace: 'test',
+  taskToken: 'dGVzdA==',
+  activityId: 'test',
+  activityType: 'unknown',
+  taskQueue: 'test',
+  workflowId: 'test',
+  workflowRunId: '00000000-0000-0000-0000-000000000000',
+  workflowType: 'test',
+  error: Error: factory gateway returned invalid JSON
+      at parseJson (file:///home/dev/work/EZCorp/EZHarness-worktrees/composable-factory-platform/.worktrees/w00-integration/packages/@ezcorp/factory-orchestrator/src/gateway-activities.ts:41:11)
+      at resolveFactory (file:///home/dev/work/EZCorp/EZHarness-worktrees/composable-factory-platform/.worktrees/w00-integration/packages/@ezcorp/factory-orchestrator/src/gateway-activities.ts:92:22)
+      at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+      at async Activity.execute (/home/dev/work/EZCorp/EZHarness-worktrees/composable-factory-platform/.worktrees/w00-integration/node_modules/.bun/@temporalio+worker@1.23.0+cf39f8fdfb45fa05/node_modules/@temporalio/worker/lib/activity.js:104:20)
+      at async waitForActual (node:assert:646:5)
+      at async strict.rejects (node:assert:769:25)
+      at async TestContext.<anonymous> (file:///home/dev/work/EZCorp/EZHarness-worktrees/composable-factory-platform/.worktrees/w00-integration/packages/@ezcorp/factory-orchestrator/test/gateway-activities.test.ts:371:5)
+      at async Test.run (node:internal/test_runner/test:1125:7)
+      at async Suite.processPendingSubtests (node:internal/test_runner/test:787:7),
+  durationMs: 0
+}
+2026-10-18T00:37:13.957Z [WARN] Activity failed {
+  sdkComponent: 'worker',
+  isLocal: false,
+  attempt: 1,
+  namespace: 'test',
+  taskToken: 'dGVzdA==',
+  activityId: 'test',
+  activityType: 'unknown',
+  taskQueue: 'test',
+  workflowId: 'test',
+  workflowRunId: '00000000-0000-0000-0000-000000000000',
+  workflowType: 'test',
+  error: Error: resolved factory digest does not match the pinned child reference
+      at resolveFactory (file:///home/dev/work/EZCorp/EZHarness-worktrees/composable-factory-platform/.worktrees/w00-integration/packages/@ezcorp/factory-orchestrator/src/gateway-activities.ts:94:67)
+      at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+      at async Activity.execute (/home/dev/work/EZCorp/EZHarness-worktrees/composable-factory-platform/.worktrees/w00-integration/node_modules/.bun/@temporalio+worker@1.23.0+cf39f8fdfb45fa05/node_modules/@temporalio/worker/lib/activity.js:104:20)
+      at async waitForActual (node:assert:646:5)
+      at async strict.rejects (node:assert:769:25)
+      at async TestContext.<anonymous> (file:///home/dev/work/EZCorp/EZHarness-worktrees/composable-factory-platform/.worktrees/w00-integration/packages/@ezcorp/factory-orchestrator/test/gateway-activities.test.ts:373:5)
+      at async Test.run (node:internal/test_runner/test:1125:7)
+      at async Suite.processPendingSubtests (node:internal/test_runner/test:787:7),
+  durationMs: 0
+}
+2026-10-18T00:37:13.958Z [WARN] Activity failed {
+  sdkComponent: 'worker',
+  isLocal: false,
+  attempt: 1,
+  namespace: 'test',
+  taskToken: 'dGVzdA==',
+  activityId: 'test',
+  activityType: 'unknown',
+  taskQueue: 'test',
+  workflowId: 'test',
+  workflowRunId: '00000000-0000-0000-0000-000000000000',
+  workflowType: 'test',
+  error: Error: factory gateway object bytes do not match their immutable reference
+      at assertObjectBytes (file:///home/dev/work/EZCorp/EZHarness-worktrees/composable-factory-platform/.worktrees/w00-integration/packages/@ezcorp/factory-orchestrator/src/gateway-activities.ts:34:96)
+      at loadDefinitionPage (file:///home/dev/work/EZCorp/EZHarness-worktrees/composable-factory-platform/.worktrees/w00-integration/packages/@ezcorp/factory-orchestrator/src/gateway-activities.ts:107:7)
+      at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+      at async Activity.execute (/home/dev/work/EZCorp/EZHarness-worktrees/composable-factory-platform/.worktrees/w00-integration/node_modules/.bun/@temporalio+worker@1.23.0+cf39f8fdfb45fa05/node_modules/@temporalio/worker/lib/activity.js:104:20)
+      at async waitForActual (node:assert:646:5)
+      at async strict.rejects (node:assert:769:25)
+      at async TestContext.<anonymous> (file:///home/dev/work/EZCorp/EZHarness-worktrees/composable-factory-platform/.worktrees/w00-integration/packages/@ezcorp/factory-orchestrator/test/gateway-activities.test.ts:375:5)
+      at async Test.run (node:internal/test_runner/test:1125:7)
+      at async Suite.processPendingSubtests (node:internal/test_runner/test:787:7),
+  durationMs: 0
+}
+2026-10-18T00:37:13.959Z [WARN] Activity failed {
+  sdkComponent: 'worker',
+  isLocal: false,
+  attempt: 1,
+  namespace: 'test',
+  taskToken: 'dGVzdA==',
+  activityId: 'test',
+  activityType: 'unknown',
+  taskQueue: 'test',
+  workflowId: 'test',
+  workflowRunId: '00000000-0000-0000-0000-000000000000',
+  workflowType: 'test',
+  error: Error: factory gateway object bytes do not match their immutable reference
+      at assertObjectBytes (file:///home/dev/work/EZCorp/EZHarness-worktrees/composable-factory-platform/.worktrees/w00-integration/packages/@ezcorp/factory-orchestrator/src/gateway-activities.ts:34:96)
+      at loadExecutionManifest (file:///home/dev/work/EZCorp/EZHarness-worktrees/composable-factory-platform/.worktrees/w00-integration/packages/@ezcorp/factory-orchestrator/src/gateway-activities.ts:112:7)
+      at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+      at async Activity.execute (/home/dev/work/EZCorp/EZHarness-worktrees/composable-factory-platform/.worktrees/w00-integration/node_modules/.bun/@temporalio+worker@1.23.0+cf39f8fdfb45fa05/node_modules/@temporalio/worker/lib/activity.js:104:20)
+      at async waitForActual (node:assert:646:5)
+      at async strict.rejects (node:assert:769:25)
+      at async TestContext.<anonymous> (file:///home/dev/work/EZCorp/EZHarness-worktrees/composable-factory-platform/.worktrees/w00-integration/packages/@ezcorp/factory-orchestrator/test/gateway-activities.test.ts:376:5)
+      at async Test.run (node:internal/test_runner/test:1125:7)
+      at async Suite.processPendingSubtests (node:internal/test_runner/test:787:7),
+  durationMs: 0
+}
+2026-10-18T00:37:13.959Z [WARN] Activity failed {
+  sdkComponent: 'worker',
+  isLocal: false,
+  attempt: 1,
+  namespace: 'test',
+  taskToken: 'dGVzdA==',
+  activityId: 'test',
+  activityType: 'unknown',
+  taskQueue: 'test',
+  workflowId: 'test',
+  workflowRunId: '00000000-0000-0000-0000-000000000000',
+  workflowType: 'test',
+  error: Error: factory gateway object bytes do not match their immutable reference
+      at assertObjectBytes (file:///home/dev/work/EZCorp/EZHarness-worktrees/composable-factory-platform/.worktrees/w00-integration/packages/@ezcorp/factory-orchestrator/src/gateway-activities.ts:34:96)
+      at loadPartitionArtifact (file:///home/dev/work/EZCorp/EZHarness-worktrees/composable-factory-platform/.worktrees/w00-integration/packages/@ezcorp/factory-orchestrator/src/gateway-activities.ts:117:7)
+      at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+      at async Activity.execute (/home/dev/work/EZCorp/EZHarness-worktrees/composable-factory-platform/.worktrees/w00-integration/node_modules/.bun/@temporalio+worker@1.23.0+cf39f8fdfb45fa05/node_modules/@temporalio/worker/lib/activity.js:104:20)
+      at async waitForActual (node:assert:646:5)
+      at async strict.rejects (node:assert:769:25)
+      at async TestContext.<anonymous> (file:///home/dev/work/EZCorp/EZHarness-worktrees/composable-factory-platform/.worktrees/w00-integration/packages/@ezcorp/factory-orchestrator/test/gateway-activities.test.ts:377:5)
+      at async Test.run (node:internal/test_runner/test:1125:7)
+      at async Suite.processPendingSubtests (node:internal/test_runner/test:787:7),
+  durationMs: 0
+}
+2026-10-18T00:37:13.961Z [WARN] Activity failed {
+  sdkComponent: 'worker',
+  isLocal: false,
+  attempt: 1,
+  namespace: 'test',
+  taskToken: 'dGVzdA==',
+  activityId: 'test',
+  activityType: 'unknown',
+  taskQueue: 'test',
+  workflowId: 'test',
+  workflowRunId: '00000000-0000-0000-0000-000000000000',
+  workflowType: 'test',
+  error: Error: factory gateway returned a mismatched transition page reference
+      at stageTransitionPage (file:///home/dev/work/EZCorp/EZHarness-worktrees/composable-factory-platform/.worktrees/w00-integration/packages/@ezcorp/factory-orchestrator/src/gateway-activities.ts:69:99)
+      at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+      at async Activity.execute (/home/dev/work/EZCorp/EZHarness-worktrees/composable-factory-platform/.worktrees/w00-integration/node_modules/.bun/@temporalio+worker@1.23.0+cf39f8fdfb45fa05/node_modules/@temporalio/worker/lib/activity.js:104:20)
+      at async waitForActual (node:assert:646:5)
+      at async strict.rejects (node:assert:769:25)
+      at async TestContext.<anonymous> (file:///home/dev/work/EZCorp/EZHarness-worktrees/composable-factory-platform/.worktrees/w00-integration/packages/@ezcorp/factory-orchestrator/test/gateway-activities.test.ts:379:5)
+      at async Test.run (node:internal/test_runner/test:1125:7)
+      at async Suite.processPendingSubtests (node:internal/test_runner/test:787:7),
+  durationMs: 1
+}
+2026-10-18T00:37:13.961Z [WARN] Activity failed {
+  sdkComponent: 'worker',
+  isLocal: false,
+  attempt: 1,
+  namespace: 'test',
+  taskToken: 'dGVzdA==',
+  activityId: 'test',
+  activityType: 'unknown',
+  taskQueue: 'test',
+  workflowId: 'test',
+  workflowRunId: '00000000-0000-0000-0000-000000000000',
+  workflowType: 'test',
+  error: Error: factory gateway returned an invalid transition event digest
+      at finalizeTransitionArtifact (file:///home/dev/work/EZCorp/EZHarness-worktrees/composable-factory-platform/.worktrees/w00-integration/packages/@ezcorp/factory-orchestrator/src/gateway-activities.ts:76:69)
+      at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+      at async Activity.execute (/home/dev/work/EZCorp/EZHarness-worktrees/composable-factory-platform/.worktrees/w00-integration/node_modules/.bun/@temporalio+worker@1.23.0+cf39f8fdfb45fa05/node_modules/@temporalio/worker/lib/activity.js:104:20)
+      at async waitForActual (node:assert:646:5)
+      at async strict.rejects (node:assert:769:25)
+      at async TestContext.<anonymous> (file:///home/dev/work/EZCorp/EZHarness-worktrees/composable-factory-platform/.worktrees/w00-integration/packages/@ezcorp/factory-orchestrator/test/gateway-activities.test.ts:381:5)
+      at async Test.run (node:internal/test_runner/test:1125:7)
+      at async Suite.processPendingSubtests (node:internal/test_runner/test:787:7),
+  durationMs: 0
+}
+2026-10-18T00:37:13.962Z [WARN] Activity failed {
+  sdkComponent: 'worker',
+  isLocal: false,
+  attempt: 1,
+  namespace: 'test',
+  taskToken: 'dGVzdA==',
+  activityId: 'test',
+  activityType: 'unknown',
+  taskQueue: 'test',
+  workflowId: 'test',
+  workflowRunId: '00000000-0000-0000-0000-000000000000',
+  workflowType: 'test',
+  error: Error: factory gateway response exceeds 32768 bytes
+      at IncomingMessage.<anonymous> (file:///home/dev/work/EZCorp/EZHarness-worktrees/composable-factory-platform/.worktrees/w00-integration/packages/@ezcorp/factory-transport/dist/index.js:69:39)
+      at IncomingMessage.emit (node:events:508:28)
+      at addChunk (node:internal/streams/readable:563:12)
+      at readableAddChunkPushByteMode (node:internal/streams/readable:514:3)
+      at Readable.push (node:internal/streams/readable:394:5)
+      at HTTPParser.parserOnBody (node:_http_common:137:24)
+      at TLSSocket.socketOnData (node:_http_client:615:22)
+      at TLSSocket.emit (node:events:508:28)
+      at addChunk (node:internal/streams/readable:563:12)
+      at readableAddChunkPushByteMode (node:internal/streams/readable:514:3),
+  durationMs: 0
+}
+2026-10-18T00:37:13.962Z [WARN] Activity failed {
+  sdkComponent: 'worker',
+  isLocal: false,
+  attempt: 1,
+  namespace: 'test',
+  taskToken: 'dGVzdA==',
+  activityId: 'test',
+  activityType: 'unknown',
+  taskQueue: 'test',
+  workflowId: 'test',
+  workflowRunId: '00000000-0000-0000-0000-000000000000',
+  workflowType: 'test',
+  error: Error: factory gateway request exceeds 65536 bytes
+      at encoded (file:///home/dev/work/EZCorp/EZHarness-worktrees/composable-factory-platform/.worktrees/w00-integration/packages/@ezcorp/factory-transport/dist/index.js:13:15)
+      at Object.request (file:///home/dev/work/EZCorp/EZHarness-worktrees/composable-factory-platform/.worktrees/w00-integration/packages/@ezcorp/factory-transport/dist/index.js:165:66)
+      at request (file:///home/dev/work/EZCorp/EZHarness-worktrees/composable-factory-platform/.worktrees/w00-integration/packages/@ezcorp/factory-orchestrator/src/gateway-activities.ts:58:30)
+      at recordTransition (file:///home/dev/work/EZCorp/EZHarness-worktrees/composable-factory-platform/.worktrees/w00-integration/packages/@ezcorp/factory-orchestrator/src/gateway-activities.ts:80:13)
+      at executeNextHandler (/home/dev/work/EZCorp/EZHarness-worktrees/composable-factory-platform/.worktrees/w00-integration/node_modules/.bun/@temporalio+worker@1.23.0+cf39f8fdfb45fa05/node_modules/@temporalio/worker/lib/activity.js:102:54)
+      at Activity.execute (/home/dev/work/EZCorp/EZHarness-worktrees/composable-factory-platform/.worktrees/w00-integration/node_modules/.bun/@temporalio+worker@1.23.0+cf39f8fdfb45fa05/node_modules/@temporalio/worker/lib/activity.js:104:26)
+      at Activity.executeWithClient (/home/dev/work/EZCorp/EZHarness-worktrees/composable-factory-platform/.worktrees/w00-integration/node_modules/.bun/@temporalio+worker@1.23.0+cf39f8fdfb45fa05/node_modules/@temporalio/worker/lib/activity.js:156:25)
+      at /home/dev/work/EZCorp/EZHarness-worktrees/composable-factory-platform/.worktrees/w00-integration/node_modules/.bun/@temporalio+worker@1.23.0+cf39f8fdfb45fa05/node_modules/@temporalio/worker/lib/activity.js:223:74
+      at AsyncLocalStorage.run (node:internal/async_local_storage/async_context_frame:63:14)
+      at Activity.runNoEncoding (/home/dev/work/EZCorp/EZHarness-worktrees/composable-factory-platform/.worktrees/w00-integration/node_modules/.bun/@temporalio+worker@1.23.0+cf39f8fdfb45fa05/node_modules/@temporalio/worker/lib/activity.js:223:45),
+  durationMs: 0
+}
+2026-10-18T00:37:13.983Z [WARN] Activity failed {
+  sdkComponent: 'worker',
+  isLocal: false,
+  attempt: 1,
+  namespace: 'test',
+  taskToken: 'dGVzdA==',
+  activityId: 'test',
+  activityType: 'unknown',
+  taskQueue: 'test',
+  workflowId: 'test',
+  workflowRunId: '00000000-0000-0000-0000-000000000000',
+  workflowType: 'test',
+  error: Error: factory gateway request timed out
+      at Timeout._onTimeout (file:///home/dev/work/EZCorp/EZHarness-worktrees/composable-factory-platform/.worktrees/w00-integration/packages/@ezcorp/factory-transport/dist/index.js:82:35)
+      at listOnTimeout (node:internal/timers:605:17)
+      at process.processTimers (node:internal/timers:541:7),
+  durationMs: 20
+}
+  ✔ fails closed on bad configuration, HTTP, JSON, digest, size, timeout, and cancellation (30.601678ms)
+✔ authenticated factory gateway activities (1662.455903ms)
+▶ authenticated factory command queue
+  ✔ claims, settles, and confirms through the installation-scoped private routes (5.2001ms)
+  ✔ carries a legal near-64 KiB command inside the larger private envelope (1.868345ms)
+  ✔ returns an empty claim and rejects malformed command or confirmation responses (7.749641ms)
+✔ authenticated factory command queue (14.951597ms)
+▶ factory product inbox
+  ✔ accepts a bounded future delivery and ignores acknowledged or exact duplicate input (1.909415ms)
+  ✔ rejects malformed, sequence-conflicting, and hash-conflicting input (0.262242ms)
+  ✔ rejects a window gap and a full distinct-decision window (0.314822ms)
+✔ factory product inbox (3.217275ms)
+✔ exports the Node orchestrator surface (0.401143ms)
+▶ partition execution plan loading
+  ✔ builds the bounded kernel view from two validated recorded activities (8.834729ms)
+  ✔ rejects digest, structure, and partition identity drift (4.929608ms)
+✔ partition execution plan loading (14.500823ms)
+✔ the strict launcher config contains only bounded references (1.043848ms)
+✔ the Node launcher reloads private Temporal credentials and passes the encrypted codec to the process (7.153836ms)
+✔ the launcher serves ready on its declared metrics endpoint only while the process reports ready (C11 M4) (2.400959ms)
+✔ private credential reads reject an empty API key (1.312501ms)
+✔ the process main removes signal handlers and reports only a bounded failure status (0.433243ms)
+✔ the real entry prints the cause before it sets the exit code (0.299492ms)
+✔ the launcher opens the payload codec through each selected key service, and a mismatch fails closed typed (49.620397ms)
+▶ production factory orchestrator process
+  ✔ refuses a bundle the build did not record by name before any Temporal connection (1.32437ms)
+  ✔ refuses an unreadable bundle by name before any Temporal connection (0.163201ms)
+  ✔ fails closed when the concrete Temporal connector cannot authenticate (7.619439ms)
+  ✔ reports ready only after real loop probes and revalidates a rotated API key (0.709355ms)
+  ✔ withdraws readiness and recreates the worker when TLS credentials rotate (0.444753ms)
+  ✔ hands the runtime the ordered gateway bound and refuses one below it (0.380123ms)
+  ✔ fails closed when the authenticated task queue does not list this worker (0.557925ms)
+✔ production factory orchestrator process (11.847112ms)
+✔ the Node writer atomically publishes only a fully ready process (8.885109ms)
+✔ the writer rejects unsafe configuration and premature ready states (4.401685ms)
+2026-10-18T00:37:13.061Z [INFO] asset workflow-bundle-a3734174b49374315187.js 2.67 MiB [emitted] [immutable] (name: main)
+runtime modules 883 bytes 4 modules
+javascript modules 776 KiB
+  modules by path ../../../node_modules/.bun/ 462 KiB 79 modules
+  modules by path ../factory-sdk/dist/*.js 258 KiB 9 modules
+  modules by path ./src/ 57 KiB 8 modules
+  optional modules 30 bytes [optional]
+    __temporal_custom_payload_converter (ignored) 15 bytes [optional] [built] [code generated]
+    __temporal_custom_failure_converter (ignored) 15 bytes [optional] [built] [code generated]
+json modules 233 KiB
+  ../../../node_modules/.bun/@temporalio+workflow@1.23.0/node_modules/@temporalio/...(truncated) 1010 bytes [built] [code generated]
+  ../factory-sdk/dist/factory-definition.schema.json 18.5 KiB [built] [code generated]
+  ../factory-sdk/dist/compiled-factory.schema.json 21.6 KiB [built] [code generated]
+  ../factory-sdk/dist/compiled-execution-manifest.schema.json 3.13 KiB [built] [code generated]
+  ../factory-sdk/dist/compiled-partition-artifact.schema.json 17.4 KiB [built] [code generated]
+  + 15 modules
+webpack 5.111.1 compiled successfully in 430 ms
+2026-10-18T00:37:13.065Z [INFO] Workflow bundle created { size: '2.67MB' }
+[2m2026-10-18T00:37:13.216552Z[0m [33m WARN[0m [2mtemporalio_sdk_core::worker[0m[2m:[0m Temporal Server 1.16.0 or newer is required to guarantee that the latest heartbeat details are preserved when an activity fails; the server did not advertise the activity_failure_include_heartbeat capability, so heartbeat details may be lost on failure
+2026-10-18T00:37:13.217Z [INFO] Worker state changed {
+  sdkComponent: 'worker',
+  taskQueue: 'factory-orchestrator',
+  state: 'RUNNING'
+}
+2026-10-18T00:37:13.218Z [INFO] No Nexus services registered, not polling for Nexus tasks { sdkComponent: 'worker', taskQueue: 'factory-orchestrator' }
+2026-10-18T00:37:13.329Z [INFO] Worker state changed {
+  sdkComponent: 'worker',
+  taskQueue: 'factory-orchestrator',
+  state: 'STOPPING'
+}
+2026-10-18T00:37:13.329Z [INFO] Worker state changed {
+  sdkComponent: 'worker',
+  taskQueue: 'factory-orchestrator',
+  state: 'DRAINING'
+}
+2026-10-18T00:37:13.330Z [INFO] Worker state changed {
+  sdkComponent: 'worker',
+  taskQueue: 'factory-orchestrator',
+  state: 'DRAINED'
+}
+2026-10-18T00:37:13.330Z [INFO] Worker state changed {
+  sdkComponent: 'worker',
+  taskQueue: 'factory-orchestrator',
+  state: 'STOPPED'
+}
+▶ factory Temporal workflow
+  ✔ reconciles a repeated durable start against the real Temporal workflow identity (253.732996ms)
+[2m2026-10-18T00:37:13.444899Z[0m [33m WARN[0m [2mtemporalio_sdk_core::worker[0m[2m:[0m Temporal Server 1.16.0 or newer is required to guarantee that the latest heartbeat details are preserved when an activity fails; the server did not advertise the activity_failure_include_heartbeat capability, so heartbeat details may be lost on failure
+2026-10-18T00:37:13.445Z [INFO] Worker state changed {
+  sdkComponent: 'worker',
+  taskQueue: 'factory-orchestrator',
+  state: 'RUNNING'
+}
+2026-10-18T00:37:13.445Z [INFO] No Nexus services registered, not polling for Nexus tasks { sdkComponent: 'worker', taskQueue: 'factory-orchestrator' }
+2026-10-18T00:37:13.473Z [WARN] Workflow failed {
+  sdkComponent: 'worker',
+  taskQueue: 'factory-orchestrator',
+  namespace: 'default',
+  workflowId: 'tenant/invalid-input-2485125',
+  runId: 'd0fdcccb-3ceb-462e-bd8d-25e9f6d66716',
+  workflowType: 'factoryWorkflow',
+  error: ApplicationFailure: tenant ID must contain 1 to 512 characters
+      at ApplicationFailure.nonRetryable (/home/dev/work/EZCorp/EZHarness-worktrees/composable-factory-platform/.worktrees/w00-integration/node_modules/.bun/@temporalio+common@1.23.0/node_modules/@temporalio/common/src/failure.ts:253:11)
+      at nonRetryable (/home/dev/work/EZCorp/EZHarness-worktrees/composable-factory-platform/.worktrees/w00-integration/packages/@ezcorp/factory-orchestrator/src/workflow.ts:85:28)
+      at workflowFailure (/home/dev/work/EZCorp/EZHarness-worktrees/composable-factory-platform/.worktrees/w00-integration/packages/@ezcorp/factory-orchestrator/src/workflow.ts:171:10)
+      at loadWorkflowPlan (/home/dev/work/EZCorp/EZHarness-worktrees/composable-factory-platform/.worktrees/w00-integration/packages/@ezcorp/factory-orchestrator/src/workflow.ts:239:37)
+      at Activator.startWorkflowNextHandler (/home/dev/work/EZCorp/EZHarness-worktrees/composable-factory-platform/.worktrees/w00-integration/node_modules/.bun/@temporalio+workflow@1.23.0/node_modules/@temporalio/workflow/src/internals.ts:645:17)
+      at /home/dev/work/EZCorp/EZHarness-worktrees/composable-factory-platform/.worktrees/w00-integration/node_modules/.bun/@temporalio+workflow@1.23.0/node_modules/@temporalio/workflow/src/internals.ts:654:8
+      at executeWithLifecycleLogging (/home/dev/work/EZCorp/EZHarness-worktrees/composable-factory-platform/.worktrees/w00-integration/node_modules/.bun/@temporalio+workflow@1.23.0/node_modules/@temporalio/workflow/src/logs.ts:91:12)
+      at Activator.startWorkflow (/home/dev/work/EZCorp/EZHarness-worktrees/composable-factory-platform/.worktrees/w00-integration/node_modules/.bun/@temporalio+workflow@1.23.0/node_modules/@temporalio/workflow/src/internals.ts:653:34)
+      at /home/dev/work/EZCorp/EZHarness-worktrees/composable-factory-platform/.worktrees/w00-integration/node_modules/.bun/@temporalio+workflow@1.23.0/node_modules/@temporalio/workflow/src/worker-interface.ts:205:18
+      at Object.activate (/home/dev/work/EZCorp/EZHarness-worktrees/composable-factory-platform/.worktrees/w00-integration/node_modules/.bun/@temporalio+workflow@1.23.0/node_modules/@temporalio/workflow/src/worker-interface.ts:210:4) {
+    [cause]: undefined
+  }
+}
+2026-10-18T00:37:13.476Z [INFO] Worker state changed {
+  sdkComponent: 'worker',
+  taskQueue: 'factory-orchestrator',
+  state: 'STOPPING'
+}
+2026-10-18T00:37:13.477Z [INFO] Worker state changed {
+  sdkComponent: 'worker',
+  taskQueue: 'factory-orchestrator',
+  state: 'DRAINING'
+}
+2026-10-18T00:37:13.477Z [INFO] Worker state changed {
+  sdkComponent: 'worker',
+  taskQueue: 'factory-orchestrator',
+  state: 'DRAINED'
+}
+2026-10-18T00:37:13.477Z [INFO] Worker state changed {
+  sdkComponent: 'worker',
+  taskQueue: 'factory-orchestrator',
+  state: 'STOPPED'
+}
+  ✔ fails a malformed workflow input before it reads the definition (145.772605ms)
+[2m2026-10-18T00:37:13.593161Z[0m [33m WARN[0m [2mtemporalio_sdk_core::worker[0m[2m:[0m Temporal Server 1.16.0 or newer is required to guarantee that the latest heartbeat details are preserved when an activity fails; the server did not advertise the activity_failure_include_heartbeat capability, so heartbeat details may be lost on failure
+2026-10-18T00:37:13.593Z [INFO] Worker state changed {
+  sdkComponent: 'worker',
+  taskQueue: 'factory-orchestrator',
+  state: 'RUNNING'
+}
+2026-10-18T00:37:13.593Z [INFO] No Nexus services registered, not polling for Nexus tasks { sdkComponent: 'worker', taskQueue: 'factory-orchestrator' }
+2026-10-18T00:37:13.621Z [WARN] Activity failed {
+  sdkComponent: 'worker',
+  taskQueue: 'factory-orchestrator',
+  isLocal: false,
+  attempt: 1,
+  namespace: 'default',
+  taskToken: 'AAdkZWZhdWx0ACF0ZW5hbnQvbWlzc2luZy1kZWZpbml0aW9uLTI0ODUxMjUAJDkwZWQ5NzIwLWMwOTgtNDMxMy05ZDIzLTFhZDBmOGNhNzZiNQAAAAAAAAAFAAAAAQ==',
+  activityId: '1',
+  activityType: 'loadManifestPage',
+  workflowId: 'tenant/missing-definition-2485125',
+  workflowRunId: '90ed9720-c098-4313-9d23-1ad0f8ca76b5',
+  workflowType: 'factoryWorkflow',
+  error: Error: unknown manifest
+      at loadManifestPage (file:///home/dev/work/EZCorp/EZHarness-worktrees/composable-factory-platform/.worktrees/w00-integration/packages/@ezcorp/factory-orchestrator/test/temporal-replay.test.ts:127:24)
+      at executeNextHandler (/home/dev/work/EZCorp/EZHarness-worktrees/composable-factory-platform/.worktrees/w00-integration/node_modules/.bun/@temporalio+worker@1.23.0+cf39f8fdfb45fa05/node_modules/@temporalio/worker/lib/activity.js:102:54)
+      at Activity.execute (/home/dev/work/EZCorp/EZHarness-worktrees/composable-factory-platform/.worktrees/w00-integration/node_modules/.bun/@temporalio+worker@1.23.0+cf39f8fdfb45fa05/node_modules/@temporalio/worker/lib/activity.js:104:26)
+      at /home/dev/work/EZCorp/EZHarness-worktrees/composable-factory-platform/.worktrees/w00-integration/node_modules/.bun/@temporalio+worker@1.23.0+cf39f8fdfb45fa05/node_modules/@temporalio/worker/lib/activity.js:152:29
+      at AsyncLocalStorage.run (node:internal/async_local_storage/async_context_frame:63:14)
+      at NativeConnection.withAbortSignal (/home/dev/work/EZCorp/EZHarness-worktrees/composable-factory-platform/.worktrees/w00-integration/node_modules/.bun/@temporalio+worker@1.23.0+cf39f8fdfb45fa05/node_modules/@temporalio/worker/lib/connection.js:172:46)
+      at Client.withAbortSignal (/home/dev/work/EZCorp/EZHarness-worktrees/composable-factory-platform/.worktrees/w00-integration/node_modules/.bun/@temporalio+client@1.23.0/node_modules/@temporalio/client/lib/base-client.js:65:38)
+      at Activity.executeWithClient (/home/dev/work/EZCorp/EZHarness-worktrees/composable-factory-platform/.worktrees/w00-integration/node_modules/.bun/@temporalio+worker@1.23.0+cf39f8fdfb45fa05/node_modules/@temporalio/worker/lib/activity.js:151:33)
+      at /home/dev/work/EZCorp/EZHarness-worktrees/composable-factory-platform/.worktrees/w00-integration/node_modules/.bun/@temporalio+worker@1.23.0+cf39f8fdfb45fa05/node_modules/@temporalio/worker/lib/activity.js:164:43
+      at AsyncLocalStorage.run (node:internal/async_local_storage/async_context_frame:63:14),
+  durationMs: 0
+}
+2026-10-18T00:37:13.623Z [WARN] Activity failed {
+  sdkComponent: 'worker',
+  taskQueue: 'factory-orchestrator',
+  isLocal: false,
+  attempt: 2,
+  namespace: 'default',
+  taskToken: 'AAdkZWZhdWx0ACF0ZW5hbnQvbWlzc2luZy1kZWZpbml0aW9uLTI0ODUxMjUAJDkwZWQ5NzIwLWMwOTgtNDMxMy05ZDIzLTFhZDBmOGNhNzZiNQAAAAAAAAAFAAAAAg==',
+  activityId: '1',
+  activityType: 'loadManifestPage',
+  workflowId: 'tenant/missing-definition-2485125',
+  workflowRunId: '90ed9720-c098-4313-9d23-1ad0f8ca76b5',
+  workflowType: 'factoryWorkflow',
+  error: Error: unknown manifest
+      at loadManifestPage (file:///home/dev/work/EZCorp/EZHarness-worktrees/composable-factory-platform/.worktrees/w00-integration/packages/@ezcorp/factory-orchestrator/test/temporal-replay.test.ts:127:24)
+      at executeNextHandler (/home/dev/work/EZCorp/EZHarness-worktrees/composable-factory-platform/.worktrees/w00-integration/node_modules/.bun/@temporalio+worker@1.23.0+cf39f8fdfb45fa05/node_modules/@temporalio/worker/lib/activity.js:102:54)
+      at Activity.execute (/home/dev/work/EZCorp/EZHarness-worktrees/composable-factory-platform/.worktrees/w00-integration/node_modules/.bun/@temporalio+worker@1.23.0+cf39f8fdfb45fa05/node_modules/@temporalio/worker/lib/activity.js:104:26)
+      at /home/dev/work/EZCorp/EZHarness-worktrees/composable-factory-platform/.worktrees/w00-integration/node_modules/.bun/@temporalio+worker@1.23.0+cf39f8fdfb45fa05/node_modules/@temporalio/worker/lib/activity.js:152:29
+      at AsyncLocalStorage.run (node:internal/async_local_storage/async_context_frame:63:14)
+      at NativeConnection.withAbortSignal (/home/dev/work/EZCorp/EZHarness-worktrees/composable-factory-platform/.worktrees/w00-integration/node_modules/.bun/@temporalio+worker@1.23.0+cf39f8fdfb45fa05/node_modules/@temporalio/worker/lib/connection.js:172:46)
+      at Client.withAbortSignal (/home/dev/work/EZCorp/EZHarness-worktrees/composable-factory-platform/.worktrees/w00-integration/node_modules/.bun/@temporalio+client@1.23.0/node_modules/@temporalio/client/lib/base-client.js:65:38)
+      at Activity.executeWithClient (/home/dev/work/EZCorp/EZHarness-worktrees/composable-factory-platform/.worktrees/w00-integration/node_modules/.bun/@temporalio+worker@1.23.0+cf39f8fdfb45fa05/node_modules/@temporalio/worker/lib/activity.js:151:33)
+      at /home/dev/work/EZCorp/EZHarness-worktrees/composable-factory-platform/.worktrees/w00-integration/node_modules/.bun/@temporalio+worker@1.23.0+cf39f8fdfb45fa05/node_modules/@temporalio/worker/lib/activity.js:164:43
+      at AsyncLocalStorage.run (node:internal/async_local_storage/async_context_frame:63:14),
+  durationMs: 0
+}
+2026-10-18T00:37:13.624Z [WARN] Activity failed {
+  sdkComponent: 'worker',
+  taskQueue: 'factory-orchestrator',
+  isLocal: false,
+  attempt: 3,
+  namespace: 'default',
+  taskToken: 'AAdkZWZhdWx0ACF0ZW5hbnQvbWlzc2luZy1kZWZpbml0aW9uLTI0ODUxMjUAJDkwZWQ5NzIwLWMwOTgtNDMxMy05ZDIzLTFhZDBmOGNhNzZiNQAAAAAAAAAFAAAAAw==',
+  activityId: '1',
+  activityType: 'loadManifestPage',
+  workflowId: 'tenant/missing-definition-2485125',
+  workflowRunId: '90ed9720-c098-4313-9d23-1ad0f8ca76b5',
+  workflowType: 'factoryWorkflow',
+  error: Error: unknown manifest
+      at loadManifestPage (file:///home/dev/work/EZCorp/EZHarness-worktrees/composable-factory-platform/.worktrees/w00-integration/packages/@ezcorp/factory-orchestrator/test/temporal-replay.test.ts:127:24)
+      at executeNextHandler (/home/dev/work/EZCorp/EZHarness-worktrees/composable-factory-platform/.worktrees/w00-integration/node_modules/.bun/@temporalio+worker@1.23.0+cf39f8fdfb45fa05/node_modules/@temporalio/worker/lib/activity.js:102:54)
+      at Activity.execute (/home/dev/work/EZCorp/EZHarness-worktrees/composable-factory-platform/.worktrees/w00-integration/node_modules/.bun/@temporalio+worker@1.23.0+cf39f8fdfb45fa05/node_modules/@temporalio/worker/lib/activity.js:104:26)
+      at /home/dev/work/EZCorp/EZHarness-worktrees/composable-factory-platform/.worktrees/w00-integration/node_modules/.bun/@temporalio+worker@1.23.0+cf39f8fdfb45fa05/node_modules/@temporalio/worker/lib/activity.js:152:29
+      at AsyncLocalStorage.run (node:internal/async_local_storage/async_context_frame:63:14)
+      at NativeConnection.withAbortSignal (/home/dev/work/EZCorp/EZHarness-worktrees/composable-factory-platform/.worktrees/w00-integration/node_modules/.bun/@temporalio+worker@1.23.0+cf39f8fdfb45fa05/node_modules/@temporalio/worker/lib/connection.js:172:46)
+      at Client.withAbortSignal (/home/dev/work/EZCorp/EZHarness-worktrees/composable-factory-platform/.worktrees/w00-integration/node_modules/.bun/@temporalio+client@1.23.0/node_modules/@temporalio/client/lib/base-client.js:65:38)
+      at Activity.executeWithClient (/home/dev/work/EZCorp/EZHarness-worktrees/composable-factory-platform/.worktrees/w00-integration/node_modules/.bun/@temporalio+worker@1.23.0+cf39f8fdfb45fa05/node_modules/@temporalio/worker/lib/activity.js:151:33)
+      at /home/dev/work/EZCorp/EZHarness-worktrees/composable-factory-platform/.worktrees/w00-integration/node_modules/.bun/@temporalio+worker@1.23.0+cf39f8fdfb45fa05/node_modules/@temporalio/worker/lib/activity.js:164:43
+      at AsyncLocalStorage.run (node:internal/async_local_storage/async_context_frame:63:14),
+  durationMs: 0
+}
+2026-10-18T00:37:13.630Z [WARN] Workflow failed {
+  sdkComponent: 'worker',
+  taskQueue: 'factory-orchestrator',
+  namespace: 'default',
+  workflowId: 'tenant/missing-definition-2485125',
+  runId: '90ed9720-c098-4313-9d23-1ad0f8ca76b5',
+  workflowType: 'factoryWorkflow',
+  error: ApplicationFailure: Activity task failed
+      at ApplicationFailure.nonRetryable (/home/dev/work/EZCorp/EZHarness-worktrees/composable-factory-platform/.worktrees/w00-integration/node_modules/.bun/@temporalio+common@1.23.0/node_modules/@temporalio/common/src/failure.ts:253:11)
+      at nonRetryable (/home/dev/work/EZCorp/EZHarness-worktrees/composable-factory-platform/.worktrees/w00-integration/packages/@ezcorp/factory-orchestrator/src/workflow.ts:85:28)
+      at workflowFailure (/home/dev/work/EZCorp/EZHarness-worktrees/composable-factory-platform/.worktrees/w00-integration/packages/@ezcorp/factory-orchestrator/src/workflow.ts:182:10)
+      at Script.runInContext (node:vm:149:12)
+      at Proxy.<anonymous> (/home/dev/work/EZCorp/EZHarness-worktrees/composable-factory-platform/.worktrees/w00-integration/node_modules/.bun/@temporalio+worker@1.23.0+cf39f8fdfb45fa05/node_modules/@temporalio/worker/lib/workflow/reusable-vm.js:216:45)
+      at ReusableVMWorkflow.activate (/home/dev/work/EZCorp/EZHarness-worktrees/composable-factory-platform/.worktrees/w00-integration/node_modules/.bun/@temporalio+worker@1.23.0+cf39f8fdfb45fa05/node_modules/@temporalio/worker/lib/workflow/vm-shared.js:403:37)
+      at handleRequest (/home/dev/work/EZCorp/EZHarness-worktrees/composable-factory-platform/.worktrees/w00-integration/node_modules/.bun/@temporalio+worker@1.23.0+cf39f8fdfb45fa05/node_modules/@temporalio/worker/lib/workflow/workflow-worker-thread.js:73:47)
+      at MessagePort.<anonymous> (/home/dev/work/EZCorp/EZHarness-worktrees/composable-factory-platform/.worktrees/w00-integration/node_modules/.bun/@temporalio+worker@1.23.0+cf39f8fdfb45fa05/node_modules/@temporalio/worker/lib/workflow/workflow-worker-thread.js:145:28)
+      at [nodejs.internal.kHybridDispatch] (node:internal/event_target:843:20)
+      at MessagePort.<anonymous> (node:internal/per_context/messageport:23:28) {
+    [cause]: undefined
+  }
+}
+2026-10-18T00:37:13.631Z [INFO] Worker state changed {
+  sdkComponent: 'worker',
+  taskQueue: 'factory-orchestrator',
+  state: 'STOPPING'
+}
+2026-10-18T00:37:13.631Z [INFO] Worker state changed {
+  sdkComponent: 'worker',
+  taskQueue: 'factory-orchestrator',
+  state: 'DRAINING'
+}
+2026-10-18T00:37:13.632Z [INFO] Worker state changed {
+  sdkComponent: 'worker',
+  taskQueue: 'factory-orchestrator',
+  state: 'DRAINED'
+}
+2026-10-18T00:37:13.632Z [INFO] Worker state changed {
+  sdkComponent: 'worker',
+  taskQueue: 'factory-orchestrator',
+  state: 'STOPPED'
+}
+  ✔ fails an unavailable immutable definition before audit or effects (155.197499ms)
+[2m2026-10-18T00:37:13.756777Z[0m [33m WARN[0m [2mtemporalio_sdk_core::worker[0m[2m:[0m Temporal Server 1.16.0 or newer is required to guarantee that the latest heartbeat details are preserved when an activity fails; the server did not advertise the activity_failure_include_heartbeat capability, so heartbeat details may be lost on failure
+2026-10-18T00:37:13.756Z [INFO] Worker state changed {
+  sdkComponent: 'worker',
+  taskQueue: 'factory-orchestrator',
+  state: 'RUNNING'
+}
+2026-10-18T00:37:13.757Z [INFO] No Nexus services registered, not polling for Nexus tasks { sdkComponent: 'worker', taskQueue: 'factory-orchestrator' }
+2026-10-18T00:37:13.891Z [INFO] Worker state changed {
+  sdkComponent: 'worker',
+  taskQueue: 'fake_replay_queue-0',
+  state: 'RUNNING'
+}
+2026-10-18T00:37:13.928Z [INFO] Worker state changed {
+  sdkComponent: 'worker',
+  taskQueue: 'fake_replay_queue-0',
+  state: 'STOPPING'
+}
+2026-10-18T00:37:13.928Z [INFO] Worker state changed {
+  sdkComponent: 'worker',
+  taskQueue: 'fake_replay_queue-0',
+  state: 'DRAINING'
+}
+2026-10-18T00:37:13.928Z [INFO] Worker state changed {
+  sdkComponent: 'worker',
+  taskQueue: 'fake_replay_queue-0',
+  state: 'DRAINED'
+}
+2026-10-18T00:37:13.928Z [INFO] Worker state changed {
+  sdkComponent: 'worker',
+  taskQueue: 'fake_replay_queue-0',
+  state: 'STOPPED'
+}
+2026-10-18T00:37:13.928Z [INFO] Worker state changed {
+  sdkComponent: 'worker',
+  taskQueue: 'factory-orchestrator',
+  state: 'STOPPING'
+}
+2026-10-18T00:37:13.928Z [INFO] Worker state changed {
+  sdkComponent: 'worker',
+  taskQueue: 'factory-orchestrator',
+  state: 'DRAINING'
+}
+2026-10-18T00:37:13.929Z [INFO] Worker state changed {
+  sdkComponent: 'worker',
+  taskQueue: 'factory-orchestrator',
+  state: 'DRAINED'
+}
+2026-10-18T00:37:13.929Z [INFO] Worker state changed {
+  sdkComponent: 'worker',
+  taskQueue: 'factory-orchestrator',
+  state: 'STOPPED'
+}
+  ✔ records audit before effects and replays the saved real-server history (300.277688ms)
+[2m2026-10-18T00:37:14.071020Z[0m [33m WARN[0m [2mtemporalio_sdk_core::worker[0m[2m:[0m Temporal Server 1.16.0 or newer is required to guarantee that the latest heartbeat details are preserved when an activity fails; the server did not advertise the activity_failure_include_heartbeat capability, so heartbeat details may be lost on failure
+2026-10-18T00:37:14.071Z [INFO] Worker state changed {
+  sdkComponent: 'worker',
+  taskQueue: 'factory-orchestrator',
+  state: 'RUNNING'
+}
+2026-10-18T00:37:14.071Z [INFO] No Nexus services registered, not polling for Nexus tasks { sdkComponent: 'worker', taskQueue: 'factory-orchestrator' }
+2026-10-18T00:37:14.229Z [INFO] Worker state changed {
+  sdkComponent: 'worker',
+  taskQueue: 'fake_replay_queue-1',
+  state: 'RUNNING'
+}
+2026-10-18T00:37:14.273Z [INFO] Worker state changed {
+  sdkComponent: 'worker',
+  taskQueue: 'fake_replay_queue-1',
+  state: 'STOPPING'
+}
+2026-10-18T00:37:14.273Z [INFO] Worker state changed {
+  sdkComponent: 'worker',
+  taskQueue: 'fake_replay_queue-1',
+  state: 'DRAINING'
+}
+2026-10-18T00:37:14.273Z [INFO] Worker state changed {
+  sdkComponent: 'worker',
+  taskQueue: 'fake_replay_queue-1',
+  state: 'DRAINED'
+}
+2026-10-18T00:37:14.273Z [INFO] Worker state changed {
+  sdkComponent: 'worker',
+  taskQueue: 'fake_replay_queue-1',
+  state: 'STOPPED'
+}
+2026-10-18T00:37:14.274Z [INFO] Worker state changed {
+  sdkComponent: 'worker',
+  taskQueue: 'factory-orchestrator',
+  state: 'STOPPING'
+}
+2026-10-18T00:37:14.274Z [INFO] Worker state changed {
+  sdkComponent: 'worker',
+  taskQueue: 'factory-orchestrator',
+  state: 'DRAINING'
+}
+2026-10-18T00:37:14.274Z [INFO] Worker state changed {
+  sdkComponent: 'worker',
+  taskQueue: 'factory-orchestrator',
+  state: 'DRAINED'
+}
+2026-10-18T00:37:14.274Z [INFO] Worker state changed {
+  sdkComponent: 'worker',
+  taskQueue: 'factory-orchestrator',
+  state: 'STOPPED'
+}
+  ✔ replays a sealed repair input and preserves the prior candidate (342.443645ms)
+[2m2026-10-18T00:37:14.391241Z[0m [33m WARN[0m [2mtemporalio_sdk_core::worker[0m[2m:[0m Temporal Server 1.16.0 or newer is required to guarantee that the latest heartbeat details are preserved when an activity fails; the server did not advertise the activity_failure_include_heartbeat capability, so heartbeat details may be lost on failure
+2026-10-18T00:37:14.391Z [INFO] Worker state changed {
+  sdkComponent: 'worker',
+  taskQueue: 'factory-orchestrator',
+  state: 'RUNNING'
+}
+2026-10-18T00:37:14.391Z [INFO] No Nexus services registered, not polling for Nexus tasks { sdkComponent: 'worker', taskQueue: 'factory-orchestrator' }
+2026-10-18T00:37:14.572Z [INFO] Worker state changed {
+  sdkComponent: 'worker',
+  taskQueue: 'fake_replay_queue-2',
+  state: 'RUNNING'
+}
+2026-10-18T00:37:14.623Z [INFO] Worker state changed {
+  sdkComponent: 'worker',
+  taskQueue: 'fake_replay_queue-2',
+  state: 'STOPPING'
+}
+2026-10-18T00:37:14.623Z [INFO] Worker state changed {
+  sdkComponent: 'worker',
+  taskQueue: 'fake_replay_queue-2',
+  state: 'DRAINING'
+}
+2026-10-18T00:37:14.623Z [INFO] Worker state changed {
+  sdkComponent: 'worker',
+  taskQueue: 'fake_replay_queue-2',
+  state: 'DRAINED'
+}
+2026-10-18T00:37:14.623Z [INFO] Worker state changed {
+  sdkComponent: 'worker',
+  taskQueue: 'fake_replay_queue-2',
+  state: 'STOPPED'
+}
+2026-10-18T00:37:14.623Z [INFO] Worker state changed {
+  sdkComponent: 'worker',
+  taskQueue: 'factory-orchestrator',
+  state: 'STOPPING'
+}
+2026-10-18T00:37:14.623Z [INFO] Worker state changed {
+  sdkComponent: 'worker',
+  taskQueue: 'factory-orchestrator',
+  state: 'DRAINING'
+}
+2026-10-18T00:37:14.623Z [INFO] Worker state changed {
+  sdkComponent: 'worker',
+  taskQueue: 'factory-orchestrator',
+  state: 'DRAINED'
+}
+2026-10-18T00:37:14.623Z [INFO] Worker state changed {
+  sdkComponent: 'worker',
+  taskQueue: 'factory-orchestrator',
+  state: 'STOPPED'
+}
+  ✔ answers a protected rejection with a bounded remediation wait and replays the new decision (349.015257ms)
+[2m2026-10-18T00:37:14.741739Z[0m [33m WARN[0m [2mtemporalio_sdk_core::worker[0m[2m:[0m Temporal Server 1.16.0 or newer is required to guarantee that the latest heartbeat details are preserved when an activity fails; the server did not advertise the activity_failure_include_heartbeat capability, so heartbeat details may be lost on failure
+2026-10-18T00:37:14.741Z [INFO] Worker state changed {
+  sdkComponent: 'worker',
+  taskQueue: 'factory-orchestrator',
+  state: 'RUNNING'
+}
+2026-10-18T00:37:14.742Z [INFO] No Nexus services registered, not polling for Nexus tasks { sdkComponent: 'worker', taskQueue: 'factory-orchestrator' }
+2026-10-18T00:37:14.885Z [INFO] Worker state changed {
+  sdkComponent: 'worker',
+  taskQueue: 'fake_replay_queue-3',
+  state: 'RUNNING'
+}
+2026-10-18T00:37:14.930Z [INFO] Worker state changed {
+  sdkComponent: 'worker',
+  taskQueue: 'fake_replay_queue-3',
+  state: 'STOPPING'
+}
+2026-10-18T00:37:14.930Z [INFO] Worker state changed {
+  sdkComponent: 'worker',
+  taskQueue: 'fake_replay_queue-3',
+  state: 'DRAINING'
+}
+2026-10-18T00:37:14.930Z [INFO] Worker state changed {
+  sdkComponent: 'worker',
+  taskQueue: 'fake_replay_queue-3',
+  state: 'DRAINED'
+}
+2026-10-18T00:37:14.930Z [INFO] Worker state changed {
+  sdkComponent: 'worker',
+  taskQueue: 'fake_replay_queue-3',
+  state: 'STOPPED'
+}
+2026-10-18T00:37:14.930Z [INFO] Worker state changed {
+  sdkComponent: 'worker',
+  taskQueue: 'factory-orchestrator',
+  state: 'STOPPING'
+}
+2026-10-18T00:37:14.930Z [INFO] Worker state changed {
+  sdkComponent: 'worker',
+  taskQueue: 'factory-orchestrator',
+  state: 'DRAINING'
+}
+2026-10-18T00:37:14.931Z [INFO] Worker state changed {
+  sdkComponent: 'worker',
+  taskQueue: 'factory-orchestrator',
+  state: 'DRAINED'
+}
+2026-10-18T00:37:14.931Z [INFO] Worker state changed {
+  sdkComponent: 'worker',
+  taskQueue: 'factory-orchestrator',
+  state: 'STOPPED'
+}
+  ✔ completes a Release node once from the product's release-outcome event, and ignores its replay (307.12154ms)
+[2m2026-10-18T00:37:15.047891Z[0m [33m WARN[0m [2mtemporalio_sdk_core::worker[0m[2m:[0m Temporal Server 1.16.0 or newer is required to guarantee that the latest heartbeat details are preserved when an activity fails; the server did not advertise the activity_failure_include_heartbeat capability, so heartbeat details may be lost on failure
+2026-10-18T00:37:15.048Z [INFO] Worker state changed {
+  sdkComponent: 'worker',
+  taskQueue: 'factory-orchestrator',
+  state: 'RUNNING'
+}
+2026-10-18T00:37:15.048Z [INFO] No Nexus services registered, not polling for Nexus tasks { sdkComponent: 'worker', taskQueue: 'factory-orchestrator' }
+2026-10-18T00:37:15.170Z [INFO] Worker state changed {
+  sdkComponent: 'worker',
+  taskQueue: 'fake_replay_queue-4',
+  state: 'RUNNING'
+}
+2026-10-18T00:37:15.197Z [INFO] Worker state changed {
+  sdkComponent: 'worker',
+  taskQueue: 'fake_replay_queue-4',
+  state: 'STOPPING'
+}
+2026-10-18T00:37:15.197Z [INFO] Worker state changed {
+  sdkComponent: 'worker',
+  taskQueue: 'fake_replay_queue-4',
+  state: 'DRAINING'
+}
+2026-10-18T00:37:15.197Z [INFO] Worker state changed {
+  sdkComponent: 'worker',
+  taskQueue: 'fake_replay_queue-4',
+  state: 'DRAINED'
+}
+2026-10-18T00:37:15.197Z [INFO] Worker state changed {
+  sdkComponent: 'worker',
+  taskQueue: 'fake_replay_queue-4',
+  state: 'STOPPED'
+}
+2026-10-18T00:37:15.197Z [INFO] Worker state changed {
+  sdkComponent: 'worker',
+  taskQueue: 'factory-orchestrator',
+  state: 'STOPPING'
+}
+2026-10-18T00:37:15.197Z [INFO] Worker state changed {
+  sdkComponent: 'worker',
+  taskQueue: 'factory-orchestrator',
+  state: 'DRAINING'
+}
+2026-10-18T00:37:15.197Z [INFO] Worker state changed {
+  sdkComponent: 'worker',
+  taskQueue: 'factory-orchestrator',
+  state: 'DRAINED'
+}
+2026-10-18T00:37:15.197Z [INFO] Worker state changed {
+  sdkComponent: 'worker',
+  taskQueue: 'factory-orchestrator',
+  state: 'STOPPED'
+}
+  ✔ keeps an acceptance node waiting on a null effect and completes it once from its inbox event (266.609453ms)
+[2m2026-10-18T00:37:15.313906Z[0m [33m WARN[0m [2mtemporalio_sdk_core::worker[0m[2m:[0m Temporal Server 1.16.0 or newer is required to guarantee that the latest heartbeat details are preserved when an activity fails; the server did not advertise the activity_failure_include_heartbeat capability, so heartbeat details may be lost on failure
+2026-10-18T00:37:15.314Z [INFO] Worker state changed {
+  sdkComponent: 'worker',
+  taskQueue: 'factory-orchestrator',
+  state: 'RUNNING'
+}
+2026-10-18T00:37:15.314Z [INFO] No Nexus services registered, not polling for Nexus tasks { sdkComponent: 'worker', taskQueue: 'factory-orchestrator' }
+2026-10-18T00:37:15.438Z [INFO] Worker state changed {
+  sdkComponent: 'worker',
+  taskQueue: 'fake_replay_queue-5',
+  state: 'RUNNING'
+}
+2026-10-18T00:37:15.487Z [INFO] Worker state changed {
+  sdkComponent: 'worker',
+  taskQueue: 'fake_replay_queue-5',
+  state: 'STOPPING'
+}
+2026-10-18T00:37:15.487Z [INFO] Worker state changed {
+  sdkComponent: 'worker',
+  taskQueue: 'fake_replay_queue-5',
+  state: 'DRAINING'
+}
+2026-10-18T00:37:15.487Z [INFO] Worker state changed {
+  sdkComponent: 'worker',
+  taskQueue: 'fake_replay_queue-5',
+  state: 'DRAINED'
+}
+2026-10-18T00:37:15.487Z [INFO] Worker state changed {
+  sdkComponent: 'worker',
+  taskQueue: 'fake_replay_queue-5',
+  state: 'STOPPED'
+}
+2026-10-18T00:37:15.488Z [INFO] Worker state changed {
+  sdkComponent: 'worker',
+  taskQueue: 'factory-orchestrator',
+  state: 'STOPPING'
+}
+2026-10-18T00:37:15.488Z [INFO] Worker state changed {
+  sdkComponent: 'worker',
+  taskQueue: 'factory-orchestrator',
+  state: 'DRAINING'
+}
+2026-10-18T00:37:15.488Z [INFO] Worker state changed {
+  sdkComponent: 'worker',
+  taskQueue: 'factory-orchestrator',
+  state: 'DRAINED'
+}
+2026-10-18T00:37:15.488Z [INFO] Worker state changed {
+  sdkComponent: 'worker',
+  taskQueue: 'factory-orchestrator',
+  state: 'STOPPED'
+}
+  ✔ fails an acceptance node on a typed validator failure from its inbox, with no repair round and the typed reason (maxRepairs 0) (290.842332ms)
+[2m2026-10-18T00:37:15.601867Z[0m [33m WARN[0m [2mtemporalio_sdk_core::worker[0m[2m:[0m Temporal Server 1.16.0 or newer is required to guarantee that the latest heartbeat details are preserved when an activity fails; the server did not advertise the activity_failure_include_heartbeat capability, so heartbeat details may be lost on failure
+2026-10-18T00:37:15.602Z [INFO] Worker state changed {
+  sdkComponent: 'worker',
+  taskQueue: 'factory-orchestrator',
+  state: 'RUNNING'
+}
+2026-10-18T00:37:15.602Z [INFO] No Nexus services registered, not polling for Nexus tasks { sdkComponent: 'worker', taskQueue: 'factory-orchestrator' }
+2026-10-18T00:37:15.719Z [INFO] Worker state changed {
+  sdkComponent: 'worker',
+  taskQueue: 'fake_replay_queue-6',
+  state: 'RUNNING'
+}
+2026-10-18T00:37:15.747Z [INFO] Worker state changed {
+  sdkComponent: 'worker',
+  taskQueue: 'fake_replay_queue-6',
+  state: 'STOPPING'
+}
+2026-10-18T00:37:15.747Z [INFO] Worker state changed {
+  sdkComponent: 'worker',
+  taskQueue: 'fake_replay_queue-6',
+  state: 'DRAINING'
+}
+2026-10-18T00:37:15.747Z [INFO] Worker state changed {
+  sdkComponent: 'worker',
+  taskQueue: 'fake_replay_queue-6',
+  state: 'DRAINED'
+}
+2026-10-18T00:37:15.747Z [INFO] Worker state changed {
+  sdkComponent: 'worker',
+  taskQueue: 'fake_replay_queue-6',
+  state: 'STOPPED'
+}
+2026-10-18T00:37:15.747Z [INFO] Worker state changed {
+  sdkComponent: 'worker',
+  taskQueue: 'factory-orchestrator',
+  state: 'STOPPING'
+}
+2026-10-18T00:37:15.747Z [INFO] Worker state changed {
+  sdkComponent: 'worker',
+  taskQueue: 'factory-orchestrator',
+  state: 'DRAINING'
+}
+2026-10-18T00:37:15.747Z [INFO] Worker state changed {
+  sdkComponent: 'worker',
+  taskQueue: 'factory-orchestrator',
+  state: 'DRAINED'
+}
+2026-10-18T00:37:15.747Z [INFO] Worker state changed {
+  sdkComponent: 'worker',
+  taskQueue: 'factory-orchestrator',
+  state: 'STOPPED'
+}
+  ✔ fails an acceptance node on a typed validator failure from its inbox, with no repair round and the typed reason (maxRepairs 2) (259.449568ms)
+[2m2026-10-18T00:37:15.869501Z[0m [33m WARN[0m [2mtemporalio_sdk_core::worker[0m[2m:[0m Temporal Server 1.16.0 or newer is required to guarantee that the latest heartbeat details are preserved when an activity fails; the server did not advertise the activity_failure_include_heartbeat capability, so heartbeat details may be lost on failure
+2026-10-18T00:37:15.869Z [INFO] Worker state changed {
+  sdkComponent: 'worker',
+  taskQueue: 'factory-orchestrator',
+  state: 'RUNNING'
+}
+2026-10-18T00:37:15.869Z [INFO] No Nexus services registered, not polling for Nexus tasks { sdkComponent: 'worker', taskQueue: 'factory-orchestrator' }
+2026-10-18T00:37:15.930Z [WARN] Activity failed {
+  sdkComponent: 'worker',
+  taskQueue: 'factory-orchestrator',
+  isLocal: false,
+  attempt: 1,
+  namespace: 'default',
+  taskToken: 'AAdkZWZhdWx0ACd0ZW5hbnQvYWNjZXB0YW5jZS1lZmZlY3QtZmFpbGVkLTI0ODUxMjUAJGJhMWZhZTgyLWI3NzctNDRhNC04YTc4LTgyZTVmMDk5MGQyMAAAAAAAAABaAAAAAQ==',
+  activityId: '14',
+  activityType: 'executeCommand',
+  workflowId: 'tenant/acceptance-effect-failed-2485125',
+  workflowRunId: 'ba1fae82-b777-44a4-8a78-82e5f0990d20',
+  workflowType: 'factoryWorkflow',
+  error: Error: factory gateway returned HTTP 500
+      at activities.executeCommand (file:///home/dev/work/EZCorp/EZHarness-worktrees/composable-factory-platform/.worktrees/w00-integration/packages/@ezcorp/factory-orchestrator/test/temporal-replay.test.ts:696:78)
+      at executeNextHandler (/home/dev/work/EZCorp/EZHarness-worktrees/composable-factory-platform/.worktrees/w00-integration/node_modules/.bun/@temporalio+worker@1.23.0+cf39f8fdfb45fa05/node_modules/@temporalio/worker/lib/activity.js:102:54)
+      at Activity.execute (/home/dev/work/EZCorp/EZHarness-worktrees/composable-factory-platform/.worktrees/w00-integration/node_modules/.bun/@temporalio+worker@1.23.0+cf39f8fdfb45fa05/node_modules/@temporalio/worker/lib/activity.js:104:26)
+      at /home/dev/work/EZCorp/EZHarness-worktrees/composable-factory-platform/.worktrees/w00-integration/node_modules/.bun/@temporalio+worker@1.23.0+cf39f8fdfb45fa05/node_modules/@temporalio/worker/lib/activity.js:152:29
+      at AsyncLocalStorage.run (node:internal/async_local_storage/async_context_frame:63:14)
+      at NativeConnection.withAbortSignal (/home/dev/work/EZCorp/EZHarness-worktrees/composable-factory-platform/.worktrees/w00-integration/node_modules/.bun/@temporalio+worker@1.23.0+cf39f8fdfb45fa05/node_modules/@temporalio/worker/lib/connection.js:172:46)
+      at Client.withAbortSignal (/home/dev/work/EZCorp/EZHarness-worktrees/composable-factory-platform/.worktrees/w00-integration/node_modules/.bun/@temporalio+client@1.23.0/node_modules/@temporalio/client/lib/base-client.js:65:38)
+      at Activity.executeWithClient (/home/dev/work/EZCorp/EZHarness-worktrees/composable-factory-platform/.worktrees/w00-integration/node_modules/.bun/@temporalio+worker@1.23.0+cf39f8fdfb45fa05/node_modules/@temporalio/worker/lib/activity.js:151:33)
+      at /home/dev/work/EZCorp/EZHarness-worktrees/composable-factory-platform/.worktrees/w00-integration/node_modules/.bun/@temporalio+worker@1.23.0+cf39f8fdfb45fa05/node_modules/@temporalio/worker/lib/activity.js:164:43
+      at AsyncLocalStorage.run (node:internal/async_local_storage/async_context_frame:63:14),
+  durationMs: 0
+}
+2026-10-18T00:37:15.982Z [INFO] Worker state changed {
+  sdkComponent: 'worker',
+  taskQueue: 'fake_replay_queue-7',
+  state: 'RUNNING'
+}
+2026-10-18T00:37:16.015Z [INFO] Worker state changed {
+  sdkComponent: 'worker',
+  taskQueue: 'fake_replay_queue-7',
+  state: 'STOPPING'
+}
+2026-10-18T00:37:16.015Z [INFO] Worker state changed {
+  sdkComponent: 'worker',
+  taskQueue: 'fake_replay_queue-7',
+  state: 'DRAINING'
+}
+2026-10-18T00:37:16.015Z [INFO] Worker state changed {
+  sdkComponent: 'worker',
+  taskQueue: 'fake_replay_queue-7',
+  state: 'DRAINED'
+}
+2026-10-18T00:37:16.015Z [INFO] Worker state changed {
+  sdkComponent: 'worker',
+  taskQueue: 'fake_replay_queue-7',
+  state: 'STOPPED'
+}
+2026-10-18T00:37:16.016Z [INFO] Worker state changed {
+  sdkComponent: 'worker',
+  taskQueue: 'factory-orchestrator',
+  state: 'STOPPING'
+}
+2026-10-18T00:37:16.016Z [INFO] Worker state changed {
+  sdkComponent: 'worker',
+  taskQueue: 'factory-orchestrator',
+  state: 'DRAINING'
+}
+2026-10-18T00:37:16.016Z [INFO] Worker state changed {
+  sdkComponent: 'worker',
+  taskQueue: 'factory-orchestrator',
+  state: 'DRAINED'
+}
+2026-10-18T00:37:16.016Z [INFO] Worker state changed {
+  sdkComponent: 'worker',
+  taskQueue: 'factory-orchestrator',
+  state: 'STOPPED'
+}
+  ✔ fails the run with a typed reason, through a recorded transition, when an effect command fails (268.265056ms)
+[2m2026-10-18T00:37:16.131370Z[0m [33m WARN[0m [2mtemporalio_sdk_core::worker[0m[2m:[0m Temporal Server 1.16.0 or newer is required to guarantee that the latest heartbeat details are preserved when an activity fails; the server did not advertise the activity_failure_include_heartbeat capability, so heartbeat details may be lost on failure
+2026-10-18T00:37:16.131Z [INFO] Worker state changed {
+  sdkComponent: 'worker',
+  taskQueue: 'factory-orchestrator',
+  state: 'RUNNING'
+}
+2026-10-18T00:37:16.131Z [INFO] No Nexus services registered, not polling for Nexus tasks { sdkComponent: 'worker', taskQueue: 'factory-orchestrator' }
+2026-10-18T00:37:16.227Z [INFO] Worker state changed {
+  sdkComponent: 'worker',
+  taskQueue: 'fake_replay_queue-8',
+  state: 'RUNNING'
+}
+2026-10-18T00:37:16.247Z [INFO] Worker state changed {
+  sdkComponent: 'worker',
+  taskQueue: 'fake_replay_queue-8',
+  state: 'STOPPING'
+}
+2026-10-18T00:37:16.247Z [INFO] Worker state changed {
+  sdkComponent: 'worker',
+  taskQueue: 'fake_replay_queue-8',
+  state: 'DRAINING'
+}
+2026-10-18T00:37:16.247Z [INFO] Worker state changed {
+  sdkComponent: 'worker',
+  taskQueue: 'fake_replay_queue-8',
+  state: 'DRAINED'
+}
+2026-10-18T00:37:16.247Z [INFO] Worker state changed {
+  sdkComponent: 'worker',
+  taskQueue: 'fake_replay_queue-8',
+  state: 'STOPPED'
+}
+2026-10-18T00:37:16.247Z [INFO] Worker state changed {
+  sdkComponent: 'worker',
+  taskQueue: 'factory-orchestrator',
+  state: 'STOPPING'
+}
+2026-10-18T00:37:16.247Z [INFO] Worker state changed {
+  sdkComponent: 'worker',
+  taskQueue: 'factory-orchestrator',
+  state: 'DRAINING'
+}
+2026-10-18T00:37:16.247Z [INFO] Worker state changed {
+  sdkComponent: 'worker',
+  taskQueue: 'factory-orchestrator',
+  state: 'DRAINED'
+}
+2026-10-18T00:37:16.247Z [INFO] Worker state changed {
+  sdkComponent: 'worker',
+  taskQueue: 'factory-orchestrator',
+  state: 'STOPPED'
+}
+  ✔ ends a task node in place when the product refuses its dispatch before anything was queued (231.137465ms)
+[2m2026-10-18T00:37:16.366990Z[0m [33m WARN[0m [2mtemporalio_sdk_core::worker[0m[2m:[0m Temporal Server 1.16.0 or newer is required to guarantee that the latest heartbeat details are preserved when an activity fails; the server did not advertise the activity_failure_include_heartbeat capability, so heartbeat details may be lost on failure
+2026-10-18T00:37:16.367Z [INFO] Worker state changed {
+  sdkComponent: 'worker',
+  taskQueue: 'factory-orchestrator',
+  state: 'RUNNING'
+}
+2026-10-18T00:37:16.367Z [INFO] No Nexus services registered, not polling for Nexus tasks { sdkComponent: 'worker', taskQueue: 'factory-orchestrator' }
+2026-10-18T00:37:16.477Z [INFO] Worker state changed {
+  sdkComponent: 'worker',
+  taskQueue: 'fake_replay_queue-9',
+  state: 'RUNNING'
+}
+2026-10-18T00:37:16.502Z [INFO] Worker state changed {
+  sdkComponent: 'worker',
+  taskQueue: 'fake_replay_queue-9',
+  state: 'STOPPING'
+}
+2026-10-18T00:37:16.502Z [INFO] Worker state changed {
+  sdkComponent: 'worker',
+  taskQueue: 'fake_replay_queue-9',
+  state: 'DRAINING'
+}
+2026-10-18T00:37:16.502Z [INFO] Worker state changed {
+  sdkComponent: 'worker',
+  taskQueue: 'fake_replay_queue-9',
+  state: 'DRAINED'
+}
+2026-10-18T00:37:16.502Z [INFO] Worker state changed {
+  sdkComponent: 'worker',
+  taskQueue: 'fake_replay_queue-9',
+  state: 'STOPPED'
+}
+2026-10-18T00:37:16.502Z [INFO] Worker state changed {
+  sdkComponent: 'worker',
+  taskQueue: 'factory-orchestrator',
+  state: 'STOPPING'
+}
+2026-10-18T00:37:16.502Z [INFO] Worker state changed {
+  sdkComponent: 'worker',
+  taskQueue: 'factory-orchestrator',
+  state: 'DRAINING'
+}
+2026-10-18T00:37:16.503Z [INFO] Worker state changed {
+  sdkComponent: 'worker',
+  taskQueue: 'factory-orchestrator',
+  state: 'DRAINED'
+}
+2026-10-18T00:37:16.503Z [INFO] Worker state changed {
+  sdkComponent: 'worker',
+  taskQueue: 'factory-orchestrator',
+  state: 'STOPPED'
+}
+  ✔ projects the refusal's name when the product answers an effect with its named command-failed event (255.355284ms)
+[2m2026-10-18T00:37:16.617327Z[0m [33m WARN[0m [2mtemporalio_sdk_core::worker[0m[2m:[0m Temporal Server 1.16.0 or newer is required to guarantee that the latest heartbeat details are preserved when an activity fails; the server did not advertise the activity_failure_include_heartbeat capability, so heartbeat details may be lost on failure
+2026-10-18T00:37:16.617Z [INFO] Worker state changed {
+  sdkComponent: 'worker',
+  taskQueue: 'factory-orchestrator',
+  state: 'RUNNING'
+}
+2026-10-18T00:37:16.617Z [INFO] No Nexus services registered, not polling for Nexus tasks { sdkComponent: 'worker', taskQueue: 'factory-orchestrator' }
+2026-10-18T00:37:32.701Z [INFO] Worker state changed {
+  sdkComponent: 'worker',
+  taskQueue: 'factory-orchestrator',
+  state: 'STOPPING'
+}
+2026-10-18T00:37:32.701Z [INFO] Worker state changed {
+  sdkComponent: 'worker',
+  taskQueue: 'factory-orchestrator',
+  state: 'DRAINING'
+}
+2026-10-18T00:37:32.701Z [INFO] Worker state changed {
+  sdkComponent: 'worker',
+  taskQueue: 'factory-orchestrator',
+  state: 'DRAINED'
+}
+2026-10-18T00:37:32.701Z [INFO] Worker state changed {
+  sdkComponent: 'worker',
+  taskQueue: 'factory-orchestrator',
+  state: 'STOPPED'
+}
+  ✔ advances independent successors while another branch is blocked (16198.315895ms)
+[2m2026-10-18T00:37:34.086476Z[0m [33m WARN[0m [2mtemporalio_sdk_core::worker[0m[2m:[0m Temporal Server 1.16.0 or newer is required to guarantee that the latest heartbeat details are preserved when an activity fails; the server did not advertise the activity_failure_include_heartbeat capability, so heartbeat details may be lost on failure
+2026-10-18T00:37:34.086Z [INFO] Worker state changed {
+  sdkComponent: 'worker',
+  taskQueue: 'factory-orchestrator',
+  state: 'RUNNING'
+}
+2026-10-18T00:37:34.086Z [INFO] No Nexus services registered, not polling for Nexus tasks { sdkComponent: 'worker', taskQueue: 'factory-orchestrator' }
+2026-10-18T00:37:36.438Z [INFO] Worker state changed {
+  sdkComponent: 'worker',
+  taskQueue: 'fake_replay_queue-10',
+  state: 'RUNNING'
+}
+2026-10-18T00:37:36.478Z [INFO] Worker state changed {
+  sdkComponent: 'worker',
+  taskQueue: 'fake_replay_queue-10',
+  state: 'STOPPING'
+}
+2026-10-18T00:37:36.478Z [INFO] Worker state changed {
+  sdkComponent: 'worker',
+  taskQueue: 'fake_replay_queue-10',
+  state: 'DRAINING'
+}
+2026-10-18T00:37:36.478Z [INFO] Worker state changed {
+  sdkComponent: 'worker',
+  taskQueue: 'fake_replay_queue-10',
+  state: 'DRAINED'
+}
+2026-10-18T00:37:36.478Z [INFO] Worker state changed {
+  sdkComponent: 'worker',
+  taskQueue: 'fake_replay_queue-10',
+  state: 'STOPPED'
+}
+2026-10-18T00:37:36.480Z [INFO] Worker state changed {
+  sdkComponent: 'worker',
+  taskQueue: 'factory-orchestrator',
+  state: 'STOPPING'
+}
+2026-10-18T00:37:36.480Z [INFO] Worker state changed {
+  sdkComponent: 'worker',
+  taskQueue: 'factory-orchestrator',
+  state: 'DRAINING'
+}
+2026-10-18T00:37:36.480Z [INFO] Worker state changed {
+  sdkComponent: 'worker',
+  taskQueue: 'factory-orchestrator',
+  state: 'DRAINED'
+}
+2026-10-18T00:37:36.480Z [INFO] Worker state changed {
+  sdkComponent: 'worker',
+  taskQueue: 'factory-orchestrator',
+  state: 'STOPPED'
+}
+  ✔ loads bounded partitions from a 10,000-node plan and advances a cross-partition successor before a slow sibling (3779.542477ms)
+[2m2026-10-18T00:37:36.637061Z[0m [33m WARN[0m [2mtemporalio_sdk_core::worker[0m[2m:[0m Temporal Server 1.16.0 or newer is required to guarantee that the latest heartbeat details are preserved when an activity fails; the server did not advertise the activity_failure_include_heartbeat capability, so heartbeat details may be lost on failure
+2026-10-18T00:37:36.637Z [INFO] Worker state changed {
+  sdkComponent: 'worker',
+  taskQueue: 'factory-orchestrator',
+  state: 'RUNNING'
+}
+2026-10-18T00:37:36.637Z [INFO] No Nexus services registered, not polling for Nexus tasks { sdkComponent: 'worker', taskQueue: 'factory-orchestrator' }
+2026-10-18T00:37:39.465Z [INFO] Worker state changed {
+  sdkComponent: 'worker',
+  taskQueue: 'factory-orchestrator',
+  state: 'STOPPING'
+}
+2026-10-18T00:37:39.465Z [INFO] Worker state changed {
+  sdkComponent: 'worker',
+  taskQueue: 'factory-orchestrator',
+  state: 'DRAINING'
+}
+2026-10-18T00:37:39.465Z [INFO] Worker state changed {
+  sdkComponent: 'worker',
+  taskQueue: 'factory-orchestrator',
+  state: 'DRAINED'
+}
+2026-10-18T00:37:39.465Z [INFO] Worker state changed {
+  sdkComponent: 'worker',
+  taskQueue: 'factory-orchestrator',
+  state: 'STOPPED'
+}
+  ✔ propagates repair invalidation across three live partitions before recomputation (2984.78673ms)
+[2m2026-10-18T00:37:39.586201Z[0m [33m WARN[0m [2mtemporalio_sdk_core::worker[0m[2m:[0m Temporal Server 1.16.0 or newer is required to guarantee that the latest heartbeat details are preserved when an activity fails; the server did not advertise the activity_failure_include_heartbeat capability, so heartbeat details may be lost on failure
+2026-10-18T00:37:39.586Z [INFO] Worker state changed {
+  sdkComponent: 'worker',
+  taskQueue: 'factory-orchestrator',
+  state: 'RUNNING'
+}
+2026-10-18T00:37:39.586Z [INFO] No Nexus services registered, not polling for Nexus tasks { sdkComponent: 'worker', taskQueue: 'factory-orchestrator' }
+2026-10-18T00:37:39.668Z [INFO] Worker state changed {
+  sdkComponent: 'worker',
+  taskQueue: 'factory-orchestrator',
+  state: 'STOPPING'
+}
+2026-10-18T00:37:39.668Z [INFO] Worker state changed {
+  sdkComponent: 'worker',
+  taskQueue: 'factory-orchestrator',
+  state: 'DRAINING'
+}
+2026-10-18T00:37:39.668Z [INFO] Worker state changed {
+  sdkComponent: 'worker',
+  taskQueue: 'factory-orchestrator',
+  state: 'DRAINED'
+}
+2026-10-18T00:37:39.668Z [INFO] Worker state changed {
+  sdkComponent: 'worker',
+  taskQueue: 'factory-orchestrator',
+  state: 'STOPPED'
+}
+  ✔ cancels an in-flight activity and waits for the fenced stop acknowledgement (202.620666ms)
+[2m2026-10-18T00:37:39.787756Z[0m [33m WARN[0m [2mtemporalio_sdk_core::worker[0m[2m:[0m Temporal Server 1.16.0 or newer is required to guarantee that the latest heartbeat details are preserved when an activity fails; the server did not advertise the activity_failure_include_heartbeat capability, so heartbeat details may be lost on failure
+2026-10-18T00:37:39.787Z [INFO] Worker state changed {
+  sdkComponent: 'worker',
+  taskQueue: 'factory-orchestrator',
+  state: 'RUNNING'
+}
+2026-10-18T00:37:39.787Z [INFO] No Nexus services registered, not polling for Nexus tasks { sdkComponent: 'worker', taskQueue: 'factory-orchestrator' }
+2026-10-18T00:37:39.880Z [INFO] Worker state changed {
+  sdkComponent: 'worker',
+  taskQueue: 'factory-orchestrator',
+  state: 'STOPPING'
+}
+2026-10-18T00:37:39.880Z [INFO] Worker state changed {
+  sdkComponent: 'worker',
+  taskQueue: 'factory-orchestrator',
+  state: 'DRAINING'
+}
+2026-10-18T00:37:39.881Z [INFO] Worker state changed {
+  sdkComponent: 'worker',
+  taskQueue: 'factory-orchestrator',
+  state: 'DRAINED'
+}
+2026-10-18T00:37:39.881Z [INFO] Worker state changed {
+  sdkComponent: 'worker',
+  taskQueue: 'factory-orchestrator',
+  state: 'STOPPED'
+}
+  ✔ uses a durable retry timer and succeeds on the second fenced attempt (212.49475ms)
+[2m2026-10-18T00:37:39.996748Z[0m [33m WARN[0m [2mtemporalio_sdk_core::worker[0m[2m:[0m Temporal Server 1.16.0 or newer is required to guarantee that the latest heartbeat details are preserved when an activity fails; the server did not advertise the activity_failure_include_heartbeat capability, so heartbeat details may be lost on failure
+2026-10-18T00:37:39.996Z [INFO] Worker state changed {
+  sdkComponent: 'worker',
+  taskQueue: 'factory-orchestrator',
+  state: 'RUNNING'
+}
+2026-10-18T00:37:39.996Z [INFO] No Nexus services registered, not polling for Nexus tasks { sdkComponent: 'worker', taskQueue: 'factory-orchestrator' }
+2026-10-18T00:37:40.076Z [INFO] Worker state changed {
+  sdkComponent: 'worker',
+  taskQueue: 'factory-orchestrator',
+  state: 'STOPPING'
+}
+2026-10-18T00:37:40.076Z [INFO] Worker state changed {
+  sdkComponent: 'worker',
+  taskQueue: 'factory-orchestrator',
+  state: 'DRAINING'
+}
+2026-10-18T00:37:40.077Z [INFO] Worker state changed {
+  sdkComponent: 'worker',
+  taskQueue: 'factory-orchestrator',
+  state: 'DRAINED'
+}
+2026-10-18T00:37:40.077Z [INFO] Worker state changed {
+  sdkComponent: 'worker',
+  taskQueue: 'factory-orchestrator',
+  state: 'STOPPED'
+}
+  ✔ resolves a durable artifact field through the recorded command activity (195.883403ms)
+[2m2026-10-18T00:37:40.196605Z[0m [33m WARN[0m [2mtemporalio_sdk_core::worker[0m[2m:[0m Temporal Server 1.16.0 or newer is required to guarantee that the latest heartbeat details are preserved when an activity fails; the server did not advertise the activity_failure_include_heartbeat capability, so heartbeat details may be lost on failure
+2026-10-18T00:37:40.196Z [INFO] Worker state changed {
+  sdkComponent: 'worker',
+  taskQueue: 'factory-orchestrator',
+  state: 'RUNNING'
+}
+2026-10-18T00:37:40.196Z [INFO] No Nexus services registered, not polling for Nexus tasks { sdkComponent: 'worker', taskQueue: 'factory-orchestrator' }
+2026-10-18T00:37:40.297Z [INFO] Worker state changed {
+  sdkComponent: 'worker',
+  taskQueue: 'factory-orchestrator',
+  state: 'STOPPING'
+}
+2026-10-18T00:37:40.297Z [INFO] Worker state changed {
+  sdkComponent: 'worker',
+  taskQueue: 'factory-orchestrator',
+  state: 'DRAINING'
+}
+2026-10-18T00:37:40.297Z [INFO] Worker state changed {
+  sdkComponent: 'worker',
+  taskQueue: 'factory-orchestrator',
+  state: 'DRAINED'
+}
+2026-10-18T00:37:40.297Z [INFO] Worker state changed {
+  sdkComponent: 'worker',
+  taskQueue: 'factory-orchestrator',
+  state: 'STOPPED'
+}
+  ✔ passes the tagged descriptor and command correlation into a child workflow (220.900464ms)
+[2m2026-10-18T00:37:40.419376Z[0m [33m WARN[0m [2mtemporalio_sdk_core::worker[0m[2m:[0m Temporal Server 1.16.0 or newer is required to guarantee that the latest heartbeat details are preserved when an activity fails; the server did not advertise the activity_failure_include_heartbeat capability, so heartbeat details may be lost on failure
+2026-10-18T00:37:40.419Z [INFO] Worker state changed {
+  sdkComponent: 'worker',
+  taskQueue: 'factory-orchestrator',
+  state: 'RUNNING'
+}
+2026-10-18T00:37:40.419Z [INFO] No Nexus services registered, not polling for Nexus tasks { sdkComponent: 'worker', taskQueue: 'factory-orchestrator' }
+2026-10-18T00:37:40.453Z [WARN] Workflow failed {
+  sdkComponent: 'worker',
+  taskQueue: 'factory-orchestrator',
+  namespace: 'default',
+  workflowId: 'tenant/undeclared-durable-input-2485125',
+  runId: '7f6e92e6-e2de-439e-9c47-ce463358ae14',
+  workflowType: 'factoryWorkflow',
+  error: ApplicationFailure: Durable input contains an undeclared port.
+      at ApplicationFailure.nonRetryable (/home/dev/work/EZCorp/EZHarness-worktrees/composable-factory-platform/.worktrees/w00-integration/node_modules/.bun/@temporalio+common@1.23.0/node_modules/@temporalio/common/src/failure.ts:253:11)
+      at nonRetryable (/home/dev/work/EZCorp/EZHarness-worktrees/composable-factory-platform/.worktrees/w00-integration/packages/@ezcorp/factory-orchestrator/src/workflow.ts:85:28)
+      at workflowFailure (/home/dev/work/EZCorp/EZHarness-worktrees/composable-factory-platform/.worktrees/w00-integration/packages/@ezcorp/factory-orchestrator/src/workflow.ts:190:10)
+      at Script.runInContext (node:vm:149:12)
+      at Proxy.<anonymous> (/home/dev/work/EZCorp/EZHarness-worktrees/composable-factory-platform/.worktrees/w00-integration/node_modules/.bun/@temporalio+worker@1.23.0+cf39f8fdfb45fa05/node_modules/@temporalio/worker/lib/workflow/reusable-vm.js:216:45)
+      at ReusableVMWorkflow.activate (/home/dev/work/EZCorp/EZHarness-worktrees/composable-factory-platform/.worktrees/w00-integration/node_modules/.bun/@temporalio+worker@1.23.0+cf39f8fdfb45fa05/node_modules/@temporalio/worker/lib/workflow/vm-shared.js:403:37)
+      at handleRequest (/home/dev/work/EZCorp/EZHarness-worktrees/composable-factory-platform/.worktrees/w00-integration/node_modules/.bun/@temporalio+worker@1.23.0+cf39f8fdfb45fa05/node_modules/@temporalio/worker/lib/workflow/workflow-worker-thread.js:73:47)
+      at MessagePort.<anonymous> (/home/dev/work/EZCorp/EZHarness-worktrees/composable-factory-platform/.worktrees/w00-integration/node_modules/.bun/@temporalio+worker@1.23.0+cf39f8fdfb45fa05/node_modules/@temporalio/worker/lib/workflow/workflow-worker-thread.js:145:28)
+      at [nodejs.internal.kHybridDispatch] (node:internal/event_target:843:20)
+      at MessagePort.<anonymous> (node:internal/per_context/messageport:23:28) {
+    [cause]: undefined
+  }
+}
+2026-10-18T00:37:40.456Z [INFO] Worker state changed {
+  sdkComponent: 'worker',
+  taskQueue: 'factory-orchestrator',
+  state: 'STOPPING'
+}
+2026-10-18T00:37:40.457Z [INFO] Worker state changed {
+  sdkComponent: 'worker',
+  taskQueue: 'factory-orchestrator',
+  state: 'DRAINING'
+}
+2026-10-18T00:37:40.457Z [INFO] Worker state changed {
+  sdkComponent: 'worker',
+  taskQueue: 'factory-orchestrator',
+  state: 'DRAINED'
+}
+2026-10-18T00:37:40.457Z [INFO] Worker state changed {
+  sdkComponent: 'worker',
+  taskQueue: 'factory-orchestrator',
+  state: 'STOPPED'
+}
+  ✔ fails an undeclared durable input once before recording a transition or effect (158.965961ms)
+[2m2026-10-18T00:37:40.575855Z[0m [33m WARN[0m [2mtemporalio_sdk_core::worker[0m[2m:[0m Temporal Server 1.16.0 or newer is required to guarantee that the latest heartbeat details are preserved when an activity fails; the server did not advertise the activity_failure_include_heartbeat capability, so heartbeat details may be lost on failure
+2026-10-18T00:37:40.576Z [INFO] Worker state changed {
+  sdkComponent: 'worker',
+  taskQueue: 'factory-orchestrator',
+  state: 'RUNNING'
+}
+2026-10-18T00:37:40.576Z [INFO] No Nexus services registered, not polling for Nexus tasks { sdkComponent: 'worker', taskQueue: 'factory-orchestrator' }
+2026-10-18T00:37:40.650Z [INFO] Worker state changed {
+  sdkComponent: 'worker',
+  taskQueue: 'factory-orchestrator',
+  state: 'STOPPING'
+}
+2026-10-18T00:37:40.650Z [INFO] Worker state changed {
+  sdkComponent: 'worker',
+  taskQueue: 'factory-orchestrator',
+  state: 'DRAINING'
+}
+2026-10-18T00:37:40.650Z [INFO] Worker state changed {
+  sdkComponent: 'worker',
+  taskQueue: 'factory-orchestrator',
+  state: 'DRAINED'
+}
+2026-10-18T00:37:40.650Z [INFO] Worker state changed {
+  sdkComponent: 'worker',
+  taskQueue: 'factory-orchestrator',
+  state: 'STOPPED'
+}
+  ✔ runs a pinned subfactory as a child workflow (193.544015ms)
+[2m2026-10-18T00:37:40.767068Z[0m [33m WARN[0m [2mtemporalio_sdk_core::worker[0m[2m:[0m Temporal Server 1.16.0 or newer is required to guarantee that the latest heartbeat details are preserved when an activity fails; the server did not advertise the activity_failure_include_heartbeat capability, so heartbeat details may be lost on failure
+2026-10-18T00:37:40.767Z [INFO] Worker state changed {
+  sdkComponent: 'worker',
+  taskQueue: 'factory-orchestrator',
+  state: 'RUNNING'
+}
+2026-10-18T00:37:40.767Z [INFO] No Nexus services registered, not polling for Nexus tasks { sdkComponent: 'worker', taskQueue: 'factory-orchestrator' }
+2026-10-18T00:37:40.861Z [INFO] Worker state changed {
+  sdkComponent: 'worker',
+  taskQueue: 'factory-orchestrator',
+  state: 'STOPPING'
+}
+2026-10-18T00:37:40.861Z [INFO] Worker state changed {
+  sdkComponent: 'worker',
+  taskQueue: 'factory-orchestrator',
+  state: 'DRAINING'
+}
+2026-10-18T00:37:40.862Z [INFO] Worker state changed {
+  sdkComponent: 'worker',
+  taskQueue: 'factory-orchestrator',
+  state: 'DRAINED'
+}
+2026-10-18T00:37:40.862Z [INFO] Worker state changed {
+  sdkComponent: 'worker',
+  taskQueue: 'factory-orchestrator',
+  state: 'STOPPED'
+}
+  ✔ cancels an active child before it accepts the parent stop acknowledgement (211.434201ms)
+[2m2026-10-18T00:37:40.980596Z[0m [33m WARN[0m [2mtemporalio_sdk_core::worker[0m[2m:[0m Temporal Server 1.16.0 or newer is required to guarantee that the latest heartbeat details are preserved when an activity fails; the server did not advertise the activity_failure_include_heartbeat capability, so heartbeat details may be lost on failure
+2026-10-18T00:37:40.980Z [INFO] Worker state changed {
+  sdkComponent: 'worker',
+  taskQueue: 'factory-orchestrator',
+  state: 'RUNNING'
+}
+2026-10-18T00:37:40.980Z [INFO] No Nexus services registered, not polling for Nexus tasks { sdkComponent: 'worker', taskQueue: 'factory-orchestrator' }
+2026-10-18T00:38:40.879Z [INFO] Worker state changed {
+  sdkComponent: 'worker',
+  taskQueue: 'factory-orchestrator',
+  state: 'STOPPING'
+}
+2026-10-18T00:38:40.879Z [INFO] Worker state changed {
+  sdkComponent: 'worker',
+  taskQueue: 'factory-orchestrator',
+  state: 'DRAINING'
+}
+2026-10-18T00:38:40.879Z [INFO] Worker state changed {
+  sdkComponent: 'worker',
+  taskQueue: 'factory-orchestrator',
+  state: 'DRAINED'
+}
+2026-10-18T00:38:40.879Z [INFO] Worker state changed {
+  sdkComponent: 'worker',
+  taskQueue: 'factory-orchestrator',
+  state: 'STOPPED'
+}
+  ✔ continues only from a quiescent state and restores absolute timers (60017.515596ms)
+[2m2026-10-18T00:38:41.011540Z[0m [33m WARN[0m [2mtemporalio_sdk_core::worker[0m[2m:[0m Temporal Server 1.16.0 or newer is required to guarantee that the latest heartbeat details are preserved when an activity fails; the server did not advertise the activity_failure_include_heartbeat capability, so heartbeat details may be lost on failure
+2026-10-18T00:38:41.011Z [INFO] Worker state changed {
+  sdkComponent: 'worker',
+  taskQueue: 'factory-orchestrator',
+  state: 'RUNNING'
+}
+2026-10-18T00:38:41.011Z [INFO] No Nexus services registered, not polling for Nexus tasks { sdkComponent: 'worker', taskQueue: 'factory-orchestrator' }
+2026-10-18T00:38:41.046Z [WARN] Workflow failed {
+  sdkComponent: 'worker',
+  taskQueue: 'factory-orchestrator',
+  namespace: 'default',
+  workflowId: 'tenant/durable-continuation-2485125',
+  runId: 'd5a51d3c-bf17-4907-9ef6-f84375cbba75',
+  workflowType: 'factoryWorkflow',
+  error: ApplicationFailure: continuation durable input does not match workflow input
+      at ApplicationFailure.nonRetryable (/home/dev/work/EZCorp/EZHarness-worktrees/composable-factory-platform/.worktrees/w00-integration/node_modules/.bun/@temporalio+common@1.23.0/node_modules/@temporalio/common/src/failure.ts:253:11)
+      at nonRetryable (/home/dev/work/EZCorp/EZHarness-worktrees/composable-factory-platform/.worktrees/w00-integration/packages/@ezcorp/factory-orchestrator/src/workflow.ts:85:28)
+      at workflowFailure (/home/dev/work/EZCorp/EZHarness-worktrees/composable-factory-platform/.worktrees/w00-integration/packages/@ezcorp/factory-orchestrator/src/workflow.ts:157:10)
+      at assertDurableInputContinuity (/home/dev/work/EZCorp/EZHarness-worktrees/composable-factory-platform/.worktrees/w00-integration/packages/@ezcorp/factory-orchestrator/src/workflow.ts:204:26)
+      at resolveStartState (/home/dev/work/EZCorp/EZHarness-worktrees/composable-factory-platform/.worktrees/w00-integration/packages/@ezcorp/factory-orchestrator/src/workflow.ts:243:14)
+      at Script.runInContext (node:vm:149:12)
+      at Proxy.<anonymous> (/home/dev/work/EZCorp/EZHarness-worktrees/composable-factory-platform/.worktrees/w00-integration/node_modules/.bun/@temporalio+worker@1.23.0+cf39f8fdfb45fa05/node_modules/@temporalio/worker/lib/workflow/reusable-vm.js:216:45)
+      at ReusableVMWorkflow.activate (/home/dev/work/EZCorp/EZHarness-worktrees/composable-factory-platform/.worktrees/w00-integration/node_modules/.bun/@temporalio+worker@1.23.0+cf39f8fdfb45fa05/node_modules/@temporalio/worker/lib/workflow/vm-shared.js:403:37)
+      at handleRequest (/home/dev/work/EZCorp/EZHarness-worktrees/composable-factory-platform/.worktrees/w00-integration/node_modules/.bun/@temporalio+worker@1.23.0+cf39f8fdfb45fa05/node_modules/@temporalio/worker/lib/workflow/workflow-worker-thread.js:73:47)
+      at MessagePort.<anonymous> (/home/dev/work/EZCorp/EZHarness-worktrees/composable-factory-platform/.worktrees/w00-integration/node_modules/.bun/@temporalio+worker@1.23.0+cf39f8fdfb45fa05/node_modules/@temporalio/worker/lib/workflow/workflow-worker-thread.js:145:28) {
+    [cause]: undefined
+  }
+}
+2026-10-18T00:38:41.047Z [INFO] Worker state changed {
+  sdkComponent: 'worker',
+  taskQueue: 'factory-orchestrator',
+  state: 'STOPPING'
+}
+2026-10-18T00:38:41.047Z [INFO] Worker state changed {
+  sdkComponent: 'worker',
+  taskQueue: 'factory-orchestrator',
+  state: 'DRAINING'
+}
+2026-10-18T00:38:41.048Z [INFO] Worker state changed {
+  sdkComponent: 'worker',
+  taskQueue: 'factory-orchestrator',
+  state: 'DRAINED'
+}
+2026-10-18T00:38:41.048Z [INFO] Worker state changed {
+  sdkComponent: 'worker',
+  taskQueue: 'factory-orchestrator',
+  state: 'STOPPED'
+}
+  ✔ rejects a continuation that substitutes its durable descriptor (168.135743ms)
+[2m2026-10-18T00:38:41.160933Z[0m [33m WARN[0m [2mtemporalio_sdk_core::worker[0m[2m:[0m Temporal Server 1.16.0 or newer is required to guarantee that the latest heartbeat details are preserved when an activity fails; the server did not advertise the activity_failure_include_heartbeat capability, so heartbeat details may be lost on failure
+2026-10-18T00:38:41.161Z [INFO] Worker state changed {
+  sdkComponent: 'worker',
+  taskQueue: 'factory-orchestrator',
+  state: 'RUNNING'
+}
+2026-10-18T00:38:41.161Z [INFO] No Nexus services registered, not polling for Nexus tasks { sdkComponent: 'worker', taskQueue: 'factory-orchestrator' }
+2026-10-18T00:38:41.644Z [INFO] Worker state changed {
+  sdkComponent: 'worker',
+  taskQueue: 'factory-orchestrator',
+  state: 'STOPPING'
+}
+2026-10-18T00:38:41.644Z [INFO] Worker state changed {
+  sdkComponent: 'worker',
+  taskQueue: 'factory-orchestrator',
+  state: 'DRAINING'
+}
+2026-10-18T00:38:41.644Z [INFO] Worker state changed {
+  sdkComponent: 'worker',
+  taskQueue: 'factory-orchestrator',
+  state: 'DRAINED'
+}
+2026-10-18T00:38:41.644Z [INFO] Worker state changed {
+  sdkComponent: 'worker',
+  taskQueue: 'factory-orchestrator',
+  state: 'STOPPED'
+}
+  ✔ persists ordered approval inbox positions across repeated continuations and accepts cancellation after them (598.990045ms)
+[2m2026-10-18T00:38:41.765381Z[0m [33m WARN[0m [2mtemporalio_sdk_core::worker[0m[2m:[0m Temporal Server 1.16.0 or newer is required to guarantee that the latest heartbeat details are preserved when an activity fails; the server did not advertise the activity_failure_include_heartbeat capability, so heartbeat details may be lost on failure
+2026-10-18T00:38:41.765Z [INFO] Worker state changed {
+  sdkComponent: 'worker',
+  taskQueue: 'factory-orchestrator',
+  state: 'RUNNING'
+}
+2026-10-18T00:38:41.765Z [INFO] No Nexus services registered, not polling for Nexus tasks { sdkComponent: 'worker', taskQueue: 'factory-orchestrator' }
+2026-10-18T00:38:44.414Z [INFO] Worker state changed {
+  sdkComponent: 'worker',
+  taskQueue: 'factory-orchestrator',
+  state: 'STOPPING'
+}
+2026-10-18T00:38:44.415Z [INFO] Worker state changed {
+  sdkComponent: 'worker',
+  taskQueue: 'factory-orchestrator',
+  state: 'DRAINING'
+}
+2026-10-18T00:38:44.415Z [INFO] Worker state changed {
+  sdkComponent: 'worker',
+  taskQueue: 'factory-orchestrator',
+  state: 'DRAINED'
+}
+2026-10-18T00:38:44.415Z [INFO] Worker state changed {
+  sdkComponent: 'worker',
+  taskQueue: 'factory-orchestrator',
+  state: 'STOPPED'
+}
+  ✔ keeps a 9,999-item nested map bounded across paged transitions and repeated continuations (2768.884958ms)
+[2m2026-10-18T00:38:44.530423Z[0m [33m WARN[0m [2mtemporalio_sdk_core::worker[0m[2m:[0m Temporal Server 1.16.0 or newer is required to guarantee that the latest heartbeat details are preserved when an activity fails; the server did not advertise the activity_failure_include_heartbeat capability, so heartbeat details may be lost on failure
+2026-10-18T00:38:44.530Z [INFO] Worker state changed {
+  sdkComponent: 'worker',
+  taskQueue: 'factory-orchestrator',
+  state: 'RUNNING'
+}
+2026-10-18T00:38:44.530Z [INFO] No Nexus services registered, not polling for Nexus tasks { sdkComponent: 'worker', taskQueue: 'factory-orchestrator' }
+2026-10-18T00:38:45.416Z [INFO] Worker state changed {
+  sdkComponent: 'worker',
+  taskQueue: 'factory-orchestrator',
+  state: 'STOPPING'
+}
+2026-10-18T00:38:45.416Z [INFO] Worker state changed {
+  sdkComponent: 'worker',
+  taskQueue: 'factory-orchestrator',
+  state: 'DRAINING'
+}
+2026-10-18T00:38:45.416Z [INFO] Worker state changed {
+  sdkComponent: 'worker',
+  taskQueue: 'factory-orchestrator',
+  state: 'DRAINED'
+}
+2026-10-18T00:38:45.416Z [INFO] Worker state changed {
+  sdkComponent: 'worker',
+  taskQueue: 'factory-orchestrator',
+  state: 'STOPPED'
+}
+  ✔ persists and restores a completed 9,999-item output through bounded pages (1001.439893ms)
+✔ factory Temporal workflow (93075.394997ms)
+▶ transition paging
+  ✔ splits UTF-8 content into exact bounded pages (1.426571ms)
+  ✔ finalizes immutable pages and commits the compact exact inbox identity (9.175442ms)
+  ✔ rejects a mismatched page receipt, event digest, or inbox ID before audit (4.982509ms)
+  ✔ restores the exact canonical transition from immutable pages (1.392231ms)
+  ✔ rejects altered manifest identity, scope, bounds, event identity, and page descriptors (0.589404ms)
+  ✔ rejects altered page identity, bytes, digest, total size, JSON, canonical form, scope, and event (4.374744ms)
+✔ transition paging (22.700327ms)
+▶ orchestrator boundary validation
+  ✔ accepts bounded workflow identities and deadlines (0.776816ms)
+  ✔ rejects missing, oversized, and invalid workflow fields (0.682386ms)
+  ✔ validates immutable definition and manifest page contracts (0.570464ms)
+  ✔ validates bounded partition sources and their continuation identity (0.278153ms)
+  ✔ validates compiled partitions, command batches, and sequenced inbox envelopes (8.649937ms)
+  ✔ requires stable, recorded inbox events (0.546454ms)
+  ✔ rejects continuation snapshots larger than 64 KiB (0.279772ms)
+✔ orchestrator boundary validation (12.453587ms)
+▶ the build-time factory workflow bundle
+  ✔ loads a bundle whose bytes match the build's digest record (4.194422ms)
+  ✔ refuses a one-byte change by name (1.523452ms)
+  ✔ refuses a bundle whose length differs from the record even when the digest field matches (1.090519ms)
+  ✔ refuses a missing bundle or a missing record (1.049678ms)
+  ✔ refuses a malformed record (2.086316ms)
+2026-10-18T00:37:12.939Z [INFO] asset workflow-bundle-a3734174b49374315187.js 2.67 MiB [emitted] [immutable] (name: main)
+runtime modules 883 bytes 4 modules
+javascript modules 776 KiB
+  modules by path ../../../node_modules/.bun/ 462 KiB 79 modules
+  modules by path ../factory-sdk/dist/*.js 258 KiB 9 modules
+  modules by path ./src/ 57 KiB 8 modules
+  optional modules 30 bytes [optional]
+    __temporal_custom_payload_converter (ignored) 15 bytes [optional] [built] [code generated]
+    __temporal_custom_failure_converter (ignored) 15 bytes [optional] [built] [code generated]
+json modules 233 KiB
+  ../../../node_modules/.bun/@temporalio+workflow@1.23.0/node_modules/@temporalio/...(truncated) 1010 bytes [built] [code generated]
+  ../factory-sdk/dist/factory-definition.schema.json 18.5 KiB [built] [code generated]
+  ../factory-sdk/dist/compiled-factory.schema.json 21.6 KiB [built] [code generated]
+  ../factory-sdk/dist/compiled-execution-manifest.schema.json 3.13 KiB [built] [code generated]
+  ../factory-sdk/dist/compiled-partition-artifact.schema.json 17.4 KiB [built] [code generated]
+  + 15 modules
+webpack 5.111.1 compiled successfully in 430 ms
+2026-10-18T00:37:12.943Z [INFO] Workflow bundle created { size: '2.67MB' }
+2026-10-18T00:37:13.033Z [INFO] Worker state changed {
+  sdkComponent: 'worker',
+  taskQueue: 'fake_replay_queue-0',
+  state: 'RUNNING'
+}
+2026-10-18T00:37:13.099Z [INFO] Worker state changed {
+  sdkComponent: 'worker',
+  taskQueue: 'fake_replay_queue-0',
+  state: 'STOPPING'
+}
+2026-10-18T00:37:13.099Z [INFO] Worker state changed {
+  sdkComponent: 'worker',
+  taskQueue: 'fake_replay_queue-0',
+  state: 'DRAINING'
+}
+2026-10-18T00:37:13.099Z [INFO] Worker state changed {
+  sdkComponent: 'worker',
+  taskQueue: 'fake_replay_queue-0',
+  state: 'DRAINED'
+}
+2026-10-18T00:37:13.099Z [INFO] Worker state changed {
+  sdkComponent: 'worker',
+  taskQueue: 'fake_replay_queue-0',
+  state: 'STOPPED'
+}
+  ✔ is what the image build writes, and the production worker start loads it and replays a committed history (743.106172ms)
+  ✔ keeps the bundler out of every module the orchestrator process loads (1.059729ms)
+✔ the build-time factory workflow bundle (755.743181ms)
+ℹ tests 102
+ℹ suites 11
+ℹ pass 102
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 93481.841657

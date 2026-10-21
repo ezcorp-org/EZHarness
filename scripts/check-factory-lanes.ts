@@ -32,6 +32,7 @@
 import { existsSync, readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { REPO_ROOT } from "./coverage-config.ts";
+import { PRODUCTION_PROOF_BOUND_TESTS } from "./production-proof-plan.ts";
 
 export interface FactoryLane {
   /** Workflow job key, e.g. `factory-temporal`. */
@@ -184,7 +185,13 @@ export const FACTORY_LANES: readonly FactoryLane[] = [
     tests: [],
     // Its precondition is the pinned reference-data guest image, which no registry holds and
     // only a factory-real runner keeps (scripts/combined-runner-legs.json, factory-reference-data).
-    boundTests: ["src/factory/reference-data/journey.integration.test.ts"],
+    // W4H-34: the delivery proof needs Podman, the Dockerfile's Bun image and PostgreSQL; the C11 alert evaluator needs
+    // Podman, the Prometheus image pinned in scripts/test-images.json and PostgreSQL.
+    boundTests: [
+      "src/factory/notification-delivery.integration.test.ts",
+      "src/factory/observability/alert-evaluator.integration.test.ts",
+      "src/factory/reference-data/journey.integration.test.ts",
+    ],
     boundImagePins: ["src/factory/reference-data/image/pinned.json"],
   },
 ];
@@ -201,9 +208,9 @@ export function laneTestFiles(job: string, lanes: readonly FactoryLane[] = FACTO
   return [...lane.tests, ...lane.boundTests];
 }
 
-/** The files the hosted shard selection must never select: every lane's bound tests, sorted. */
-export function laneBoundTestFiles(lanes: readonly FactoryLane[] = FACTORY_LANES): string[] {
-  return [...new Set(lanes.flatMap((lane) => lane.boundTests))].sort();
+/** The hosted subtraction: the factory lanes' bound tests and the production proofs' bound tests (scripts/production-proof-plan.ts). */
+export function laneBoundTestFiles(lanes: readonly FactoryLane[] = FACTORY_LANES, proofBound: readonly string[] = PRODUCTION_PROOF_BOUND_TESTS): string[] {
+  return [...new Set([...lanes.flatMap((lane) => lane.boundTests), ...proofBound])].sort();
 }
 
 /**

@@ -4,7 +4,11 @@ import type { Diagnostic, ResourceLimits, WorkspaceFiles } from "@ezcorp/extensi
 import { canonicalJson, workspaceFileByteLength, workspaceText } from "@ezcorp/extension-contract";
 
 export class RunnerError extends Error {
-  constructor(public readonly code: string, message: string, public readonly stage = "runner", public readonly retryable = false) {
+  constructor(
+    public readonly code: string, message: string, public readonly stage = "runner", public readonly retryable = false,
+    /** For an internal error: the cause's class and code (never its message), e.g. {errorClass: "Error", errorCode: "ENOENT"}. */
+    public readonly detail?: Readonly<{ errorClass: string; errorCode?: string }>,
+  ) {
     super(message);
     this.name = "RunnerError";
   }
@@ -83,6 +87,9 @@ export function identifier(value: string): string {
   if (typeof value !== "string" || !/^[a-zA-Z0-9][a-zA-Z0-9_-]{0,127}$/.test(value)) throw new RunnerError("invalid_id", "Invalid runner identifier");
   return value;
 }
+/** The largest release artifact a store holds (its files' bytes), read and restored under one bound (W4H-32). */
+export const MAXIMUM_ARTIFACT_BYTES = 160 * 1024 ** 2;
+
 export function digest(value: string): string {
   if (typeof value !== "string" || !/^[a-f0-9]{64}$/.test(value)) throw new RunnerError("invalid_digest", "Expected SHA-256 digest");
   return value;

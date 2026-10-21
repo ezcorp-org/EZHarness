@@ -42,6 +42,8 @@ import { FactoryS3PublicationProvenance, FactoryVerifiedAttemptMaterials } from 
 import { FactoryPublicationOutputReader } from "./release-publication-set";
 import { FactoryReleases, type FactoryCommandApprovalCurrentAuthority } from "./releases";
 import { FactoryNotificationDelivery } from "./notification-delivery";
+import { composeFactoryNotificationSender } from "./notification-sender";
+import { FactoryMetricCounters, composeFactoryInstallationMetrics } from "./observability/installation-metrics";
 import { FactoryTrustedValidators, type FactoryTrustedValidatorRuntime } from "./validator-materials";
 import { loadFactoryValidatorRuntimes } from "./validator-declaration";
 import { composeFactoryValidators, factoryTrustedValidatorsFromDeclaration, type FactoryComposedValidators } from "./validator-composition";
@@ -55,6 +57,7 @@ import { FactoryTransitionArtifacts } from "./transition-artifacts";
 import { loadFactoryStartupConfig, type FactoryStartupConfig } from "./startup-config";
 import { factoryInstallationStores, type FactoryInstallationStores } from "./installation-stores";
 import { composeFactoryAttemptDispatch, factoryPackageReadiness, type FactoryHostPhysicalStopper } from "./attempt-composition";
+import { factoryPackagePreparationDriver } from "./package-preparation";
 import { composeFactorySettlement, factoryReleaseOutcomeDriver } from "./dispatch-composition";
 import { FactoryProtectedCommandEffects } from "./protected-command-effects";
 import { FactoryReleaseOutcomeDelivery } from "./release-outcome-delivery";
@@ -859,9 +862,13 @@ async function installationCollaborators(
   const validation = await installationValidatorRoles(config, host, stores, application, release, gateway, signal);
 
   const attempts = await composeAttemptDispatch(config, host, blobs, stores, application, pool, stopper, validation.composed?.settlement);
+  // C05 "Prepare a bound package for dispatch" (W4H-26): only where a supervisor can be reached.
+  const packagePreparation = await composePackagePreparation(config, host, application);
   const settlement = await composeSettlement(config, host, stores, service, pool, stopper);
   const notificationInbox = release === undefined ? undefined
     : factoryNotificationInboxDriver(host.database, new FactoryNotificationDelivery(release.releases), config.tenantId);
+  // C11 N8 (W4H-34): the outbound sender, only where a destination is declared.
+  const notifications = await composeFactoryNotificationSender(config.notifications?.destinations, host.database, config.tenantId, host.report);
   // The caller's resolver wins, so a host that holds a provider this document
   // cannot describe is not overruled by it; otherwise the declared one serves.
   const resolver = releaseProviders ?? release?.destinations?.providers;
@@ -891,7 +898,12 @@ async function installationCollaborators(
   // the process that holds the tenant database. Its own listener, beside the
   // private service rather than inside it: a different peer set (hosts, not
   // the orchestrator) and a different credential (the attempt token).
-  const guestBroker = await composeFactoryGuestBroker({ database: host.database, config, application, blobs, report: host.report });
+  // One set of counters for this process: the guest broker counts, the metrics listener reads (C11 M3, A8).
+  const counters = new FactoryMetricCounters();
+  const guestBroker = await composeFactoryGuestBroker({ database: host.database, config, application, blobs, report: host.report, counters });
+  const metrics = await composeFactoryInstallationMetrics(config.metrics, {
+    database: host.database, tenantId: config.tenantId, interpreterBuild: host.runOptions.interpreterBuild, counters,
+  }, host.report);
   // ── end W01g ─────────────────────────────────────────────────────────
 
   return {
@@ -899,14 +911,17 @@ async function installationCollaborators(
       projections: stores.projections,
       ...(stores.compute === undefined ? {} : { compute: stores.compute }),
       ...(attempts === undefined ? {} : { attempts }),
+      ...(packagePreparation === undefined ? {} : { packagePreparation }),
       ...(notificationInbox === undefined ? {} : { notificationInbox }),
       ...(validation.composed === undefined ? {} : { validators: validation.composed.roles }),
       ...(validation.held === undefined ? {} : { validatorsHeld: validation.held }),
+      ...(notifications.held === undefined ? {} : { notificationSendHeld: notifications.held }),
       recovery,
     },
     seams: {
       childSettlement: factoryChildSettlementDriver(host.database, stores.children, service, host.report),
       ...(releaseOutcome === undefined ? {} : { releaseProviders: releaseOutcome }),
+      ...(notifications.sender === undefined ? {} : { notificationSender: notifications.sender }),
       ...(settlement === undefined ? {} : {
         physicalStopper: settlement.stopSettlement,
         usageReconciler: settlement.usageReconciliation,
@@ -915,6 +930,7 @@ async function installationCollaborators(
     listeners: [
       ...(privateService === undefined ? [] : [privateService]),
       ...(guestBroker.listener === undefined ? [] : [guestBroker.listener]),
+      ...(metrics === undefined ? [] : [metrics]),
     ],
     application: release === undefined ? {} : {
       createReleaseOperations: factoryReleaseOperations(config.tenantId, release, resolver),
@@ -1038,6 +1054,33 @@ async function composeAttemptDispatch(
     });
   } catch (error) {
     host.report("attempt-dispatch-composition", error);
+    return undefined;
+  }
+}
+
+/**
+ * The package-preparation role (C05 "Prepare a bound package for dispatch", W4H-26): it prepares
+ * through the host supervisor's preparation client, over the same mutual-TLS endpoint and identity
+ * as a launch, so a prepared artifact is in the store the launch reads. Without a host launch
+ * endpoint, or when the client cannot be built, the role holds and the cause is reported.
+ */
+async function composePackagePreparation(
+  config: FactoryStartupConfig,
+  host: FactoryInstallationHost,
+  application: Pick<FactoryApplication, "grants">,
+): Promise<FactoryRoleDriver | undefined> {
+  const hostLaunch = config.hostLaunch;
+  if (hostLaunch === undefined) return undefined;
+  try {
+    const { createFactoryHostPreparationClient } = await import("./host-preparation-client");
+    const builder = await createFactoryHostPreparationClient({ tenantId: config.tenantId, baseUrl: hostLaunch.baseUrl, serverName: hostLaunch.serverName,
+      tls: { caPath: hostLaunch.tls.caPath, certificatePath: hostLaunch.tls.certificatePath, privateKeyPath: hostLaunch.tls.privateKeyPath, serviceTokenPath: hostLaunch.tls.serviceTokenPath },
+    });
+    // The release source lives where the v4 lifecycle wrote it, not in the factory's object store.
+    const { getExtensionReleaseBlobs } = await import("../extensions/extension-lifecycle-service");
+    return factoryPackagePreparationDriver(factoryPackageReadiness(host.database, config.tenantId, application.grants, await getExtensionReleaseBlobs(), builder), host.report);
+  } catch (error) {
+    host.report("package-preparation-composition", error);
     return undefined;
   }
 }

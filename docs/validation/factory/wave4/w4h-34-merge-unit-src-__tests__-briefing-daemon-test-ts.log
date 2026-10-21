@@ -1,0 +1,33 @@
+bun test v1.4.2 (744846f84)
+{"ts":"2026-10-17T23:28:47.900Z","level":"info","msg":"briefing fire completed","subsystem":"briefing.daemon","userId":"64509a69-7de9-4742-8e1a-c7259274d9c7","status":"ok","catchUp":false}
+{"ts":"2026-10-17T23:28:47.946Z","level":"warn","msg":"dispatch escaped its error fold","subsystem":"briefing.daemon","userId":"c60761a5-c6c7-4d3f-9e80-bce193850a3d","error":"Error: escaped fold"}
+{"ts":"2026-10-17T23:28:47.965Z","level":"info","msg":"briefing fire completed","subsystem":"briefing.daemon","userId":"155857fd-496e-43c5-a92b-c62f7cb6fab7","status":"ok","catchUp":true}
+{"ts":"2026-10-17T23:28:47.977Z","level":"info","msg":"briefing fire completed","subsystem":"briefing.daemon","userId":"16879ac7-0ecd-4d0d-8051-d43bc28cb001","status":"ok","catchUp":true}
+{"ts":"2026-10-17T23:28:47.992Z","level":"info","msg":"briefing fire completed","subsystem":"briefing.daemon","userId":"b5f4a1fe-bd25-4e32-8797-b6f492d7ad3f","status":"ok","catchUp":true}
+{"ts":"2026-10-17T23:28:47.992Z","level":"info","msg":"briefing fire completed","subsystem":"briefing.daemon","userId":"4e3cfdce-2bec-4088-8d2a-bd52d411eec4","status":"ok","catchUp":true}
+{"ts":"2026-10-17T23:28:47.992Z","level":"info","msg":"briefing fire completed","subsystem":"briefing.daemon","userId":"0230d646-9638-4069-9be0-e66760b31d13","status":"ok","catchUp":true}
+{"ts":"2026-10-17T23:28:47.997Z","level":"info","msg":"briefing fire completed","subsystem":"briefing.daemon","userId":"44e43dda-705d-4b0f-9e6d-2aeb2dcd6169","status":"ok","catchUp":true}
+{"ts":"2026-10-17T23:28:47.997Z","level":"info","msg":"briefing fire completed","subsystem":"briefing.daemon","userId":"27c998c4-187a-40b4-a3ed-18fc03134434","status":"ok","catchUp":true}
+{"ts":"2026-10-17T23:28:48.005Z","level":"info","msg":"briefing fire completed","subsystem":"briefing.daemon","userId":"ac4b93a5-0f5d-4973-b56f-bc928cbc8c15","status":"error","catchUp":true,"error":"no creds"}
+{"ts":"2026-10-17T23:28:48.015Z","level":"info","msg":"briefing fire completed","subsystem":"briefing.daemon","userId":"14e37f4e-514b-4993-aaab-2d2199ef03a8","status":"error","catchUp":true,"error":"pipeline exploded"}
+{"ts":"2026-10-17T23:28:48.023Z","level":"info","msg":"briefing fire completed","subsystem":"briefing.daemon","userId":"fd751527-8cab-4bc2-b9e9-b187e42e6cda","status":"skipped","catchUp":true}
+{"ts":"2026-10-17T23:28:48.031Z","level":"info","msg":"briefing fire completed","subsystem":"briefing.daemon","userId":"74d6a21b-c6f0-4626-b4a0-004fca7ca3b2","status":"error","catchUp":true,"error":"still broken"}
+{"ts":"2026-10-17T23:28:48.032Z","level":"warn","msg":"briefing auto-disabled after consecutive errors","subsystem":"briefing.daemon","userId":"74d6a21b-c6f0-4626-b4a0-004fca7ca3b2","consecutiveErrors":5}
+{"ts":"2026-10-17T23:28:48.039Z","level":"info","msg":"briefing fire completed","subsystem":"briefing.daemon","userId":"560583f8-1e41-4d3b-91db-9ec082081435","status":"error","catchUp":true,"error":"boom"}
+{"ts":"2026-10-17T23:28:48.040Z","level":"warn","msg":"briefing auto-disabled after consecutive errors","subsystem":"briefing.daemon","userId":"560583f8-1e41-4d3b-91db-9ec082081435","consecutiveErrors":5}
+{"ts":"2026-10-17T23:28:48.042Z","level":"warn","msg":"auto-disable notification skipped — no resolvable project","subsystem":"briefing.run","userId":"560583f8-1e41-4d3b-91db-9ec082081435"}
+{"ts":"2026-10-17T23:28:48.049Z","level":"info","msg":"briefing fire completed","subsystem":"briefing.daemon","userId":"eae54b9e-f9b8-48c1-94ed-c3eb0f1d584a","status":"error","catchUp":true}
+{"ts":"2026-10-17T23:28:48.049Z","level":"warn","msg":"briefing auto-disabled after consecutive errors","subsystem":"briefing.daemon","userId":"eae54b9e-f9b8-48c1-94ed-c3eb0f1d584a","consecutiveErrors":5}
+{"ts":"2026-10-17T23:28:48.049Z","level":"warn","msg":"auto-disable notification failed","subsystem":"briefing.daemon","userId":"eae54b9e-f9b8-48c1-94ed-c3eb0f1d584a","error":"Error: notify failed"}
+{"ts":"2026-10-17T23:28:48.083Z","level":"info","msg":"briefing fire completed","subsystem":"briefing.daemon","userId":"2a6c980d-6ec3-43de-ab4f-0a338af09ac4","status":"error","catchUp":true,"error":"briefing dispatch exceeded guard timeout (20ms)"}
+{"ts":"2026-10-17T23:28:48.093Z","level":"info","msg":"briefing fire completed","subsystem":"briefing.daemon","userId":"0dbdb140-0ef3-41cc-b78b-aaecc197932d","status":"ok","catchUp":true}
+{"ts":"2026-10-17T23:28:48.108Z","level":"info","msg":"briefing skipped — no resolvable project","subsystem":"briefing.run","userId":"7356ed6a-6e08-4347-ac9d-a5d97c6c3ec0"}
+{"ts":"2026-10-17T23:28:48.108Z","level":"info","msg":"briefing fire completed","subsystem":"briefing.daemon","userId":"7356ed6a-6e08-4347-ac9d-a5d97c6c3ec0","status":"skipped","catchUp":true}
+{"ts":"2026-10-17T23:28:48.116Z","level":"info","msg":"briefing fire completed","subsystem":"briefing.daemon","userId":"f5a7d841-921d-49df-8b41-b4749422a292","status":"ok","catchUp":true}
+{"ts":"2026-10-17T23:28:48.123Z","level":"info","msg":"briefing fire completed","subsystem":"briefing.daemon","userId":"8d06418a-8e78-49f6-9574-d46f3d08b455","status":"ok","catchUp":true}
+{"ts":"2026-10-17T23:28:48.151Z","level":"info","msg":"briefing fire completed","subsystem":"briefing.daemon","userId":"aa2d2ed2-04b2-4d3f-a568-e777651ba520","status":"ok","catchUp":true}
+
+ 18 pass
+ 0 fail
+ 58 expect() calls
+Ran 18 tests across 1 file. [1364.00ms]

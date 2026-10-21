@@ -1,0 +1,64 @@
+W4H-26 REPORT — the started application can run a reference-code task (FROZEN)
+
+Branch wp/w4h-26-runner-wiring from origin/main 1981febd2. FROZEN head d2d78d98e03bc05e25112997017d179130724547
+(code head 610ca637d; d2d78d98e adds only tasks/factory/w4h-26-GATES.md 9c1afced69afa5af and tasks/todo.md lines).
+Worktree /home/dev/work/EZCorp/EZHarness/.worktrees/w4h-26 (archy via --worktree). No model call. Rulings 1-4 applied.
+
+Commits (oldest first): d9417ae3a D1 | 34d592140 D2 | 66fc1acf7 C05 rows | 2e38e3aef D3 | 737ad9151 D4 | f574b6c49 D5 |
+ea95d7fe6 fix | 6ba267aea D6 | 76a316014 test | 09ad08435 coverage keys | f168d7475 fix | a32e94aa0 fix | b9ce7a932 fix |
+f9d37aaec test | 146293d0f typecheck | 0beb0c613 fix (port) | 621e919eb refactor | 2d6fd50ce refactor | 610ca637d fix (guard) |
+d2d78d98e gate file. 45 files, +1716 -227 vs origin/main at 610ca637d.
+
+RESULT
+- R1: refusal reproduced over public HTTP on the composed application: startup-config.ts:500/:801 refuse the reference-code
+  profiles; POST /packages 404 factory_package_release_unavailable (package-preparation.ts:219); run fails
+  factory_native_package_untrusted (native-runner-policy.ts:141).
+- Midpoint: bound package prepared through the supervisor, artifact c50a97ad… = binding's.
+- D7 at the final head: snapshot-repository admitted, prepared, dispatched, executed in docker.io/oven/bun@sha256:9114c058…
+  on the shipped fixture repository; sealed snapshot sha256:e020cd24… = recomputed from the fixture; port output = recomputed;
+  the run then stops at generate-private-candidate factory_native_package_untrusted (the later package).
+- Five product defects exposed by the composed runs, each fixed with a test (gate file, "Fix").
+
+GATES (tasks/factory/w4h-26-GATES.md): G1-G6 done; G7 (Compose-level proof) follows W4H-27.
+- red-first 15 of 15 files red on 1981febd2; D6 mutants 4 of 4 killed;
+- patch PASS (23 files), new-file PASS (5), CRAP none over 30; guard 42 files 522/0; typecheck 0 (after build:packages);
+  lint 0; gate-integrity both legs 0 findings; boundaries, factory boundaries, lanes, prune clean.
+
+EVIDENCE (sha256, first 16)
+f2abbe3d74a240a6 r1/repro.ts
+3a3fec3a4ec3cd75 r1/run.sh
+64d6da54c0578bd9 r1/pass1/r1-repro.json
+7b099153ba289ee4 r1/pass2c/r1-stock.json
+45b73c5c92a399b7 d2/build.json
+cc6709d5a57ecd45 proof/proof.ts
+f7b9ad4ba56024c3 proof/run.sh
+942bf5f59e114314 proof/midpoint-6.json
+4803a114cd3532de proof/run-2-kept/run-2.json
+698c29aa00328084 proof/final.json
+70d492dd86205555 red/red.sh
+9bffb1edb4059def red/red-on-base.txt
+f8af578c87dd487a mutants/mutants.py
+6e79b4537f91d083 mutants/d6-mutants.txt
+b2ed0ec625a556ae legs/focused.sh
+dbf312ae9b795d7a legs/final-focused-2.out
+0f9c74bdcd971815 legs/focused/patch.log
+4d927e734b3d8e90 legs/focused/new-file.log
+e5374f1a1185c23e legs/focused/crap.log
+c1376dea87e585d8 legs/guard.sh
+8bb7894d61064a35 legs/final-guard.out
+254c5f01c1684270 legs/final-typecheck-2.out
+124c97f648bd99bb legs/final-lint.log
+b1a0297506aab4a1 legs/final-gi-default.log
+b1a0297506aab4a1 legs/final-gi-main.log
+49b6008edafce692 legs/prune-scan.log
+74c6520acfe7e34d legs/check-boundaries.log
+a701e3a2106adf5e legs/factory-boundaries.log
+f9253f229d802c1d legs/lanes.log
+fa4cac49438d3cb2 journey.md
+b36e22cb8d16783b pending-lesson.md
+
+LEFTOVERS / DISCLOSURES: in the gate file. Key: the later package (guest model adapter, repository-read broker operation,
+toolchain claims lane); generateCandidate's placeholder configurationDigest cannot be pinned; the fleet cpu allocation rises to
+50,000 tokens for the w09b guest too; the Compose installation has no app extension runner (W4H-27); host answers <= 4 MiB;
+the Podman-guest guard heuristic (HostRunner binding). G8d stays blocked (catalog_driver_not_implemented).
+Base worktree .worktrees/w4h-26-base (1981febd2, clean) is kept for red-first re-runs; remove after validation.

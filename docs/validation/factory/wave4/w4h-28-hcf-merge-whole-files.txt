@@ -1,0 +1,3 @@
+src/__tests__/coverage-gate.test.ts
+src/__tests__/gate-scripts.test.ts
+src/__tests__/merge-lcov-shard-vote.test.ts

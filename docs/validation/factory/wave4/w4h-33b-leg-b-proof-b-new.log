@@ -1,0 +1,11 @@
+lane-forms: base env without CI,COVERAGE_LEGS_ONLY,CRITICAL_ONLY,EZCORP_RUN_PODMAN_TESTS,FACTORY_ONLY,RESIDUAL_ONLY
+== cov-shard (cov-shard, env -): bun test --timeout 30000 --coverage --coverage-reporter=lcov --coverage-dir=/tmp/factory-platform-evidence/w00/legs-b-proof/run1/cov-b-new/cov-shard-web-src-tests-price-chart-stream-bridge-test-ts ./web/src/__tests__/price-chart-stream-bridge.test.ts  [cwd .]
+bun test v1.4.2 (744846f84)
+
+ 6 pass
+ 0 fail
+ 30 expect() calls
+Ran 6 tests across 1 file. [13.59s]
+
+PASS cov-shard web/src/__tests__/price-chart-stream-bridge.test.ts: 6 pass
+lane-forms: 1 changed test file(s), 1 lane run(s), 0 red

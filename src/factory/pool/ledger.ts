@@ -1,18 +1,9 @@
 import { randomUUID } from "node:crypto";
 
-/** The only resource profiles admitted by the C03 pool ledger. */
-export const POOL_RESOURCE_CLASSES = ["cpu", "memory", "provider", "gpu-host"] as const;
-export type PoolResourceClass = typeof POOL_RESOURCE_CLASSES[number];
+import { POOL_LEASE_STATES, POOL_RESOURCE_CLASSES, type PoolLeaseState, type PoolResourceClass } from "./pool-states";
+
+export { POOL_LEASE_STATES, POOL_RESOURCE_CLASSES, type PoolLeaseState, type PoolResourceClass } from "./pool-states";
 export type PoolResourceVector = Readonly<Partial<Record<PoolResourceClass, number>>>;
-/**
- * Durable reservation states. C03's table names the first state `requested` and
- * lists no rejection state; this ledger keeps the durable names `queued` and
- * `rejected`, which the `factory_pool_requests` CHECK constraint below is built
- * from. `docs/factory-pool-admission.md` records the exact mapping and why the
- * names differ; POOL_STATE_CONTRACT_MAPPING is its executable copy.
- */
-export const POOL_LEASE_STATES = ["queued", "held", "running", "revoking", "uncertain", "settled", "rejected"] as const;
-export type PoolLeaseState = typeof POOL_LEASE_STATES[number];
 
 /** The six reservation states named by the C03 contract table, in contract order. */
 export const C03_RESERVATION_STATES = ["requested", "held", "running", "revoking", "uncertain", "settled"] as const;

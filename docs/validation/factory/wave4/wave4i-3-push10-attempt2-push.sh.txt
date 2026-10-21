@@ -1,0 +1,22 @@
+#!/usr/bin/env bash
+# integrator-5: push-checklist step 4, attempt 2 of the follow-up PR 341 (the coordinator's conditional word 2026-10-14, after validator-8's
+# W4H-29 ACCEPT): fast-forward feat/factory-platform-followup-3 from 486e6a558 to integ/w00 d2add3048 (the W4H-29 merge and its receipts)
+# and push it ONCE from the integ worktree through tc_run lock-free (pre-push hook = typecheck + svelte-check). No force, no -u, no retry.
+set -u
+I=/home/dev/work/EZCorp/EZHarness-worktrees/composable-factory-platform/.worktrees/w00-integration; P=/tmp/factory-platform-evidence/w00/wave4i-3/push10/attempt2
+B=feat/factory-platform-followup-3; H=d2add3048f12369a5242052fdee54ce1c7ad1c37; OLD=486e6a558b38e295ed5f349764e6f3467b90d5af
+unset GIT_DIR GIT_INDEX_FILE GIT_WORK_TREE
+cd "$I" || exit 2
+. /tmp/factory-platform-evidence/w00/bun-pin.sh; bun_pin "$I" || exit 95
+[ "$(git rev-parse HEAD)" = $H ] && [ "$(git rev-parse integ/w00)" = $H ] && [ -z "$(git status --porcelain)" ] && [ "$(git branch --show-current)" = integ/w00 ] || { echo "REFUSED: integ worktree not clean at $H on integ/w00"; exit 3; }
+python3 /tmp/factory-platform-evidence/w00/config-check.py --check-only || { echo "STOP: config"; exit 1; }
+[ "$(git ls-remote origin refs/heads/$B | cut -c1-40)" = $OLD ] || { echo "REFUSED: remote $B is not $OLD"; exit 4; }
+git merge-base --is-ancestor $OLD $H || { echo "REFUSED: not a fast-forward"; exit 4; }
+git update-ref refs/heads/$B $H $OLD || exit 5; echo "moved local $B to $(git rev-parse $B) (from $OLD)"
+. /tmp/factory-platform-evidence/w00/tc-gate.sh
+echo "try 1 $(date -u +%FT%TZ)"
+TC_IN_LOCK=0 tc_run push $P/tc-gate.log git push origin "refs/heads/$B:refs/heads/$B"; rc=$?
+echo "push exit=$rc $(date -u +%FT%TZ)"
+echo "local $B $(git rev-parse $B) remote $(git ls-remote origin refs/heads/$B | cut -c1-40)"
+python3 /tmp/factory-platform-evidence/w00/config-check.py --check-only
+exit $rc

@@ -82,13 +82,13 @@ describe("POST /api/auth/invite", () => {
   });
 
   test("rejects 401 when locals.user is missing", async () => {
-    const res = await POST(makeEvent({ body: { email: "x@y.com" } }));
+    const res = await POST(makeEvent({ body: { email: "x@y.example" } }));
     expect(res.status).toBe(401);
   });
 
   test("rejects 403 when user is not admin", async () => {
     const res = await POST(
-      makeEvent({ locals: memberUser, body: { email: "x@y.com" } }),
+      makeEvent({ locals: memberUser, body: { email: "x@y.example" } }),
     );
     expect(res.status).toBe(403);
   });
@@ -111,7 +111,7 @@ describe("POST /api/auth/invite", () => {
     const res = await POST(
       makeEvent({
         locals: adminUser,
-        body: { email: "x@y.com", role: "god-mode" },
+        body: { email: "x@y.example", role: "god-mode" },
       }),
     );
     expect(res.status).toBe(400);
@@ -121,14 +121,14 @@ describe("POST /api/auth/invite", () => {
     vi.mocked(createInvite).mockResolvedValue({
       id: "inv-1",
       token: "tok",
-      email: "x@y.com",
+      email: "x@y.example",
       role: "member",
       expiresAt: new Date("2099-01-01"),
     } as any);
     const res = await POST(
       makeEvent({
         locals: adminUser,
-        body: { email: "x@y.com", role: "member" },
+        body: { email: "x@y.example", role: "member" },
       }),
     );
     expect(res.status).toBe(201);
@@ -136,7 +136,7 @@ describe("POST /api/auth/invite", () => {
       invite?: { id?: string; email?: string; role?: string };
     };
     expect(body.invite?.id).toBe("inv-1");
-    expect(body.invite?.email).toBe("x@y.com");
+    expect(body.invite?.email).toBe("x@y.example");
     expect(body.invite?.role).toBe("member");
     expect(insertAuditEntry).toHaveBeenCalled();
   });
@@ -187,14 +187,14 @@ describe("invite query failures", () => {
     const denial = new Response(null, { status: 503 });
     vi.mocked(listInvites).mockRejectedValueOnce(denial);
     vi.mocked(createInvite).mockRejectedValueOnce(denial);
-    expect(await handler(makeEvent({ locals: adminUser, body: { email: "x@y.com" } }))).toBe(denial);
+    expect(await handler(makeEvent({ locals: adminUser, body: { email: "x@example.test" } }))).toBe(denial);
     vi.mocked(listInvites).mockReset(); vi.mocked(createInvite).mockReset();
   });
   test.each([GET, POST])("propagates a query error", async handler => {
     const failure = new Error("database unavailable");
     vi.mocked(listInvites).mockRejectedValueOnce(failure);
     vi.mocked(createInvite).mockRejectedValueOnce(failure);
-    await expect(handler(makeEvent({ locals: adminUser, body: { email: "x@y.com" } }))).rejects.toThrow("database unavailable");
+    await expect(handler(makeEvent({ locals: adminUser, body: { email: "x@example.test" } }))).rejects.toThrow("database unavailable");
     vi.mocked(listInvites).mockReset(); vi.mocked(createInvite).mockReset();
   });
 });

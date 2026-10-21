@@ -45,7 +45,7 @@ describe("quickstart queries", () => {
     //
     // The keyless Kilo tier answers anonymously, but does not complete the
     // separate "Set up a provider" checklist step.
-    const u = await createUser({ email: "fresh@q.com", passwordHash: "h", name: "Fresh" });
+    const u = await createUser({ email: "fresh@q.example", passwordHash: "h", name: "Fresh" });
     const steps = await getQuickstartSteps(u.id);
     expect(steps.provider).toBe(false);
     expect(steps.usableProvider).toBe(true);
@@ -54,7 +54,7 @@ describe("quickstart queries", () => {
   });
 
   test("quickstart keeps configured and usable provider answers separate", async () => {
-    const u = await createUser({ email: "dry@q.com", passwordHash: "h", name: "Dry" });
+    const u = await createUser({ email: "dry@q.example", passwordHash: "h", name: "Dry" });
 
     expect(await hasAnyProvider()).toBe(false);
     expect(await getProviderReadiness()).toEqual({ configured: false, usable: true });

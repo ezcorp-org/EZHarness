@@ -1,0 +1,8 @@
+Patch coverage gate FAILED (5 file(s) with uncovered changes):
+  web/src/lib/components/ChatThread.svelte: 1 changed line(s) uncovered: 2611
+  web/src/lib/components/FeatureIndex.svelte: 2 changed line(s) uncovered: 253,268
+  web/src/lib/components/SubConvoInput.svelte: 1 changed line(s) uncovered: 23
+  web/src/lib/components/tool-cards/AskUserQuestionCard.svelte: 1 changed line(s) uncovered: 112
+  web/src/lib/server/security/internal-auth.ts: 1 changed line(s) uncovered: 146
+
+Add tests covering the changed lines above, then re-run the coverage pipeline.

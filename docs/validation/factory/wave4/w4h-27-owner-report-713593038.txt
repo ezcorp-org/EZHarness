@@ -1,0 +1,79 @@
+W4H-27 report: the Compose installation comes up.
+
+VERDICT: DONE. The installation came up through step 7 on this box from the image built at the code head, with the
+isolation unchanged (read-only root, noexec /tmp, keep-id user, no capabilities). FROZEN.
+
+Branch wp/w4h-27-compose-comes-up on origin/main 1981febd2, worktree .worktrees/w4h-27 (archy via --worktree config).
+  3cb38ca05 fix(factory): the Compose installation comes up (W4H-27)
+  d61d38b00 test(factory): resolve may answer synchronously; await it as a promise
+  393ae4a87 refactor(factory): the Compose target starts an installation and waits ready in one call
+  1881d1a20 fix(factory): the image runs the workflow-bundle entry directly, after build:packages
+  73cb59582 fix(factory): the local release profile names the five adapter fields the startup document admits
+  581cac388 test(factory): read the reference S3 adapter through the release-node type        <- code head
+  713593038 docs(factory): W4H-27 gate file and todo lines                                      <- branch head
+Every commit ran the pre-commit hook green (hook-mapped suites, including the real-PostgreSQL provisioning suite).
+Proof image: localhost/ezcorp-factory:581cac388a957e021327ae5726b1c3cf17f00c26
+  digest sha256:99a0492076c883bb404cfac3f50a85e65817e86d6f6883cc6241bc7478ab68fc (image-581cac388*.txt).
+  Correction to the midpoint message: sha256:53001beb was the 1881d1a20 image; the proof ran on 99a04920.
+Gate file: tasks/factory/w4h-27-GATES.md (G1 to G10). Lessons: pending-lesson.md (7eda851f10717bb6 before the last
+append; see the file). Journey: journey.md.
+
+R1 (accepted)
+  Reproduced from the kept image 1981febd2 (sha256:430e6c30), own fleet w4h27, port base 43000: tenant-02 failed at
+  step 5 deployment_not_ready; orchestrator 234 restarts, "Failed to load native binding"; the CLI exited 0.
+  Shipped flags are keep-id uid 1001, HOME=/tmp: "native addon user cache /tmp/.cache is mounted noexec".
+  logs/r1-provision.json 464688c04b7810a4, logs/r1-swc-shipped-flags.log 19df1719560fcfc7.
+  W16 G7: its image had @swc/core 1.16.2 (plain addon); 1.16.13 (carrier) arrived by merge 7247f7e9a on 2026-10-05.
+
+R2 (red-first; logs in red-first/)
+  D1 build-time workflow bundle, digest-checked at every worker start (factory_workflow_bundle_digest_mismatch).
+  D2 a failed tenant exits 1, naming tenant, step, code, reason.
+  D3 the startup release block: installation-s3 always (prefix ordinary/releases), GitHub when declared, token by path;
+     the local fleet declares one default S3 profile.
+  D5 `stop` and `up`, idempotent.
+  Fidelity: scripts/check-factory-image-shipped-config.ts (flags from installation.yml, HOME from the deployer) and the
+     ci.yml job factory-image-shipped-isolation with its registration test.
+  Guard on 1981febd2's image: FAIL "Failed to load native binding" (red-first/guard-on-1981febd2.log de999029b823bc22).
+  Guard on the proof image: PASS "REPLAY OK: build-time bundle" (logs/r3/guard.out 806f040e7014b142).
+  A mutant that drops read_only in the guard alone turns 3 guard tests red.
+
+R3 (logs/r3/)
+  Step 7: tenant-03 invitation_issued, all seven steps complete (provision.out 7011bf1923b71f4c).
+  Isolation unchanged: user 1001:100, read-only root, /tmp noexec, no-new-privileges, caps dropped, HOME /tmp
+     (orchestrator, gateway) and /var/lib/ezcorp/home (harness); exec from /tmp refused (isolation.txt 708518e8ada37bbf).
+  Hold: one orchestrator start time across 10 one-minute samples, restart count unchanged; 0 restarts measured from
+     readiness (hold-10.txt 39f760a1b323bbeb). Boot bursts before readiness (4 at first start, 3 at `up`, about 5 s
+     each, ECONNRESET on the harness private service 43031): left as designed by ruling; leftover recorded.
+  Release: in the started harness, the release reader resolves tenant-03's S3 account to
+     S3FactoryManifestReleaseProvider and refuses a foreign account and an undeclared repository
+     (release-resolve.out ed54cb51dfb67fb9).
+  stop: all 10 containers exited, run twice, exit 0. up: all 10 running and healthy, run twice, exit 0.
+  Forced failure: tenant-11 exit 1, stderr names step storage, code storage_identity_unavailable
+     (forced-failure-step.err fcca97c92286bdce); tenant-01 (torn down) exit 1 provisioning_torn_down.
+  G7: ruled option (c). The new G7 pass is this R3 proof plus the guard. The old harness cannot run: its
+     ./temporal-http-checks.ts import exists nowhere, it hard-codes tenant-01/02/10, and w4h25 still claims tenant-01.
+  End state: fleet w4h27 stopped with `stop` (10 containers exited, volumes kept). tenant-03 is stopped, not torn down.
+
+LEGS
+  typecheck via tc-gate 0; lint 0 with 0 warnings; boundaries 0; deployment locks 0 (13 references pinned);
+  gate-integrity main 0; guard set 530/0 (43 files); orchestrator Node suite 101/0; provisioning PostgreSQL 63/0;
+  changed executable lines 246/246 covered (logs/changed-lines.txt fde567bdd3cd77b0); CRAP --changed 0 above 30;
+  actionlint 0 new (12 = base 12); shellcheck only SC1091 info, as base.
+
+LEFTOVERS
+  1. The orchestrator should wait with bounded back-off for the harness private service at boot instead of exiting.
+  2. Restore the self-hosted proof harness into the repository with its helpers and a tenant offset.
+  3. An independent archive release domain with its own identity (W15); today's S3 release shares the ordinary identity.
+  4. The CI guard covers the orchestrator path; the harness's boot under shipped isolation is proved by R3 only.
+  5. GitHub App token minting (W07) is not here.
+
+RESIDUE ON SHARED SERVICES (shared PostgreSQL as admin URL only; nothing shared restarted or recreated)
+  My fleet's control database, product databases, and store claim roles for w4h27:tenant-02, tenant-03, tenant-11 and
+  tenant-27 stay until a purge with an administrator approval. Buckets tenant-02 and tenant-03 exist on the shared
+  seeded stores (as W4H-25's tenant-01 does).
+
+DISCLOSED
+  One lock-free root tsc ran outside tc-gate at about 23:24Z while w4h-26 held the heavy lock (accepted by team-lead).
+  Secret scan of this folder: no token, key, or password value (hits: a variable template in env.sh, "task-completion").
+
+FROZEN.

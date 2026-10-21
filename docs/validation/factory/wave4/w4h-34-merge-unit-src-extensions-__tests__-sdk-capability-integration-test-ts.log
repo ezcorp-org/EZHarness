@@ -1,0 +1,7 @@
+bun test v1.4.2 (744846f84)
+{"ts":"2026-10-17T23:45:37.073Z","level":"warn","msg":"schedule fire not dispatched — no live subprocess to deliver to; fire dropped (NOT completed ok)","subsystem":"ext.schedule-daemon","extensionId":"b94c4539-9b07-4ba0-8f1e-2fb1975b7e4f","cron":"*/5 * * * *","fireId":"d45bd2e8-a539-425a-8bd7-98abe9f066a9","reason":"no-registry"}
+
+ 1 pass
+ 0 fail
+ 26 expect() calls
+Ran 1 test across 1 file. [1068.00ms]

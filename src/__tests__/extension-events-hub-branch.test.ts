@@ -226,7 +226,7 @@ function makeEvent(body: unknown, name = EXT_NAME, event = EVENT) {
       headers: { "Content-Type": "application/json", "Idempotency-Key": crypto.randomUUID() },
       body: JSON.stringify(body),
     }),
-    locals: { user: { id: "user-1", email: "u@x.com", name: "U", role: "member" } },
+    locals: { user: { id: "user-1", email: "u@x.example", name: "U", role: "member" } },
     params: { name, event },
   } as never;
 }

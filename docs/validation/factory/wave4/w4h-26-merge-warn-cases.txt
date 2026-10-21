@@ -1,0 +1,57 @@
+a task that settled no operation completes at cursor next-1 with no rows, zero usage, its output and its checkpoint
+a task's output may stage its materials through the same client first, under the same operation
+the local fleet declares reference.code.v1's guest task runners with a slugify-sized budget, and the startup parser admits them (W4H-26)
+the uninvoked runner loader is exempt by name; without the exemption its suite's step is red (W4H-26)
+an exemption hides only its one text in its one file: a real subclass beside it, or elsewhere, still counts
+stage once in their own namespace, owned by the administrator, disabled, never approved
+changed bytes stage a second workspace and build; nothing is approved or activated
+wait for an active administrator, and skip an uninstalled package
+an installation whose owner is no longer active is left for a person, and nothing is built
+a queued build runs in the isolated builder, and a failure there is logged rather than thrown
+one package's failure is reported and does not stop the next
+a build defaults to the extension.ts entry and answers its artifact, image, manifest and evidence
+a failed build is refused with the runner's own diagnostics, or its state when it gave none
+the harness release record is derived from the real build and the stored source
+the generated entry serves each named export as a tool with only the broker capability
+the default staging failure names the file and the specifier
+the host builds the bound source in its own store and the product keeps the artifacts that digest to the build
+a source that is not the digest it names is refused by the host, and nothing is built
+artifacts that do not digest to the artifact the host names are refused, and nothing is kept
+a failed build is answered as it is and keeps nothing; an answer that is not a build is refused
+the product waits longer than the host's own build bound
+a factory-enabled boot stages both reference-code runner packages, which together declare every implementation (W4H-26)
+with factories off nothing is staged
+a staging failure is never thrown, and is visible in readiness by a stable code and a fixed reason, never its raw text (W4H-26 N5)
+every staging error maps to one fixed reason
+every REFERENCE_CODE_IMPLEMENTATIONS export is a tool of exactly the package the definition names
+each package's manifest name and version are the ones reference.code.v1's runner references bind to
+stages each package from committed source: an entry that declares its tools, and every import resolved inside
+the recorded tree reads back exactly the product snapshot a host reader would take
+a recorded tree answers only the commit it records
+a recorded tree whose bytes are not the tree it names is refused, since the guest recomputes the tree id
+a connection that is not a recorded tree (a live GitHub connection) is refused by name
+the tool completes with the snapshot as its staged output and no operation rows
+an input that is not an inline object of bound ports is refused by name
+each refuses by name, naming the capability the later package adds
+builds the exact source the binding names, for the peer's own tenant, and answers the build with its artifacts
+refuses a source whose bytes are not the digest it names, before anything is built
+refuses another tenant's preparation, a malformed body, and a host that cannot prepare
+a build past the host's bound answers host_timeout
+builds under the host's own build limits and answers the build with the artifacts its store holds
+a repeated build identity joins or reads the first build, and other source under it is refused
+after a restart, a repeated build identity reads the first build's record: never a second build, never duplicate_operation
+after a restart, other source under a reused identity is refused even as the FIRST request, and does not poison it (T1)
+only a SUCCEEDED preparation is recorded: a failed build stays in memory and is rebuilt after a restart (N6)
+two concurrent first requests with durable records build once (N7)
+keeps at most FACTORY_HOST_PREPARATION_RETENTION outcomes, oldest first out
+a failed build is answered as it is, with no artifacts
+the host's runner is constructed with the pinned toolchain, provisioned once per load (W4H-26)
+package preparation runs before dispatch when a driver exists, and holds by name without a host launch endpoint (W4H-26)
+refuses a resource class declared twice with different allocations, because the map would depend on order
+refuses a runner declared twice, as the runner policy refuses it at composition
+accepts a resource class shared by runners whose allocations are equal, since the map is then the same in any order
+accepts reference.code.v1's unpinned task runners, which carry a configuration digest and no model (W4H-26)
+refuses an unpinned runner whose configuration digest is not a sha256
+the release store a factory preparation reads is the one the lifecycle writes (W4H-26)
+a named diagnostic appears in the readiness detail and survives the next readiness write (W4H-26)
+without a diagnostic the readiness is exactly what was set, and clearing one removes it

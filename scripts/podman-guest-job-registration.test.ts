@@ -35,8 +35,31 @@ function resolveImport(from: string, specifier: string, read: Read): string | un
   return [base, `${base}.ts`, join(base, "index.ts")].find((candidate) => candidate.endsWith(".ts") && read(candidate) !== undefined);
 }
 
+/** One named source the guard does not count, with why; it exempts exactly one occurrence of `text` in `file`. */
+export interface GuestExemption { readonly file: string; readonly text: string; readonly reason: string }
+
+/**
+ * The explicit exemptions (W4H-26). A loader that DEFINES a Podman runner subclass for a caller to construct later
+ * is not a guest start: the suites that reach it through relative imports never call it. Each entry exempts its
+ * text only when the file holds that text exactly once, so a second subclass, a `new PodmanRunner(`, or the same
+ * text in any other file still counts.
+ */
+export const GUEST_EXEMPTIONS: readonly GuestExemption[] = [
+  {
+    file: "src/factory/runner/supervisor-process.ts",
+    text: "return class extends PodmanRunner {",
+    reason: "factoryProvisionedRunnerLoader: a loader the named suites never instantiate (it adds the pinned toolchain to the class the supervisor constructs at its first probe)",
+  },
+];
+
+/** The source as the guard reads it: an exempt text removed when, and only when, it is there exactly once. */
+function guardedSource(file: string, source: string, exemptions: readonly GuestExemption[]): string {
+  return exemptions.filter((exemption) => exemption.file === file && source.split(exemption.text).length === 2)
+    .reduce((current, exemption) => current.replace(exemption.text, ""), source);
+}
+
 /** Whether `file`, or any repository file it reaches through relative imports, starts a Podman guest. */
-export function startsPodmanGuest(file: string, read: Read = readRepo): boolean {
+export function startsPodmanGuest(file: string, read: Read = readRepo, exemptions: readonly GuestExemption[] = GUEST_EXEMPTIONS): boolean {
   const seen = new Set<string>();
   const pending = [file];
   while (pending.length > 0) {
@@ -45,7 +68,7 @@ export function startsPodmanGuest(file: string, read: Read = readRepo): boolean 
     seen.add(current);
     const source = read(current);
     if (source === undefined) continue;
-    if (STARTS_GUEST.test(source)) return true;
+    if (STARTS_GUEST.test(guardedSource(current, source, exemptions))) return true;
     for (const match of source.matchAll(RELATIVE_IMPORT)) {
       const next = resolveImport(current, match[1]!, read);
       if (next !== undefined) pending.push(next);
@@ -65,13 +88,13 @@ export function runsRunnerSetup(step: WorkflowStep): boolean {
 }
 
 /** Every step that runs a Podman-guest test, with whether the runner setup ran before it in its job. */
-export function podmanGuestSteps(workflows: readonly Workflow[], read: Read = readRepo) {
-  return stepsNeedingPreparation(workflows, runsRunnerSetup, (run) => namedTestFiles(run).some((file) => startsPodmanGuest(file, read)));
+export function podmanGuestSteps(workflows: readonly Workflow[], read: Read = readRepo, exemptions: readonly GuestExemption[] = GUEST_EXEMPTIONS) {
+  return stepsNeedingPreparation(workflows, runsRunnerSetup, (run) => namedTestFiles(run).some((file) => startsPodmanGuest(file, read, exemptions)));
 }
 
 /** Every unprepared Podman-guest step, by name. */
-export function unpreparedGuestSteps(workflows: readonly Workflow[], read: Read = readRepo): string[] {
-  return podmanGuestSteps(workflows, read).filter((step) => !step.preceded).map((step) => `${step.where}: runs a Podman-guest test before '${RUNNER_SETUP}'`);
+export function unpreparedGuestSteps(workflows: readonly Workflow[], read: Read = readRepo, exemptions: readonly GuestExemption[] = GUEST_EXEMPTIONS): string[] {
+  return podmanGuestSteps(workflows, read, exemptions).filter((step) => !step.preceded).map((step) => `${step.where}: runs a Podman-guest test before '${RUNNER_SETUP}'`);
 }
 
 describe("Podman-guest tests run only where the runner is provisioned (W4H-12)", () => {
@@ -133,6 +156,34 @@ describe("Podman-guest tests run only where the runner is provisioned (W4H-12)",
     expect(startsPodmanGuest("t/cycle-a.test.ts", read)).toBe(false);
     expect(startsPodmanGuest("t/missing.test.ts", read)).toBe(false);
     expect(startsPodmanGuest("t/absent.test.ts", read)).toBe(false);
+  });
+
+  test("the uninvoked runner loader is exempt by name; without the exemption its suite's step is red (W4H-26)", () => {
+    const provisioning = "ci.yml factory-deployment-operations (Factory deployment and operations): Provision a tenant against the real engine";
+    expect(unpreparedGuestSteps(workflows, readRepo, [])).toContain(`${provisioning}: runs a Podman-guest test before '${RUNNER_SETUP}'`);
+    expect(unpreparedGuestSteps(workflows)).toEqual([]);
+    expect(startsPodmanGuest("src/factory/runner/supervisor-process.ts", readRepo, [])).toBe(true);
+    expect(startsPodmanGuest("src/factory/runner/supervisor-process.ts")).toBe(false);
+    for (const exemption of GUEST_EXEMPTIONS) expect(exemption.reason.length).toBeGreaterThan(40);
+  });
+
+  test("an exemption hides only its one text in its one file: a real subclass beside it, or elsewhere, still counts", () => {
+    const exemption: GuestExemption = { file: "t/loader.ts", text: "return class extends PodmanRunner {", reason: "a loader nobody here calls" };
+    const files: Record<string, string> = {
+      "t/loader.ts": "export const load = () => { return class extends PodmanRunner { } };",
+      "t/loader-and-subclass.ts": "return class extends PodmanRunner { }\nexport class Real extends PodmanRunner {}",
+      "t/twice.ts": "return class extends PodmanRunner { }\nreturn class extends PodmanRunner { }",
+      "t/other.ts": "return class extends PodmanRunner { }",
+      "t/loader-and-start.ts": "return class extends PodmanRunner { }\nconst r = new PodmanRunner({});",
+    };
+    const read: Read = (path) => files[path];
+    const exempt = (file: string) => startsPodmanGuest(file, read, [{ ...exemption, file }]);
+    expect(startsPodmanGuest("t/loader.ts", read, [exemption])).toBe(false);
+    expect(startsPodmanGuest("t/loader.ts", read, [])).toBe(true);
+    expect(exempt("t/loader-and-subclass.ts")).toBe(true);
+    expect(exempt("t/twice.ts")).toBe(true);
+    expect(startsPodmanGuest("t/other.ts", read, [exemption])).toBe(true);
+    expect(exempt("t/loader-and-start.ts")).toBe(true);
   });
 
   test("a step names its test files by ./path, in any position of a multi-line command", () => {

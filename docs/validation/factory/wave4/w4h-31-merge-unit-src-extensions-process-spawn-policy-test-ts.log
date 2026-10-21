@@ -1,0 +1,7 @@
+bun test v1.4.2 (744846f84)
+{"ts":"2026-10-16T00:47:55.570Z","level":"warn","msg":"approval card: could not judge the release's process policy","subsystem":"ext.author.process-spawn","approvalId":"a","error":"Error: runner down"}
+
+ 9 pass
+ 0 fail
+ 17 expect() calls
+Ran 9 tests across 1 file. [591.00ms]

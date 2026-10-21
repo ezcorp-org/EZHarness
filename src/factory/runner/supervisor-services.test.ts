@@ -76,6 +76,13 @@ function request(overrides: Partial<FactoryPrivateRequest> = {}): FactoryPrivate
   };
 }
 
+// The router's stop supervisor runs on the real clock and wait, so each stop of a worker this host cannot prove
+// absent spends one real C02 abort grace (FACTORY_SANDBOX_ABORT_GRACE_MS, 10 s). Measured over 12 runs (W4H-33,
+// 2026-10-15): p95 10 088 ms for one grace and 20 098 ms for two. Per the W4H-24 rule the timeout is 6x p95,
+// rounded up to 5 s, and declared here rather than inherited from the runner's --timeout (Bun's default is 5 s).
+const ONE_REAL_GRACE_TIMEOUT_MS = 65_000;
+const TWO_REAL_GRACES_TIMEOUT_MS = 125_000;
+
 function body(response: { body: Uint8Array }): Record<string, unknown> {
   return JSON.parse(Buffer.from(response.body).toString("utf8")) as Record<string, unknown>;
 }
@@ -308,7 +315,7 @@ describe("a guest this host ran to a result", () => {
     expect(touched).toEqual([]);
     // A different worker this host never saw still has to be proved absent.
     expect(body(await handle(request({ path: FACTORY_HOST_STOP_PATH, body: Buffer.from(JSON.stringify({ ...stop, workerId: "worker-never-seen" })) })))).toEqual({ error: "stop_failed" });
-  });
+  }, ONE_REAL_GRACE_TIMEOUT_MS);
 
   test("the router carries the finish from a guest this host closed to the stop route, and only that", async () => {
     const touched: string[] = [];
@@ -349,7 +356,7 @@ describe("a guest this host ran to a result", () => {
     expect(settled.status).toBe(200);
     expect(body(settled)).toMatchObject({ workerId: intent.workerId, processGroupAbsent: true, hostId, hostKeyId: "host-key-1" });
     expect(touched).toEqual([]);
-  });
+  }, TWO_REAL_GRACES_TIMEOUT_MS);
 });
 
 describe("the pool hears about the stop before the caller does", () => {

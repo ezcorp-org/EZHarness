@@ -13,6 +13,7 @@ import {
   factoryPlatformProject,
   factoryPodmanIngressReloader,
   startFactoryPlatform,
+  stopFactoryPlatform,
   waitForFactoryPlatform,
   type FactoryPlatformSettings,
 } from "./platform";
@@ -271,6 +272,31 @@ describe("startFactoryPlatform", () => {
     const long = fakeExecutor([{ code: 1, stdout: "", stderr: "x".repeat(1_000) }]);
     const bounded = await factoryRejection(startFactoryPlatform(settings, paths, compose, long.execute));
     expect(bounded.message).toBe(`platform compose up failed: ${"x".repeat(400)}`);
+  });
+});
+
+describe("stopFactoryPlatform", () => {
+  const compose = { argv: ["docker", "compose"], env: { DOCKER_HOST: "unix:///run/podman.sock" } };
+
+  test("stops the platform project over its rendered env file and keeps its containers; a platform never started has nothing to stop", async () => {
+    const fresh = factoryPlatformPaths(join(operatorRoot, "never-started"));
+    const idle = fakeExecutor([]);
+    await stopFactoryPlatform(settings, fresh, compose, idle.execute);
+    expect(idle.executed).toEqual([]);
+    const paths = factoryPlatformPaths(operatorRoot);
+    await startFactoryPlatform(settings, paths, compose, fakeExecutor([]).execute);
+    const { execute, executed } = fakeExecutor([]);
+    await stopFactoryPlatform(settings, paths, compose, execute);
+    await stopFactoryPlatform(settings, paths, compose, execute);
+    const stop = { command: ["docker", "compose", "--project-name", "ezcorp-factory-fleet-a-platform", "--file", "/repo/deploy/factory/compose/platform.yml", "--env-file", join(paths.root, "platform.env"), "stop", "--timeout", "20"], options: { env: compose.env } };
+    expect(executed).toEqual([stop, stop]);
+  });
+
+  test("a failed compose stop fails by name", async () => {
+    const paths = factoryPlatformPaths(operatorRoot);
+    await startFactoryPlatform(settings, paths, compose, fakeExecutor([]).execute);
+    const error = await factoryRejection(stopFactoryPlatform(settings, paths, compose, fakeExecutor([{ code: 1, stdout: "", stderr: "busy" }]).execute));
+    expect([error.code, error.message]).toEqual(["platform_compose_failed", "platform compose stop failed (1): busy"]);
   });
 });
 

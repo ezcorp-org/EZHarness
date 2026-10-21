@@ -1,0 +1,6 @@
+W4H-31 push to PR 341 - deviations (for the push receipts):
+- 2026-10-16 ~02:48-03:2xZ: git over SSH to github.com stalled. Root cause (team-lead's probes 03:10Z): the user's SSH agent was unresponsive
+  (ssh-add -l hung); ssh without the agent authenticated in 1 s. The publish's first try stopped safely on that stall (nothing published).
+- Ruling (a'): the remote reads and the push run with GIT_SSH_COMMAND='ssh -o IdentityAgent=none -o BatchMode=yes' in their environment:
+  the same SSH transport, remote URL and key file; no .git/config edit; no credential in argv. Verified first: ssh -T answered for the
+  noreply account; remote_head read d2add3048 in 1 s.

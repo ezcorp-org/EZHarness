@@ -1,17 +1,17 @@
 /**
- * Docker-gated LIVE keystone verification for the uid-based preview
- * isolation (Secure User-Site Preview / Port Exposure, Phase 3a).
+ * LIVE keystone verification for the uid-based preview isolation (Secure
+ * User-Site Preview / Port Exposure, Phase 3a), run inside the production image.
  *
  * These tests need a real Linux container with the compiled setuid-root
  * `preview-spawn` helper (4755) + a writable .ezcorp/data + the ability to
  * read live /proc/net/tcp. They CANNOT run in the plain `bun test` host
- * sandbox (no setuid binary, no root to chmod, no preview uids), so they
- * are gated behind DOCKER_TEST=1 — mirroring the existing Docker-gated
- * split (web/e2e/preview-static.spec.ts, mcp jail live checks).
- *
- * The orchestrator runs these inside `ezcorp:local` after rebuilding the
- * image with the new Dockerfile helper stage. Locally (no DOCKER_TEST) the
- * suite is a logged no-op so the normal gate stays green.
+ * sandbox (no setuid binary, no root to chmod, no preview uids). They run in
+ * the production-proof lane: scripts/verify-shipping-preview-isolation.sh
+ * starts the candidate image under rootless Podman with the preview uid range
+ * mapped and sets EZCORP_PREVIEW_ISOLATION_PROOF=1 (proof "preview-isolation",
+ * scripts/production-proof-plan.ts). The hosted shards never select this file
+ * (the plan's bound tests leave P and C), and scripts/test-skip-inventory.json
+ * names the lane that sets the variable.
  *
  * What they prove LIVE (not just argv strings):
  *   1. A preview uid spawned via the helper can read its own workdir but
@@ -23,9 +23,9 @@
 
 import { test, expect, describe } from "bun:test";
 
-const DOCKER = process.env.DOCKER_TEST === "1";
+const PROOF_LANE = process.env.EZCORP_PREVIEW_ISOLATION_PROOF === "1";
 
-describe.skipIf(!DOCKER)("uid keystone — LIVE (DOCKER_TEST=1)", () => {
+describe.skipIf(!PROOF_LANE)("uid keystone — LIVE (production image)", () => {
   test("setuid helper present + 4755 root-owned in the image", async () => {
     const { isPreviewSpawnHelperPresent, previewSpawnHelperPath } = await import(
       "../runtime/preview/preview-spawn"

@@ -1,0 +1,45 @@
+bun test v1.4.2 (744846f84)
+{"ts":"2026-10-16T01:02:20.249Z","level":"info","msg":"skipped: model lacks image input capability","subsystem":"executor.loadHistory.rehydrate","branchLen":0}
+{"ts":"2026-10-16T01:02:20.262Z","level":"info","msg":"briefing chat tools wired for turn","subsystem":"briefing.chat-tools","conversationId":"03f19eca-9e67-4a55-8ff7-46ae713590cc","userId":"5da18647-8087-4c41-89d8-3f75ee23ccf8","registered":4,"expected":4}
+{"ts":"2026-10-16T01:02:20.264Z","level":"info","msg":"run_workflow wired for turn","subsystem":"workflow-tools-host","conversationId":"03f19eca-9e67-4a55-8ff7-46ae713590cc","userId":"5da18647-8087-4c41-89d8-3f75ee23ccf8","projectId":"36766acd-aa77-4776-a9a7-e13b765a27d2"}
+{"ts":"2026-10-16T01:02:20.267Z","level":"info","msg":"Caller tools wired for turn","subsystem":"caller-tools-host","conversationId":"03f19eca-9e67-4a55-8ff7-46ae713590cc","runId":"6ca6e8ad-4eb5-4508-a092-edcd2c473885","declared":1,"permitted":1,"wired":1}
+{"ts":"2026-10-16T01:02:20.267Z","level":"info","msg":"Agent orchestration resolution","subsystem":"executor.streamChat.setup","userMessage":"do something","agents":[],"teams":[],"depth":0}
+{"ts":"2026-10-16T01:02:20.281Z","level":"info","msg":"skipped: model lacks image input capability","subsystem":"executor.loadHistory.rehydrate","branchLen":0}
+{"ts":"2026-10-16T01:02:20.284Z","level":"info","msg":"briefing chat tools wired for turn","subsystem":"briefing.chat-tools","conversationId":"8c9b924e-c607-417a-b8c3-f3cd5c7c7aaa","userId":"5da18647-8087-4c41-89d8-3f75ee23ccf8","registered":4,"expected":4}
+{"ts":"2026-10-16T01:02:20.284Z","level":"info","msg":"run_workflow wired for turn","subsystem":"workflow-tools-host","conversationId":"8c9b924e-c607-417a-b8c3-f3cd5c7c7aaa","userId":"5da18647-8087-4c41-89d8-3f75ee23ccf8","projectId":"36766acd-aa77-4776-a9a7-e13b765a27d2"}
+{"ts":"2026-10-16T01:02:20.285Z","level":"info","msg":"Agent orchestration resolution","subsystem":"executor.streamChat.setup","userMessage":"do something","agents":[],"teams":[],"depth":0}
+{"ts":"2026-10-16T01:02:20.294Z","level":"info","msg":"skipped: model lacks image input capability","subsystem":"executor.loadHistory.rehydrate","branchLen":0}
+{"ts":"2026-10-16T01:02:20.295Z","level":"info","msg":"mode routing binding applied","subsystem":"executor.streamChat.setup","modeId":"0ec6a646-8982-43ce-b66b-48aa7c4ba6af","source":"classifier"}
+{"ts":"2026-10-16T01:02:20.297Z","level":"info","msg":"briefing chat tools wired for turn","subsystem":"briefing.chat-tools","conversationId":"329d8026-0d44-4e4b-bd21-ed9d4efddb41","userId":"5da18647-8087-4c41-89d8-3f75ee23ccf8","registered":4,"expected":4}
+{"ts":"2026-10-16T01:02:20.297Z","level":"info","msg":"run_workflow wired for turn","subsystem":"workflow-tools-host","conversationId":"329d8026-0d44-4e4b-bd21-ed9d4efddb41","userId":"5da18647-8087-4c41-89d8-3f75ee23ccf8","projectId":"36766acd-aa77-4776-a9a7-e13b765a27d2"}
+{"ts":"2026-10-16T01:02:20.298Z","level":"info","msg":"mode-extensions wire","subsystem":"setup-tools.modeExtWire","modeId":"0ec6a646-8982-43ce-b66b-48aa7c4ba6af","modeFound":true,"modeExtIds":[],"modeExtIdCount":0}
+{"ts":"2026-10-16T01:02:20.298Z","level":"info","msg":"Caller tools wired for turn","subsystem":"caller-tools-host","conversationId":"329d8026-0d44-4e4b-bd21-ed9d4efddb41","runId":"ea9356d7-3427-42e4-aa20-1c1e51255c2c","declared":1,"permitted":1,"wired":1}
+{"ts":"2026-10-16T01:02:20.298Z","level":"info","msg":"Agent orchestration resolution","subsystem":"executor.streamChat.setup","userMessage":"do something","agents":[],"teams":[],"depth":0}
+{"ts":"2026-10-16T01:02:20.310Z","level":"info","msg":"skipped: model lacks image input capability","subsystem":"executor.loadHistory.rehydrate","branchLen":0}
+{"ts":"2026-10-16T01:02:20.311Z","level":"info","msg":"mode routing binding applied","subsystem":"executor.streamChat.setup","modeId":"0ec6a646-8982-43ce-b66b-48aa7c4ba6af","source":"classifier"}
+{"ts":"2026-10-16T01:02:20.314Z","level":"info","msg":"briefing chat tools wired for turn","subsystem":"briefing.chat-tools","conversationId":"80735942-4ddd-4fd1-a316-3daf08deb32a","userId":"5da18647-8087-4c41-89d8-3f75ee23ccf8","registered":4,"expected":4}
+{"ts":"2026-10-16T01:02:20.314Z","level":"info","msg":"run_workflow wired for turn","subsystem":"workflow-tools-host","conversationId":"80735942-4ddd-4fd1-a316-3daf08deb32a","userId":"5da18647-8087-4c41-89d8-3f75ee23ccf8","projectId":"36766acd-aa77-4776-a9a7-e13b765a27d2"}
+{"ts":"2026-10-16T01:02:20.314Z","level":"info","msg":"mode-extensions wire","subsystem":"setup-tools.modeExtWire","modeId":"0ec6a646-8982-43ce-b66b-48aa7c4ba6af","modeFound":true,"modeExtIds":[],"modeExtIdCount":0}
+{"ts":"2026-10-16T01:02:20.315Z","level":"info","msg":"Caller tools wired for turn","subsystem":"caller-tools-host","conversationId":"80735942-4ddd-4fd1-a316-3daf08deb32a","runId":"3a91f089-104b-46ee-b2bc-d07c5e85aba0","declared":1,"permitted":1,"wired":1}
+{"ts":"2026-10-16T01:02:20.315Z","level":"info","msg":"Agent orchestration resolution","subsystem":"executor.streamChat.setup","userMessage":"do something","agents":[],"teams":[],"depth":0}
+{"ts":"2026-10-16T01:02:20.324Z","level":"info","msg":"skipped: model lacks image input capability","subsystem":"executor.loadHistory.rehydrate","branchLen":0}
+{"ts":"2026-10-16T01:02:20.325Z","level":"info","msg":"mode routing binding applied","subsystem":"executor.streamChat.setup","modeId":"0ec6a646-8982-43ce-b66b-48aa7c4ba6af","source":"classifier"}
+{"ts":"2026-10-16T01:02:20.325Z","level":"warn","msg":"tier classification failed — using default tier this turn","subsystem":"executor.streamChat.setup","err":"ExtensionRegistry.getInstance().getManifest is not a function. (In 'ExtensionRegistry.getInstance().getManifest(extId)', 'ExtensionRegistry.getInstance().getManifest' is undefined)"}
+{"ts":"2026-10-16T01:02:20.328Z","level":"info","msg":"briefing chat tools wired for turn","subsystem":"briefing.chat-tools","conversationId":"7cd9ca95-5ea7-4717-a2c1-9b16be87059c","userId":"5da18647-8087-4c41-89d8-3f75ee23ccf8","registered":4,"expected":4}
+{"ts":"2026-10-16T01:02:20.328Z","level":"info","msg":"run_workflow wired for turn","subsystem":"workflow-tools-host","conversationId":"7cd9ca95-5ea7-4717-a2c1-9b16be87059c","userId":"5da18647-8087-4c41-89d8-3f75ee23ccf8","projectId":"36766acd-aa77-4776-a9a7-e13b765a27d2"}
+{"ts":"2026-10-16T01:02:20.328Z","level":"info","msg":"mode-extensions wire","subsystem":"setup-tools.modeExtWire","modeId":"0ec6a646-8982-43ce-b66b-48aa7c4ba6af","modeFound":true,"modeExtIds":[],"modeExtIdCount":0}
+{"ts":"2026-10-16T01:02:20.328Z","level":"info","msg":"Caller tools wired for turn","subsystem":"caller-tools-host","conversationId":"7cd9ca95-5ea7-4717-a2c1-9b16be87059c","runId":"804c785d-d9d3-4f2a-a4e8-23d29c36be0a","declared":1,"permitted":1,"wired":1}
+{"ts":"2026-10-16T01:02:20.328Z","level":"info","msg":"Agent orchestration resolution","subsystem":"executor.streamChat.setup","userMessage":"do something","agents":[],"teams":[],"depth":0}
+{"ts":"2026-10-16T01:02:20.337Z","level":"info","msg":"skipped: model lacks image input capability","subsystem":"executor.loadHistory.rehydrate","branchLen":0}
+{"ts":"2026-10-16T01:02:20.340Z","level":"info","msg":"briefing chat tools wired for turn","subsystem":"briefing.chat-tools","conversationId":"7fe94a02-e9ae-4f14-bd54-65d551d34538","userId":"5da18647-8087-4c41-89d8-3f75ee23ccf8","registered":4,"expected":4}
+{"ts":"2026-10-16T01:02:20.340Z","level":"info","msg":"run_workflow wired for turn","subsystem":"workflow-tools-host","conversationId":"7fe94a02-e9ae-4f14-bd54-65d551d34538","userId":"5da18647-8087-4c41-89d8-3f75ee23ccf8","projectId":"36766acd-aa77-4776-a9a7-e13b765a27d2"}
+{"ts":"2026-10-16T01:02:20.340Z","level":"info","msg":"Agent orchestration resolution","subsystem":"executor.streamChat.setup","userMessage":"do something","agents":[],"teams":[],"depth":0}
+{"ts":"2026-10-16T01:02:20.354Z","level":"info","msg":"skipped: model lacks image input capability","subsystem":"executor.loadHistory.rehydrate","branchLen":0}
+{"ts":"2026-10-16T01:02:20.356Z","level":"info","msg":"briefing chat tools wired for turn","subsystem":"briefing.chat-tools","conversationId":"aec582d7-078b-4717-8f78-dabfcb58201f","userId":"5da18647-8087-4c41-89d8-3f75ee23ccf8","registered":4,"expected":4}
+{"ts":"2026-10-16T01:02:20.356Z","level":"info","msg":"run_workflow wired for turn","subsystem":"workflow-tools-host","conversationId":"aec582d7-078b-4717-8f78-dabfcb58201f","userId":"5da18647-8087-4c41-89d8-3f75ee23ccf8","projectId":"36766acd-aa77-4776-a9a7-e13b765a27d2"}
+{"ts":"2026-10-16T01:02:20.357Z","level":"info","msg":"Agent orchestration resolution","subsystem":"executor.streamChat.setup","userMessage":"do something","agents":[],"teams":[],"depth":0}
+
+ 7 pass
+ 0 fail
+ 12 expect() calls
+Ran 7 tests across 1 file. [1094.00ms]

@@ -1,0 +1,69 @@
+bun test v1.4.2 (744846f84)
+{"ts":"2026-10-16T01:23:07.518Z","level":"info","msg":"github-projects daemon wake loop armed","subsystem":"ext.github-projects.daemon","wakeMs":10000}
+{"ts":"2026-10-16T01:23:07.518Z","level":"info","msg":"github-projects daemon disabled via kill-switch","subsystem":"ext.github-projects.daemon"}
+{"ts":"2026-10-16T01:23:07.518Z","level":"info","msg":"github-projects daemon wake loop armed","subsystem":"ext.github-projects.daemon","wakeMs":5}
+{"ts":"2026-10-16T01:23:07.518Z","level":"warn","msg":"github-projects poll tick failed","subsystem":"ext.github-projects.daemon","error":"Error: db down"}
+{"ts":"2026-10-16T01:23:07.520Z","level":"info","msg":"github-projects poll sweep","subsystem":"ext.github-projects.daemon","enabledLinks":1,"due":1,"fetched":1,"triggers":1,"newProposals":1,"autoSpawned":0,"degraded":0}
+{"ts":"2026-10-16T01:23:07.520Z","level":"info","msg":"github-projects poll sweep","subsystem":"ext.github-projects.daemon","enabledLinks":1,"due":1,"fetched":1,"triggers":0,"newProposals":0,"autoSpawned":0,"degraded":0}
+{"ts":"2026-10-16T01:23:07.520Z","level":"info","msg":"github-projects poll sweep","subsystem":"ext.github-projects.daemon","enabledLinks":1,"due":1,"fetched":1,"triggers":0,"newProposals":0,"autoSpawned":0,"degraded":0}
+{"ts":"2026-10-16T01:23:07.520Z","level":"info","msg":"github-projects poll sweep","subsystem":"ext.github-projects.daemon","enabledLinks":1,"due":1,"fetched":1,"triggers":0,"newProposals":0,"autoSpawned":0,"degraded":0}
+{"ts":"2026-10-16T01:23:07.520Z","level":"info","msg":"github-projects poll sweep","subsystem":"ext.github-projects.daemon","enabledLinks":1,"due":1,"fetched":1,"triggers":1,"newProposals":1,"autoSpawned":0,"degraded":0}
+{"ts":"2026-10-16T01:23:07.520Z","level":"info","msg":"github-projects poll sweep","subsystem":"ext.github-projects.daemon","enabledLinks":1,"due":1,"fetched":1,"triggers":1,"newProposals":0,"autoSpawned":0,"degraded":0}
+{"ts":"2026-10-16T01:23:07.520Z","level":"info","msg":"github-projects poll sweep","subsystem":"ext.github-projects.daemon","enabledLinks":1,"due":1,"fetched":1,"triggers":1,"newProposals":1,"autoSpawned":1,"degraded":0}
+{"ts":"2026-10-16T01:23:07.520Z","level":"warn","msg":"github-projects auto-spawn failed","subsystem":"ext.github-projects.daemon","proposalId":"prop-4","error":"Error: cap exceeded"}
+{"ts":"2026-10-16T01:23:07.520Z","level":"info","msg":"github-projects poll sweep","subsystem":"ext.github-projects.daemon","enabledLinks":1,"due":1,"fetched":1,"triggers":1,"newProposals":1,"autoSpawned":0,"degraded":0}
+{"ts":"2026-10-16T01:23:07.521Z","level":"warn","msg":"github-projects auto-spawn failed","subsystem":"ext.github-projects.daemon","proposalId":"prop-5","error":"Error: github-projects: proposal prop-5 not found"}
+{"ts":"2026-10-16T01:23:07.521Z","level":"info","msg":"github-projects poll sweep","subsystem":"ext.github-projects.daemon","enabledLinks":1,"due":1,"fetched":1,"triggers":1,"newProposals":1,"autoSpawned":0,"degraded":0}
+{"ts":"2026-10-16T01:23:07.521Z","level":"info","msg":"github-projects poll sweep","subsystem":"ext.github-projects.daemon","enabledLinks":1,"due":1,"fetched":1,"triggers":1,"newProposals":1,"autoSpawned":1,"degraded":0}
+{"ts":"2026-10-16T01:23:07.521Z","level":"info","msg":"github-projects poll sweep","subsystem":"ext.github-projects.daemon","enabledLinks":1,"due":1,"fetched":1,"triggers":1,"newProposals":1,"autoSpawned":1,"degraded":0}
+{"ts":"2026-10-16T01:23:07.521Z","level":"info","msg":"github-projects poll sweep","subsystem":"ext.github-projects.daemon","enabledLinks":1,"due":1,"fetched":1,"triggers":1,"newProposals":1,"autoSpawned":0,"degraded":0}
+{"ts":"2026-10-16T01:23:07.521Z","level":"info","msg":"github-projects poll sweep","subsystem":"ext.github-projects.daemon","enabledLinks":1,"due":1,"fetched":1,"triggers":1,"newProposals":1,"autoSpawned":0,"degraded":0}
+{"ts":"2026-10-16T01:23:07.521Z","level":"info","msg":"github-projects poll sweep","subsystem":"ext.github-projects.daemon","enabledLinks":1,"due":1,"fetched":1,"triggers":1,"newProposals":1,"autoSpawned":1,"degraded":0}
+{"ts":"2026-10-16T01:23:07.521Z","level":"info","msg":"github-projects poll sweep","subsystem":"ext.github-projects.daemon","enabledLinks":1,"due":1,"fetched":1,"triggers":1,"newProposals":1,"autoSpawned":0,"degraded":0}
+{"ts":"2026-10-16T01:23:07.522Z","level":"info","msg":"github-projects poll sweep","subsystem":"ext.github-projects.daemon","enabledLinks":1,"due":0,"fetched":0,"triggers":0,"newProposals":0,"autoSpawned":0,"degraded":0}
+{"ts":"2026-10-16T01:23:07.522Z","level":"info","msg":"github-projects poll sweep","subsystem":"ext.github-projects.daemon","enabledLinks":1,"due":1,"fetched":0,"triggers":0,"newProposals":0,"autoSpawned":0,"degraded":0}
+{"ts":"2026-10-16T01:23:07.522Z","level":"info","msg":"github-projects poll-now requested","subsystem":"ext.github-projects.daemon","projectId":"proj-1","linkId":"link-1"}
+{"ts":"2026-10-16T01:23:07.522Z","level":"info","msg":"github-projects poll-now completed","subsystem":"ext.github-projects.daemon","projectId":"proj-1","linkId":"link-1"}
+{"ts":"2026-10-16T01:23:07.522Z","level":"info","msg":"github-projects poll-now requested","subsystem":"ext.github-projects.daemon","projectId":"proj-1","linkId":"link-1"}
+{"ts":"2026-10-16T01:23:07.522Z","level":"info","msg":"github-projects poll-now skipped","subsystem":"ext.github-projects.daemon","projectId":"proj-1","linkId":"link-1","reason":"paused"}
+{"ts":"2026-10-16T01:23:07.522Z","level":"info","msg":"github-projects poll sweep","subsystem":"ext.github-projects.daemon","enabledLinks":1,"due":1,"fetched":0,"triggers":0,"newProposals":0,"autoSpawned":0,"degraded":0}
+{"ts":"2026-10-16T01:23:07.522Z","level":"info","msg":"github-projects poll sweep","subsystem":"ext.github-projects.daemon","enabledLinks":1,"due":1,"fetched":0,"triggers":0,"newProposals":0,"autoSpawned":0,"degraded":0}
+{"ts":"2026-10-16T01:23:07.523Z","level":"warn","msg":"github-projects link degraded","subsystem":"ext.github-projects.daemon","linkId":"link-1","projectId":"proj-1","authMode":"pat","error":"no PAT stored for board or project"}
+{"ts":"2026-10-16T01:23:07.523Z","level":"info","msg":"github-projects poll sweep","subsystem":"ext.github-projects.daemon","enabledLinks":1,"due":1,"fetched":0,"triggers":0,"newProposals":0,"autoSpawned":0,"degraded":1}
+{"ts":"2026-10-16T01:23:07.523Z","level":"info","msg":"github-projects poll sweep","subsystem":"ext.github-projects.daemon","enabledLinks":1,"due":1,"fetched":0,"triggers":0,"newProposals":0,"autoSpawned":0,"degraded":0}
+{"ts":"2026-10-16T01:23:07.523Z","level":"warn","msg":"github-projects link degraded","subsystem":"ext.github-projects.daemon","linkId":"link-1","projectId":"proj-1","authMode":"gh","error":"gh auth token returned empty output"}
+{"ts":"2026-10-16T01:23:07.523Z","level":"info","msg":"github-projects poll sweep","subsystem":"ext.github-projects.daemon","enabledLinks":1,"due":1,"fetched":0,"triggers":0,"newProposals":0,"autoSpawned":0,"degraded":1}
+{"ts":"2026-10-16T01:23:07.523Z","level":"warn","msg":"github-projects link degraded","subsystem":"ext.github-projects.daemon","linkId":"link-1","projectId":"proj-1","authMode":"pat","error":"401 revoked"}
+{"ts":"2026-10-16T01:23:07.523Z","level":"info","msg":"github-projects poll sweep","subsystem":"ext.github-projects.daemon","enabledLinks":1,"due":1,"fetched":0,"triggers":0,"newProposals":0,"autoSpawned":0,"degraded":1}
+{"ts":"2026-10-16T01:23:07.523Z","level":"warn","msg":"github-projects link degraded","subsystem":"ext.github-projects.daemon","linkId":"link-1","projectId":"proj-1","authMode":"pat","error":"404 board gone"}
+{"ts":"2026-10-16T01:23:07.523Z","level":"info","msg":"github-projects poll sweep","subsystem":"ext.github-projects.daemon","enabledLinks":1,"due":1,"fetched":0,"triggers":0,"newProposals":0,"autoSpawned":0,"degraded":1}
+{"ts":"2026-10-16T01:23:07.523Z","level":"warn","msg":"github-projects link unexpected error — degrading","subsystem":"ext.github-projects.daemon","linkId":"link-1","projectId":"proj-1","authMode":"pat","error":"socket hang up"}
+{"ts":"2026-10-16T01:23:07.523Z","level":"info","msg":"github-projects poll sweep","subsystem":"ext.github-projects.daemon","enabledLinks":1,"due":1,"fetched":0,"triggers":0,"newProposals":0,"autoSpawned":0,"degraded":1}
+{"ts":"2026-10-16T01:23:07.523Z","level":"warn","msg":"github-projects link unexpected error — degrading","subsystem":"ext.github-projects.daemon","linkId":"link-1","projectId":"proj-1","authMode":"pat","error":"plain string failure"}
+{"ts":"2026-10-16T01:23:07.523Z","level":"info","msg":"github-projects poll sweep","subsystem":"ext.github-projects.daemon","enabledLinks":1,"due":1,"fetched":0,"triggers":0,"newProposals":0,"autoSpawned":0,"degraded":1}
+{"ts":"2026-10-16T01:23:07.523Z","level":"warn","msg":"github-projects link rate-limited — backing off","subsystem":"ext.github-projects.daemon","linkId":"link-1","projectId":"proj-1","authMode":"pat","backoffMs":30000}
+{"ts":"2026-10-16T01:23:07.523Z","level":"info","msg":"github-projects poll sweep","subsystem":"ext.github-projects.daemon","enabledLinks":1,"due":1,"fetched":0,"triggers":0,"newProposals":0,"autoSpawned":0,"degraded":1}
+{"ts":"2026-10-16T01:23:07.523Z","level":"info","msg":"github-projects poll sweep","subsystem":"ext.github-projects.daemon","enabledLinks":1,"due":0,"fetched":0,"triggers":0,"newProposals":0,"autoSpawned":0,"degraded":0}
+{"ts":"2026-10-16T01:23:07.524Z","level":"warn","msg":"github-projects link rate-limited — backing off","subsystem":"ext.github-projects.daemon","linkId":"link-1","projectId":"proj-1","authMode":"pat","backoffMs":60000}
+{"ts":"2026-10-16T01:23:07.524Z","level":"info","msg":"github-projects poll sweep","subsystem":"ext.github-projects.daemon","enabledLinks":1,"due":1,"fetched":0,"triggers":0,"newProposals":0,"autoSpawned":0,"degraded":1}
+{"ts":"2026-10-16T01:23:07.524Z","level":"info","msg":"github-projects poll sweep","subsystem":"ext.github-projects.daemon","enabledLinks":1,"due":0,"fetched":0,"triggers":0,"newProposals":0,"autoSpawned":0,"degraded":0}
+{"ts":"2026-10-16T01:23:07.524Z","level":"warn","msg":"github-projects link rate-limited — backing off","subsystem":"ext.github-projects.daemon","linkId":"link-1","projectId":"proj-1","authMode":"pat","backoffMs":1000}
+{"ts":"2026-10-16T01:23:07.524Z","level":"info","msg":"github-projects poll sweep","subsystem":"ext.github-projects.daemon","enabledLinks":1,"due":1,"fetched":0,"triggers":0,"newProposals":0,"autoSpawned":0,"degraded":1}
+{"ts":"2026-10-16T01:23:07.524Z","level":"info","msg":"github-projects poll sweep","subsystem":"ext.github-projects.daemon","enabledLinks":1,"due":1,"fetched":0,"triggers":0,"newProposals":0,"autoSpawned":0,"degraded":0}
+{"ts":"2026-10-16T01:23:07.524Z","level":"warn","msg":"github-projects link rate-limited — backing off","subsystem":"ext.github-projects.daemon","linkId":"link-1","projectId":"proj-1","authMode":"pat","backoffMs":1000}
+{"ts":"2026-10-16T01:23:07.524Z","level":"info","msg":"github-projects poll sweep","subsystem":"ext.github-projects.daemon","enabledLinks":1,"due":1,"fetched":0,"triggers":0,"newProposals":0,"autoSpawned":0,"degraded":1}
+{"ts":"2026-10-16T01:23:07.524Z","level":"info","msg":"github-projects poll sweep","subsystem":"ext.github-projects.daemon","enabledLinks":1,"due":1,"fetched":0,"triggers":0,"newProposals":0,"autoSpawned":0,"degraded":0}
+{"ts":"2026-10-16T01:23:07.524Z","level":"info","msg":"github-projects poll sweep","subsystem":"ext.github-projects.daemon","enabledLinks":1,"due":1,"fetched":0,"triggers":0,"newProposals":0,"autoSpawned":0,"degraded":0}
+{"ts":"2026-10-16T01:23:07.524Z","level":"warn","msg":"github-projects link degraded","subsystem":"ext.github-projects.daemon","linkId":"link-a","projectId":"proj-a","authMode":"pat","error":"link-a down"}
+{"ts":"2026-10-16T01:23:07.524Z","level":"info","msg":"github-projects poll sweep","subsystem":"ext.github-projects.daemon","enabledLinks":2,"due":2,"fetched":1,"triggers":1,"newProposals":1,"autoSpawned":0,"degraded":1}
+{"ts":"2026-10-16T01:23:07.524Z","level":"info","msg":"reconciled 2 orphaned proposals","subsystem":"ext.github-projects.daemon","count":2,"commented":2}
+{"ts":"2026-10-16T01:23:07.524Z","level":"warn","msg":"github-projects orphan write-back failed (swallowed)","subsystem":"ext.github-projects.daemon","proposalId":"p-1","error":"Error: comment api down"}
+{"ts":"2026-10-16T01:23:07.524Z","level":"info","msg":"reconciled 3 orphaned proposals","subsystem":"ext.github-projects.daemon","count":3,"commented":2}
+{"ts":"2026-10-16T01:23:07.525Z","level":"info","msg":"reconciled 2 orphaned proposals","subsystem":"ext.github-projects.daemon","count":2,"commented":1}
+{"ts":"2026-10-16T01:23:07.525Z","level":"info","msg":"reconciled 1 orphaned proposals","subsystem":"ext.github-projects.daemon","count":1,"commented":0}
+{"ts":"2026-10-16T01:23:07.525Z","level":"warn","msg":"github-projects orphan reconciliation failed (swallowed)","subsystem":"ext.github-projects.daemon","error":"Error: db down"}
+
+ 52 pass
+ 0 fail
+ 117 expect() calls
+Ran 52 tests across 1 file. [480.00ms]

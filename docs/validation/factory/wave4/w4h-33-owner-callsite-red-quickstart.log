@@ -1,0 +1,22 @@
+bun test v1.4.2 (744846f84)
+
+packages/@ezcorp/ai-kit/test/unit/deployed-preconditions.test.ts:
+62 | });
+63 | 
+64 | describe("quickstart: precondition 'EZCORP_E2E_MODEL'", () => {
+65 |   test("present, behaviour wrong: the suite runs and FAILS, and does not skip", async () => {
+66 |     const { code, output } = await runSuite("quickstart", { EZCORP_E2E_MODEL: "ezcorp-mock/mock:stub" });
+67 |     expect(code).not.toBe(0);
+                          ^
+error: expect(received).not.toBe(expected)
+
+Expected: not 0
+
+      at <anonymous> (/home/dev/work/EZCorp/EZHarness/.worktrees/w4h-33/packages/@ezcorp/ai-kit/test/unit/deployed-preconditions.test.ts:67:22)
+(fail) quickstart: precondition 'EZCORP_E2E_MODEL' > present, behaviour wrong: the suite runs and FAILS, and does not skip [18.22ms]
+
+ 5 pass
+ 1 fail
+ 22 expect() calls
+Ran 6 tests across 1 file. [491.00ms]
+exit=1

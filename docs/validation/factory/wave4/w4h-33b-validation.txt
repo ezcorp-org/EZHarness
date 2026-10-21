@@ -1,0 +1,65 @@
+== 2026-10-17T03:21:57Z HOLD OK 7f83176566b043e0c7c7bfedb6d616b33feb3e09 (W4H-33b ef5e29a25 on 8fb4474e9): PLAIN GREEN
+Basis: team-lead CORRECTION: judge price-chart on the extra-legs price-chart-host-lane record; (b) has no row because the merge does not change the test file. This supersedes my NOT OK YET section below, whose finding stands as a leg (b) selection gap for team-lead to rule.
+price-chart-host-lane: 03:11:53Z-03:12:05Z exit=0, 6 pass 0 fail (ac89e2de836d35cb). There is no EZCORP_RUN_PODMAN_TESTS in the leg, batch, gate or lock-condition logs. extra-legs v4 f8dd7edf208a938e, hold-w4f.sh b2c155eff1d367db, rulings record 528e8737c227268f, config.sh 0a094fa1e4b2335c, config-check "8841afbedf4c59d8 = accepted baseline".
+Also checked: typecheck-all exit 0, lint exit 0, graph-mock-pass "outcome: passed", lcov-foreign 0 of 1270 (87785d2b469d808a). No secret pattern was found in the heavy logs. The rest is as in the section below.
+
+== 2026-10-17T03:21:13Z HOLD JUDGMENT 7f83176566b043e0c7c7bfedb6d616b33feb3e09 (W4H-33b ef5e29a25 on 8fb4474e9): NOT OK YET, one finding for team-lead
+Record hashes (sha256/16) match integrator-5: heavy.exit 9a271f2a916b0b6e (value 0), heavy-batch.log 0b3bf6141b85e8ee (85 exit=0, HEAVY DONE status=0 dirty=0 03:18:18Z), lane-forms 3acf22925fa298a0, gates 6b404ac72f1db0e1, mutation 6d0494e1fbf81895, bundle 733e7feae5d3de31, conmon 6c80e96736d21c72, isolation-proof c55ac35210909683, price-chart-host-lane ac89e2de836d35cb, typecheck-all b0bc0b49df1a3c9c, diff-files 2e2302941183efd0.
+Green: bundle 28/28 0 expected 0 red; mutation PASS 23 mutants; conmon 7/0; gates status=0 (main = expected set, base PASS); foreign 0 of 1270; lane-forms 6 files 6 runs 0 red.
+FINDING: the ruled primary record for price-chart is absent. The merge does not change web/src/__tests__/price-chart-stream-bridge.test.ts (last change 6e6506ba5, already in 8fb4474e9), but it moves that file into web_host_files (scripts/lib/test-file-sets.sh +332). Leg (b) selects changed test files only, so the one file whose lane changed has no (b) row. The host-lane record shows 6 pass 0 fail. That is corroboration without its primary record, so per the ruling it is not a pass.
+
+== W4H-33b head ef5e29a25ccbd27007c0642d8534c3b70c090285 on 8fb4474e9: ACCEPT (delta review of 31ce24621..ef5e29a25 + the head's typecheck) (validator-8, 2026-10-17T02:35:15Z by date -u)
+- ef5e29a25 (parent 31ce24621, archy noreply): scripts/test-skip-inventory.test.ts +3 -2: the login match is unpacked, a missing email or
+  password throws 'web/e2e/docker-auth-setup.ts: no login line with an email and a password', identity typed [string, string]; no any,
+  no non-null assertion; the removed expect(login).not.toBeNull() is covered by the throw. Evidence (w4h-33b/logs/): narrow red at 31ce24621
+  tc-red 55b63fcbec18d15a (TS2769 at 323,71), narrow green tc-green 19eaf43821a7660e (0 errors), tests 27/0 (9d91f4a5f5da551c), lint
+  'Checked 1 file … No fixes' (7a6dfdd197ed4da5), the login-missing mutant fails the pair case (4431f493c8c5d9f0), hook 935aaabcb0d35d39.
+- Repository typecheck at the exact head, in the lock (gated w4h-33b-typecheck; w4h-33b/typecheck/): head.txt 3027586283322c4e
+  'head=ef5e29a25… dirty=0'; tc-gate.log 85d9b7a422abbcad in-lock=1 GREEN 02:33:12Z, END exit=0 02:34:13Z; typecheck.log 03e305c6b9115f21
+  'Typecheck passed', exit=0; gated.exit 0. My rule (typecheck and lint at the exact head) is met: lint at the head is the commit hook's
+  lint of the changed file; the full repository lint runs in the hold's static legs.
+- Everything else is the reviewed 31ce24621 (freeze legs, red-on-base 2a3734d3a560b2e7, the D1-D5 fixes); the freeze legs' results stand
+  (the new commit touches only this test file).
+This ACCEPT names ef5e29a25ccbd27007c0642d8534c3b70c090285 for the W4H-33b re-prep onto 8fb4474e9.
+
+== W4H-33b ACCEPT of 31ce24621 WITHDRAWN: the head fails typecheck (validator-8, 2026-10-17T02:14:39Z by date -u)
+The W4H-33b commit try 1 (in the lock) refused at the fast typecheck: fast.try1/typecheck.log 49de5d49e0382c1e,
+'scripts/test-skip-inventory.test.ts(323,71): error TS2769: No overload matches this call' ('(string | undefined)[]' is not assignable to
+'string[]'). Line 323 (from 31ce24621, D5): expect(lifecycle.map(([, email, password]) => [email, password])).toEqual([identity, identity]);
+the regex groups are 'string | undefined'. A package finding of W4H-33b; nothing was committed.
+My miss: the owner's static evidence listed identity, gate-integrity and bundled-source-lock.test.ts, but no typecheck at 31ce24621, and
+my ACCEPT did not require one. From now on my ACCEPT of a head requires the owner's typecheck (and lint) at that exact head in its evidence.
+Next: the owner fixes at a new head (the D5 pair case typed so the groups are strings, red where it applies), with typecheck and lint at
+the head; I re-accept on a delta review; the prep is redone on that head.
+
+== Correction (validator-8, 2026-10-17T01:53:50Z by date -u): the cov-shard job does NOT set EZCORP_RUN_PODMAN_TESTS. ci.yml at 31ce24621: cov-shard
+starts at line 1101 and its 'Run shard' env (1131-1134) holds only SHARD_INDEX, SHARD_TOTAL and COV_OUT; line 1168 belongs to cov-extras
+(from line 1149). My section below and plan-w4h-33b.md said 'as cov-shard sets it' (integrator-5 found the error). Effect on the ACCEPT:
+none: nothing in price-chart-stream-bridge.test.ts or its helpers reads that variable (git grep at 31ce24621: its only readers are
+sdk mcp.test.ts, marketplace-release-isolation.integration.test.ts and scripts), so freeze leg 3's 6/0 is the hosted cov-shard result.
+The hold's price-chart leg must drop the variable to equal the hosted form.
+
+== W4H-33b head 31ce24621d908b066e24400c4a1fbdf1737e5fa7 on 8fb4474e9: ACCEPT (validator-8, 2026-10-17T01:08:24Z by date -u)
+Five commits, one per hosted finding of W4H-33 (D1-D5; verdict-w4h-33.txt at 1c2656204f7bb402), archy noreply; review in plan-w4h-33b.md.
+- 097850d0e F1 (D2) price-chart into web_host_files (+ drift row); d7a5cf534 F3 (D4) --log-driver=none (+ argv assertion); 27606e6a5 F2 (D3)
+  $server from the real web/ in vitest.stryker.config.ts (+ sandbox-shaped test); b4fa0d12b D1 host-integration marker, ai-kit lock 56 -> 55,
+  new sealed-reference rule; 31ce24621 D5 seed + lifecycle script on the reserved address, FIXTURE_ACCOUNT_SOURCES, pair case.
+- Red first: red-on-base.txt 2a3734d3a560b2e7 (6 cases, each red log fails only its named cases; greens 0 fail); mutants for D1 (marker
+  removed) and D5 (seed reverted, lifecycle reverted) caught. Static: identity 48cd10b71f77e9c8; gate-integrity base PASSED; origin/main
+  leg byte-identical to the one at 8fb4474e9.
+- Freeze legs in the lock (one gated job w4h-33b-freeze-legs, 01:04:01Z start, command exit 0 at 01:06:41Z; launch-legs.sh e7ce7be3b56cf6b0,
+  legs-perfile.sh 1082be616b6d7c9f; gated.log f25786dbfbae957b), each in its hosted lane's own form (my conditions):
+  1 mutation, the hosted command BASE_REF=origin/main bun scripts/mutation.ts --changed --report-only: send-message.ts 21 mutants, 21 Killed,
+    tests ran against all 21, 0 survived with no test; api.ts 2/2 Killed; score 100% (leg1-check.log 350e34bace50bfda, mutation.json
+    8d3d0f39e17aca2e). D3 fixed.
+  2 isolated ai-kit build (resolveBundledExtensions + buildFirstPartyRelease, the approved leg's path): 18 sealed tests, deployed-preconditions
+    not sealed, state succeeded, artifactDigest 4575ba76fcac9d5b..., 18 feature tests ran and passed (leg2-aikit-build.log 88f6d307a6c8eed2). D1 fixed.
+  3 price-chart by the run_host_pool per-file command (test-coverage.sh:218, --timeout 30000, EZCORP_RUN_PODMAN_TESTS=1 as cov-shard sets it):
+    6 pass 0 fail incl. the live executor case (leg3-price-chart.log 1c8837545abc5776). D2 fixed.
+- Head of the legs: the scripts carry no head guard and no log names the head; the owner's worktree reflog shows its last move at
+  2026-10-16T23:19:21Z ('reset: moving to HEAD' at 31ce24621) and HEAD 31ce24621 clean now, so the legs ran on the frozen head. Note: a
+  head guard is required in later freeze-leg scripts.
+- D4 (preview-isolation under the hosted journald-less conmon) and D5's hosted content proof are proven only by the push's hosted run
+  (named gaps); locally: the argv assertion, my stdout check with --log-driver=none, and the D5 pair case.
+This ACCEPT names 31ce24621d908b066e24400c4a1fbdf1737e5fa7 for the merge prep after the W4H-32 publish (prep inputs pre-checked in
+plan-w4h-33b.md; the base is then the W4H-32 merge commit).

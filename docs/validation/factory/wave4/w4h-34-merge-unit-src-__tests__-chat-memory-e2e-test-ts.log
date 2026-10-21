@@ -1,0 +1,21 @@
+bun test v1.4.2 (744846f84)
+{"ts":"2026-10-17T23:29:10.137Z","level":"info","msg":"skipped: model lacks image input capability","subsystem":"executor.loadHistory.rehydrate","branchLen":0}
+{"ts":"2026-10-17T23:29:10.160Z","level":"warn","msg":"Task-tracking wire failed — task tools unavailable this turn","subsystem":"executor.streamChat.setup","error":"TaskTrackingNotInstalledError: task-tracking extension not installed — did ensureBundledExtensions() run?"}
+{"ts":"2026-10-17T23:29:10.161Z","level":"warn","msg":"ask-user extension not installed — did ensureBundledExtensions() run?","subsystem":"ask-user-host"}
+{"ts":"2026-10-17T23:29:10.161Z","level":"info","msg":"briefing chat tools wired for turn","subsystem":"briefing.chat-tools","conversationId":"603431bd-4cab-45bf-962a-63d27f93fd9b","userId":"9e3941a2-a280-4f20-9416-22424074b35d","registered":4,"expected":4}
+{"ts":"2026-10-17T23:29:10.162Z","level":"info","msg":"run_workflow wired for turn","subsystem":"workflow-tools-host","conversationId":"603431bd-4cab-45bf-962a-63d27f93fd9b","userId":"9e3941a2-a280-4f20-9416-22424074b35d","projectId":"38bb938e-27fd-4876-a951-687bd013097a"}
+{"ts":"2026-10-17T23:29:10.166Z","level":"info","msg":"Agent orchestration resolution","subsystem":"executor.streamChat.setup","userMessage":"What are my preferences?","agents":[],"teams":[],"depth":0}
+{"ts":"2026-10-17T23:29:10.174Z","level":"info","msg":"turn cache","subsystem":"executor.streamChat.subscribe","provider":"anthropic","model":"test-model","hitRate":0,"cachedTokens":0,"cacheWriteTokens":0,"cacheWrite1hTokens":0,"promptTokens":10}
+{"ts":"2026-10-17T23:29:10.174Z","level":"info","msg":"conversation cache summary","subsystem":"executor.streamChat.subscribe","turns":1,"overallHitRate":0,"cachedTokens":0,"promptTokens":10,"segments":[{"provider":"anthropic","model":"test-model","hitRate":0,"cachedTokens":0,"cacheWrite1hTokens":0,"turns":1}]}
+{"ts":"2026-10-17T23:29:10.184Z","level":"info","msg":"skipped: model lacks image input capability","subsystem":"executor.loadHistory.rehydrate","branchLen":0}
+{"ts":"2026-10-17T23:29:10.191Z","level":"warn","msg":"Task-tracking wire failed — task tools unavailable this turn","subsystem":"executor.streamChat.setup","error":"TaskTrackingNotInstalledError: task-tracking extension not installed — did ensureBundledExtensions() run?"}
+{"ts":"2026-10-17T23:29:10.191Z","level":"warn","msg":"ask-user extension not installed — did ensureBundledExtensions() run?","subsystem":"ask-user-host"}
+{"ts":"2026-10-17T23:29:10.192Z","level":"warn","msg":"run_workflow wire skipped — the conversation row has no owner, so a run could not be authorized","subsystem":"executor.streamChat.setup","conversationId":"9fa20fc0-0f53-4d7b-b69c-9b9d5eacbd11"}
+{"ts":"2026-10-17T23:29:10.194Z","level":"info","msg":"Agent orchestration resolution","subsystem":"executor.streamChat.setup","userMessage":"What is the rate limit?","agents":[],"teams":[],"depth":0}
+{"ts":"2026-10-17T23:29:10.197Z","level":"info","msg":"turn cache","subsystem":"executor.streamChat.subscribe","provider":"anthropic","model":"test-model","hitRate":0,"cachedTokens":0,"cacheWriteTokens":0,"cacheWrite1hTokens":0,"promptTokens":10}
+{"ts":"2026-10-17T23:29:10.198Z","level":"info","msg":"conversation cache summary","subsystem":"executor.streamChat.subscribe","turns":1,"overallHitRate":0,"cachedTokens":0,"promptTokens":10,"segments":[{"provider":"anthropic","model":"test-model","hitRate":0,"cachedTokens":0,"cacheWrite1hTokens":0,"turns":1}]}
+
+ 2 pass
+ 0 fail
+ 5 expect() calls
+Ran 2 tests across 1 file. [1060.00ms]

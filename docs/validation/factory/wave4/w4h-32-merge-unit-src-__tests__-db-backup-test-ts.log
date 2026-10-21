@@ -1,0 +1,12 @@
+bun test v1.4.2 (744846f84)
+{"ts":"2026-10-17T04:30:07.290Z","level":"info","msg":"Pre-boot snapshot taken","subsystem":"db","path":"/tmp/pi-backup-test-vAOYeA/backups/pre-boot-abc123def456-2026-10-17T04-30-07-290Z"}
+{"ts":"2026-10-17T04:30:07.291Z","level":"info","msg":"Pre-boot snapshot taken","subsystem":"db","path":"/tmp/pi-backup-test-v1byEK/backups/pre-boot-dev-2026-10-17T04-30-07-290Z"}
+{"ts":"2026-10-17T04:30:07.291Z","level":"info","msg":"Pre-boot snapshot taken","subsystem":"db","path":"/tmp/pi-backup-test-GpRgRD/backups/pre-boot-dev-2026-10-17T04-30-07-291Z"}
+{"ts":"2026-10-17T04:30:07.292Z","level":"warn","msg":"Could not parse migration marker","subsystem":"db","error":"SyntaxError: JSON Parse error: Unexpected identifier \"not\""}
+{"ts":"2026-10-17T04:30:07.293Z","level":"error","msg":"Backup failed","subsystem":"db","error":"Error: ENOENT: no such file or directory, lstat '/tmp/pi-backup-test-Kgw79k/test-pg'"}
+{"ts":"2026-10-17T04:30:07.297Z","level":"error","msg":"Daily backup promotion failed","subsystem":"db","error":"Error: ENOENT: no such file or directory, lstat '/tmp/pi-backup-test-aidksY/backups/ezcorp-db-2026-10-17T04-30-07-297Z'"}
+
+ 24 pass
+ 0 fail
+ 49 expect() calls
+Ran 24 tests across 1 file. [459.00ms]

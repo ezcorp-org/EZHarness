@@ -1,0 +1,7 @@
+0b7e19e42ea39fe9  typecheck/run-20261017T062923Z/typecheck.log
+1d8610070f2ce440  typecheck/run-20261017T062923Z/tc-gate.log
+c809ed5ece367d18  typecheck/run-20261017T062923Z/batch.log
+9a271f2a916b0b6e  typecheck/typecheck.exit
+b2e034086a638976  typecheck/launch.txt
+5e81ff01168b9f1c  typecheck/gated-flock.log
+dae508bace549724  typecheck/typecheck-in-lock.sh

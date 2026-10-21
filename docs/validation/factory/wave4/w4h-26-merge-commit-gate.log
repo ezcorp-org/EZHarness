@@ -1,0 +1,16 @@
+resource-gate 2026-10-14T04:59:37Z w4h-26-commit outside-lock disk=103G memAvailable=17GiB swapFreeKiB=7876120/17173956 floors disk>=104G swap>=2621440KiB mem>=12GiB
+resource-gate w4h-26-commit outside-lock STOP: disk 103G below the 104 GB floor
+resource-gate 2026-10-14T05:01:37Z w4h-26-commit outside-lock disk=103G memAvailable=18GiB swapFreeKiB=7878976/17173956 floors disk>=104G swap>=2621440KiB mem>=12GiB
+resource-gate w4h-26-commit outside-lock STOP: disk 103G below the 104 GB floor
+resource-gate 2026-10-14T05:03:37Z w4h-26-commit outside-lock disk=116G memAvailable=18GiB swapFreeKiB=7881748/17173956 floors disk>=104G swap>=2621440KiB mem>=12GiB
+gated-flock w4h-26-commit: gate green outside the lock, queue for the lock (try 1) 2026-10-14T05:03:37Z
+resource-gate 2026-10-14T05:03:37Z commit-start disk=116G memAvailable=18GiB swapFreeKiB=7881748/17173956 floors disk>=100G swap>=2097152KiB mem>=12GiB
+hook full-run form: EZ_PRECOMMIT_TEST_MAX=26 (the list /tmp/factory-platform-evidence/w00/w4h-merge/w4h-26-runner-wiring/hook-mapped-27c946050.txt)
+commit.sh exit=0 2026-10-14T05:07:36Z
+gated-flock w4h-26-commit: command exit 0 2026-10-14T05:07:36Z
+resource-gate 2026-10-14T05:20:32Z w4h-26-commit-r8 outside-lock disk=116G memAvailable=18GiB swapFreeKiB=7714132/17173956 floors disk>=104G swap>=2621440KiB mem>=12GiB
+gated-flock w4h-26-commit-r8: gate green outside the lock, queue for the lock (try 1) 2026-10-14T05:20:32Z
+resource-gate 2026-10-14T05:20:32Z commit-start disk=116G memAvailable=18GiB swapFreeKiB=7714132/17173956 floors disk>=100G swap>=2097152KiB mem>=12GiB
+hook full-run form: EZ_PRECOMMIT_TEST_MAX=26 (the list /tmp/factory-platform-evidence/w00/w4h-merge/w4h-26-runner-wiring/hook-mapped-dd99adfd6.txt)
+commit.sh exit=0 2026-10-14T05:24:28Z
+gated-flock w4h-26-commit-r8: command exit 0 2026-10-14T05:24:28Z

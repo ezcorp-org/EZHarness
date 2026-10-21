@@ -1,0 +1,8 @@
+bun test v1.4.2 (744846f84)
+{"ts":"2026-10-17T23:35:30.329Z","level":"warn","msg":"Model \"gemini-2.5-flash-lite\" is pinned for provider \"google\" (pinned by conversation pin) but is not in the installed pi-ai catalog. The request still goes to google, but the context window and per-token pricing are ESTIMATES (128k, unpriced), so long threads may be compacted more aggressively and spend will report as unmeasured. Re-pin the conversation to a listed model, or run refresh-models if the provider still serves this id.","subsystem":"providers.router","provider":"google","modelId":"gemini-2.5-flash-lite"}
+{"ts":"2026-10-17T23:35:30.331Z","level":"warn","msg":"LLM unavailable, skipping merge","subsystem":"memory"}
+
+ 14 pass
+ 0 fail
+ 40 expect() calls
+Ran 14 tests across 1 file. [1212.00ms]

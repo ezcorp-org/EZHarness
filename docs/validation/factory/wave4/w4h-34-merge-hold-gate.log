@@ -1,0 +1,8 @@
+COORD_WORD=9a43ee3e w4h-34-hold 2026-10-17T23:19:22Z
+lock condition: read1 mem=18.4 lock=free gated=0 holders=0 yield=no | read2 mem=18.7 lock=free gated=0 holders=0 yield=no
+gated-flock w4h-34-hold: start gate mem>=12GiB+3GiB margin 2026-10-17T23:20:22Z
+resource-gate 2026-10-17T23:20:22Z w4h-34-hold outside-lock disk=158G memAvailable=18GiB swapFreeKiB=65600/17173956 floors disk>=104G mem>=15GiB mem+swap>=18350080KiB (swap component 2621440KiB)
+gated-flock w4h-34-hold: gate green outside the lock, queue for the lock (try 1) 2026-10-17T23:20:23Z
+own-pg: w4h-34-hold-pg (docker.io/pgvector/pgvector@sha256:9a169499888c9d75ad14d0401be64839d2c325f32e399098261589faff93d65c 4b4956e2ab1f, server 15.19) on 127.0.0.1:40781
+gated-flock w4h-34-hold: bun pin repo=/home/dev/work/EZCorp/EZHarness-worktrees/composable-factory-platform/.worktrees/w00-integration ok bun 1.4.2 /tmp/factory-tools/bun-1.4.2/bun-linux-x64 node v24.14.1 /tmp/factory-tools/node-24.14.1/bin
+gated-flock w4h-34-hold: command exit 0 2026-10-18T00:43:31Z

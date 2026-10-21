@@ -1,0 +1,18 @@
+bun test v1.4.2 (744846f84)
+
+packages/@ezcorp/ai-kit/test/e2e/doctor.test.ts:
+─────────────────────────────────────
+CHECK                 STATUS   DETAIL
+─────────────────────────────────────
+backend /api/health    FAIL    TypeError: Unable to connect. Is the computer able to access the url?
+auth /api/auth/me       ok     EZCORP_API_KEY not set — skipped
+mcp tools registered    ok     list_projects, list_agents, search_mentions, list_models, list_extensions, extension_search, register, start_chat, send_message, get_messages, stream_run, cancel_run, register, create_agent, generate_agent, get_agent, register, list_sub_conversations, assign_task, start_assignment, spawn_chats, spawn_agents, spawn_team, register
+─────────────────────────────────────
+
+One or more checks failed. Fix the issues above and re-run `ai-kit doctor`.
+
+ 1 pass
+ 2 skip
+ 0 fail
+ 1 expect() calls
+Ran 3 tests across 1 file. [465.00ms]

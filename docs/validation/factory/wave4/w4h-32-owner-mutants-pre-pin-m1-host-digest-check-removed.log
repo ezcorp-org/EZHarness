@@ -1,0 +1,26 @@
+# 2026-10-16T00:01:36.482808+00:00 mutant m1-host-digest-check-removed in src/extensions/runner-rehydration.ts
+# cmd: bun test --timeout 30000 ./src/extensions/runner-rehydration.test.ts
+bun test v1.4.2 (744846f84)
+
+src/extensions/runner-rehydration.test.ts:
+127 | 
+128 |   test("blob bytes that do not hash to the digest are refused digest_mismatch and never reach the runner", async () => {
+129 |     const { runner, calls } = fakeRunner();
+130 |     const tampered = new TextEncoder().encode(canonicalJson({ ...files, "extension.js": "export const changed = 1;" }));
+131 |     const { source: rehydration } = source(fakeBlobs(async () => tampered).blobs);
+132 |     await expect(createRehydratingRunner(runner, rehydration).collectArtifacts(artifact)).rejects.toMatchObject({ code: "artifact_unrecoverable", expectedDigest: artifact, reason: "digest_mismatch" });
+                                                                                                        ^
+error: expect(received).rejects.toMatchObject(expected)
+
+Expected promise that rejects
+Received promise that resolved: Promise { <resolved> }
+
+      at <anonymous> (/home/dev/work/EZCorp/EZHarness/.worktrees/w4h-32/src/extensions/runner-rehydration.test.ts:132:99)
+(fail) rehydration of a missing runner artifact (W4H-32) > blob bytes that do not hash to the digest are refused digest_mismatch and never reach the runner [0.20ms]
+
+ 14 pass
+ 1 fail
+ 46 expect() calls
+Ran 15 tests across 1 file. [2.12s]
+
+# exit=1

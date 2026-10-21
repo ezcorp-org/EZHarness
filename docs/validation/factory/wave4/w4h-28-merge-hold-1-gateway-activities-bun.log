@@ -1,0 +1,491 @@
+bun test v1.4.2 (744846f84)
+v8.promiseHooks.createHook is not available; stack trace collection will be disabled.
+[2m2026-10-16T07:31:03.420827Z[0m [33m WARN[0m [2mtemporalio_sdk_core::worker[0m[2m:[0m Temporal Server 1.16.0 or newer is required to guarantee that the latest heartbeat details are preserved when an activity fails; the server did not advertise the activity_failure_include_heartbeat capability, so heartbeat details may be lost on failure
+2026-10-16T07:31:03.422Z [INFO] Worker state changed {
+  sdkComponent: 'worker',
+  taskQueue: 'factory-orchestrator',
+  state: 'RUNNING'
+}
+2026-10-16T07:31:03.424Z [INFO] No Nexus services registered, not polling for Nexus tasks { sdkComponent: 'worker', taskQueue: 'factory-orchestrator' }
+
+packages/@ezcorp/factory-orchestrator/test/gateway-activities.test.ts:
+111 |       return;
+112 |     }
+113 |     if (mode === "http-error") { response.writeHead(503).end("unavailable"); return; }
+114 |     if (mode === "large") { response.writeHead(200).end("x".repeat(33 * 1024)); return; }
+115 |     if (mode === "invalid-json") { response.writeHead(200).end("not-json"); return; }
+116 |     const peer = (request.socket as TLSSocket).getPeerCertificate();
+                                                     ^
+TypeError: request.socket.getPeerCertificate is not a function. (In 'request.socket.getPeerCertificate()', 'request.socket.getPeerCertificate' is undefined)
+      at <anonymous> (/home/dev/work/EZCorp/EZHarness-worktrees/composable-factory-platform/.worktrees/w00-integration/packages/@ezcorp/factory-orchestrator/test/gateway-activities.test.ts:116:48)
+(fail) authenticated factory gateway activities > keeps production readiness closed when the real server cannot prove its task queue poller [328.30ms]
+111 |       return;
+112 |     }
+113 |     if (mode === "http-error") { response.writeHead(503).end("unavailable"); return; }
+114 |     if (mode === "large") { response.writeHead(200).end("x".repeat(33 * 1024)); return; }
+115 |     if (mode === "invalid-json") { response.writeHead(200).end("not-json"); return; }
+116 |     const peer = (request.socket as TLSSocket).getPeerCertificate();
+                                                     ^
+TypeError: request.socket.getPeerCertificate is not a function. (In 'request.socket.getPeerCertificate()', 'request.socket.getPeerCertificate' is undefined)
+      at <anonymous> (/home/dev/work/EZCorp/EZHarness-worktrees/composable-factory-platform/.worktrees/w00-integration/packages/@ezcorp/factory-orchestrator/test/gateway-activities.test.ts:116:48)
+(fail) authenticated factory gateway activities > shares a bounded credential-reloading HTTP transport without Temporal imports [0.56ms]
+111 |       return;
+112 |     }
+113 |     if (mode === "http-error") { response.writeHead(503).end("unavailable"); return; }
+114 |     if (mode === "large") { response.writeHead(200).end("x".repeat(33 * 1024)); return; }
+115 |     if (mode === "invalid-json") { response.writeHead(200).end("not-json"); return; }
+116 |     const peer = (request.socket as TLSSocket).getPeerCertificate();
+                                                     ^
+TypeError: request.socket.getPeerCertificate is not a function. (In 'request.socket.getPeerCertificate()', 'request.socket.getPeerCertificate' is undefined)
+      at <anonymous> (/home/dev/work/EZCorp/EZHarness-worktrees/composable-factory-platform/.worktrees/w00-integration/packages/@ezcorp/factory-orchestrator/test/gateway-activities.test.ts:116:48)
+(fail) authenticated factory gateway activities > rejects caller URLs before sending private credentials [0.61ms]
+111 |       return;
+112 |     }
+113 |     if (mode === "http-error") { response.writeHead(503).end("unavailable"); return; }
+114 |     if (mode === "large") { response.writeHead(200).end("x".repeat(33 * 1024)); return; }
+115 |     if (mode === "invalid-json") { response.writeHead(200).end("not-json"); return; }
+116 |     const peer = (request.socket as TLSSocket).getPeerCertificate();
+                                                     ^
+TypeError: request.socket.getPeerCertificate is not a function. (In 'request.socket.getPeerCertificate()', 'request.socket.getPeerCertificate' is undefined)
+      at <anonymous> (/home/dev/work/EZCorp/EZHarness-worktrees/composable-factory-platform/.worktrees/w00-integration/packages/@ezcorp/factory-orchestrator/test/gateway-activities.test.ts:116:48)
+(fail) authenticated factory gateway activities > uses verified mutual TLS, scoped routes, and immutable page digests [3.21ms]
+111 |       return;
+112 |     }
+113 |     if (mode === "http-error") { response.writeHead(503).end("unavailable"); return; }
+114 |     if (mode === "large") { response.writeHead(200).end("x".repeat(33 * 1024)); return; }
+115 |     if (mode === "invalid-json") { response.writeHead(200).end("not-json"); return; }
+116 |     const peer = (request.socket as TLSSocket).getPeerCertificate();
+                                                     ^
+TypeError: request.socket.getPeerCertificate is not a function. (In 'request.socket.getPeerCertificate()', 'request.socket.getPeerCertificate' is undefined)
+      at <anonymous> (/home/dev/work/EZCorp/EZHarness-worktrees/composable-factory-platform/.worktrees/w00-integration/packages/@ezcorp/factory-orchestrator/test/gateway-activities.test.ts:116:48)
+(fail) authenticated factory gateway activities > reloads the service token and client identity after credential rotation [2.29ms]
+111 |       return;
+112 |     }
+113 |     if (mode === "http-error") { response.writeHead(503).end("unavailable"); return; }
+114 |     if (mode === "large") { response.writeHead(200).end("x".repeat(33 * 1024)); return; }
+115 |     if (mode === "invalid-json") { response.writeHead(200).end("not-json"); return; }
+116 |     const peer = (request.socket as TLSSocket).getPeerCertificate();
+                                                     ^
+TypeError: request.socket.getPeerCertificate is not a function. (In 'request.socket.getPeerCertificate()', 'request.socket.getPeerCertificate' is undefined)
+      at <anonymous> (/home/dev/work/EZCorp/EZHarness-worktrees/composable-factory-platform/.worktrees/w00-integration/packages/@ezcorp/factory-orchestrator/test/gateway-activities.test.ts:116:48)
+(fail) authenticated factory gateway activities > keeps a fully escaped 32 KiB page below the 64 KiB activity boundary [2.32ms]
+2026-10-16T07:31:03.452Z [WARN] Activity failed {
+  sdkComponent: 'worker',
+  isLocal: false,
+  attempt: 1,
+  namespace: 'test',
+  taskToken: 'dGVzdA==',
+  activityId: 'test',
+  activityType: 'unknown',
+  taskQueue: 'test',
+  workflowId: 'test',
+  workflowRunId: '00000000-0000-0000-0000-000000000000',
+  workflowType: 'test',
+  error: Error: error:0900006e:PEM routines:OPENSSL_internal:NO_START_LINE
+      at intern (unknown)
+      at newNativeSecureContext (node:tls:379:86)
+      at new SecureContext (node:tls:426:42)
+      at new TLSSocket (node:tls:468:76)
+      at connect (node:tls:934:30)
+      at createConnection (node:https:142:105)
+      at createSocket (node:_http_agent:148:40)
+      at addRequest (node:_http_agent:125:22)
+      at new ClientRequest (node:_http_client:191:25)
+      at request (node:https:12:119)
+      at async <anonymous> (/home/dev/work/EZCorp/EZHarness-worktrees/composable-factory-platform/.worktrees/w00-integration/packages/@ezcorp/factory-orchestrator/src/gateway-activities.ts:58:30)
+      at async recordTransition (/home/dev/work/EZCorp/EZHarness-worktrees/composable-factory-platform/.worktrees/w00-integration/packages/@ezcorp/factory-orchestrator/src/gateway-activities.ts:80:13)
+      at async execute (/home/dev/work/EZCorp/EZHarness-worktrees/composable-factory-platform/.worktrees/w00-integration/node_modules/.bun/@temporalio+worker@1.23.0+cf39f8fdfb45fa05/node_modules/@temporalio/worker/lib/activity.js:104:26) {
+    library: 'PEM routines',
+    function: 'OPENSSL_internal',
+    reason: 'NO_START_LINE',
+    code: 'ERR_OSSL_PEM_NO_START_LINE'
+  },
+  durationMs: 0
+}
+2026-10-16T07:31:03.454Z [WARN] Activity failed {
+  sdkComponent: 'worker',
+  isLocal: false,
+  attempt: 1,
+  namespace: 'test',
+  taskToken: 'dGVzdA==',
+  activityId: 'test',
+  activityType: 'unknown',
+  taskQueue: 'test',
+  workflowId: 'test',
+  workflowRunId: '00000000-0000-0000-0000-000000000000',
+  workflowType: 'test',
+  error: [Error: self signed certificate in certificate chain] {
+    code: 'SELF_SIGNED_CERT_IN_CHAIN',
+    errno: 0
+  },
+  durationMs: 1
+}
+2026-10-16T07:31:03.456Z [WARN] Activity failed {
+  sdkComponent: 'worker',
+  isLocal: false,
+  attempt: 1,
+  namespace: 'test',
+  taskToken: 'dGVzdA==',
+  activityId: 'test',
+  activityType: 'unknown',
+  taskQueue: 'test',
+  workflowId: 'test',
+  workflowRunId: '00000000-0000-0000-0000-000000000000',
+  workflowType: 'test',
+  error: Error: Hostname/IP does not match certificate's altnames: IP: 127.0.0.1 is not in the cert's list: 
+      at unknown
+      at onClientHandshakeComplete (node:net:118:42)
+      at handshake (node:net:696:30) {
+    reason: "IP: 127.0.0.1 is not in the cert's list: ",
+    host: '127.0.0.1',
+    cert: {
+      subject: [Object: null prototype],
+      issuer: [Object: null prototype],
+      subjectaltname: 'DNS:localhost',
+      infoAccess: undefined,
+      modulus: 'A4810C23496A015FB6927D77FEF657FF687E28F2BFDD4720F39328266D9E6BB1D4E0C23D9881CF86A5A62B073167CAD8299B77EA2D8F0E45FBA88F6494A6FA70D09FF608A804EE98059364377153615D272F6236838A65373D4245A127FE61CBDE36B5B0C0851F61581D43CA997FF1D4FC313A1D8D471F7255FAF787298D31DAB4F0E0C7A79ECFF4A90C505278CB97B47107376BD0E889ABBAA0D094F41C258CEEE49F14A3B413C91C6639AAC71F5BD4568A9E997F56547C7BB05556F3E1B5094A072686F4D7530B741528B0C0106AF416DAB9091A10D0A560D479FC58E7F95DE9E3B522CA9FED13F0F1E6BE8B1B0A5DDB9D849ACB0770E47FF33F9C2C04F167',
+      exponent: '0x10001',
+      bits: 2048,
+      pubkey: <Buffer 30 82 01 22 30 0d 06 09 2a 86 48 86 f7 0d 01 01 01 05 00 03 82 01 0f 00 30 82 01 0a 02 82 01 01 00 a4 81 0c 23 49 6a 01 5f b6 92 7d 77 fe f6 57 ff 68 ... 244 more bytes>,
+      valid_from: 'Oct 16 07:31:03 2026 GMT',
+      valid_to: 'Oct 17 07:31:03 2026 GMT',
+      fingerprint: 'A7:86:A1:B3:6A:62:CF:4C:8A:1B:C2:2A:6E:79:5B:C6:DC:D7:D3:12',
+      fingerprint256: 'A9:4A:D8:4F:CC:F4:F2:F4:8F:6B:21:D7:F9:78:F7:B8:05:11:E7:F4:A3:96:D1:C9:03:DC:DB:08:7A:0E:9B:CB',
+      fingerprint512: 'D2:8B:8C:9C:FE:5B:99:B2:56:7D:E6:77:CA:29:BE:9E:1F:55:34:AD:95:5A:3F:A1:23:EA:E5:5F:24:29:AE:DD:0E:CF:01:3E:AB:F9:CA:43:BD:8F:0E:15:BB:B5:31:F5:04:40:BE:B2:C1:3D:4C:FC:EA:02:F9:88:2B:5B:C9:7E',
+      ext_key_usage: [Array],
+      serialNumber: '71EA6C97A84A662D154EC24EF3C75A7A5EC42B00',
+      raw: <Buffer 30 82 03 29 30 82 02 11 a0 03 02 01 02 02 14 71 ea 6c 97 a8 4a 66 2d 15 4e c2 4e f3 c7 5a 7a 5e c4 2b 00 30 0d 06 09 2a 86 48 86 f7 0d 01 01 0b 05 00 ... 763 more bytes>,
+      ca: false,
+      issuerCertificate: [Object]
+    }
+  },
+  durationMs: 1
+}
+2026-10-16T07:31:03.462Z [WARN] Activity failed {
+  sdkComponent: 'worker',
+  isLocal: false,
+  attempt: 1,
+  namespace: 'test',
+  taskToken: 'dGVzdA==',
+  activityId: 'test',
+  activityType: 'unknown',
+  taskQueue: 'test',
+  workflowId: 'test',
+  workflowRunId: '00000000-0000-0000-0000-000000000000',
+  workflowType: 'test',
+  error: GatewayStatusError: factory gateway returned HTTP 503
+      at requireSuccess (/home/dev/work/EZCorp/EZHarness-worktrees/composable-factory-platform/.worktrees/w00-integration/packages/@ezcorp/factory-transport/src/index.ts:63:74)
+      at async <anonymous> (/home/dev/work/EZCorp/EZHarness-worktrees/composable-factory-platform/.worktrees/w00-integration/packages/@ezcorp/factory-orchestrator/src/gateway-activities.ts:58:30)
+      at async recordTransition (/home/dev/work/EZCorp/EZHarness-worktrees/composable-factory-platform/.worktrees/w00-integration/packages/@ezcorp/factory-orchestrator/src/gateway-activities.ts:80:13)
+      at async execute (/home/dev/work/EZCorp/EZHarness-worktrees/composable-factory-platform/.worktrees/w00-integration/node_modules/.bun/@temporalio+worker@1.23.0+cf39f8fdfb45fa05/node_modules/@temporalio/worker/lib/activity.js:104:26)
+      at processTicksAndRejections (native:7:39) {
+    response: {
+      statusCode: 503,
+      headers: [Object],
+      body: <Buffer 75 6e 61 76 61 69 6c 61 62 6c 65>
+    }
+  },
+  durationMs: 4
+}
+2026-10-16T07:31:03.463Z [WARN] Activity failed {
+  sdkComponent: 'worker',
+  isLocal: false,
+  attempt: 1,
+  namespace: 'test',
+  taskToken: 'dGVzdA==',
+  activityId: 'test',
+  activityType: 'unknown',
+  taskQueue: 'test',
+  workflowId: 'test',
+  workflowRunId: '00000000-0000-0000-0000-000000000000',
+  workflowType: 'test',
+  error: Error: factory gateway returned invalid JSON
+      at parseJson (/home/dev/work/EZCorp/EZHarness-worktrees/composable-factory-platform/.worktrees/w00-integration/packages/@ezcorp/factory-orchestrator/src/gateway-activities.ts:41:15)
+      at resolveFactory (/home/dev/work/EZCorp/EZHarness-worktrees/composable-factory-platform/.worktrees/w00-integration/packages/@ezcorp/factory-orchestrator/src/gateway-activities.ts:92:22)
+      at async execute (/home/dev/work/EZCorp/EZHarness-worktrees/composable-factory-platform/.worktrees/w00-integration/node_modules/.bun/@temporalio+worker@1.23.0+cf39f8fdfb45fa05/node_modules/@temporalio/worker/lib/activity.js:104:26)
+      at processTicksAndRejections (native:7:39),
+  durationMs: 0
+}
+111 |       return;
+112 |     }
+113 |     if (mode === "http-error") { response.writeHead(503).end("unavailable"); return; }
+114 |     if (mode === "large") { response.writeHead(200).end("x".repeat(33 * 1024)); return; }
+115 |     if (mode === "invalid-json") { response.writeHead(200).end("not-json"); return; }
+116 |     const peer = (request.socket as TLSSocket).getPeerCertificate();
+                                                     ^
+TypeError: request.socket.getPeerCertificate is not a function. (In 'request.socket.getPeerCertificate()', 'request.socket.getPeerCertificate' is undefined)
+      at <anonymous> (/home/dev/work/EZCorp/EZHarness-worktrees/composable-factory-platform/.worktrees/w00-integration/packages/@ezcorp/factory-orchestrator/test/gateway-activities.test.ts:116:48)
+(fail) authenticated factory gateway activities > fails closed on bad configuration, HTTP, JSON, digest, size, timeout, and cancellation [6.80ms]
+111 |       return;
+112 |     }
+113 |     if (mode === "http-error") { response.writeHead(503).end("unavailable"); return; }
+114 |     if (mode === "large") { response.writeHead(200).end("x".repeat(33 * 1024)); return; }
+115 |     if (mode === "invalid-json") { response.writeHead(200).end("not-json"); return; }
+116 |     const peer = (request.socket as TLSSocket).getPeerCertificate();
+                                                     ^
+TypeError: request.socket.getPeerCertificate is not a function. (In 'request.socket.getPeerCertificate()', 'request.socket.getPeerCertificate' is undefined)
+      at <anonymous> (/home/dev/work/EZCorp/EZHarness-worktrees/composable-factory-platform/.worktrees/w00-integration/packages/@ezcorp/factory-orchestrator/test/gateway-activities.test.ts:116:48)
+(fail) authenticated factory command queue > claims, settles, and confirms through the installation-scoped private routes [1.36ms]
+111 |       return;
+112 |     }
+113 |     if (mode === "http-error") { response.writeHead(503).end("unavailable"); return; }
+114 |     if (mode === "large") { response.writeHead(200).end("x".repeat(33 * 1024)); return; }
+115 |     if (mode === "invalid-json") { response.writeHead(200).end("not-json"); return; }
+116 |     const peer = (request.socket as TLSSocket).getPeerCertificate();
+                                                     ^
+TypeError: request.socket.getPeerCertificate is not a function. (In 'request.socket.getPeerCertificate()', 'request.socket.getPeerCertificate' is undefined)
+      at <anonymous> (/home/dev/work/EZCorp/EZHarness-worktrees/composable-factory-platform/.worktrees/w00-integration/packages/@ezcorp/factory-orchestrator/test/gateway-activities.test.ts:116:48)
+(fail) authenticated factory command queue > carries a legal near-64 KiB command inside the larger private envelope [1.19ms]
+111 |       return;
+112 |     }
+113 |     if (mode === "http-error") { response.writeHead(503).end("unavailable"); return; }
+114 |     if (mode === "large") { response.writeHead(200).end("x".repeat(33 * 1024)); return; }
+115 |     if (mode === "invalid-json") { response.writeHead(200).end("not-json"); return; }
+116 |     const peer = (request.socket as TLSSocket).getPeerCertificate();
+                                                     ^
+TypeError: request.socket.getPeerCertificate is not a function. (In 'request.socket.getPeerCertificate()', 'request.socket.getPeerCertificate' is undefined)
+      at <anonymous> (/home/dev/work/EZCorp/EZHarness-worktrees/composable-factory-platform/.worktrees/w00-integration/packages/@ezcorp/factory-orchestrator/test/gateway-activities.test.ts:116:48)
+(fail) authenticated factory command queue > returns an empty claim and rejects malformed command or confirmation responses [1.30ms]
+2026-10-16T07:31:03.484Z [WARN] Activity failed {
+  sdkComponent: 'worker',
+  isLocal: false,
+  attempt: 1,
+  namespace: 'test',
+  taskToken: 'dGVzdA==',
+  activityId: 'test',
+  activityType: 'unknown',
+  taskQueue: 'test',
+  workflowId: 'test',
+  workflowRunId: '00000000-0000-0000-0000-000000000000',
+  workflowType: 'test',
+  error: Error: factory gateway request timed out
+      at <anonymous> (/home/dev/work/EZCorp/EZHarness-worktrees/composable-factory-platform/.worktrees/w00-integration/packages/@ezcorp/factory-transport/src/index.ts:113:29),
+  durationMs: 20
+}
+
+# Unhandled error between tests
+-------------------------------
+368 |     mode = "http-error";
+369 |     await assert.rejects(activity(new MockActivityEnvironment(), activities.recordTransition, transition), /HTTP 503/);
+370 |     mode = "invalid-json";
+371 |     await assert.rejects(activity(new MockActivityEnvironment(), activities.resolveFactory, { ...identity, commandId: "child-command", factory: { id: "child", version: "1", digest: definitionDigest } }), /invalid JSON/);
+372 |     mode = "wrong-resolve";
+373 |     await assert.rejects(activity(new MockActivityEnvironment(), activities.resolveFactory, { ...identity, commandId: "child-command", factory: { id: "child", version: "1", digest: definitionDigest } }), /pinned child/);
+                       ^
+AssertionError: The input did not match the regular expression /pinned child/. Input:
+
+'Error: factory gateway request timed out'
+
+ generatedMessage: true,
+   expected: /pinned child/,
+   operator: "rejects",
+       diff: "simple",
+       code: "ERR_ASSERTION"
+
+      at expectedException (node:assert:327:33)
+      at expectsError (node:assert:395:20)
+      at assert.rejects (node:assert:434:17)
+      at /home/dev/work/EZCorp/EZHarness-worktrees/composable-factory-platform/.worktrees/w00-integration/packages/@ezcorp/factory-orchestrator/test/gateway-activities.test.ts:373:18
+      at node:test:1445:26
+      at executeTestNode (node:test:1448:63)
+      at processTicksAndRejections (native:7:39)
+
+108 |           response.once("close", () => { if (!ended) reject(new Error("factory gateway response closed before it ended")); });
+109 |           response.on("end", () => resolve({ statusCode: response.statusCode ?? 0, headers: response.headers, body: Buffer.concat(chunks) }));
+110 |           response.on("error", reject);
+111 |         });
+112 |         const deadline = setTimeout(() => {
+113 |           const error = new Error("factory gateway request timed out");
+                                  ^
+error: factory gateway request timed out
+      at /home/dev/work/EZCorp/EZHarness-worktrees/composable-factory-platform/.worktrees/w00-integration/packages/@ezcorp/factory-transport/src/index.ts:113:29
+-------------------------------
+
+
+# Unhandled error between tests
+-------------------------------
+108 |           response.once("close", () => { if (!ended) reject(new Error("factory gateway response closed before it ended")); });
+109 |           response.on("end", () => resolve({ statusCode: response.statusCode ?? 0, headers: response.headers, body: Buffer.concat(chunks) }));
+110 |           response.on("error", reject);
+111 |         });
+112 |         const deadline = setTimeout(() => {
+113 |           const error = new Error("factory gateway request timed out");
+                                  ^
+error: factory gateway request timed out
+      at /home/dev/work/EZCorp/EZHarness-worktrees/composable-factory-platform/.worktrees/w00-integration/packages/@ezcorp/factory-transport/src/index.ts:113:29
+-------------------------------
+
+2026-10-16T07:31:04.446Z [WARN] Activity failed {
+  sdkComponent: 'worker',
+  isLocal: false,
+  attempt: 1,
+  namespace: 'test',
+  taskToken: 'dGVzdA==',
+  activityId: 'test',
+  activityType: 'unknown',
+  taskQueue: 'test',
+  workflowId: 'test',
+  workflowRunId: '00000000-0000-0000-0000-000000000000',
+  workflowType: 'test',
+  error: Error: factory gateway request timed out
+      at <anonymous> (/home/dev/work/EZCorp/EZHarness-worktrees/composable-factory-platform/.worktrees/w00-integration/packages/@ezcorp/factory-transport/src/index.ts:113:29),
+  durationMs: 1000
+}
+
+# Unhandled error between tests
+-------------------------------
+108 |           response.once("close", () => { if (!ended) reject(new Error("factory gateway response closed before it ended")); });
+109 |           response.on("end", () => resolve({ statusCode: response.statusCode ?? 0, headers: response.headers, body: Buffer.concat(chunks) }));
+110 |           response.on("error", reject);
+111 |         });
+112 |         const deadline = setTimeout(() => {
+113 |           const error = new Error("factory gateway request timed out");
+                                  ^
+error: factory gateway request timed out
+      at /home/dev/work/EZCorp/EZHarness-worktrees/composable-factory-platform/.worktrees/w00-integration/packages/@ezcorp/factory-transport/src/index.ts:113:29
+-------------------------------
+
+2026-10-16T07:31:04.447Z [INFO] Worker state changed {
+  sdkComponent: 'worker',
+  taskQueue: 'factory-orchestrator',
+  state: 'STOPPING'
+}
+2026-10-16T07:31:04.447Z [INFO] Worker state changed {
+  sdkComponent: 'worker',
+  taskQueue: 'factory-orchestrator',
+  state: 'DRAINING'
+}
+2026-10-16T07:31:04.448Z [INFO] Worker state changed {
+  sdkComponent: 'worker',
+  taskQueue: 'factory-orchestrator',
+  state: 'DRAINED'
+}
+2026-10-16T07:31:04.448Z [INFO] Worker state changed {
+  sdkComponent: 'worker',
+  taskQueue: 'factory-orchestrator',
+  state: 'STOPPED'
+}
+2026-10-16T07:31:04.449Z [WARN] Activity failed {
+  sdkComponent: 'worker',
+  isLocal: false,
+  attempt: 1,
+  namespace: 'test',
+  taskToken: 'dGVzdA==',
+  activityId: 'test',
+  activityType: 'unknown',
+  taskQueue: 'test',
+  workflowId: 'test',
+  workflowRunId: '00000000-0000-0000-0000-000000000000',
+  workflowType: 'test',
+  error: Error: factory gateway request timed out
+      at <anonymous> (/home/dev/work/EZCorp/EZHarness-worktrees/composable-factory-platform/.worktrees/w00-integration/packages/@ezcorp/factory-transport/src/index.ts:113:29),
+  durationMs: 1001
+}
+
+# Unhandled error between tests
+-------------------------------
+108 |           response.once("close", () => { if (!ended) reject(new Error("factory gateway response closed before it ended")); });
+109 |           response.on("end", () => resolve({ statusCode: response.statusCode ?? 0, headers: response.headers, body: Buffer.concat(chunks) }));
+110 |           response.on("error", reject);
+111 |         });
+112 |         const deadline = setTimeout(() => {
+113 |           const error = new Error("factory gateway request timed out");
+                                  ^
+error: factory gateway request timed out
+      at /home/dev/work/EZCorp/EZHarness-worktrees/composable-factory-platform/.worktrees/w00-integration/packages/@ezcorp/factory-transport/src/index.ts:113:29
+-------------------------------
+
+2026-10-16T07:31:04.450Z [WARN] Activity failed {
+  sdkComponent: 'worker',
+  isLocal: false,
+  attempt: 1,
+  namespace: 'test',
+  taskToken: 'dGVzdA==',
+  activityId: 'test',
+  activityType: 'unknown',
+  taskQueue: 'test',
+  workflowId: 'test',
+  workflowRunId: '00000000-0000-0000-0000-000000000000',
+  workflowType: 'test',
+  error: Error: factory gateway request timed out
+      at <anonymous> (/home/dev/work/EZCorp/EZHarness-worktrees/composable-factory-platform/.worktrees/w00-integration/packages/@ezcorp/factory-transport/src/index.ts:113:29),
+  durationMs: 1000
+}
+
+# Unhandled error between tests
+-------------------------------
+108 |           response.once("close", () => { if (!ended) reject(new Error("factory gateway response closed before it ended")); });
+109 |           response.on("end", () => resolve({ statusCode: response.statusCode ?? 0, headers: response.headers, body: Buffer.concat(chunks) }));
+110 |           response.on("error", reject);
+111 |         });
+112 |         const deadline = setTimeout(() => {
+113 |           const error = new Error("factory gateway request timed out");
+                                  ^
+error: factory gateway request timed out
+      at /home/dev/work/EZCorp/EZHarness-worktrees/composable-factory-platform/.worktrees/w00-integration/packages/@ezcorp/factory-transport/src/index.ts:113:29
+-------------------------------
+
+
+# Unhandled error between tests
+-------------------------------
+108 |           response.once("close", () => { if (!ended) reject(new Error("factory gateway response closed before it ended")); });
+109 |           response.on("end", () => resolve({ statusCode: response.statusCode ?? 0, headers: response.headers, body: Buffer.concat(chunks) }));
+110 |           response.on("error", reject);
+111 |         });
+112 |         const deadline = setTimeout(() => {
+113 |           const error = new Error("factory gateway request timed out");
+                                  ^
+error: factory gateway request timed out
+      at /home/dev/work/EZCorp/EZHarness-worktrees/composable-factory-platform/.worktrees/w00-integration/packages/@ezcorp/factory-transport/src/index.ts:113:29
+-------------------------------
+
+
+# Unhandled error between tests
+-------------------------------
+108 |           response.once("close", () => { if (!ended) reject(new Error("factory gateway response closed before it ended")); });
+109 |           response.on("end", () => resolve({ statusCode: response.statusCode ?? 0, headers: response.headers, body: Buffer.concat(chunks) }));
+110 |           response.on("error", reject);
+111 |         });
+112 |         const deadline = setTimeout(() => {
+113 |           const error = new Error("factory gateway request timed out");
+                                  ^
+error: factory gateway request timed out
+      at /home/dev/work/EZCorp/EZHarness-worktrees/composable-factory-platform/.worktrees/w00-integration/packages/@ezcorp/factory-transport/src/index.ts:113:29
+-------------------------------
+
+
+# Unhandled error between tests
+-------------------------------
+108 |           response.once("close", () => { if (!ended) reject(new Error("factory gateway response closed before it ended")); });
+109 |           response.on("end", () => resolve({ statusCode: response.statusCode ?? 0, headers: response.headers, body: Buffer.concat(chunks) }));
+110 |           response.on("error", reject);
+111 |         });
+112 |         const deadline = setTimeout(() => {
+113 |           const error = new Error("factory gateway request timed out");
+                                  ^
+error: factory gateway request timed out
+      at /home/dev/work/EZCorp/EZHarness-worktrees/composable-factory-platform/.worktrees/w00-integration/packages/@ezcorp/factory-transport/src/index.ts:113:29
+-------------------------------
+
+
+# Unhandled error between tests
+-------------------------------
+890 |     result.ok = function ok(...args) {
+891 |       plan?.count(), innerOk(ok, args.length, ...args);
+892 |     };
+893 |   return result;
+894 | }
+895 |   let error = Error(message);
+                         ^
+error: test timed out after 30000ms
+ code: "ERR_TEST_FAILURE"
+
+      at makeTestFailure (node:test:895:20)
+      at <anonymous> (node:test:1360:56)
+-------------------------------
+
+
+ 2 pass
+ 10 fail
+ 9 errors
+Ran 12 tests across 1 file. [51.13s]

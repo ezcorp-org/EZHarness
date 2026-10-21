@@ -1,0 +1,13 @@
+bun test v1.4.2 (744846f84)
+{"ts":"2026-10-16T01:01:37.708Z","level":"info","msg":"assignment_update emit","subsystem":"start-assignment","conversationId":"conv-int","taskId":"task-int","assignmentId":"asn-int","status":"running","hasStructured":false}
+{"ts":"2026-10-16T01:01:37.708Z","level":"info","msg":"Started assignment","subsystem":"start-assignment","conversationId":"conv-int","taskId":"task-int","assignmentId":"asn-int","agentConfigId":"cfg-int","agentName":"worker","subConversationId":"sub-int","agentRunId":"b1689d74-ebe9-432a-9b9c-37c38e198a47"}
+{"ts":"2026-10-16T01:01:37.710Z","level":"info","msg":"assignment_update emit","subsystem":"start-assignment","conversationId":"conv-int","taskId":"task-int","assignmentId":"asn-int","status":"running","hasStructured":false}
+{"ts":"2026-10-16T01:01:37.710Z","level":"info","msg":"Autonomous continuation","subsystem":"start-assignment","conversationId":"conv-int","taskId":"task-int","newRunId":"d04ea78c-2920-4fc6-afd8-28dcaf3174e8","cycle":1,"maxCycles":5}
+{"ts":"2026-10-16T01:01:37.711Z","level":"info","msg":"assignment_update emit","subsystem":"start-assignment","conversationId":"conv-int","taskId":"task-int","assignmentId":"asn-int","status":"running","hasStructured":false}
+{"ts":"2026-10-16T01:01:37.711Z","level":"info","msg":"Autonomous continuation","subsystem":"start-assignment","conversationId":"conv-int","taskId":"task-int","newRunId":"5006b70e-4ae1-4208-8599-012aed43c228","cycle":2,"maxCycles":5}
+{"ts":"2026-10-16T01:01:37.712Z","level":"info","msg":"assignment_update emit","subsystem":"start-assignment","conversationId":"conv-int","taskId":"task-int","assignmentId":"asn-int","status":"completed","hasStructured":false}
+
+ 1 pass
+ 0 fail
+ 7 expect() calls
+Ran 1 test across 1 file. [457.00ms]

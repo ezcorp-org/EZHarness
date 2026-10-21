@@ -1,0 +1,16 @@
+#!/usr/bin/env bash
+# node-case-check.sh <merge folder> (integrator-5, W4H-27): AFTER the hold, before the publish. The owner's red-first node cases for the
+# workflow-bundle loader (node-cases.txt) must each appear as passed ("✔ <name>") and never failed in the orchestrator package test's log.
+# v2 (R4, N1): node-must-not.txt names failure messages that must NOT appear (the replay suite's before-hook asserts its bundle equals
+# the built bundle byte for byte; a mismatch fails the hook, so its message and a passing replay case together bind N1).
+set -u
+N=${1:?folder}; L=$N/heavy-orchestrator-package-test.log; st=0
+[ -s "$L" ] || { echo "no orchestrator package test log"; exit 1; }
+while IFS= read -r c; do [ -z "$c" ] && continue
+  p=$(grep -F -- "$c" "$L" | grep -c '✔'); f=$(grep -F -- "$c" "$L" | grep -c '✖')
+  if [ "$p" -ge 1 ] && [ "$f" -eq 0 ]; then echo "PASS: $c"; else echo "MISSING or failed ($p pass, $f fail): $c"; st=1; fi
+done < "$N/node-cases.txt"
+[ -s "$N/node-must-not.txt" ] && while IFS= read -r m; do [ -z "$m" ] && continue
+  if grep -qF -- "$m" "$L"; then echo "FOUND (must not): $m"; st=1; else echo "ABSENT (as required): $m"; fi
+done < "$N/node-must-not.txt"
+exit $st

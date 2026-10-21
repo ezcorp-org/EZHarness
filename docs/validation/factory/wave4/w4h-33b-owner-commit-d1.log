@@ -1,0 +1,45 @@
+src/__tests__/first-party-sealed-test-references.test.ts:50:73 lint/suspicious/noTemplateCurlyInString ━━━━━━━━━━
+
+  ! Unexpected template string placeholder.
+  
+    48 │   test("a sealed test naming a left-out suite (also by a template) is a finding; a kept target is not", () => {
+    49 │     const sealed = new Map([
+  > 50 │       ["test/unit/drives.test.ts", "Bun.spawn([bun, 'test', `./test/e2e/${suite}.test.ts`])"],
+       │                                                                         ^^^^^^^^
+    51 │       ["test/unit/helper.test.ts", "import { poll } from '../e2e/_poll'; const data = './fixtures/data.json';"],
+    52 │       ["test/e2e/_poll.ts", "export const poll = 1;"],
+  
+  i Turn the string into a template string.
+  
+
+src/__tests__/first-party-sealed-test-references.test.ts:55:51 lint/suspicious/noTemplateCurlyInString ━━━━━━━━━━
+
+  ! Unexpected template string placeholder.
+  
+    53 │     ]);
+    54 │     expect(sealedReferencesToExcluded(sealed, ["test/e2e/bundled.test.ts", "fixtures/data.json"])).toEqual([
+  > 55 │       "test/unit/drives.test.ts: names ./test/e2e/${suite}.test.ts, which the release snapshot leaves out",
+       │                                                   ^^^^^^^^
+    56 │       "test/unit/helper.test.ts: names ./fixtures/data.json, which the release snapshot leaves out",
+    57 │     ]);
+  
+  i Turn the string into a template string.
+  
+
+Checked 3 files in 6ms. No fixes applied.
+Found 2 warnings.
+── Tests (staged) ─────────────────────────────────
+  bun: packages/@ezcorp/ai-kit/test/unit/deployed-preconditions.test.ts
+bun test v1.4.2 (744846f84)
+
+ 6 pass
+ 0 fail
+ 24 expect() calls
+Ran 6 tests across 1 file. [484.00ms]
+  bun: src/__tests__/first-party-sealed-test-references.test.ts
+bun test v1.4.2 (744846f84)
+
+ 2 pass
+ 0 fail
+ 3 expect() calls
+Ran 2 tests across 1 file. [667.00ms]

@@ -1,0 +1,10 @@
+W4H-33b publish basis (team-lead's ruling, route R-a; recorded by integrator-5, 2026-10-17)
+- Published: integ/w00 8fb4474e993a381ee9bc68b70cd16e4d95586550 -> 7f83176566b043e0c7c7bfedb6d616b33feb3e09 at 2026-10-17T03:23:21Z
+  (publish.out cecbc195fb5a612a, identity-publish.txt f84ceaa93180f0e1), on validator-8's plain-green HOLD OK (verdict-w4h-33b.txt eb3c405d816489a3).
+- Tree identity: 7f8317656^{tree} = ef5e29a25^{tree} = 0487db83fa38bcbcc2e9e440882ab438cbbed308.
+- Leg (b) record for the price-chart condition: legs-b-proof/run1/b-ef5e29a25.log 4ea71678e1125de9 = the OK'd leg (b) v4 (32f4043c0ce435a3, installed bytes
+  equal) in the cov-shard row on those exact tree bytes, lane variables scrubbed: "PASS cov-shard web/src/__tests__/price-chart-stream-bridge.test.ts: 6 pass".
+- Agreeing record: the hold's extra-legs price-chart-host-lane, heavy-price-chart-host-lane.log ac89e2de836d35cb, 6 pass 0 fail, no EZCORP_RUN_PODMAN_TESTS.
+- The hold's leg (b) gave no price-chart row because the file is unchanged in this diff (a lane-only move): integrator-5/ownership-w4h-33b/moved.txt
+  80b180533cf11587 names exactly 2 moved test files. The selection gap is fixed by leg (b) v6 (team-lead's ruling), before the W4H-32 hold.
+- Routes R-b (a short (b) job) and R-c (fix first, re-hold) are closed.

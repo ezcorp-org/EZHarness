@@ -1,0 +1,17 @@
+W4H-33b red-on-base (case leg), 2026-10-16T23:19:56Z. Head 31ce24621, base 8fb4474e9. Form: bin/red-on-base.sh, lock-free, single files.
+RED: the product files of the five commits at 8fb4474e9 (scripts/lib/test-file-sets.sh, scripts/verify-shipping-preview-isolation.sh,
+web/vitest.stryker.config.ts, packages/@ezcorp/ai-kit/test/unit/deployed-preconditions.test.ts, scripts/seed-marketplace.ts,
+scripts/verify-production-image-lifecycle.sh, manifest.lock.json, docs/extensions/examples/file-organizer/TEST-COVERAGE.md) with the
+head's tests and test infrastructure (scripts/test-skip-inventory.ts: the inventory test imports its new FIXTURE_ACCOUNT_SOURCES).
+GREEN: the tree at 31ce24621. The tree was restored and clean afterwards. Runners: bun test --timeout 30000 at the repo root (bin/run1.sh);
+vitest in web/ under the pinned Node (bin/vitest1.sh). Every red log fails only the cases below.
+
+file | case | red (pass/fail, sha16) | green (pass/fail, sha16)
+src/__tests__/ci-test-set-drift.test.ts | web/src pass/fail gating > isolated price-chart release suite runs in prepared root host lanes, not web orphans | 17/1 ce6aa402336f3d05 | 18/0 d485e0fb05f3be23
+web/src/__tests__/stryker-sandbox-aliases.unit.test.ts | vitest.stryker.config.ts $server alias > points at the repository's src/ when Stryker loads it from its sandbox | 1/1 4e4f72c5ee17d0ec | 2/0 e7518ed1d47841a7
+src/__tests__/shipping-preview-isolation.test.ts | runs the plan's preview files inside the candidate image with the preview uid range mapped and the lane variable set | 2/1 46d83049d2bfee67 | 3/0 df176d5d62997cfb
+src/__tests__/first-party-sealed-test-references.test.ts | sealed first-party tests name only files the release keeps > every first-party release snapshot in the tree | 1/1 a2dc07d5a9d41e5a | 2/0 9894bbc55ee02794
+scripts/test-skip-inventory.test.ts | the repository > every fixture address where a fixture account is created or checked is on a reserved domain | 25/2 d83fa11248e0626e | 27/0 a81e00f9174df0a4
+scripts/test-skip-inventory.test.ts | the repository > the Docker suites log in with the identity that each seed creates | (same log) | (same log)
+Green at head, not red at base (unit cases that pin the rule itself): first-party-sealed-test-references "a sealed test naming a left-out
+suite (also by a template) is a finding; a kept target is not"; stryker-sandbox-aliases "points at the same src/ when loaded in place".

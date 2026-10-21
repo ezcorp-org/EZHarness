@@ -1,0 +1,18 @@
+bun test v1.4.2 (744846f84)
+{"ts":"2026-10-14T05:35:20.828Z","level":"warn","msg":"Bun.sql pool close failed","subsystem":"db","error":"Error: reset"}
+{"ts":"2026-10-14T05:35:20.828Z","level":"error","msg":"Completing interrupted migration rollback from a prior boot","subsystem":"db","marker":{"ts":"2026-10-14T05:35:20.828Z","snapshot":"/tmp/conn-rollback-bKV7nF/snap"}}
+{"ts":"2026-10-14T05:35:20.829Z","level":"info","msg":"Interrupted rollback completed — snapshot restored","subsystem":"db","snapshot":"/tmp/conn-rollback-bKV7nF/snap"}
+{"ts":"2026-10-14T05:35:20.830Z","level":"error","msg":"Interrupted rollback with no snapshot — refusing to boot","subsystem":"db","message":"A migration rollback was interrupted on a prior boot and no snapshot is available to complete it. Refusing to boot to avoid starting a fresh empty database over the half-finished rollback.","marker":{"ts":"2026-10-14T05:35:20.830Z","snapshot":"/tmp/conn-rollback-zcGizz/does-not-exist"},"dbPath":"/tmp/conn-rollback-zcGizz/db"}
+{"ts":"2026-10-14T05:35:20.836Z","level":"warn","msg":"advisory unlock failed","subsystem":"db","error":"Error: unlock boom"}
+{"ts":"2026-10-14T05:35:20.836Z","level":"warn","msg":"waiting for migrate lock held by pid 4242","subsystem":"db","holderPid":4242,"waitMs":60000}
+{"ts":"2026-10-14T05:35:20.836Z","level":"warn","msg":"waiting for migrate lock held by pid 5151","subsystem":"db","holderPid":5151,"waitMs":60000}
+{"ts":"2026-10-14T05:35:20.837Z","level":"warn","msg":"waiting for migrate lock held by pid 4242","subsystem":"db","holderPid":4242,"waitMs":1000}
+{"ts":"2026-10-14T05:35:20.837Z","level":"warn","msg":"waiting for migrate lock held by pid unknown","subsystem":"db","holderPid":null,"waitMs":100}
+{"ts":"2026-10-14T05:35:20.837Z","level":"warn","msg":"waiting for migrate lock held by pid 7","subsystem":"db","holderPid":7,"waitMs":120000}
+{"ts":"2026-10-14T05:35:21.843Z","level":"warn","msg":"Could not write rollback-in-progress marker","subsystem":"db","error":"Error: ENOTDIR: not a directory, open '/tmp/conn-marker-j9lPY7/afile/.ezcorp-rollback-in-progress.json'"}
+{"ts":"2026-10-14T05:35:21.843Z","level":"info","msg":"Restored pre-boot snapshot","subsystem":"db","snapshot":"/tmp/ezcorp-test-db-HadwAN/backups/pre-boot-2026-01-01T00-00-00-000Z","failedPath":"/tmp/ezcorp-test-db-HadwAN/db.failed.1791956121843"}
+
+ 21 pass
+ 0 fail
+ 51 expect() calls
+Ran 21 tests across 1 file. [1.51s]

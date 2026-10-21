@@ -1,0 +1,8 @@
+bun test v1.4.2 (744846f84)
+{"ts":"2026-10-16T01:11:00.988Z","level":"info","msg":"callback server started","subsystem":"api.auth.oauth","port":1455,"appCallbackUrl":"http://localhost/auth/callback"}
+{"ts":"2026-10-16T01:11:00.989Z","level":"info","msg":"callback server started","subsystem":"api.auth.oauth","port":1456,"appCallbackUrl":"http://localhost/auth/callback"}
+
+ 20 pass
+ 0 fail
+ 52 expect() calls
+Ran 20 tests across 1 file. [480.00ms]

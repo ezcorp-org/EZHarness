@@ -1,3 +1,4 @@
+import { FACTORY_S3_ACCEPTED_PUBLICATION_SCHEMA_VERSION, type FactoryS3AcceptedFile, type FactoryS3AcceptedPublication } from "./release-s3-accepted-publication";
 import { canonicalJson } from "@ezcorp/extension-contract";
 import type { FactoryArtifactReference, JsonValue, RunnerReference } from "@ezcorp/factory-sdk";
 import type { TransactionalDb } from "../db/migrations/types";
@@ -10,6 +11,8 @@ import { FACTORY_PUBLICATION_PROVENANCE_SCAN_LIMIT, FactoryPublicationProvenance
 import { sealFactoryReleaseProfileResult, type FactoryAsyncReleaseProfile, type FactoryReleaseProfileInput, type FactoryReleaseProfileResult } from "./release-profile";
 import { FACTORY_S3_PUBLICATION_LIMITS, FACTORY_S3_PUBLICATION_REQUEST_SCHEMA_VERSION, assertFactoryS3PublicationRequest, factoryS3PublicationDirectory, type FactoryS3PublicationAttempts, type FactoryS3PublicationMember, type FactoryS3PublicationSetRequest } from "./release-s3-publication";
 import { FactoryReleaseError, type FactoryReleaseDestination, type FactoryReleaseMaterial, type FactoryReleaseOperation } from "./releases";
+
+export { FACTORY_S3_ACCEPTED_PUBLICATION_SCHEMA_VERSION, type FactoryS3AcceptedFile, type FactoryS3AcceptedPublication } from "./release-s3-accepted-publication";
 
 /**
  * What binds one S3 release operation to the attempt that produced its bytes.
@@ -28,7 +31,6 @@ import { FactoryReleaseError, type FactoryReleaseDestination, type FactoryReleas
 /** Retained as the S3 spelling of the shared bound. */
 export const FACTORY_S3_PROVENANCE_SCAN_LIMIT = FACTORY_PUBLICATION_PROVENANCE_SCAN_LIMIT;
 
-export const FACTORY_S3_ACCEPTED_PUBLICATION_SCHEMA_VERSION = "factory.s3-accepted-publication.v1";
 
 /** The verified attempt behind one acceptance decision. The shared shape, under the S3 name. */
 export type FactoryS3VerifiedAttempt = FactoryVerifiedPublicationAttempt;
@@ -108,31 +110,6 @@ function publicationRequestOf(canonicalRequest: string): FactoryS3PublicationSet
   const envelope = parsed as { provider?: unknown; request?: unknown };
   if (!envelope || typeof envelope !== "object" || envelope.provider !== "s3") factoryPublicationProvenanceUntrusted();
   return assertFactoryS3PublicationRequest(envelope.request, "x");
-}
-
-/** One accepted output the protected candidate names for publication. */
-export interface FactoryS3AcceptedFile {
-  /** The published path under the operation directory. */
-  readonly name: string;
-  /** The sealed material this file's bytes come from. */
-  readonly objectName: string;
-  readonly version: number;
-}
-
-/**
- * The protected accepted candidate an S3 publication resolves from.
- *
- * The caller chooses where a set lands through `requestedDestination`; this
- * value, which the acceptance decision froze, chooses what is in it.
- */
-export interface FactoryS3AcceptedPublication {
-  readonly schemaVersion: typeof FACTORY_S3_ACCEPTED_PUBLICATION_SCHEMA_VERSION;
-  /** The gateway operation the producing attempt wrote its materials under. */
-  readonly materialOperationId: string;
-  /** The material holding the accepted candidate manifest itself. */
-  readonly candidateObjectName: string;
-  readonly candidateVersion: number;
-  readonly files: readonly FactoryS3AcceptedFile[];
 }
 
 function invalidProfile(): never {

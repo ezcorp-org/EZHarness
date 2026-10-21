@@ -1,0 +1,27 @@
+W4H-30 ADDENDUM to report.txt 1eb9a4ef84ab1cd6: the lead R2 conditions. Head unchanged: FROZEN 5ee55026a.
+I received the R1 acceptance after the freeze. This addendum adds evidence only. No code changed.
+
+(a) LATENCY: RunnerClient before (d2add3048, keep-alive pool) vs after (agent:false). Both go through the real
+    startRunnerService and peer gateway on one host: 3 rounds, 1000 sequential calls and 200 concurrent pairs each.
+    Round 3 (rounds 2 and 3 agree; round 1 includes start-up noise):
+      sequential  before p50 0.060 ms p99 0.301 ms | after p50 0.168 ms p99 0.481 ms
+      pair        before p50 0.081 ms p99 0.353 ms | after p50 0.258 ms p99 0.596 ms
+    The cost is about 0.1 ms per call (a unix connect plus a gateway relay connect), and every value stays under 1 ms.
+    For scale, the runner-side request durations in the proof harness are unchanged, before (r1c) vs after (r2):
+    p50 events 247/247 ms, request 237/233 ms, start 142/145 ms, cancel 2573/2577 ms. The proof cycle phase took
+    147096 and 171608 ms before, and 148294, 147095 and 147394 ms after.
+(a) MUTANT: with agent:false removed, the "Connection: close" test goes red (Expected close x3, Received keep-alive).
+    The end-to-end settle test stays green under the mutant, because it waits out the 5 s idle timeout. So the header
+    test is the deterministic mutant killer, and the settle test proves the behaviour through the service and gateway.
+(b) The Kilo test asserts that the fetch is made with keepalive:false (red on the pre-fix source, 34/1).
+(c) Not needed: (a) and (b) leave no transient. The socket set is constant from cycle 1 to 10 in 3 of 3 passes,
+    with only port-3000 sockets. There is no threshold change and no proof settle, so there is no gate-file history line.
+Leftover for the gate file, noted and not fixed here: the production image calls api.kilo.ai at boot.
+
+EVIDENCE (sha256, first 16; under /tmp/factory-platform-evidence/w4h-30/)
+cb4bbd9d84190811 logs/latency.log
+3fbd4c75e67f5b8e diag/latency.bench.ts
+4b222304eaf45fa1 logs/runner-durations.txt
+d69773546ffcb150 diag/runner-durations.py
+1a0dee9bf2fadce9 logs/mutant-pool-restored.log
+67ee88c050e79bd8 logs/kilo-red-at-6a3202249.log

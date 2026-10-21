@@ -1,0 +1,367 @@
+packages/@ezcorp/ai-kit/test/e2e/bundled.test.ts: Ran 4 tests across 1 file. [769.00ms]
+packages/@ezcorp/ai-kit/test/e2e/fanout.test.ts: Ran 5 tests across 1 file. [440.00ms]
+packages/@ezcorp/ai-kit/test/e2e/quickstart.test.ts: Ran 3 tests across 1 file. [450.00ms]
+packages/@ezcorp/ai-kit/test/shape.test.ts: Ran 5 tests across 1 file. [440.00ms]
+packages/@ezcorp/ai-kit/test/unit/deployed-preconditions.test.ts: Ran 6 tests across 1 file. [587.00ms]
+packages/@ezcorp/ai-kit/test/unit/e2e-poll.test.ts: Ran 3 tests across 1 file. [476.00ms]
+scripts/check-factory-lanes.test.ts: Ran 44 tests across 1 file. [1443.00ms]
+scripts/ripgrep-registration.test.ts: Ran 3 tests across 1 file. [442.00ms]
+scripts/test-images-registration.test.ts: Ran 3 tests across 1 file. [451.00ms]
+scripts/test-skip-inventory.test.ts: Ran 25 tests across 1 file. [1.82s]
+src/db/queries/__tests__/query-core-conversations.test.ts: Ran 7 tests across 1 file. [2.71s]
+src/db/queries/__tests__/query-core-marketplace-ratings-atomic.test.ts: Ran 5 tests across 1 file. [2.10s]
+src/db/queries/__tests__/suggestion-feedback.test.ts: Ran 2 tests across 1 file. [1160.00ms]
+src/factory/provisioning/control-plane.test.ts: Ran 22 tests across 1 file. [640.00ms]
+src/factory/provisioning/fleet-cli.test.ts: Ran 11 tests across 1 file. [505.00ms]
+src/factory/provisioning/invitation.test.ts: Ran 32 tests across 1 file. [602.00ms]
+src/factory/runner/supervisor-services.test.ts: Ran 29 tests across 1 file. [31.53s]
+src/__tests__/account-api.test.ts: Ran 5 tests across 1 file. [1483.00ms]
+src/__tests__/admin-analytics-api-routes.test.ts: Ran 13 tests across 1 file. [458.00ms]
+src/__tests__/agent-sandbox.test.ts: Ran 6 tests across 1 file. [989.00ms]
+src/__tests__/agent-sharing-integration.test.ts: Ran 11 tests across 1 file. [951.00ms]
+src/__tests__/agent-sharing-routes.test.ts: Ran 18 tests across 1 file. [915.00ms]
+src/__tests__/agent-sharing.test.ts: Ran 16 tests across 1 file. [910.00ms]
+src/__tests__/agent-sharing-users.test.ts: Ran 9 tests across 1 file. [901.00ms]
+src/__tests__/analytics.test.ts: Ran 26 tests across 1 file. [455.00ms]
+src/__tests__/auth-api.test.ts: Ran 27 tests across 1 file. [4.59s]
+src/__tests__/auth-jwt-password.test.ts: Ran 21 tests across 1 file. [1072.00ms]
+src/__tests__/auth-layout-e2e.test.ts: Ran 19 tests across 1 file. [4.51s]
+src/__tests__/auth-layout.test.ts: Ran 21 tests across 1 file. [991.00ms]
+src/__tests__/auth-middleware.test.ts: Ran 48 tests across 1 file. [962.00ms]
+src/__tests__/auth-migration.test.ts: Ran 5 tests across 1 file. [2.04s]
+src/__tests__/auth-rbac.test.ts: Ran 14 tests across 1 file. [899.00ms]
+src/__tests__/briefing-messages-bare-get-thread.test.ts: Ran 3 tests across 1 file. [932.00ms]
+src/__tests__/bundled-bootstrap-policy-change.test.ts: Ran 2 tests across 1 file. [1206.00ms]
+src/__tests__/capability-event-root-sibling-contract.test.ts: Ran 1 test across 1 file. [932.00ms]
+src/__tests__/cli-key-mint.test.ts: Ran 38 tests across 1 file. [446.00ms]
+src/__tests__/commands-registry-invalidation.test.ts: Ran 8 tests across 1 file. [2.96s]
+src/__tests__/contexts-queries.test.ts: Ran 35 tests across 1 file. [10.69s]
+src/__tests__/conversations-clone-turns.test.ts: Ran 13 tests across 1 file. [4.45s]
+src/__tests__/conversations-ez-mode-lock.test.ts: Ran 5 tests across 1 file. [939.00ms]
+src/__tests__/conversations-fork-link-integration.test.ts: Ran 6 tests across 1 file. [2.60s]
+src/__tests__/db-queries-agent-configs.test.ts: Ran 15 tests across 1 file. [5.00s]
+src/__tests__/db-queries-agent-shares.test.ts: Ran 10 tests across 1 file. [3.46s]
+src/__tests__/db-queries-marketplace-ratings.test.ts: Ran 9 tests across 1 file. [3.23s]
+src/__tests__/db-queries-marketplace-trgm.test.ts: Ran 6 tests across 1 file. [926.00ms]
+src/__tests__/db-queries-password-resets.test.ts: Ran 5 tests across 1 file. [2.34s]
+src/__tests__/db-queries-quickstart.test.ts: Ran 9 tests across 1 file. [4.52s]
+src/__tests__/db-queries-runs.test.ts: Ran 19 tests across 1 file. [6.78s]
+src/__tests__/db-queries-teams.test.ts: Ran 14 tests across 1 file. [4.86s]
+src/__tests__/db-queries-user-commands-race.test.ts: Ran 2 tests across 1 file. [1208.00ms]
+src/__tests__/db-queries-user-commands.test.ts: Ran 12 tests across 1 file. [3.93s]
+src/__tests__/db-queries-users.test.ts: Ran 27 tests across 1 file. [8.31s]
+src/__tests__/distiller-settings-migration.test.ts: Ran 4 tests across 1 file. [939.00ms]
+src/__tests__/extension-event-end-to-end.test.ts: Ran 12 tests across 1 file. [482.00ms]
+src/__tests__/extension-events-hub-branch.test.ts: Ran 19 tests across 1 file. [481.00ms]
+src/__tests__/ez-clear-leaks-context.test.ts: Ran 3 tests across 1 file. [994.00ms]
+src/__tests__/ez-conversation-lookup.test.ts: Ran 6 tests across 1 file. [921.00ms]
+src/__tests__/ez-drafts-queries.test.ts: Ran 14 tests across 1 file. [925.00ms]
+src/__tests__/ez-search-conversation-tool.test.ts: Ran 11 tests across 1 file. [940.00ms]
+src/__tests__/ez-tools-create-agent.test.ts: Ran 7 tests across 1 file. [893.00ms]
+src/__tests__/ez-tools-create-project.test.ts: Ran 8 tests across 1 file. [883.00ms]
+src/__tests__/ez-tools-find-agents.test.ts: Ran 6 tests across 1 file. [924.00ms]
+src/__tests__/ez-tools-install-extension.test.ts: Ran 6 tests across 1 file. [919.00ms]
+src/__tests__/ez-tools-summarize.test.ts: Ran 16 tests across 1 file. [983.00ms]
+src/__tests__/get-latest-leaf-capability-event.test.ts: Ran 5 tests across 1 file. [965.00ms]
+src/__tests__/load-history-capability-event-filter.test.ts: Ran 4 tests across 1 file. [1017.00ms]
+src/__tests__/load-history-excluded-filter.test.ts: Ran 3 tests across 1 file. [969.00ms]
+src/__tests__/load-history-ez-action-filter.test.ts: Ran 3 tests across 1 file. [979.00ms]
+src/__tests__/load-history-preprocess-filter.test.ts: Ran 3 tests across 1 file. [959.00ms]
+src/__tests__/marketplace-e2e.test.ts: Ran 47 tests across 1 file. [1018.00ms]
+src/__tests__/marketplace-queries-deep.test.ts: Ran 50 tests across 1 file. [1026.00ms]
+src/__tests__/marketplace-search-perf.test.ts: Ran 2 tests across 1 file. [1.89s]
+src/__tests__/marketplace-tag-counts.test.ts: Ran 4 tests across 1 file. [1002.00ms]
+src/__tests__/marketplace-v2-migration.test.ts: Ran 36 tests across 1 file. [915.00ms]
+src/__tests__/memories-api-create.test.ts: Ran 11 tests across 1 file. [944.00ms]
+src/__tests__/memory-extractor-settings-migration.test.ts: Ran 13 tests across 1 file. [989.00ms]
+src/__tests__/message-search-explain.test.ts: Ran 5 tests across 1 file. [3.09s]
+src/__tests__/message-search.test.ts: Ran 21 tests across 1 file. [6.93s]
+src/__tests__/messages-set-excluded.test.ts: Ran 6 tests across 1 file. [931.00ms]
+src/__tests__/migrate-backfill-populated.test.ts: Ran 13 tests across 1 file. [3.69s]
+src/__tests__/moderation-sharing-e2e.test.ts: Ran 28 tests across 1 file. [2.46s]
+src/__tests__/onboarding-skip-flow.integration.test.ts: Ran 3 tests across 1 file. [1.55s]
+src/__tests__/preview-consent.test.ts: Ran 11 tests across 1 file. [956.00ms]
+src/__tests__/preview-dynamic-e2e.docker.test.ts: Ran 3 tests across 1 file. [448.00ms]
+src/__tests__/preview-sessions-queries.test.ts: Ran 30 tests across 1 file. [960.00ms]
+src/__tests__/preview-uid-keystone.docker.test.ts: Ran 4 tests across 1 file. [455.00ms]
+src/__tests__/price-chart.e2e.test.ts: Ran 8 tests across 1 file. [26.64s]
+src/__tests__/price-chart-market-stub.test.ts: Ran 2 tests across 1 file. [453.00ms]
+src/__tests__/production-proof-plan.test.ts: Ran 4 tests across 1 file. [462.00ms]
+src/__tests__/production-proof-results.test.ts: Ran 6 tests across 1 file. [1.72s]
+src/__tests__/queries-lessons.test.ts: Ran 59 tests across 1 file. [16.96s]
+src/__tests__/routing-analytics.test.ts: Ran 20 tests across 1 file. [996.00ms]
+src/__tests__/routing-export-script.test.ts: Ran 19 tests across 1 file. [934.00ms]
+src/__tests__/routing-spend-truncation.test.ts: Ran 6 tests across 1 file. [1066.00ms]
+src/__tests__/routing-sweep-script.test.ts: Ran 28 tests across 1 file. [915.00ms]
+src/__tests__/runs-user-id-backfill-migration.test.ts: Ran 7 tests across 1 file. [1.61s]
+src/__tests__/runtime-tools-grep.test.ts: Ran 18 tests across 1 file. [1.62s]
+src/__tests__/sandbox-api.test.ts: Ran 6 tests across 1 file. [950.00ms]
+src/__tests__/sandbox-observability-comprehensive.test.ts: Ran 34 tests across 1 file. [2.39s]
+src/__tests__/save-memory-integration.test.ts: Ran 10 tests across 1 file. [1013.00ms]
+src/__tests__/schema-migrations-first-boot-backfill.test.ts: Ran 6 tests across 1 file. [3.68s]
+src/__tests__/schema-migrations-indexes-audit.test.ts: Ran 9 tests across 1 file. [1232.00ms]
+src/__tests__/security/l1-login-timing-constant-time.test.ts: Ran 5 tests across 1 file. [822.00ms]
+src/__tests__/shipping-preview-isolation.test.ts: Ran 3 tests across 1 file. [588.00ms]
+src/__tests__/shipping-production-suite-wiring.test.ts: Ran 4 tests across 1 file. [1029.00ms]
+src/__tests__/source-parser-git-coverage.test.ts: Ran 25 tests across 1 file. [718.00ms]
+src/__tests__/source-parser.test.ts: Ran 28 tests across 1 file. [672.00ms]
+src/__tests__/start-assignment-plumbing.test.ts: Ran 97 tests across 1 file. [565.00ms]
+src/__tests__/sub-conversation-integration.test.ts: Ran 24 tests across 1 file. [1039.00ms]
+src/__tests__/tool-calls-backfill-migration.test.ts: Ran 5 tests across 1 file. [1289.00ms]
+src/__tests__/tool-call-telemetry-write.test.ts: Ran 7 tests across 1 file. [922.00ms]
+src/__tests__/user-search-sharing-edge.test.ts: Ran 12 tests across 1 file. [898.00ms]
+web/src/lib/chat/page-handlers/__tests__/send-message.test.ts: vitest  Tests 75 passed (75) 
+web/src/lib/chat/page-handlers/__tests__/send-message.test.ts: 75 passed testcase(s) in its junit
+web/src/lib/components/ChatThread.coverage.component.test.ts: vitest  Tests 54 passed (54) 
+web/src/lib/components/ChatThread.coverage.component.test.ts: 54 passed testcase(s) in its junit
+web/src/__tests__/api-users-id.server.test.ts: vitest  Tests 7 passed (7) 
+web/src/__tests__/api-users-id.server.test.ts: 7 passed testcase(s) in its junit
+web/src/__tests__/sub-conversation.test.ts: bun  7 pass  0 fail 
+web/src/__tests__/sub-conversation.test.ts: 7 passed testcase(s) in its junit
+CASE PASS: present, behaviour wrong: the suite FAILS and does not skip
+CASE PASS: missing: the suite skips with the tracked reason and nothing fails
+CASE PASS: present, behaviour wrong: the suite runs and FAILS, and does not skip
+CASE PASS: missing: the suite skips with the tracked reason and nothing fails
+CASE PASS: present, behaviour wrong: each of the three cases runs and FAILS, and none skips
+CASE PASS: missing: each of the three cases skips with its tracked reason
+CASE PASS: the shared action installs ripgrep and proves it is on PATH
+CASE PASS: every job that runs the backend suites uses the action before that step
+CASE PASS: no workflow repeats the install command instead of using the action
+CASE PASS: pgvector is pinned to the linux/amd64 platform manifest of pg15
+CASE PASS: the three PostgreSQL service lines run exactly that pin, and no workflow image line or pin is a tag
+CASE PASS: a tag back in one workflow line, or a tag in the pin file, is refused by name
+CASE PASS: records the URL the extension asked for from the pinned request's host header, and refuses an unstubbed path
+CASE PASS: routes the host's own path (default DNS, global fetch) for the market hosts only, and restores both
+CASE PASS: ripgrep is on PATH, so the ripgrep backend cases run
+CASE PASS: runs the plan's preview files inside the candidate image with the preview uid range mapped and the lane variable set
+CASE PASS: a run where the in-image tests skipped, failed or ran nothing is a failed proof
+CASE PASS: refuses to start without the candidate image or a receipt directory
+CASE PASS: the sub-agent's first run is on its own sub-conversation, and its one input is the brief built from the task
+CASE PASS: handleSubConvoReturn: the summary is the LAST assistant message, not the first or a later user turn
+CASE PASS: handleSubConvoTurnSaved: a saved turn of the active sub-conversation goes to the sub-conversation store, once
+CASE PASS: handleSubConvoTurnSaved: a turn of an INACTIVE sub-conversation is not taken into the active one
+CASE PASS: handleSubConvoTurnSaved: a non-final turn keeps the sub-conversation streaming
+CASE PASS: startSubConvo's request passes the server's own schema (no mock hides a validation mismatch)
+CASE PASS: ez:turn_saved: the active sub-conversation's turn enters its block, not the thread; an inactive sub's turn enters neither
+child lcov (v9): lcov-pick: 5 of 1683 record(s) kept for 7 listed file(s)
+packages/@ezcorp/ai-kit/test/e2e/bundled.test.ts: file 17/38 lines hit; added lines 13, instrumented 9, uncovered 0
+packages/@ezcorp/ai-kit/test/e2e/fanout.test.ts: file 37/65 lines hit; added lines 36, instrumented 25, uncovered 10 -> [49, 55, 59, 61, 64, 68, 73, 74, 81, 82]
+packages/@ezcorp/ai-kit/test/e2e/quickstart.test.ts: file 12/59 lines hit; added lines 8, instrumented 6, uncovered 2 -> [39, 40]
+packages/@ezcorp/ai-kit/test/shape.test.ts: file 66/66 lines hit; added lines 8, instrumented 6, uncovered 0
+packages/@ezcorp/ai-kit/test/unit/deployed-preconditions.test.ts: file 81/81 lines hit; added lines 103, instrumented 81, uncovered 0
+packages/@ezcorp/ai-kit/test/unit/e2e-poll.test.ts: file 25/25 lines hit; added lines 35, instrumented 25, uncovered 0
+scripts/check-factory-lanes.test.ts: file 454/454 lines hit; added lines 9, instrumented 7, uncovered 0
+scripts/ripgrep-registration.test.ts: file 28/28 lines hit; added lines 44, instrumented 28, uncovered 0
+scripts/test-images-registration.test.ts: file 35/35 lines hit; added lines 50, instrumented 35, uncovered 0
+scripts/test-skip-inventory.test.ts: file 258/258 lines hit; added lines 308, instrumented 258, uncovered 0
+src/__tests__/account-api.test.ts: file 63/63 lines hit; added lines 1, instrumented 1, uncovered 0
+src/__tests__/admin-analytics-api-routes.test.ts: file 278/283 lines hit; added lines 2, instrumented 2, uncovered 0
+src/__tests__/agent-sandbox.test.ts: file 112/140 lines hit; added lines 2, instrumented 2, uncovered 0
+src/__tests__/agent-sharing-integration.test.ts: file 255/255 lines hit; added lines 17, instrumented 17, uncovered 0
+src/__tests__/agent-sharing-routes.test.ts: file 202/202 lines hit; added lines 6, instrumented 6, uncovered 0
+src/__tests__/agent-sharing-users.test.ts: file 111/111 lines hit; added lines 3, instrumented 3, uncovered 0
+src/__tests__/agent-sharing.test.ts: file 148/148 lines hit; added lines 2, instrumented 2, uncovered 0
+src/__tests__/analytics.test.ts: file 319/319 lines hit; added lines 3, instrumented 3, uncovered 0
+src/__tests__/auth-api.test.ts: file 478/478 lines hit; added lines 38, instrumented 38, uncovered 0
+src/__tests__/auth-jwt-password.test.ts: file 167/167 lines hit; added lines 1, instrumented 1, uncovered 0
+src/__tests__/auth-layout-e2e.test.ts: file 341/341 lines hit; added lines 12, instrumented 12, uncovered 0
+src/__tests__/auth-layout.test.ts: file 235/235 lines hit; added lines 9, instrumented 9, uncovered 0
+src/__tests__/auth-middleware.test.ts: file 303/303 lines hit; added lines 9, instrumented 9, uncovered 0
+src/__tests__/auth-migration.test.ts: file 81/81 lines hit; added lines 5, instrumented 5, uncovered 0
+src/__tests__/auth-rbac.test.ts: file 120/120 lines hit; added lines 5, instrumented 5, uncovered 0
+src/__tests__/briefing-messages-bare-get-thread.test.ts: NO LCOV RECORD in this hold (1 added lines)
+src/__tests__/bundled-bootstrap-policy-change.test.ts: file 76/76 lines hit; added lines 1, instrumented 1, uncovered 0
+src/__tests__/capability-event-root-sibling-contract.test.ts: file 91/91 lines hit; added lines 1, instrumented 1, uncovered 0
+src/__tests__/cli-key-mint.test.ts: file 232/232 lines hit; added lines 6, instrumented 6, uncovered 0
+src/__tests__/commands-registry-invalidation.test.ts: file 214/214 lines hit; added lines 2, instrumented 2, uncovered 0
+src/__tests__/contexts-queries.test.ts: file 379/379 lines hit; added lines 2, instrumented 2, uncovered 0
+src/__tests__/conversations-clone-turns.test.ts: file 294/294 lines hit; added lines 2, instrumented 2, uncovered 0
+src/__tests__/conversations-ez-mode-lock.test.ts: file 58/58 lines hit; added lines 1, instrumented 1, uncovered 0
+src/__tests__/conversations-fork-link-integration.test.ts: file 168/168 lines hit; added lines 1, instrumented 1, uncovered 0
+src/__tests__/db-queries-agent-configs.test.ts: file 165/165 lines hit; added lines 3, instrumented 3, uncovered 0
+src/__tests__/db-queries-agent-shares.test.ts: file 106/106 lines hit; added lines 2, instrumented 2, uncovered 0
+src/__tests__/db-queries-marketplace-ratings.test.ts: file 135/135 lines hit; added lines 4, instrumented 4, uncovered 0
+src/__tests__/db-queries-marketplace-trgm.test.ts: file 141/141 lines hit; added lines 1, instrumented 1, uncovered 0
+src/__tests__/db-queries-password-resets.test.ts: file 59/59 lines hit; added lines 1, instrumented 1, uncovered 0
+src/__tests__/db-queries-quickstart.test.ts: file 75/75 lines hit; added lines 2, instrumented 2, uncovered 0
+src/__tests__/db-queries-runs.test.ts: file 223/223 lines hit; added lines 3, instrumented 3, uncovered 0
+src/__tests__/db-queries-teams.test.ts: file 122/122 lines hit; added lines 9, instrumented 9, uncovered 0
+src/__tests__/db-queries-user-commands-race.test.ts: file 79/80 lines hit; added lines 1, instrumented 1, uncovered 0
+src/__tests__/db-queries-user-commands.test.ts: file 134/134 lines hit; added lines 2, instrumented 2, uncovered 0
+src/__tests__/db-queries-users.test.ts: file 218/218 lines hit; added lines 34, instrumented 34, uncovered 0
+src/__tests__/distiller-settings-migration.test.ts: file 96/96 lines hit; added lines 2, instrumented 2, uncovered 0
+src/__tests__/extension-event-end-to-end.test.ts: file 214/218 lines hit; added lines 2, instrumented 2, uncovered 0
+src/__tests__/extension-events-hub-branch.test.ts: file 340/342 lines hit; added lines 1, instrumented 1, uncovered 0
+src/__tests__/ez-clear-leaks-context.test.ts: NO LCOV RECORD in this hold (1 added lines)
+src/__tests__/ez-conversation-lookup.test.ts: file 76/76 lines hit; added lines 2, instrumented 2, uncovered 0
+src/__tests__/ez-drafts-queries.test.ts: file 225/225 lines hit; added lines 2, instrumented 2, uncovered 0
+src/__tests__/ez-search-conversation-tool.test.ts: file 181/181 lines hit; added lines 2, instrumented 2, uncovered 0
+src/__tests__/ez-tools-create-agent.test.ts: file 79/79 lines hit; added lines 1, instrumented 1, uncovered 0
+src/__tests__/ez-tools-create-project.test.ts: file 82/82 lines hit; added lines 2, instrumented 2, uncovered 0
+src/__tests__/ez-tools-find-agents.test.ts: file 66/66 lines hit; added lines 1, instrumented 1, uncovered 0
+src/__tests__/ez-tools-install-extension.test.ts: file 80/80 lines hit; added lines 1, instrumented 1, uncovered 0
+src/__tests__/ez-tools-summarize.test.ts: file 238/245 lines hit; added lines 1, instrumented 1, uncovered 0
+src/__tests__/get-latest-leaf-capability-event.test.ts: NO LCOV RECORD in this hold (1 added lines)
+src/__tests__/load-history-capability-event-filter.test.ts: NO LCOV RECORD in this hold (1 added lines)
+src/__tests__/load-history-excluded-filter.test.ts: NO LCOV RECORD in this hold (1 added lines)
+src/__tests__/load-history-ez-action-filter.test.ts: NO LCOV RECORD in this hold (1 added lines)
+src/__tests__/load-history-preprocess-filter.test.ts: NO LCOV RECORD in this hold (1 added lines)
+src/__tests__/marketplace-e2e.test.ts: file 635/635 lines hit; added lines 3, instrumented 3, uncovered 0
+src/__tests__/marketplace-queries-deep.test.ts: file 634/634 lines hit; added lines 5, instrumented 5, uncovered 0
+src/__tests__/marketplace-search-perf.test.ts: file 84/84 lines hit; added lines 1, instrumented 1, uncovered 0
+src/__tests__/marketplace-tag-counts.test.ts: file 124/124 lines hit; added lines 1, instrumented 1, uncovered 0
+src/__tests__/marketplace-v2-migration.test.ts: file 384/387 lines hit; added lines 1, instrumented 1, uncovered 0
+src/__tests__/memories-api-create.test.ts: file 189/189 lines hit; added lines 1, instrumented 1, uncovered 0
+src/__tests__/memory-extractor-settings-migration.test.ts: file 194/194 lines hit; added lines 2, instrumented 2, uncovered 0
+src/__tests__/message-search-explain.test.ts: file 161/161 lines hit; added lines 1, instrumented 1, uncovered 0
+src/__tests__/message-search.test.ts: file 456/456 lines hit; added lines 2, instrumented 2, uncovered 0
+src/__tests__/messages-set-excluded.test.ts: file 78/78 lines hit; added lines 1, instrumented 1, uncovered 0
+src/__tests__/migrate-backfill-populated.test.ts: file 156/156 lines hit; added lines 5, instrumented 5, uncovered 0
+src/__tests__/moderation-sharing-e2e.test.ts: file 410/410 lines hit; added lines 20, instrumented 20, uncovered 0
+src/__tests__/onboarding-skip-flow.integration.test.ts: file 37/37 lines hit; added lines 3, instrumented 3, uncovered 0
+src/__tests__/preview-consent.test.ts: file 134/134 lines hit; added lines 2, instrumented 2, uncovered 0
+src/__tests__/preview-dynamic-e2e.docker.test.ts: file 20/145 lines hit; added lines 9, instrumented 2, uncovered 0
+src/__tests__/preview-sessions-queries.test.ts: file 282/282 lines hit; added lines 5, instrumented 5, uncovered 0
+src/__tests__/preview-uid-keystone.docker.test.ts: file 12/112 lines hit; added lines 11, instrumented 2, uncovered 0
+src/__tests__/price-chart-market-stub.test.ts: file 31/31 lines hit; added lines 36, instrumented 31, uncovered 0
+src/__tests__/price-chart.e2e.test.ts: file 228/228 lines hit; added lines 52, instrumented 40, uncovered 0
+src/__tests__/production-proof-plan.test.ts: file 29/29 lines hit; added lines 18, instrumented 15, uncovered 0
+src/__tests__/production-proof-results.test.ts: file 155/155 lines hit; added lines 42, instrumented 29, uncovered 0
+src/__tests__/queries-lessons.test.ts: file 448/448 lines hit; added lines 2, instrumented 2, uncovered 0
+src/__tests__/routing-analytics.test.ts: file 356/356 lines hit; added lines 1, instrumented 1, uncovered 0
+src/__tests__/routing-export-script.test.ts: file 287/289 lines hit; added lines 1, instrumented 1, uncovered 0
+src/__tests__/routing-spend-truncation.test.ts: file 151/151 lines hit; added lines 1, instrumented 1, uncovered 0
+src/__tests__/routing-sweep-script.test.ts: file 326/326 lines hit; added lines 1, instrumented 1, uncovered 0
+src/__tests__/runs-user-id-backfill-migration.test.ts: file 107/107 lines hit; added lines 4, instrumented 4, uncovered 0
+src/__tests__/runtime-tools-grep.test.ts: file 285/285 lines hit; added lines 9, instrumented 5, uncovered 0
+src/__tests__/sandbox-api.test.ts: file 102/102 lines hit; added lines 2, instrumented 2, uncovered 0
+src/__tests__/sandbox-observability-comprehensive.test.ts: file 655/655 lines hit; added lines 1, instrumented 1, uncovered 0
+src/__tests__/save-memory-integration.test.ts: file 153/153 lines hit; added lines 1, instrumented 1, uncovered 0
+src/__tests__/schema-migrations-first-boot-backfill.test.ts: file 129/129 lines hit; added lines 2, instrumented 2, uncovered 0
+src/__tests__/schema-migrations-indexes-audit.test.ts: file 147/147 lines hit; added lines 2, instrumented 2, uncovered 0
+src/__tests__/security/l1-login-timing-constant-time.test.ts: file 162/162 lines hit; added lines 2, instrumented 0, uncovered 0
+src/__tests__/shipping-preview-isolation.test.ts: file 73/73 lines hit; added lines 91, instrumented 73, uncovered 0
+src/__tests__/shipping-production-suite-wiring.test.ts: file 137/137 lines hit; added lines 4, instrumented 4, uncovered 0
+src/__tests__/source-parser-git-coverage.test.ts: file 273/273 lines hit; added lines 3, instrumented 3, uncovered 0
+src/__tests__/source-parser.test.ts: file 236/236 lines hit; added lines 1, instrumented 1, uncovered 0
+src/__tests__/start-assignment-plumbing.test.ts: file 1725/1727 lines hit; added lines 13, instrumented 8, uncovered 0
+src/__tests__/sub-conversation-integration.test.ts: file 318/346 lines hit; added lines 2, instrumented 2, uncovered 0
+src/__tests__/tool-call-telemetry-write.test.ts: file 211/211 lines hit; added lines 1, instrumented 1, uncovered 0
+src/__tests__/tool-calls-backfill-migration.test.ts: file 129/129 lines hit; added lines 2, instrumented 2, uncovered 0
+src/__tests__/user-search-sharing-edge.test.ts: file 144/144 lines hit; added lines 2, instrumented 2, uncovered 0
+src/db/queries/__tests__/query-core-conversations.test.ts: file 140/140 lines hit; added lines 1, instrumented 1, uncovered 0
+src/db/queries/__tests__/query-core-marketplace-ratings-atomic.test.ts: file 79/79 lines hit; added lines 2, instrumented 2, uncovered 0
+src/db/queries/__tests__/suggestion-feedback.test.ts: file 52/52 lines hit; added lines 1, instrumented 1, uncovered 0
+src/factory/provisioning/control-plane.test.ts: file 295/296 lines hit; added lines 3, instrumented 3, uncovered 0
+src/factory/provisioning/fleet-cli.test.ts: file 163/163 lines hit; added lines 1, instrumented 1, uncovered 0
+src/factory/provisioning/invitation.test.ts: file 327/327 lines hit; added lines 1, instrumented 1, uncovered 0
+src/factory/runner/supervisor-services.test.ts: file 457/464 lines hit; added lines 9, instrumented 4, uncovered 0
+packages/@ezcorp/ai-kit/test/e2e/bundled.test.ts: uncovered 0, listed 0: PASS
+packages/@ezcorp/ai-kit/test/e2e/fanout.test.ts: uncovered 10, listed 10: PASS
+packages/@ezcorp/ai-kit/test/e2e/quickstart.test.ts: uncovered 2, listed 2: PASS
+packages/@ezcorp/ai-kit/test/shape.test.ts: uncovered 0, listed 0: PASS
+packages/@ezcorp/ai-kit/test/unit/deployed-preconditions.test.ts: uncovered 0, listed 0: PASS
+packages/@ezcorp/ai-kit/test/unit/e2e-poll.test.ts: uncovered 0, listed 0: PASS
+scripts/check-factory-lanes.test.ts: uncovered 0, listed 0: PASS
+scripts/ripgrep-registration.test.ts: uncovered 0, listed 0: PASS
+scripts/test-images-registration.test.ts: uncovered 0, listed 0: PASS
+scripts/test-skip-inventory.test.ts: uncovered 0, listed 0: PASS
+src/__tests__/account-api.test.ts: uncovered 0, listed 0: PASS
+src/__tests__/admin-analytics-api-routes.test.ts: uncovered 0, listed 0: PASS
+src/__tests__/agent-sandbox.test.ts: uncovered 0, listed 0: PASS
+src/__tests__/agent-sharing-integration.test.ts: uncovered 0, listed 0: PASS
+src/__tests__/agent-sharing-routes.test.ts: uncovered 0, listed 0: PASS
+src/__tests__/agent-sharing-users.test.ts: uncovered 0, listed 0: PASS
+src/__tests__/agent-sharing.test.ts: uncovered 0, listed 0: PASS
+src/__tests__/analytics.test.ts: uncovered 0, listed 0: PASS
+src/__tests__/auth-api.test.ts: uncovered 0, listed 0: PASS
+src/__tests__/auth-jwt-password.test.ts: uncovered 0, listed 0: PASS
+src/__tests__/auth-layout-e2e.test.ts: uncovered 0, listed 0: PASS
+src/__tests__/auth-layout.test.ts: uncovered 0, listed 0: PASS
+src/__tests__/auth-middleware.test.ts: uncovered 0, listed 0: PASS
+src/__tests__/auth-migration.test.ts: uncovered 0, listed 0: PASS
+src/__tests__/auth-rbac.test.ts: uncovered 0, listed 0: PASS
+src/__tests__/bundled-bootstrap-policy-change.test.ts: uncovered 0, listed 0: PASS
+src/__tests__/capability-event-root-sibling-contract.test.ts: uncovered 0, listed 0: PASS
+src/__tests__/cli-key-mint.test.ts: uncovered 0, listed 0: PASS
+src/__tests__/commands-registry-invalidation.test.ts: uncovered 0, listed 0: PASS
+src/__tests__/contexts-queries.test.ts: uncovered 0, listed 0: PASS
+src/__tests__/conversations-clone-turns.test.ts: uncovered 0, listed 0: PASS
+src/__tests__/conversations-ez-mode-lock.test.ts: uncovered 0, listed 0: PASS
+src/__tests__/conversations-fork-link-integration.test.ts: uncovered 0, listed 0: PASS
+src/__tests__/db-queries-agent-configs.test.ts: uncovered 0, listed 0: PASS
+src/__tests__/db-queries-agent-shares.test.ts: uncovered 0, listed 0: PASS
+src/__tests__/db-queries-marketplace-ratings.test.ts: uncovered 0, listed 0: PASS
+src/__tests__/db-queries-marketplace-trgm.test.ts: uncovered 0, listed 0: PASS
+src/__tests__/db-queries-password-resets.test.ts: uncovered 0, listed 0: PASS
+src/__tests__/db-queries-quickstart.test.ts: uncovered 0, listed 0: PASS
+src/__tests__/db-queries-runs.test.ts: uncovered 0, listed 0: PASS
+src/__tests__/db-queries-teams.test.ts: uncovered 0, listed 0: PASS
+src/__tests__/db-queries-user-commands-race.test.ts: uncovered 0, listed 0: PASS
+src/__tests__/db-queries-user-commands.test.ts: uncovered 0, listed 0: PASS
+src/__tests__/db-queries-users.test.ts: uncovered 0, listed 0: PASS
+src/__tests__/distiller-settings-migration.test.ts: uncovered 0, listed 0: PASS
+src/__tests__/extension-event-end-to-end.test.ts: uncovered 0, listed 0: PASS
+src/__tests__/extension-events-hub-branch.test.ts: uncovered 0, listed 0: PASS
+src/__tests__/ez-conversation-lookup.test.ts: uncovered 0, listed 0: PASS
+src/__tests__/ez-drafts-queries.test.ts: uncovered 0, listed 0: PASS
+src/__tests__/ez-search-conversation-tool.test.ts: uncovered 0, listed 0: PASS
+src/__tests__/ez-tools-create-agent.test.ts: uncovered 0, listed 0: PASS
+src/__tests__/ez-tools-create-project.test.ts: uncovered 0, listed 0: PASS
+src/__tests__/ez-tools-find-agents.test.ts: uncovered 0, listed 0: PASS
+src/__tests__/ez-tools-install-extension.test.ts: uncovered 0, listed 0: PASS
+src/__tests__/ez-tools-summarize.test.ts: uncovered 0, listed 0: PASS
+src/__tests__/marketplace-e2e.test.ts: uncovered 0, listed 0: PASS
+src/__tests__/marketplace-queries-deep.test.ts: uncovered 0, listed 0: PASS
+src/__tests__/marketplace-search-perf.test.ts: uncovered 0, listed 0: PASS
+src/__tests__/marketplace-tag-counts.test.ts: uncovered 0, listed 0: PASS
+src/__tests__/marketplace-v2-migration.test.ts: uncovered 0, listed 0: PASS
+src/__tests__/memories-api-create.test.ts: uncovered 0, listed 0: PASS
+src/__tests__/memory-extractor-settings-migration.test.ts: uncovered 0, listed 0: PASS
+src/__tests__/message-search-explain.test.ts: uncovered 0, listed 0: PASS
+src/__tests__/message-search.test.ts: uncovered 0, listed 0: PASS
+src/__tests__/messages-set-excluded.test.ts: uncovered 0, listed 0: PASS
+src/__tests__/migrate-backfill-populated.test.ts: uncovered 0, listed 0: PASS
+src/__tests__/moderation-sharing-e2e.test.ts: uncovered 0, listed 0: PASS
+src/__tests__/onboarding-skip-flow.integration.test.ts: uncovered 0, listed 0: PASS
+src/__tests__/preview-consent.test.ts: uncovered 0, listed 0: PASS
+src/__tests__/preview-dynamic-e2e.docker.test.ts: uncovered 0, listed 0: PASS
+src/__tests__/preview-sessions-queries.test.ts: uncovered 0, listed 0: PASS
+src/__tests__/preview-uid-keystone.docker.test.ts: uncovered 0, listed 0: PASS
+src/__tests__/price-chart-market-stub.test.ts: uncovered 0, listed 0: PASS
+src/__tests__/price-chart.e2e.test.ts: uncovered 0, listed 0: PASS
+src/__tests__/production-proof-plan.test.ts: uncovered 0, listed 0: PASS
+src/__tests__/production-proof-results.test.ts: uncovered 0, listed 0: PASS
+src/__tests__/queries-lessons.test.ts: uncovered 0, listed 0: PASS
+src/__tests__/routing-analytics.test.ts: uncovered 0, listed 0: PASS
+src/__tests__/routing-export-script.test.ts: uncovered 0, listed 0: PASS
+src/__tests__/routing-spend-truncation.test.ts: uncovered 0, listed 0: PASS
+src/__tests__/routing-sweep-script.test.ts: uncovered 0, listed 0: PASS
+src/__tests__/runs-user-id-backfill-migration.test.ts: uncovered 0, listed 0: PASS
+src/__tests__/runtime-tools-grep.test.ts: uncovered 0, listed 0: PASS
+src/__tests__/sandbox-api.test.ts: uncovered 0, listed 0: PASS
+src/__tests__/sandbox-observability-comprehensive.test.ts: uncovered 0, listed 0: PASS
+src/__tests__/save-memory-integration.test.ts: uncovered 0, listed 0: PASS
+src/__tests__/schema-migrations-first-boot-backfill.test.ts: uncovered 0, listed 0: PASS
+src/__tests__/schema-migrations-indexes-audit.test.ts: uncovered 0, listed 0: PASS
+src/__tests__/security/l1-login-timing-constant-time.test.ts: uncovered 0, listed 0: PASS
+src/__tests__/shipping-preview-isolation.test.ts: uncovered 0, listed 0: PASS
+src/__tests__/shipping-production-suite-wiring.test.ts: uncovered 0, listed 0: PASS
+src/__tests__/source-parser-git-coverage.test.ts: uncovered 0, listed 0: PASS
+src/__tests__/source-parser.test.ts: uncovered 0, listed 0: PASS
+src/__tests__/start-assignment-plumbing.test.ts: uncovered 0, listed 0: PASS
+src/__tests__/sub-conversation-integration.test.ts: uncovered 0, listed 0: PASS
+src/__tests__/tool-call-telemetry-write.test.ts: uncovered 0, listed 0: PASS
+src/__tests__/tool-calls-backfill-migration.test.ts: uncovered 0, listed 0: PASS
+src/__tests__/user-search-sharing-edge.test.ts: uncovered 0, listed 0: PASS
+src/db/queries/__tests__/query-core-conversations.test.ts: uncovered 0, listed 0: PASS
+src/db/queries/__tests__/query-core-marketplace-ratings-atomic.test.ts: uncovered 0, listed 0: PASS
+src/db/queries/__tests__/suggestion-feedback.test.ts: uncovered 0, listed 0: PASS
+src/factory/provisioning/control-plane.test.ts: uncovered 0, listed 0: PASS
+src/factory/provisioning/fleet-cli.test.ts: uncovered 0, listed 0: PASS
+src/factory/provisioning/invitation.test.ts: uncovered 0, listed 0: PASS
+src/factory/runner/supervisor-services.test.ts: uncovered 0, listed 0: PASS
+tracked-skip-lines: 105 file(s), 0 red
+bash line cover: merge b6414ec0b vs base b0b7bedf1; trace /tmp/factory-platform-evidence/w00/w4h-merge/w4h-33-test-hygiene-e50aedefd-on-b0b7bedf1/rerun/case-check/bash-trace.txt
+scripts/verify-shipping-preview-isolation.sh: added 46, executable 24, executed 24, missed 0
+scripts/verify-shipping-production-suite.sh: added 1, executable 1, executed 1, missed 0

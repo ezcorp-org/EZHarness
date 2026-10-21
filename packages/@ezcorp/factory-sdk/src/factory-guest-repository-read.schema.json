@@ -1,0 +1,40 @@
+{
+  "$id": "urn:ezcorp:factory:guest-repository-read:v1",
+  "$ref": "#/definitions/FactoryGuestRepositoryRead",
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "definitions": {
+    "FactoryGuestRepositoryRead": {
+      "additionalProperties": false,
+      "description": "Asks the host plane for one commit of a repository the installation declares (W4H-28).\n\nA guest never holds a repository credential and has no network. It names a source by the operator's own handle and one full commit id; the host fetches that commit with its own credential, reads the complete tree, seals it as a material of this attempt under the named operation, and answers the handle. The guest reads it with the material read frame.",
+      "properties": {
+        "commitSha": {
+          "description": "A full 40-hex commit id; a branch, a tag or a prefix is refused.",
+          "type": "string"
+        },
+        "operationId": {
+          "description": "The journalled operation the sealed tree belongs to.",
+          "type": "string"
+        },
+        "operationIndex": {
+          "type": "number"
+        },
+        "schemaVersion": {
+          "const": "factory.guest-repository-read.v1",
+          "type": "string"
+        },
+        "source": {
+          "description": "The `name` of a source the installation declares.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "schemaVersion",
+        "operationId",
+        "operationIndex",
+        "source",
+        "commitSha"
+      ],
+      "type": "object"
+    }
+  }
+}

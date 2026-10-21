@@ -641,6 +641,32 @@ describe("ChatThread window events", () => {
 		);
 	});
 
+	test("ez:turn_saved: the active sub-conversation's turn enters its block, not the thread; an inactive sub's turn enters neither", async () => {
+		// W4H-33: the sub-conversation routing runs BEFORE the thread's own conversation check, so the active sub's reply
+		// reaches its block. A turn of another, inactive sub-conversation is dropped: that block lazy-loads its saved
+		// messages when opened.
+		const { api } = mount(linear());
+		await vi.waitFor(() => expect(api.getThreadState().messages.length).toBe(4));
+		subActive = { id: "sub-active" };
+		subMsgs.length = 0;
+		try {
+			const turn = (conversationId: string, messageId: string) =>
+				window.dispatchEvent(new CustomEvent("ez:turn_saved", {
+					detail: { runId: `run-${messageId}`, conversationId, messageId, parentMessageId: null, content: `reply ${messageId}`, final: true },
+				}));
+			turn("sub-active", "sa-1");
+			turn("sub-inactive", "si-1");
+			await Promise.resolve();
+			expect(subMsgs.map((m) => [m.id, m.role, m.content])).toEqual([["sa-1", "assistant", "reply sa-1"]]);
+			const threadIds = api.getThreadState().allMessages.map((m) => m.id);
+			expect(threadIds).not.toContain("sa-1");
+			expect(threadIds).not.toContain("si-1");
+		} finally {
+			subActive = null;
+			subMsgs.length = 0;
+		}
+	});
+
 	test("ez:turn_saved (ext: run) busts the conv's fetch-policy cooldown; wrong-conv ignored", async () => {
 		const fp = await import("$lib/utils/fetch-policy.js");
 		const invalidate = fp.invalidate as ReturnType<typeof vi.fn>;

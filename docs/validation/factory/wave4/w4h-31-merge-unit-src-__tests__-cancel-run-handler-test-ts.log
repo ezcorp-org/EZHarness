@@ -1,0 +1,11 @@
+bun test v1.4.2 (744846f84)
+
+src/__tests__/cancel-run-handler.test.ts:
+[spawn-assignment] registry not threaded — falling back to blanket extension copy (no cap intersection). extensionId=cr-cap-ba35ce25 conversationId=conv-cr-cap-134577fa subConversationId=sub-run-cr-1. This is a Phase 4 §M4 fallback path; production callers should thread ctx.registry.
+[spawn-assignment] registry not threaded — falling back to blanket extension copy (no cap intersection). extensionId=cr-cap-ba35ce25 conversationId=conv-cr-cap-134577fa subConversationId=sub-run-cr-2. This is a Phase 4 §M4 fallback path; production callers should thread ctx.registry.
+[spawn-assignment] registry not threaded — falling back to blanket extension copy (no cap intersection). extensionId=cr-cap-ba35ce25 conversationId=conv-cr-cap-134577fa subConversationId=sub-run-cr-3. This is a Phase 4 §M4 fallback path; production callers should thread ctx.registry.
+
+ 9 pass
+ 0 fail
+ 45 expect() calls
+Ran 9 tests across 1 file. [1037.00ms]

@@ -36,7 +36,7 @@ let userId: string;
 
 beforeAll(async () => {
   await setupTestDb();
-  const u = await createUser({ email: "ez-create-proj@test.com", passwordHash: "h", name: "EZP" });
+  const u = await createUser({ email: "ez-create-proj@test.example", passwordHash: "h", name: "EZP" });
   userId = u.id;
 });
 
@@ -96,7 +96,7 @@ describe("propose_create_project", () => {
   });
 
   test("draft is owned by the acting user (cross-user lookup returns undefined)", async () => {
-    const otherUser = await createUser({ email: "ez-create-proj-other@test.com", passwordHash: "h", name: "Other" });
+    const otherUser = await createUser({ email: "ez-create-proj-other@test.example", passwordHash: "h", name: "Other" });
     const tool = createProposeCreateProjectTool({ userId });
     const result = await tool.execute("call-6", { name: "Owned", path: "/tmp/owned" });
     const { draftId } = expectJson<{ draftId: string }>(result);

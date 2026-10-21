@@ -1,8 +1,8 @@
 import { spawn } from "node:child_process";
-import { chmod, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { chmod, mkdir, mkdtemp, readdir, readFile, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve, sep } from "node:path";
-import { digestBytes } from "../../extensions/v4/blobs";
+import { digestBytes } from "../../extensions/v4/digest";
 import { referenceCodeFilesDigest, type ReferenceCodeFile } from "./snapshot";
 
 /**
@@ -119,6 +119,42 @@ function insideRoot(root: string, path: string): string {
   return absolute;
 }
 
+/** The package directories under one `node_modules`, scoped ones as `@scope/name`. */
+async function toolchainPackages(modules: string): Promise<string[]> {
+  const packages: string[] = [];
+  for (const entry of (await readdir(modules, { withFileTypes: true })).sort((left, right) => left.name.localeCompare(right.name))) {
+    if (!entry.isDirectory() || entry.name.startsWith(".")) continue;
+    if (!entry.name.startsWith("@")) { packages.push(entry.name); continue; }
+    for (const scoped of (await readdir(join(modules, entry.name), { withFileTypes: true })).sort((left, right) => left.name.localeCompare(right.name))) {
+      if (scoped.isDirectory()) packages.push(`${entry.name}/${scoped.name}`);
+    }
+  }
+  return packages;
+}
+
+/**
+ * Links a pinned, read-only toolchain into a disposable copy (W4H-28, the toolchain claims lane).
+ *
+ * A sandboxed validator has no network and a `noexec` `/tmp`. Its toolchain is the validator
+ * package's own locked dependency set, which the guest runtime stages read-only and executable at
+ * the package root. The copy gets a `node_modules` of links to it, and a `.bin` of links to each
+ * package's declared binaries: a link in `/tmp` to an executable on another mount runs, so the
+ * candidate's own scripts (`tsc --noEmit`) resolve exactly as a frozen install would lay them out.
+ * The candidate's lockfile is then checked against this set offline by `bun install --frozen-lockfile`.
+ */
+export async function linkReferenceCodeToolchain(root: string, toolchain: string): Promise<void> {
+  const modules = join(toolchain, "node_modules");
+  const target = join(root, "node_modules");
+  await mkdir(join(target, ".bin"), { recursive: true });
+  for (const name of await toolchainPackages(modules)) {
+    if (name.includes("/")) await mkdir(join(target, dirname(name)), { recursive: true });
+    await symlink(join(modules, name), join(target, name));
+    const manifest = JSON.parse(await readFile(join(modules, name, "package.json"), "utf8")) as { bin?: string | Record<string, string> };
+    const bins = typeof manifest.bin === "string" ? { [name.split("/").at(-1)!]: manifest.bin } : manifest.bin ?? {};
+    for (const [bin, path] of Object.entries(bins)) await symlink(join(modules, name, path), join(target, ".bin", bin));
+  }
+}
+
 /**
  * Materializes a complete tree into a fresh disposable directory.
  *
@@ -130,6 +166,8 @@ export async function materializeReferenceCodeWorkspace(input: {
   readonly expectedDigest: string;
   readonly protectedPaths: readonly string[];
   readonly prefix?: string;
+  /** A read-only directory holding the pinned toolchain's `node_modules` (W4H-28); linked, never copied. */
+  readonly toolchain?: string;
 }): Promise<ReferenceCodeWorkspace> {
   const root = await mkdtemp(join(tmpdir(), input.prefix ?? "ezcorp-reference-code-"));
   try {
@@ -147,6 +185,7 @@ export async function materializeReferenceCodeWorkspace(input: {
     if (verifiedDigest !== input.expectedDigest) {
       throw new ReferenceCodeWorkspaceError("reference_code_workspace_digest_mismatch", `${verifiedDigest} is not ${input.expectedDigest}`);
     }
+    if (input.toolchain !== undefined) await linkReferenceCodeToolchain(root, input.toolchain);
     const sealed = new Map<string, string>();
     for (const path of input.protectedPaths) {
       const file = readBack.find(entry => entry.path === path);

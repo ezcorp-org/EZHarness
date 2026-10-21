@@ -73,7 +73,7 @@ function makeFakeRegistry(): ExtensionRegistry {
 
 async function seedFixtures() {
   const db = getTestDb();
-  await db.insert(users).values({ id: USER_ID, email: "t@x.com", passwordHash: "x", name: "Telemetry", role: "member" } as any);
+  await db.insert(users).values({ id: USER_ID, email: "t@x.example", passwordHash: "x", name: "Telemetry", role: "member" } as any);
   await db.insert(projects).values({ id: PROJECT_ID, name: "p", path: "/tmp/p" } as any);
   await db.insert(agentConfigs).values({ id: AGENT_ID, name: "TelemetryAgent", prompt: "test", userId: USER_ID } as any);
   await db.insert(extensions).values({

@@ -23,16 +23,20 @@
  *     that `stores.svelte.ts` uses; assert the final entry shape.
  *
  *   • Live executor + reducer — runs the REAL `ToolExecutor.executeToolCall`
- *     against the price-chart subprocess (mocked fetchers, stub PDP),
+ *     against the built price-chart release (loopback market stub, stub PDP),
  *     captures the bus events it emits, and feeds them through the
  *     same reducer. Proves the end-to-end shape matches.
  */
 
-import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { join } from "node:path";
+import { afterAll, beforeAll, describe, expect, test } from "bun:test";
+import { buildFirstPartyRelease } from "../../../src/__tests__/helpers/first-party-release";
+import { PRICE_CHART_HOSTS, routeHostMarketTraffic, startMarketStub } from "../../../src/__tests__/helpers/price-chart-market-stub";
+import { closeTestDb, getTestDb, mockDbConnection, setupTestDb } from "../../../src/__tests__/helpers/test-pglite";
 // The SHIPPED unwrapper, not a hand-copy (issue #142). `$lib/tool-output` is
 // rune-free precisely so a bun:test suite can import the real function.
 import { extractToolOutput } from "$lib/tool-output";
+
+mockDbConnection();
 
 // ── Replicated reducer + extraction (verbatim from stores.svelte.ts) ──
 
@@ -310,7 +314,7 @@ describe("price-chart stream-bridge — synthetic events", () => {
 });
 
 // ────────────────────────────────────────────────────────────────────
-// Group 2: live executor → bus → reducer (network-gated)
+// Group 2: live executor → bus → reducer
 // ────────────────────────────────────────────────────────────────────
 //
 // Wires the EXACT path setup-tools.ts uses: a real EventBus passed to
@@ -318,135 +322,105 @@ describe("price-chart stream-bridge — synthetic events", () => {
 // the bus, we capture those and feed them through the same reducer the
 // store uses. Asserts the chain is whole.
 //
-// `_setFetchersForTests` only swaps the fetcher in THIS process; the
-// extension subprocess the executor spawns has its own module graph
-// and uses the real Yahoo Finance fetch. Gated on `EZCORP_E2E_NETWORK`
-// so devs without internet don't get spurious failures.
+// The extension runs as a built v4 release (rootless Podman, like every
+// first-party release suite). Its fetch goes through the host network
+// broker to a loopback stub of the market APIs, so the run never reaches
+// the internet and is the same on every lane (W4H-33).
 
-const ROOT = join(import.meta.dir, "..", "..", "..");
-const NETWORK = process.env.EZCORP_E2E_NETWORK === "1";
-const describeNetwork = NETWORK ? describe : describe.skip;
+const market = startMarketStub();
+// The executor uses the host's own broker path (real DNS, global fetch): route it to the stub too.
+const restoreHostNetwork = routeHostMarketTraffic(market);
+let release: Awaited<ReturnType<typeof buildFirstPartyRelease>>;
 
-describeNetwork("price-chart stream-bridge — live executor → bus → reducer", () => {
-	let capturedStart: ToolStartEvent | undefined;
-	let capturedComplete: ToolCompleteEvent | undefined;
+beforeAll(async () => {
+	release = await buildFirstPartyRelease("price-chart");
+}, 120_000);
 
-	beforeEach(() => {
-		capturedStart = undefined;
-		capturedComplete = undefined;
-	});
+afterAll(async () => {
+	await release.close();
+	restoreHostNetwork();
+	market.stop();
+	await closeTestDb();
+});
 
-	afterEach(() => {
-		// Reset shared registry state so subsequent tests start clean.
-	});
-
+describe("price-chart stream-bridge — live executor → bus → reducer", () => {
 	test("executor emits bus events that drive the store to a renderable price-chart entry", async () => {
-		const { ExtensionRegistry } = await import("../../../src/extensions/registry");
 		const { ToolExecutor } = await import("../../../src/extensions/tool-executor");
+		const { configureReleaseRuntime } = await import("../../../src/extensions/release-process");
 		const { EventBus } = await import("../../../src/runtime/events");
+		const { messages } = await import("../../../src/db/schema");
 		const { createStubPermissionEngine } = await import(
 			"../../../src/__tests__/helpers/permission-engine-stub"
 		);
-		const indexModule = await import(
-			"../../../docs/extensions/examples/price-chart/index"
-		);
 		type AgentEvents = import("../../../src/types").AgentEvents;
-		type ExtensionManifestV2 = import("../../../src/extensions/types").ExtensionManifestV2;
-		type ExtensionPermissions = import("../../../src/extensions/types").ExtensionPermissions;
 
-		// `_setFetchersForTests` swaps the binding in THIS process; the
-		// subprocess the executor spawns has its own module graph and
-		// uses the real fetcher. Kept here as a no-op marker for future
-		// readers who want to refactor toward in-process execution.
-		indexModule._setFetchersForTests({});
+		await setupTestDb();
+		const session = await release.session({ networkHosts: PRICE_CHART_HOSTS, fetchImpl: market.fetchImpl, persistRelease: true });
+		try {
+			const tool = release.manifest.tools?.find((candidate) => candidate.name === "get_stock_chart");
+			if (!tool) throw new Error("Missing get_stock_chart in the built Price Chart manifest");
+			const name = "price-chart__get_stock_chart";
+			session.registry.registerToolForTest(name, {
+				...tool,
+				name,
+				originalName: "get_stock_chart",
+				extensionId: session.id,
+				extensionName: release.manifest.name,
+			});
+			configureReleaseRuntime(session.runtime);
 
-		const EXT_ID = "price-chart-bridge-test";
-		const manifest: ExtensionManifestV2 = {
-			schemaVersion: 2,
-			name: "price-chart",
-			version: "0.1.0",
-			description: "test",
-			author: { name: "test" },
-			entrypoint: "./index.ts",
-			persistent: false,
-			tools: [{
-				name: "get_stock_chart",
-				description: "fetch stock chart",
-				inputSchema: { type: "object", properties: { ticker: { type: "string" } }, required: ["ticker"] },
-				cardType: "price-chart",
-			}],
-			permissions: { network: ["query1.finance.yahoo.com", "api.coingecko.com"] },
-		};
-		const granted: ExtensionPermissions = {
-			network: ["query1.finance.yahoo.com", "api.coingecko.com"],
-			grantedAt: { network: Date.now() },
-		};
+			let capturedStart: ToolStartEvent | undefined;
+			let capturedComplete: ToolCompleteEvent | undefined;
+			const bus = new EventBus<AgentEvents>();
+			bus.on("tool:start", (data) => { capturedStart = data as ToolStartEvent; });
+			bus.on("tool:complete", (data) => { capturedComplete = data as ToolCompleteEvent; });
 
-		const registry = ExtensionRegistry.getInstance();
-		registry.setManifestForTest(EXT_ID, manifest);
-		registry.setInstallPathForTest(
-			EXT_ID,
-			join(ROOT, "docs", "extensions", "examples", "price-chart"),
-		);
-		registry.setGrantedPermsForTest(EXT_ID, granted);
-		registry.registerToolForTest("price-chart__get_stock_chart", {
-			name: "price-chart__get_stock_chart",
-			originalName: "get_stock_chart",
-			description: "fetch stock chart",
-			inputSchema: manifest.tools![0]!.inputSchema,
-			cardType: "price-chart",
-			extensionId: EXT_ID,
-			extensionName: "price-chart",
-		});
+			const executor = new ToolExecutor(session.registry, createStubPermissionEngine(), { bus });
+			executor.setCurrentUserId(session.userId);
+			const messageId = crypto.randomUUID();
+			await getTestDb().insert(messages).values({ id: messageId, conversationId: session.conversationId, role: "user", content: "Show AAPL" });
 
-		const bus = new EventBus<AgentEvents>();
-		bus.on("tool:start", (data) => { capturedStart = data as ToolStartEvent; });
-		bus.on("tool:complete", (data) => { capturedComplete = data as ToolCompleteEvent; });
+			const result = await executor.executeToolCall(
+				name,
+				{ ticker: "AAPL" },
+				session.conversationId,
+				messageId,
+				{ metadata: { invocationId: "tc-bridge-1" } },
+			);
 
-		const executor = new ToolExecutor(registry, createStubPermissionEngine(), { bus });
+			expect(result.isError).toBe(false);
+			expect(market.requests.at(-1)).toStartWith("https://query1.finance.yahoo.com/v8/finance/chart/AAPL?");
 
-		const result = await executor.executeToolCall(
-			"price-chart__get_stock_chart",
-			{ ticker: "AAPL" },
-			"conv-bridge",
-			"msg-bridge",
-			{ metadata: { invocationId: "tc-bridge-1" } },
-		);
+			// Bus event shape matches what the reducer expects.
+			expect(capturedStart!.cardType).toBe("price-chart");
+			expect(capturedStart!.invocationId).toBe("tc-bridge-1");
+			expect(capturedComplete!.cardType).toBe("price-chart");
+			expect(capturedComplete!.success).toBe(true);
 
-		expect(result.isError).toBe(false);
-		expect(capturedStart).toBeDefined();
-		expect(capturedComplete).toBeDefined();
+			// Drive the store reducer with the captured events.
+			const store = makeStore();
+			seedRun(store, "run-bridge", session.conversationId);
+			applyToolStart(store, capturedStart!);
+			applyToolComplete(store, capturedComplete!);
 
-		// Bus event shape matches what the reducer expects.
-		expect(capturedStart!.cardType).toBe("price-chart");
-		expect(capturedStart!.invocationId).toBe("tc-bridge-1");
-		expect(capturedComplete!.cardType).toBe("price-chart");
-		expect(capturedComplete!.success).toBe(true);
+			const tc = store.streamingToolCalls["run-bridge"]?.[0];
+			expect(tc).toBeDefined();
+			expect(tc!.status).toBe("complete");
+			expect(tc!.cardType).toBe("price-chart");
+			expect(tc!.id).toBe("tc-bridge-1");
 
-		// Drive the store reducer with the captured events.
-		const store = makeStore();
-		seedRun(store, "run-bridge", "conv-bridge");
-		applyToolStart(store, capturedStart!);
-		applyToolComplete(store, capturedComplete!);
-
-		const tc = store.streamingToolCalls["run-bridge"]?.[0];
-		expect(tc).toBeDefined();
-		expect(tc!.status).toBe("complete");
-		expect(tc!.cardType).toBe("price-chart");
-		expect(tc!.id).toBe("tc-bridge-1");
-
-		// Card-side parser successfully reads the output. This is the final
-		// gate — if the card couldn't parse what the store writes, the user
-		// sees "Cannot render chart".
-		const parsed = parseCardPayload(tc!.output);
-		expect(parsed).not.toBeNull();
-		expect(parsed!.symbol).toBe("AAPL");
-		expect(parsed!.kind).toBe("stock");
-		// Real Yahoo Finance returns ~250 daily points for 1y of AAPL;
-		// be flexible since the count drifts with market days.
-		expect(parsed!.points.length).toBeGreaterThan(100);
-
-		// Cleanup
-		indexModule._resetBindingsForTests();
-	});
+			// Card-side parser successfully reads the output. This is the final
+			// gate — if the card couldn't parse what the store writes, the user
+			// sees "Cannot render chart".
+			const parsed = parseCardPayload(tc!.output);
+			expect(parsed).not.toBeNull();
+			expect(parsed!.symbol).toBe("AAPL");
+			expect(parsed!.kind).toBe("stock");
+			// The stub serves one year of daily closes (252 points).
+			expect(parsed!.points.length).toBe(252);
+		} finally {
+			await session.close();
+			session.registry.killAll();
+		}
+	}, 60_000);
 });

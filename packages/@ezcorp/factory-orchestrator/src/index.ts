@@ -9,3 +9,4 @@ export * from "./queue-client.ts";
 export * from "./transition-pages.ts";
 export * from "./validation.ts";
 export * from "./worker.ts";
+export * from "./workflow-bundle.ts";

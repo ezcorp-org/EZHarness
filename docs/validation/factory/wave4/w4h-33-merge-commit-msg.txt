@@ -1,0 +1,4 @@
+merge: wp/w4h-33-test-hygiene e50aedefd into integ/w00 (test hygiene on main: never-running tests run or carry a tracked reason, Docker-only tests get a Podman lane, fixtures move to reserved domains, measured timeouts are declared (W4H-33))
+
+The hook maps 154 lines (no factory-orchestrator package line) and runs them all (the full-run form, EZ_PRECOMMIT_TEST_MAX = 154; above the cap of 12, so a list-bound ruling is needed).
+Gate change, ruled: gate-integrity flags exactly the two ruled test deletions, src/__tests__/task-stack-sdk-integration.test.ts and src/__tests__/todo-tracker-sdk-integration.test.ts (the retired describe.skip files, replaced by the 10-behaviour map), on both legs. The origin/main leg also shows "scripts/merge-lcov.ts", the ruled change of the W4H-28 follow-up (fc8894e71) that is already in the base. No other finding.

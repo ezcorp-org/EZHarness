@@ -25,7 +25,7 @@ vi.mock("$server/db/queries/users", () => ({
   // so we never branch off into a redirect that masks Set-Cookie behavior.
   getUserById: vi.fn(async () => ({
     id: "u-1",
-    email: "u@test.com",
+    email: "u@test.example",
     name: "U",
     role: "member",
     onboardedAt: new Date("2026-01-01"),
@@ -97,7 +97,7 @@ function makeEvent(opts: { cookie?: string; path?: string } = {}) {
 
 const BASE_PAYLOAD = {
   id: "u-1",
-  email: "u@test.com",
+  email: "u@test.example",
   name: "U",
   role: "member" as const,
 };
@@ -469,7 +469,7 @@ describe("hooks.server.ts — sliding session refresh", () => {
     // Lock the contract that we re-sign with EXACTLY the verified payload's
     // identity fields — never read fresh from DB, never silently elevate role.
     expect(vi.mocked(signJWT)).toHaveBeenCalledWith(
-      { id: "u-1", email: "u@test.com", name: "U", role: "admin" },
+      { id: "u-1", email: "u@test.example", name: "U", role: "admin" },
       "secret",
       NEW_LIFETIME_SECONDS,
     );

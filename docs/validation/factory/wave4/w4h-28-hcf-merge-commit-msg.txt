@@ -1,0 +1,5 @@
+merge: wp/w4h-28-hosted-coverage-fix 38ec686d8 into integ/w00 (the hosted coverage fix: a test's /tmp bundle never enters coverage, and the coverage merge keeps repository sources only (W4H-28 follow-up))
+
+The hook maps 5 lines and runs them all (EZ_PRECOMMIT_TEST_MAX = 5). Gate change, ruled: gate-integrity flags exactly
+"coverage gate tool changed (M): scripts/merge-lcov.ts" on both legs (the fix lives in the coverage merge tool; the
+merge folder's expected sets name it, and the hosted label stays the user's decision). Every other finding is absent.

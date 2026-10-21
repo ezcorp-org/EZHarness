@@ -323,6 +323,9 @@ web_host_files() {
     #     so it lands the string table in lcov — without which the patch-
     #     coverage gate fails "NO lcov data" the moment anyone edits a
     #     tooltip's wording.
+    #   hub-isolated-action.integration + price-chart-stream-bridge: they build
+    #     a first-party release with the rootless Podman runner, which only the
+    #     prepared host lanes install (W4H-33b: web orphans failed it 2).
     # NOTE: route-contract.test.ts is intentionally NOT here — it is a P-only
     # hard gate (see passfail_files); it covers only the already-pinned
     # harness-client route table + the unpinned api-registry, so measuring it
@@ -337,6 +340,7 @@ web_host_files() {
       web/src/__tests__/ask-user-answer-route.test.ts \
       web/src/__tests__/file-organizer-hub-authority.integration.test.ts \
       web/src/__tests__/hub-isolated-action.integration.test.ts \
+      web/src/__tests__/price-chart-stream-bridge.test.ts \
       web/src/__tests__/canvas-bridge.test.ts \
       web/src/__tests__/browser-invocation.test.ts \
       web/src/__tests__/extension-browser-authority.test.ts \

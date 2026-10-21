@@ -41,8 +41,8 @@ beforeAll(async () => {
   const agentConfig = await createAgentConfig({ name: "Test Agent", description: "test", prompt: "You are a test agent" });
   agentConfigId = agentConfig.id;
 
-  const user = await createUser({ email: "sandbox-api@test.com", passwordHash: "hash", name: "Sandbox API" });
-  const other = await createUser({ email: "sandbox-api-other@test.com", passwordHash: "hash", name: "Sandbox Other" });
+  const user = await createUser({ email: "sandbox-api@test.example", passwordHash: "hash", name: "Sandbox API" });
+  const other = await createUser({ email: "sandbox-api-other@test.example", passwordHash: "hash", name: "Sandbox Other" });
   asUser = { [TEST_USER_HEADER]: user.id };
   asOtherUser = { [TEST_USER_HEADER]: other.id };
 });

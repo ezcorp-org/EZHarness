@@ -1,0 +1,26 @@
+
+ RUN  v5.0.3 /home/dev/work/EZCorp/EZHarness-worktrees/composable-factory-platform/.worktrees/w00-integration/web
+      Coverage enabled with v8
+
+{"ts":"2026-10-16T20:35:49.992Z","level":"error","msg":"Extension recovery requires attention","subsystem":"ext.author.lifecycle","code":"recovery_failed"}
+{"ts":"2026-10-16T20:35:51.402Z","level":"warn","msg":"EZCORP_ENCRYPTION_SECRET is unset; falling back to auto-generated secret. Set EZCORP_ENCRYPTION_SECRET explicitly (≥16 chars) for production / multi-instance deployments.","subsystem":"env-validation"}
+{"ts":"2026-10-16T20:35:51.402Z","level":"warn","msg":"EZCORP_JWT_SECRET is unset; falling back to auto-generated secret. Set EZCORP_JWT_SECRET explicitly (≥16 chars) for production / multi-instance deployments.","subsystem":"env-validation"}
+{"ts":"2026-10-16T20:35:51.500Z","level":"warn","msg":"EZCORP_ENCRYPTION_SECRET is unset; falling back to auto-generated secret. Set EZCORP_ENCRYPTION_SECRET explicitly (≥16 chars) for production / multi-instance deployments.","subsystem":"env-validation"}
+{"ts":"2026-10-16T20:35:51.500Z","level":"warn","msg":"EZCORP_JWT_SECRET is unset; falling back to auto-generated secret. Set EZCORP_JWT_SECRET explicitly (≥16 chars) for production / multi-instance deployments.","subsystem":"env-validation"}
+{"ts":"2026-10-16T20:35:51.500Z","level":"warn","msg":"EZCORP_ENCRYPTION_SECRET is unset; falling back to auto-generated secret. Set EZCORP_ENCRYPTION_SECRET explicitly (≥16 chars) for production / multi-instance deployments.","subsystem":"env-validation"}
+{"ts":"2026-10-16T20:35:51.500Z","level":"warn","msg":"EZCORP_JWT_SECRET is unset; falling back to auto-generated secret. Set EZCORP_JWT_SECRET explicitly (≥16 chars) for production / multi-instance deployments.","subsystem":"env-validation"}
+{"ts":"2026-10-16T20:35:51.554Z","level":"error","msg":"Extension delivery drain failed","subsystem":"ext.delivery.runtime","code":"delivery_failed"}
+{"ts":"2026-10-16T20:35:51.584Z","level":"warn","msg":"EZCORP_ENCRYPTION_SECRET is unset; falling back to auto-generated secret. Set EZCORP_ENCRYPTION_SECRET explicitly (≥16 chars) for production / multi-instance deployments.","subsystem":"env-validation"}
+{"ts":"2026-10-16T20:35:51.584Z","level":"warn","msg":"EZCORP_JWT_SECRET is unset; falling back to auto-generated secret. Set EZCORP_JWT_SECRET explicitly (≥16 chars) for production / multi-instance deployments.","subsystem":"env-validation"}
+{"ts":"2026-10-16T20:35:51.671Z","level":"warn","msg":"EZCORP_ENCRYPTION_SECRET is unset; falling back to auto-generated secret. Set EZCORP_ENCRYPTION_SECRET explicitly (≥16 chars) for production / multi-instance deployments.","subsystem":"env-validation"}
+{"ts":"2026-10-16T20:35:51.671Z","level":"warn","msg":"EZCORP_JWT_SECRET is unset; falling back to auto-generated secret. Set EZCORP_JWT_SECRET explicitly (≥16 chars) for production / multi-instance deployments.","subsystem":"env-validation"}
+
+ Test Files  22 passed (22)
+      Tests  179 passed (179)
+   Start at  16:35:45
+   Duration  22.20s (tests 34%, environment 25%, import 21%, transform 11%, setup 8%, worker 2%)
+
+    Isolate  22 workers spawned · ~414ms startup each (spawn + environment, per file)
+             at least ~4.14s faster with isolate: false — reuses workers across files instead of one per file
+
+kept 620 configured Node/V8 product-source records → /home/dev/work/EZCorp/EZHarness-worktrees/composable-factory-platform/.worktrees/w00-integration/coverage/w4h-33-test-hygiene-e50aedefd-on-b0b7bedf1/web/lcov.info

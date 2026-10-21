@@ -1,3 +1,4 @@
+import { errorShape } from "@ezcorp/extension-contract";
 import { mkdir, mkdtemp, writeFile, readFile, rename, rm, chmod, lstat, open, type FileHandle } from "node:fs/promises";
 import { constants as fsConstants } from "node:fs";
 import { Readable, Writable } from "node:stream";
@@ -6,9 +7,9 @@ import { randomUUID } from "node:crypto";
 import type { ChildProcessWithoutNullStreams } from "node:child_process";
 import type { BuildResult, InvocationContext, ProcessSpawnPolicy, ResourceLimits, Runner, RunnerCapabilities, RunnerInspection, StartRequest, WorkspaceFiles } from "@ezcorp/extension-contract";
 import { canonicalJson, processSpawnPolicy, validateInvocationContext, validateManifest, workspaceFileBytes, workspaceText } from "@ezcorp/extension-contract";
-import { buildLimits, capture, command, digest, executionLimits, filesDigest, identifier, limitsWithin, processSpawn, relativePath, RunnerCommandError, RunnerError, RunnerStartRefusedError, sha256, validateFiles } from "./core";
+import { buildLimits, capture, command, digest, executionLimits, MAXIMUM_ARTIFACT_BYTES, filesDigest, identifier, limitsWithin, processSpawn, relativePath, RunnerCommandError, RunnerError, RunnerStartRefusedError, sha256, validateFiles } from "./core";
 import { bindSensitiveRequestContext, FramedExecution, type FramedTransport, type ReverseRpc } from "./protocol";
-import { fetchLockedDependencies } from "./dependencies";
+import { fetchLockedDependencies, toolchainBesideDependencies } from "./dependencies";
 import { browserBuild, browserBuilderProgram } from "./browser";
 import { BUN_SHIM_UNDUMPABLE, BUN_SPAWN_GUARD, BUN_SPAWN_GUARD_PATH, bunWorkerArgs } from "./spawn-guard";
 
@@ -631,7 +632,7 @@ export class PodmanRunner implements Runner {
       const sdk = this.options.sdkFiles ?? {};
       const toolchain = this.options.toolchainFiles ?? {};
       this.assertProvisionedPaths(input.files, sdk, toolchain);
-      staged = await this.stage({ ...input.files, ...dependencies.text, ...sdk, ...toolchain });
+      staged = await this.stage({ ...input.files, ...dependencies.text, ...sdk, ...toolchainBesideDependencies(toolchain, Object.keys(dependencies.binary)) });
       for (const [path, bytes] of Object.entries(dependencies.binary)) {
         await this.writeStaged(staged, path, bytes, dependencies.executable.includes(path));
       }
@@ -682,20 +683,34 @@ export class PodmanRunner implements Runner {
   private requireBuilding(id: string): void {
     if (this.operations.get(id)?.state !== "building") throw new RunnerError("cancelled", "Build was cancelled");
   }
-  async collectArtifacts(artifactDigest: string): Promise<WorkspaceFiles> {
-    let stored: string;
-    try {
-      stored = await readFile(join(this.root, "artifacts", digest(artifactDigest)), "utf8");
-    } catch (error) {
-      if ((error as NodeJS.ErrnoException).code === "ENOENT") {
-        throw new RunnerError("artifact_missing", "Runner artifact is missing from its local store");
-      }
-      throw error;
-    }
-    const files = JSON.parse(stored);
-    validateFiles(files, 160 * 1024 ** 2, 4000);
+  /** The artifact bounds a stored release is read and restored under. */
+  private static validateArtifact(files: WorkspaceFiles, artifactDigest: string): void {
+    validateFiles(files, MAXIMUM_ARTIFACT_BYTES, 4000);
     if (filesDigest(files) !== artifactDigest) throw new RunnerError("artifact_corrupt", "Stored artifact digest mismatch");
+  }
+  async collectArtifacts(artifactDigest: string): Promise<WorkspaceFiles> {
+    // A release built into another store (a store a previous boot removed) is named, never a raw file error (real-8).
+    const text = await readFile(join(this.root, "artifacts", digest(artifactDigest)), "utf8").catch((error: unknown) => {
+      if ((error as { code?: unknown } | null)?.code !== "ENOENT") throw error;
+      throw new RunnerError("artifact_missing", "The release's artifact is not in this runner's store", "runner", false, errorShape(error));
+    });
+    const files = JSON.parse(text);
+    PodmanRunner.validateArtifact(files, artifactDigest);
     return files;
+  }
+  /**
+   * C05 "Rehydrate a missing runner artifact" (W4H-32): the host's own copy of a release artifact, back into this
+   * store. Files that do not digest to their key are refused before anything is written; an artifact already in the
+   * store is left as it is, so a second restore is a no-op. The write is the build's own atomic store.
+   */
+  async restoreArtifact(artifactDigest: string, files: WorkspaceFiles): Promise<void> {
+    PodmanRunner.validateArtifact(files, digest(artifactDigest));
+    await this.prepareStore();
+    const present = await lstat(join(this.root, "artifacts", artifactDigest)).then(() => true, (error: unknown) => {
+      if ((error as { code?: unknown } | null)?.code !== "ENOENT") throw error;
+      return false;
+    });
+    if (!present) await this.storeArtifact(artifactDigest, files);
   }
   async start(input: StartRequest, reverseRpc: ReverseRpc): Promise<FramedExecution> {
     return this.startExecution(input, reverseRpc, false);
@@ -717,19 +732,26 @@ export class PodmanRunner implements Runner {
     void execution.exited.finally(() => { this.executions.delete(input.workerId); }).catch(() => undefined);
     return execution;
   }
+  private requireExecutionAdmission(workerId: string): void {
+    if (this.operations.has(workerId)) throw new RunnerError("duplicate_worker", "Worker ID is already used");
+    if (this.activeExecutions >= (this.options.maxExecutions ?? 4)) throw new RunnerError("runner_busy", "Execution concurrency limit reached", "queue", true);
+  }
   protected async startExecution(input: StartRequest, reverseRpc: ReverseRpc, discovery: boolean): Promise<FramedExecution> {
     identifier(input.workerId);
     const limits = limitsWithin(input.limits, this.options.executionCeiling ?? executionLimits);
     if (input.context.workerId !== input.workerId || !Number.isSafeInteger(input.context.deadline) || input.context.deadline <= Date.now()) throw new RunnerError("invalid_context", "Worker context or deadline is invalid");
     await this.prepare(false);
     if (!discovery) await this.authorize("execute", input.artifactDigest);
-    if (this.operations.has(input.workerId)) throw new RunnerError("duplicate_worker", "Worker ID is already used");
-    if (this.activeExecutions >= (this.options.maxExecutions ?? 4)) throw new RunnerError("runner_busy", "Execution concurrency limit reached", "queue", true);
+    this.requireExecutionAdmission(input.workerId);
+    // Read before the worker is registered: a start refused for a missing artifact leaves no trace, so the host can
+    // restore the artifact and send the same start again (W4H-32).
+    const artifacts = await this.collectArtifacts(input.artifactDigest);
+    // The read can yield to another start; recheck and reserve without another await.
+    this.requireExecutionAdmission(input.workerId);
     this.activeExecutions++;
     this.operations.set(input.workerId, { id: input.workerId, state: "running", diagnostics: [] });
     let staged: string | undefined;
     try {
-      const artifacts = await this.collectArtifacts(input.artifactDigest);
       const recipe = JSON.parse(workspaceText(artifacts[".runner/recipe.json"] ?? "{}", ".runner/recipe.json"));
       if (recipe.image !== this.image || recipe.seccompDigest !== sha256(await readFile(this.seccompPath))) throw new RunnerStartRefusedError();
       staged = await this.stage(artifacts);

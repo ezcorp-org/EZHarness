@@ -1,0 +1,24 @@
+CRAP: --changed against cf1de889bd11c1aed1be6b8b303bc54f9ffdf02c → 32 measured file(s) in diff
+
+CRAP: 228 functions in 32 files (max 30, warn 15)
+
+Worst 15:
+     26.0  cc= 26 cov=100%  src/factory/installation-startup.ts:785 installationCollaborators
+     23.0  cc= 23 cov=100%  src/factory/gateway-process.ts:44 parseFactoryGatewayProcessConfig
+     22.0  cc= 22 cov= 99%  src/db/migrate.ts:64 migrate
+     20.0  cc= 20 cov=100%  src/factory/runner/supervisor-process.ts:262 parseFactorySupervisorProcessConfig
+     19.0  cc= 19 cov=100%  src/factory/runner/guest-broker-service.ts:84 <anonymous@84>
+     17.0  cc= 17 cov=100%  src/factory/runtime-workers.ts:147 registerFactoryRuntimeWorkers
+     17.0  cc= 17 cov=100%  src/factory/startup-config.ts:707 leaves
+     14.0  cc= 14 cov=100%  src/factory/notification-sender.ts:169 factoryNotificationPayload
+     14.0  cc= 14 cov=100%  src/factory/pool/process.ts:263 runConfiguredFactoryPoolProcess
+     14.0  cc= 14 cov=100%  src/factory/runtime-composition.ts:231 startFactoryRuntime
+     13.0  cc= 13 cov=100%  src/factory/observability/metrics-listener.ts:92 wellFormedFactoryMetricsEndpoint
+     11.0  cc= 11 cov=100%  src/factory/pool/process.ts:107 validRoot
+     11.0  cc= 11 cov=100%  src/factory/startup-config.ts:912 plainHttpsUrl
+     11.0  cc= 11 cov=100%  src/factory/startup-config.ts:929 checkNotifications
+     10.0  cc= 10 cov=100%  src/factory/notification-sender.ts:415 fanOut
+
+7 function(s) above the warn line (not failing).
+
+✓ no touched function exceeds CRAP 30

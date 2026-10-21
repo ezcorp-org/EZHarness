@@ -3683,6 +3683,17 @@ export const factoryNotifications = pgTable("factory_notifications", {
   tenantId: text("tenant_id").notNull(), projectId: text("project_id").notNull(), notificationId: text("notification_id").notNull(), deduplicationId: text("deduplication_id").notNull(), inputHash: text("input_hash").notNull(), state: text("state").notNull().$type<"queued" | "leased" | "delivered" | "cancelled" | "dead_letter" | "outcome_unknown">(), availableAt: bigint("available_at", { mode: "number" }).notNull(), leaseUntil: bigint("lease_until", { mode: "number" }).notNull().default(0), payload: text("payload").notNull(), createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(), updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
 }, (table) => [primaryKey({ columns: [table.tenantId, table.projectId, table.notificationId] }), uniqueIndex("idx_factory_notifications_deduplication").on(table.tenantId, table.projectId, table.deduplicationId), foreignKey({ columns: [table.tenantId, table.projectId], foreignColumns: [factoryProjects.tenantId, factoryProjects.projectId] }).onDelete("restrict")]);
 
+/** C11 N1 (W4H-34): one outbound send per delivered notification and declared destination. */
+export const factoryNotificationSends = pgTable("factory_notification_sends", {
+  tenantId: text("tenant_id").notNull(), projectId: text("project_id").notNull(), sendId: text("send_id").notNull(), notificationId: text("notification_id").notNull(),
+  destination: text("destination").notNull(), deduplicationId: text("deduplication_id").notNull(), inputHash: text("input_hash").notNull(),
+  state: text("state").notNull().$type<"queued" | "leased" | "delivered" | "cancelled" | "dead_letter" | "outcome_unknown">(),
+  attempts: integer("attempts").notNull().default(0), maxAttempts: integer("max_attempts").notNull(), availableAt: bigint("available_at", { mode: "number" }).notNull(),
+  leaseUntil: bigint("lease_until", { mode: "number" }).notNull().default(0), leaseToken: text("lease_token"), failureCode: text("failure_code"),
+  expiresAt: bigint("expires_at", { mode: "number" }).notNull(), payload: text("payload").notNull(), createdAt: bigint("created_at", { mode: "number" }).notNull(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+}, (table) => [primaryKey({ columns: [table.tenantId, table.sendId] }), uniqueIndex("factory_notification_sends_tenant_id_deduplication_id_key").on(table.tenantId, table.deduplicationId), uniqueIndex("idx_factory_notification_sends_notification").on(table.tenantId, table.projectId, table.notificationId, table.destination), foreignKey({ columns: [table.tenantId, table.projectId, table.notificationId], foreignColumns: [factoryNotifications.tenantId, factoryNotifications.projectId, factoryNotifications.notificationId] }).onDelete("restrict")]);
+
 export const factoryTaskCompletions = pgTable("factory_task_completions", {
   tenantId: text("tenant_id").notNull(), projectId: text("project_id").notNull(), runId: text("run_id").notNull(), interpreterId: text("interpreter_id").notNull(), commandId: text("command_id").notNull(),
   attemptId: text("attempt_id").notNull().references(() => factoryExecutionTerminals.attemptId, { onDelete: "restrict" }), inputDigest: text("input_digest").notNull(), authorityJson: text("authority_json").notNull(), receiptJson: text("receipt_json").notNull(), receiptDigest: text("receipt_digest").notNull(), createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),

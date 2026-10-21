@@ -1,0 +1,25 @@
+#!/usr/bin/env python3
+# wave4i-3 push10 receipt, attempt 2: the follow-up 3 PR #341 after W4H-29 (integrator-5, the coordinator's word 2026-10-14). Hashes from the files.
+import hashlib, json
+W = '/tmp/factory-platform-evidence/w00'; A = W + '/wave4i-3/push10/attempt2'; I5 = '/tmp/factory-platform-evidence/integrator-5'
+h = lambda p: hashlib.sha256(open(p, 'rb').read()).hexdigest()[:16]
+x = {
+ "push": "feat/factory-platform-followup-3 fast-forwarded from 486e6a558 to d2add3048f12369a5242052fdee54ce1c7ad1c37 (integ/w00: the W4H-29 merge 4cd37332c and its receipts d2add3048 on the attempt-1 receipts e2cfbf8d3; 59 commits ahead of origin/main 1981febd2) and pushed ONCE from the integ worktree (tc_run lock-free; pre-push hook biome, typecheck incl. the packages, svelte-check; '486e6a558..d2add3048', exit 0 at 07:00:26Z 2026-10-14; no force, no -u, config unchanged).",
+ "steps": {
+  "1 pre-checks": "pre-checks.log 06:58:52Z by integrator-5/integ-push-prechecks.sh " + h(I5 + '/integ-push-prechecks.sh') + ": integ clean on integ/w00 d2add3048; archy; origin/main 1981febd2 (the expected sha, not moved) an ancestor; remote branch 486e6a558; config cdfec66257fea5b4; disk 115G, MemAvailable 18.9 GiB",
+  "2 ff": "486e6a558 is an ancestor of d2add3048 (fast-forward)",
+  "3 installs": "frozen_installs in the integ worktree exit 0, no changes",
+  "4 push": "push.sh " + h(A + '/push.sh') + " (update form: remote compare, ancestor check, update-ref with the old value) via w00/tc-gate.sh " + h(W + '/tc-gate.sh') + "; local = remote = d2add3048",
+  "5 PR": "PR 341 stays a DRAFT, 0 labels: MERGEABLE, BLOCKED",
+  "6 hosted": "ci 38525604869 (07:00:33Z - about 07:30Z) and deps-audit 38525604217 (success); no nightly dispatch; no re-run (the coordinator's ruling)"},
+ "result": "59 jobs, attempt 2: 52 success, 4 failure, 3 skipped. A: Factory runner readiness precheck (no online runner has the label 'factory-real'). C-candidate under investigation (W4H-30, owner w4h-26; the coordinator's ruling, not E; no re-run, reproduce first): Production proof (resources), verify-shipping-runtime-resources.ts:305 'Cycle 9 app socket descriptors grew above the first lifecycle sample' (app descriptors 431 in cycles 4-8, 432 at cycle 9 of 10; established TCP 1; delta vs the warm sample: two sockets replaced, one added). B: Production image extension lifecycle and E2E (mock, no Docker) (aggregators of it). vs attempt 1 38518989878: fixed 3 (Coverage shard 0 and its two cascades), NEW RED 3, same 52; vs 38418009493: NEW RED 3, new job 1, same 54.",
+ "checks": {"Coverage shard 0": "GREEN, 2275 pass 0 fail, 168 files: the W4H-29 fix holds",
+            "Backend tests / Per-file coverage gate": "GREEN; 'Coverage gate PASSED: 2249 enforced file(s)'; new-file 7; patch 35 files",
+            "Gate integrity": "GREEN, 'Gate integrity PASSED', PR labels 0",
+            "Factory image under shipped isolation": "GREEN again, 'REPLAY OK: build-time bundle'",
+            "web shards": "1/2/3 GREEN; checkout+install 49 / 45 / 39 s (1.4 / 1.3 / 1.1x the 35 s median), vitest 210 / 162 / 209 s (1.1 / 0.8 / 1.1x the 198 s median); no WARN line"},
+ "w4h29OwnerReport": "the owner's report (waived as a freeze formality by the coordinator; present at this commit) w4h-29/report.txt " + h('/tmp/factory-platform-evidence/w4h-29/report.txt') + " is copied as w4h-29-owner-report.txt",
+ "tooling": {"push.sh": h(A + '/push.sh'), "installs.sh": h(A + '/installs.sh'), "w00/wave4i-2/hosted-compare.py": h(W + '/wave4i-2/hosted-compare.py'), "integrator-5/log-excerpt.sh": h(I5 + '/log-excerpt.sh'), "integrator-5/poll-ci.sh": h(I5 + '/poll-ci.sh')},
+ "hostEvents": ["none in the push window (06:58 - 07:31Z 2026-10-14)"],
+ "receiptsBy": "integrator-5"}
+json.dump(x, open(A + '/receipts/wave4i-3-push10-attempt2.json', 'w'), indent=2); print('ok')

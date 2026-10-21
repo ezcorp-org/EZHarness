@@ -1,0 +1,26 @@
+# 2026-10-16T00:01:38.674832+00:00 mutant m2-runner-digest-check-removed in packages/@ezcorp/extension-runner/src/podman.ts
+# cmd: bun test --timeout 30000 ./packages/@ezcorp/extension-runner/tests/store-reuse.test.ts
+bun test v1.4.2 (744846f84)
+
+packages/@ezcorp/extension-runner/tests/store-reuse.test.ts:
+65 |   expect(await runner.collectArtifacts(artifact)).toEqual(files);
+66 | });
+67 | 
+68 | test("restore refuses files that do not digest to the key, artifact_corrupt, and stores nothing (W4H-32)", async () => {
+69 |   const runner = boot(new StoreRunner({ root: await store() }));
+70 |   await expect(runner.restoreArtifact(artifact, { ...files, "extension.js": "export const changed = 1;" })).rejects.toMatchObject({ code: "artifact_corrupt" });
+                                                                                                                         ^
+error: expect(received).rejects.toMatchObject(expected)
+
+Expected promise that rejects
+Received promise that resolved: Promise { <resolved> }
+
+      at <anonymous> (/home/dev/work/EZCorp/EZHarness/.worktrees/w4h-32/packages/@ezcorp/extension-runner/tests/store-reuse.test.ts:70:117)
+(fail) restore refuses files that do not digest to the key, artifact_corrupt, and stores nothing (W4H-32) [12.79ms]
+
+ 5 pass
+ 1 fail
+ 9 expect() calls
+Ran 6 tests across 1 file. [480.00ms]
+
+# exit=1

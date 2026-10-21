@@ -23,6 +23,8 @@ fi
 source scripts/lib/test-totals.sh
 node_modules/.bin/tsc -b packages/@ezcorp/factory-transport/tsconfig.build.json --force
 node_modules/.bin/tsc -b packages/@ezcorp/factory-orchestrator/tsconfig.build.json --force
+# The worker runs the image build's workflow bundle (W4H-27); the production-dependency tests load it from dist.
+node --experimental-strip-types packages/@ezcorp/factory-orchestrator/src/workflow-bundle-build.ts > /dev/null
 # Fail loudly, never hang in silence (W4H-21: hosted run 38001537073 printed nothing for ten minutes until the job timeout).
 # - Each test ends within PER_TEST_TIMEOUT_MS, 3.3x the slowest green test (60.0 s, "continues only from a quiescent state
 #   and restores absolute timers"); --test-force-exit then ends the file even when the timed-out test left a handle open.

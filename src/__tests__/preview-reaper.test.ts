@@ -175,7 +175,7 @@ describe("reapPreviewConversation — default (live) revoke seam", () => {
     const { eq } = await import("drizzle-orm");
     const { setSandboxWorkspaceTargetResolver } = await import("../runtime/workspaces/project-target");
     const { sandboxWorkspaceTarget } = await import("../runtime/workspaces/target");
-    const user = await createUser({ email: "reaper-sandbox@test.com", passwordHash: "h", name: "Reaper" });
+    const user = await createUser({ email: "reaper-sandbox@example.test", passwordHash: "h", name: "Reaper" });
     const project = await createProject({ name: "Reaper sandbox", path: "/tmp/reaper-sandbox" });
     const conversation = await createConversation(project.id, { userId: user.id });
     const bindingId = crypto.randomUUID();
@@ -210,7 +210,7 @@ describe("reapPreviewConversation — default (live) revoke seam", () => {
       expect(closed).toEqual([row.id]);
       expect((await getPreviewByIdRaw(stale.id))?.status).toBe("active");
 
-      const otherUser = await createUser({ email: "reaper-other@test.com", passwordHash: "h", name: "Other" });
+      const otherUser = await createUser({ email: "reaper-other@example.test", passwordHash: "h", name: "Other" });
       await getDb().update(previewSessions).set({ userId: otherUser.id })
         .where(eq(previewSessions.id, stale.id));
       const reassigned = await reapPreviewConversation(conversation.id, deps);

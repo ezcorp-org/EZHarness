@@ -1,0 +1,10 @@
+bun test v1.4.2 (744846f84)
+{"ts":"2026-10-17T23:33:34.605Z","level":"warn","msg":"core hub page render failed","subsystem":"api.hub.render","providerId":"demo","error":"boom"}
+{"ts":"2026-10-17T23:33:34.607Z","level":"warn","msg":"core hub page produced an invalid tree","subsystem":"api.hub.render","providerId":"demo"}
+{"ts":"2026-10-17T23:33:34.650Z","level":"warn","msg":"hub action returned an invalid tree","subsystem":"api.hub.actions","providerId":"demo","action":"go"}
+{"ts":"2026-10-17T23:33:34.654Z","level":"warn","msg":"hub action failed","subsystem":"api.hub.actions","providerId":"demo","action":"go","error":"kaboom"}
+
+ 49 pass
+ 0 fail
+ 186 expect() calls
+Ran 49 tests across 1 file. [1130.00ms]

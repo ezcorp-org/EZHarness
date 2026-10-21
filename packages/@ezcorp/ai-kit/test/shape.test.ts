@@ -11,16 +11,15 @@ import { join } from "node:path";
  *       documented in docs/events.md.
  *
  *  This test runs under `bun run verify` — it fails the build if any of the
- *  four surfaces drift. Until each surface is populated by its agent, the
- *  test blocks with `test.todo` so scaffolding commits don't fail the suite.
+ *  four surfaces drift. Every surface exists, so a missing one is a failure,
+ *  never a `todo` that reads as green (W4H-33).
  */
 
 const ROOT = new URL("..", import.meta.url).pathname;
 const read = (rel: string) => readFileSync(join(ROOT, rel), "utf8");
-const exists = (rel: string) => existsSync(join(ROOT, rel));
 
 describe("ai-kit surface drift guard", () => {
-  test.todoIf(!exists("docs/OVERVIEW.md"))(
+  test(
     "docs/OVERVIEW.md enumerates the capabilities the kit exposes",
     () => {
       const doc = read("docs/OVERVIEW.md");
@@ -33,7 +32,7 @@ describe("ai-kit surface drift guard", () => {
     },
   );
 
-  test.todoIf(!exists("docs/openapi.yaml"))(
+  test(
     "openapi.yaml declares every capability from OVERVIEW",
     () => {
       const spec = read("docs/openapi.yaml");
@@ -43,7 +42,7 @@ describe("ai-kit surface drift guard", () => {
     },
   );
 
-  test.todoIf(!exists("src/mcp/tools"))(
+  test(
     "every MCP tool is mentioned in at least one SKILL.md",
     () => {
       const toolsDir = join(ROOT, "src/mcp/tools");
@@ -66,7 +65,7 @@ describe("ai-kit surface drift guard", () => {
     },
   );
 
-  test.todoIf(!exists("ezcorp.config.ts"))(
+  test(
     "ezcorp.config.ts exports orchestration tools for Tier 4",
     () => {
       const cfg = read("ezcorp.config.ts");
@@ -75,10 +74,10 @@ describe("ai-kit surface drift guard", () => {
     },
   );
 
-  test.todoIf(!exists("docs/events.md"))(
+  test(
     "every SSE event type used by tools/chat.ts is documented",
     () => {
-      const chatSrc = exists("src/mcp/tools/chat.ts") ? read("src/mcp/tools/chat.ts") : "";
+      const chatSrc = read("src/mcp/tools/chat.ts");
       const doc = read("docs/events.md");
       const used = new Set(
         [...chatSrc.matchAll(/['"](run:[a-z_]+|agent:[a-z_]+|task:[a-z_]+)['"]/g)].map(

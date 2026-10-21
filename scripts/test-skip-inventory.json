@@ -1,0 +1,213 @@
+{
+  "//": "Every gated test file and the lane that sets its variable, or the host capability it probes (W4H-33). Read by scripts/test-skip-inventory.ts; rules in its header. A static skip stays only as a tracked row whose issue the test file names.",
+  "rows": [
+    {
+      "file": "scripts/incus/inspect-identity.test.ts",
+      "kind": "capability",
+      "reason": "The real protected SSH child identity case requires root to set its service UID/GID and clear supplementary groups; unprivileged identity rejection and wrapper failure cases still run normally."
+    },
+    {
+      "file": "packages/@ezcorp/ai-kit/test/e2e/bundled.test.ts",
+      "kind": "env",
+      "variables": [
+        "EZCORP_E2E_BASE_URL",
+        "EZCORP_E2E_API_KEY"
+      ],
+      "setters": [
+        "web/e2e/real-auth/ai-kit-public-api.spec.ts"
+      ],
+      "reason": "Deployed-service suite run by the real-auth lane; it skips by name while ai-kit is not installed there (tracked: ai-kit-deployed-lane)."
+    },
+    {
+      "file": "packages/@ezcorp/ai-kit/test/e2e/quickstart.test.ts",
+      "kind": "env",
+      "variables": [
+        "EZCORP_E2E_BASE_URL",
+        "EZCORP_E2E_API_KEY",
+        "EZCORP_E2E_MODEL"
+      ],
+      "setters": [
+        "web/e2e/real-auth/ai-kit-public-api.spec.ts"
+      ],
+      "preconditions": {
+        "EZCORP_E2E_MODEL": "ai-kit-deployed-lane"
+      },
+      "reason": "Deployed-service suite run by the real-auth lane; it skips by name while no lane pins the mock model (tracked: ai-kit-deployed-lane)."
+    },
+    {
+      "file": "packages/@ezcorp/ai-kit/test/e2e/fanout.test.ts",
+      "kind": "env",
+      "variables": [
+        "EZCORP_E2E_BASE_URL",
+        "EZCORP_E2E_API_KEY"
+      ],
+      "setters": [
+        "web/e2e/real-auth/ai-kit-public-api.spec.ts"
+      ],
+      "reason": "Deployed-service suite run by the real-auth lane; three cases skip by name while their seeded agents or team are missing (tracked: ai-kit-deployed-lane)."
+    },
+    {
+      "file": "packages/@ezcorp/ai-kit/test/e2e/doctor.test.ts",
+      "kind": "env",
+      "variables": [
+        "EZCORP_E2E_BASE_URL"
+      ],
+      "setters": [
+        "web/e2e/real-auth/ai-kit-public-api.spec.ts"
+      ],
+      "reason": "Deployed-service suite; the real-auth browser lane runs it against its own server and asserts no skip."
+    },
+    {
+      "file": "packages/@ezcorp/ai-kit/test/e2e/internal-auth.test.ts",
+      "kind": "env",
+      "variables": [
+        "EZCORP_E2E_BASE_URL",
+        "EZCORP_E2E_API_KEY"
+      ],
+      "setters": [
+        "web/e2e/real-auth/ai-kit-public-api.spec.ts"
+      ],
+      "reason": "Deployed-service suite; the real-auth browser lane runs it against its own server and asserts no skip."
+    },
+    {
+      "file": "packages/@ezcorp/ai-kit/test/e2e/on-behalf-of.test.ts",
+      "kind": "env",
+      "variables": [
+        "EZCORP_E2E_BASE_URL",
+        "EZCORP_E2E_API_KEY"
+      ],
+      "setters": [
+        "web/e2e/real-auth/ai-kit-public-api.spec.ts"
+      ],
+      "reason": "Deployed-service suite; the real-auth browser lane runs it against its own server and asserts no skip."
+    },
+    {
+      "file": "packages/@ezcorp/ai-kit/test/e2e/real-subprocess-obo.test.ts",
+      "kind": "env",
+      "variables": [
+        "EZCORP_E2E_SUBPROCESS"
+      ],
+      "setters": [
+        "web/e2e/real-auth/ai-kit-public-api.spec.ts"
+      ],
+      "reason": "Real stdio MCP subprocess chain; the real-auth browser lane runs it and asserts no skip."
+    },
+    {
+      "file": "packages/@ezcorp/sdk/src/v4/mcp.test.ts",
+      "kind": "env",
+      "variables": [
+        "EZCORP_RUN_PODMAN_TESTS"
+      ],
+      "setters": [
+        ".github/workflows/ci.yml"
+      ],
+      "reason": "Rootless Podman container test; the cov-extras job sets the variable after it installs Podman."
+    },
+    {
+      "file": "src/__tests__/marketplace-release-isolation.integration.test.ts",
+      "kind": "env",
+      "variables": [
+        "EZCORP_RUN_PODMAN_TESTS"
+      ],
+      "setters": [
+        ".github/workflows/ci.yml"
+      ],
+      "reason": "Rootless Podman publish test; the residual-tests job sets the variable after it installs Podman."
+    },
+    {
+      "file": "src/__tests__/db-migration-postgres.test.ts",
+      "kind": "env",
+      "variables": [
+        "DATABASE_URL"
+      ],
+      "setters": [
+        ".github/workflows/db-postgres.yml"
+      ],
+      "reason": "Real PostgreSQL migration suite; the db-postgres workflow starts the server and sets the URL."
+    },
+    {
+      "file": "src/__tests__/runner-worker-isolation.proof.test.ts",
+      "kind": "env",
+      "variables": [
+        "EZCORP_RUNNER_ISOLATION_PROOF"
+      ],
+      "setters": [
+        "scripts/verify-shipping-production-suite.sh"
+      ],
+      "reason": "Shipped worker isolation proof; the production-proof namespace shard runs it."
+    },
+    {
+      "file": "web/e2e/file-organizer-real.spec.ts",
+      "kind": "env",
+      "variables": [
+        "DOCKER_TEST"
+      ],
+      "setters": [
+        "docs/validation/extension-v4-flows/runtime/replay-file-organizer-runtime.sh"
+      ],
+      "reason": "Production-image browser replay; the production-image lane (production-proof content shard) sets it."
+    },
+    {
+      "file": "src/__tests__/podman-compose-wrapper.test.ts",
+      "kind": "capability",
+      "reason": "Two cases need the docker CLI on PATH (the hosted runner has it); the rest of the file runs everywhere."
+    },
+    {
+      "file": "src/__tests__/sandbox-landlock-apply-coverage.test.ts",
+      "kind": "capability",
+      "reason": "Landlock ABI probe; the file holds both arms (supported and unsupported kernel)."
+    },
+    {
+      "file": "src/__tests__/sandbox-landlock-ffi.test.ts",
+      "kind": "capability",
+      "reason": "Landlock ABI probe; cases that need a Landlock kernel."
+    },
+    {
+      "file": "src/__tests__/sandbox-landlock-shim-integration.test.ts",
+      "kind": "capability",
+      "reason": "Landlock ABI probe; child containment needs a Landlock kernel."
+    },
+    {
+      "file": "src/__tests__/sandbox-seam-a-b.test.ts",
+      "kind": "capability",
+      "reason": "Landlock ABI probe; cases that need a Landlock kernel."
+    },
+    {
+      "file": "web/e2e/chat-sidebar-threads.spec.ts",
+      "kind": "capability",
+      "reason": "Desktop sidebar spec; the mobile Playwright project keeps its drawers."
+    },
+    {
+      "file": "web/src/__tests__/relative-time.test.ts",
+      "kind": "capability",
+      "reason": "Needs the en locale in Intl.RelativeTimeFormat."
+    },
+    {
+      "file": "web/src/__tests__/relative-time.unit.test.ts",
+      "kind": "capability",
+      "reason": "Needs the en locale in Intl.RelativeTimeFormat."
+    },
+    {
+      "file": "src/__tests__/preview-uid-keystone.docker.test.ts",
+      "kind": "env",
+      "variables": [
+        "EZCORP_PREVIEW_ISOLATION_PROOF"
+      ],
+      "setters": [
+        "scripts/verify-shipping-preview-isolation.sh"
+      ],
+      "reason": "Needs the production image's setuid preview helper and preview uids; proof preview-isolation runs it in the candidate image under rootless Podman, and no hosted shard selects it."
+    },
+    {
+      "file": "src/__tests__/preview-dynamic-e2e.docker.test.ts",
+      "kind": "env",
+      "variables": [
+        "EZCORP_PREVIEW_ISOLATION_PROOF"
+      ],
+      "setters": [
+        "scripts/verify-shipping-preview-isolation.sh"
+      ],
+      "reason": "Needs the production image's setuid preview helper and preview uids; proof preview-isolation runs it in the candidate image under rootless Podman, and no hosted shard selects it."
+    }
+  ]
+}

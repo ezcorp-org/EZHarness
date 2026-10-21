@@ -95,7 +95,7 @@ beforeAll(() => {
   }));
   mock.module("$server/auth/middleware", () => ({
     ...realAuthMiddleware,
-    requireAuth: () => ({ id: "user-1", email: "u@e.com", name: "U", role: "member" }),
+    requireAuth: () => ({ id: "user-1", email: "u@e.example", name: "U", role: "member" }),
   }));
 });
 afterAll(() => {
@@ -224,7 +224,7 @@ function makePOST(subConvId: string) {
       body: JSON.stringify({ content: "hi from user" }),
     }),
     params: { id: subConvId },
-    locals: { user: { id: "user-1", email: "u@e.com", name: "U", role: "member" } },
+    locals: { user: { id: "user-1", email: "u@example.test", name: "U", role: "member" } },
   } as any;
 }
 

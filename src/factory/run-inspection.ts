@@ -226,12 +226,15 @@ export class FactoryRunInspections {
     const scope = sql`tenant_id=${this.tenantId} AND project_id=${key.projectId} AND run_id=${key.runId}`;
     const [envelope] = rows<Row>(await transaction.execute(sql`SELECT limits, allocated, spent, admission_blocked FROM factory_budget_envelopes WHERE ${scope} AND parent_id IS NULL ORDER BY envelope_id LIMIT 1`));
     const settlements = rows<Row>(await transaction.execute(sql`SELECT DISTINCT ON (reservation_id) known_cost_micros, unknown_cost_micros FROM factory_usage_settlements WHERE ${scope} ORDER BY reservation_id, revision DESC`));
+    // A reservation that settled when its attempt completed has no usage settlement row: its actual cost is known (C09 AC-3).
+    const completed = rows<Row>(await transaction.execute(sql`SELECT actual FROM factory_budget_reservations r WHERE ${scope} AND state='settled' AND NOT EXISTS (SELECT 1 FROM factory_usage_settlements s WHERE s.tenant_id=r.tenant_id AND s.project_id=r.project_id AND s.run_id=r.run_id AND s.reservation_id=r.reservation_id)`));
     const [uncertain] = rows<Row>(await transaction.execute(sql`SELECT EXISTS (SELECT 1 FROM factory_budget_reservations WHERE ${scope} AND (state='uncertain' OR uncertainty IS NOT NULL)) AS uncertain`));
     let known = 0n, unknown = 0n;
     for (const row of settlements) {
       known += BigInt(text(row.known_cost_micros));
       if (row.unknown_cost_micros !== null) unknown += BigInt(text(row.unknown_cost_micros));
     }
+    for (const row of completed) known += micros(row.actual);
     const releases = await this.releaseCosts(transaction, scope);
     for (const line of releases) {
       if (line.state === "held") unknown += BigInt(line.costMicros);

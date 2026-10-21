@@ -1,0 +1,10 @@
+bun test v1.4.2 (744846f84)
+{"ts":"2026-10-16T01:03:25.931Z","level":"info","msg":"Skipping migration write — legacy setting never set; defaults preserved","subsystem":"distiller-settings-migration","extensionId":"3d6f7f45-a5df-49ec-8299-4dbb476b6688"}
+{"ts":"2026-10-16T01:03:25.942Z","level":"info","msg":"Migrated lessonDistillerEnabled=false to per-user extension settings","subsystem":"distiller-settings-migration","userCount":2,"migratedCount":2,"failureCount":0,"extensionId":"3d6f7f45-a5df-49ec-8299-4dbb476b6688"}
+{"ts":"2026-10-16T01:03:25.948Z","level":"info","msg":"Skipping migration write — legacy enabled=true matches manifest default","subsystem":"distiller-settings-migration","extensionId":"3d6f7f45-a5df-49ec-8299-4dbb476b6688"}
+{"ts":"2026-10-16T01:03:25.955Z","level":"info","msg":"Migrated lessonDistillerEnabled=false to per-user extension settings","subsystem":"distiller-settings-migration","userCount":2,"migratedCount":2,"failureCount":0,"extensionId":"3d6f7f45-a5df-49ec-8299-4dbb476b6688"}
+
+ 4 pass
+ 0 fail
+ 11 expect() calls
+Ran 4 tests across 1 file. [933.00ms]

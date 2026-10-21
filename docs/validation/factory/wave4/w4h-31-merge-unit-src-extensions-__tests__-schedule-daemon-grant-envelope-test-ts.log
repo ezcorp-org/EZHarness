@@ -1,0 +1,9 @@
+bun test v1.4.2 (744846f84)
+{"ts":"2026-10-16T01:18:28.591Z","level":"warn","msg":"schedule fire not dispatched — no live subprocess to deliver to; fire dropped (NOT completed ok)","subsystem":"ext.schedule-daemon","extensionId":"796ab345-2b7d-40dc-9579-dfcb5917973c","cron":"0 * * * *","fireId":"7a077840-3ce3-41e1-a09e-53a67ec178f5","reason":"no-registry"}
+{"ts":"2026-10-16T01:18:28.597Z","level":"warn","msg":"advance-after-quota-failed","subsystem":"ext.schedule-daemon","scheduleId":"b5446ee4-b0b4-4af6-9e4d-c758caab8e9b","error":"Error: advance write refused"}
+{"ts":"2026-10-16T01:18:28.623Z","level":"warn","msg":"advance-after-quota-failed","subsystem":"ext.schedule-daemon","scheduleId":"08273df1-24cb-4641-94bf-620840c3b16d","error":"Error: invalid cron: expected 5 fields, got 3"}
+
+ 6 pass
+ 0 fail
+ 16 expect() calls
+Ran 6 tests across 1 file. [981.00ms]

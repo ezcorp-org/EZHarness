@@ -1,0 +1,15 @@
+bun test v1.4.2 (744846f84)
+{"ts":"2026-10-16T01:14:27.412Z","level":"info","msg":"callback server started","subsystem":"api.auth.oauth","port":1456,"appCallbackUrl":"http://localhost:1455/auth/callback"}
+{"ts":"2026-10-16T01:14:27.413Z","level":"warn","msg":"rejected untrusted app_origin; falling back to request origin","subsystem":"api.auth.oauth","rawAppOrigin":"https://evil.tld","fallbackOrigin":"http://localhost:1455"}
+{"ts":"2026-10-16T01:14:27.413Z","level":"info","msg":"callback server started","subsystem":"api.auth.oauth","port":1456,"appCallbackUrl":"http://localhost:1455/auth/callback"}
+{"ts":"2026-10-16T01:14:27.413Z","level":"info","msg":"callback server started","subsystem":"api.auth.oauth","port":1456,"appCallbackUrl":"http://localhost:1455/auth/callback"}
+{"ts":"2026-10-16T01:14:27.413Z","level":"info","msg":"callback server started","subsystem":"api.auth.oauth","port":1456,"appCallbackUrl":"http://localhost:1455/auth/callback"}
+{"ts":"2026-10-16T01:14:27.413Z","level":"warn","msg":"rejected untrusted app_origin; falling back to request origin","subsystem":"api.auth.oauth","rawAppOrigin":"javascript:alert(1)","fallbackOrigin":"http://localhost:1455"}
+{"ts":"2026-10-16T01:14:27.413Z","level":"info","msg":"callback server started","subsystem":"api.auth.oauth","port":1456,"appCallbackUrl":"http://localhost:1455/auth/callback"}
+{"ts":"2026-10-16T01:14:27.413Z","level":"warn","msg":"rejected untrusted app_origin; falling back to request origin","subsystem":"api.auth.oauth","rawAppOrigin":"https://evil.tld:1455","fallbackOrigin":"http://localhost:1455"}
+{"ts":"2026-10-16T01:14:27.413Z","level":"info","msg":"callback server started","subsystem":"api.auth.oauth","port":1456,"appCallbackUrl":"http://localhost:1455/auth/callback"}
+
+ 6 pass
+ 0 fail
+ 20 expect() calls
+Ran 6 tests across 1 file. [501.00ms]

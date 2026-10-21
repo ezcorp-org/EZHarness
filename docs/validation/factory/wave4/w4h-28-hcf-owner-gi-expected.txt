@@ -1,0 +1,1 @@
+coverage gate tool changed (M): scripts/merge-lcov.ts — it decides what coverage counts or how a coverage gate judges it — needs the gate-change-approved label

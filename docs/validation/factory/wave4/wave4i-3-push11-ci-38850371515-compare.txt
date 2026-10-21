@@ -1,0 +1,14 @@
+ci 38850371515 (PR 341 at ff8331a70): 59 jobs; red ['Factory runner readiness precheck']
+PR 341 attempt 2 38525604869 (d2add3048): 59 jobs; red ['Factory runner readiness precheck']
+main ci 38591921239 (934531e2e): 58 jobs; red ['Factory runner readiness precheck']
+new red vs attempt 2: []; fixed vs attempt 2: []
+new red vs main: []
+jobs only here: []; jobs gone vs attempt 2: []
+CLASS A (the runner readiness precheck: no self-hosted factory runner secret on this repo; red on main 38591921239 too): Factory runner readiness precheck
+attempt 1 2026-10-16T04:23:29Z -> 2026-10-16T04:53:26Z failure
+Production proof (resources) -> [('Production proof (resources)', 'success')]
+Gate integrity -> [('Gate integrity', 'success')]
+Per-file coverage gate -> [('Per-file coverage gate', 'success')]
+Coverage shard 0 -> [('Coverage shard 0', 'success')]
+Factory image under shipped isolation -> [('Factory image under shipped isolation', 'success')]
+Backend tests -> [('Backend tests', 'success')]

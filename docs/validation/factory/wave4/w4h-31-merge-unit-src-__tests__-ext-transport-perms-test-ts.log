@@ -1,0 +1,7 @@
+bun test v1.4.2 (744846f84)
+{"ts":"2026-10-16T00:53:34.272Z","level":"error","msg":"inbound reverse-RPC request with NO handler wired on this transport — replying error (a subprocess was respawned without re-wiring; see ToolExecutor.ensureSubprocessRpcWired)","subsystem":"ext.json-rpc","method":"incoming_call","id":1}
+
+ 46 pass
+ 0 fail
+ 84 expect() calls
+Ran 46 tests across 1 file. [643.00ms]

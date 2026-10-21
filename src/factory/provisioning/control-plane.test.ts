@@ -126,7 +126,7 @@ describe("factoryControlPlaneHandler: who and how much", () => {
     const { call, calls } = setup();
     for (const peer of ["operator-mallory", "", "OPERATOR-ALICE"]) {
       expect(await call("GET", "/v1/directory", undefined, { peer })).toEqual({ status: 403, body: { error: "operator_required" } });
-      expect((await call("POST", "/v1/installations/tenant-01/provision", { administratorEmail: "a@b.co" }, { peer })).status).toBe(403);
+      expect((await call("POST", "/v1/installations/tenant-01/provision", { administratorEmail: "a@b.example" }, { peer })).status).toBe(403);
     }
     expect(calls).toEqual([]);
   });
@@ -258,7 +258,7 @@ describe("factoryControlPlaneHandler: refusals", () => {
 
   test("bad step names are refused", async () => {
     const { call, calls } = setup();
-    expect(await call("POST", "/v1/installations/tenant-01/provision", { administratorEmail: "a@b.co", through: "deploy" })).toEqual({ status: 400, body: { error: "step_unknown" } });
+    expect(await call("POST", "/v1/installations/tenant-01/provision", { administratorEmail: "a@b.example", through: "deploy" })).toEqual({ status: 400, body: { error: "step_unknown" } });
     for (const step of ["ingress", "nope", "consent"]) {
       expect(await call("POST", `/v1/installations/tenant-01/rotate/${step}`)).toEqual({ status: 400, body: { error: "step_not_rotatable" } });
     }
@@ -272,7 +272,7 @@ describe("factoryControlPlaneHandler: refusals", () => {
     for (const body of [undefined, {}, { reason: "" }, { reason: 1 }]) {
       expect(await call("POST", "/v1/installations/tenant-01/teardown", body)).toEqual({ status: 400, body: { error: "reason_required" } });
     }
-    for (const body of [undefined, { approvalId: APPROVAL }, { reason: "approved" }, { approvalId: 1, reason: "approved" }, { approvedBy: "admin:a@b.co", reason: "approved" }]) {
+    for (const body of [undefined, { approvalId: APPROVAL }, { reason: "approved" }, { approvalId: 1, reason: "approved" }, { approvedBy: "admin:a@b.example", reason: "approved" }]) {
       expect(await call("POST", "/v1/installations/tenant-01/purge", body)).toEqual({ status: 400, body: { error: "approval_required" } });
     }
     expect(calls).toEqual([]);

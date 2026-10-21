@@ -1,0 +1,102 @@
+packages/@ezcorp/factory-sdk/src/guest-materials.test.ts: Ran 15 tests across 1 file. [472.00ms]
+scripts/check-factory-boundaries.test.ts: Ran 31 tests across 1 file. [2.18s]
+scripts/factory-fleet-init-local.test.ts: Ran 5 tests across 1 file. [487.00ms]
+scripts/factory-graph-proof/guest-package.test.ts: Ran 1 test across 1 file. [458.00ms]
+scripts/podman-guest-job-registration.test.ts: Ran 9 tests across 1 file. [16.61s]
+src/extensions/extension-lifecycle-service.test.ts: Ran 10 tests across 1 file. [438.00ms]
+src/extensions/__tests__/bundled-bootstrap-v4.test.ts: Ran 9 tests across 1 file. [455.00ms]
+src/factory/attempt-composition.test.ts: Ran 14 tests across 1 file. [3.63s]
+src/factory/guest-package-build.test.ts: Ran 5 tests across 1 file. [441.00ms]
+src/factory/host-preparation-client.integration.test.ts: Ran 5 tests across 1 file. [1233.00ms]
+src/factory/installation-startup.test.ts: Ran 57 tests across 1 file. [7.24s]
+src/factory/package-preparation.integration.test.ts: Ran 27 tests across 1 file. [9.62s]
+src/factory/provisioning/fleet.test.ts: Ran 14 tests across 1 file. [594.00ms]
+src/factory/reference-code/freeze.test.ts: Ran 13 tests across 1 file. [455.00ms]
+src/factory/reference-code/guest.test.ts: Ran 12 tests across 1 file. [575.00ms]
+src/factory/reference-code/runner-install.test.ts: Ran 4 tests across 1 file. [475.00ms]
+src/factory/reference-code/runner-packages.test.ts: Ran 10 tests across 1 file. [492.00ms]
+src/factory/reference-code/snapshot.test.ts: Ran 17 tests across 1 file. [455.00ms]
+src/factory/runner/host-launch-service.test.ts: Ran 23 tests across 1 file. [541.00ms]
+src/factory/runner/host-launch-supervisor.test.ts: Ran 21 tests across 1 file. [560.00ms]
+src/factory/runner/supervisor-process.test.ts: Ran 45 tests across 1 file. [3.29s]
+src/factory/runner/supervisor-services.test.ts: Ran 29 tests across 1 file. [31.63s]
+src/factory/runtime-composition.test.ts: Ran 33 tests across 1 file. [838.00ms]
+src/factory/runtime-workers.test.ts: Ran 23 tests across 1 file. [459.00ms]
+src/factory/startup-config.test.ts: Ran 55 tests across 1 file. [541.00ms]
+src/__tests__/extension-lifecycle-service-trusted-local.test.ts: Ran 5 tests across 1 file. [1271.00ms]
+src/__tests__/readiness.test.ts: Ran 8 tests across 1 file. [457.00ms]
+CASE PASS: a task that settled no operation completes at cursor next-1 with no rows, zero usage, its output and its checkpoint
+CASE PASS: a task's output may stage its materials through the same client first, under the same operation
+CASE PASS: the local fleet declares reference.code.v1's guest task runners with a slugify-sized budget, and the startup parser admits them (W4H-26)
+CASE PASS: the uninvoked runner loader is exempt by name; without the exemption its suite's step is red (W4H-26)
+CASE PASS: an exemption hides only its one text in its one file: a real subclass beside it, or elsewhere, still counts
+CASE PASS: stage once in their own namespace, owned by the administrator, disabled, never approved
+CASE PASS: changed bytes stage a second workspace and build; nothing is approved or activated
+CASE PASS: wait for an active administrator, and skip an uninstalled package
+CASE PASS: an installation whose owner is no longer active is left for a person, and nothing is built
+CASE PASS: a queued build runs in the isolated builder, and a failure there is logged rather than thrown
+CASE PASS: one package's failure is reported and does not stop the next
+CASE PASS: a build defaults to the extension.ts entry and answers its artifact, image, manifest and evidence
+CASE PASS: a failed build is refused with the runner's own diagnostics, or its state when it gave none
+CASE PASS: the harness release record is derived from the real build and the stored source
+CASE PASS: the generated entry serves each named export as a tool with only the broker capability
+CASE PASS: the default staging failure names the file and the specifier
+CASE PASS: the host builds the bound source in its own store and the product keeps the artifacts that digest to the build
+CASE PASS: a source that is not the digest it names is refused by the host, and nothing is built
+CASE PASS: artifacts that do not digest to the artifact the host names are refused, and nothing is kept
+CASE PASS: a failed build is answered as it is and keeps nothing; an answer that is not a build is refused
+CASE PASS: the product waits longer than the host's own build bound
+CASE PASS: a factory-enabled boot stages both reference-code runner packages, which together declare every implementation (W4H-26)
+CASE PASS: with factories off nothing is staged
+CASE PASS: a staging failure is never thrown, and is visible in readiness by a stable code and a fixed reason, never its raw text (W4H-26 N5)
+CASE PASS: every staging error maps to one fixed reason
+CASE PASS: every REFERENCE_CODE_IMPLEMENTATIONS export is a tool of exactly the package the definition names
+CASE PASS: each package's manifest name and version are the ones reference.code.v1's runner references bind to
+CASE PASS: stages each package from committed source: an entry that declares its tools, and every import resolved inside
+CASE PASS: the recorded tree reads back exactly the product snapshot a host reader would take
+CASE PASS: a recorded tree answers only the commit it records
+CASE PASS: a recorded tree whose bytes are not the tree it names is refused, since the guest recomputes the tree id
+CASE PASS: a connection that is not a recorded tree (a live GitHub connection) is refused by name
+CASE PASS: the tool completes with the snapshot as its staged output and no operation rows
+CASE PASS: an input that is not an inline object of bound ports is refused by name
+CASE PASS: each refuses by name, naming the capability the later package adds
+CASE PASS: builds the exact source the binding names, for the peer's own tenant, and answers the build with its artifacts
+CASE PASS: refuses a source whose bytes are not the digest it names, before anything is built
+CASE PASS: refuses another tenant's preparation, a malformed body, and a host that cannot prepare
+CASE PASS: a build past the host's bound answers host_timeout
+CASE PASS: builds under the host's own build limits and answers the build with the artifacts its store holds
+CASE PASS: a repeated build identity joins or reads the first build, and other source under it is refused
+CASE PASS: after a restart, a repeated build identity reads the first build's record: never a second build, never duplicate_operation
+CASE PASS: after a restart, other source under a reused identity is refused even as the FIRST request, and does not poison it (T1)
+CASE PASS: only a SUCCEEDED preparation is recorded: a failed build stays in memory and is rebuilt after a restart (N6)
+CASE PASS: two concurrent first requests with durable records build once (N7)
+CASE PASS: keeps at most FACTORY_HOST_PREPARATION_RETENTION outcomes, oldest first out
+CASE PASS: a failed build is answered as it is, with no artifacts
+CASE PASS: the host's runner is constructed with the pinned toolchain, provisioned once per load (W4H-26)
+CASE PASS: package preparation runs before dispatch when a driver exists, and holds by name without a host launch endpoint (W4H-26)
+CASE PASS: refuses a resource class declared twice with different allocations, because the map would depend on order
+CASE PASS: refuses a runner declared twice, as the runner policy refuses it at composition
+CASE PASS: accepts a resource class shared by runners whose allocations are equal, since the map is then the same in any order
+CASE PASS: accepts reference.code.v1's unpinned task runners, which carry a configuration digest and no model (W4H-26)
+CASE PASS: refuses an unpinned runner whose configuration digest is not a sha256
+CASE PASS: the release store a factory preparation reads is the one the lifecycle writes (W4H-26)
+CASE PASS: a named diagnostic appears in the readiness detail and survives the next readiness write (W4H-26)
+CASE PASS: without a diagnostic the readiness is exactly what was set, and clearing one removes it
+packages/@ezcorp/factory-sdk/src/guest-materials.test.ts: file 205/206 lines hit; added lines 26, instrumented 24, uncovered 0
+scripts/factory-fleet-init-local.test.ts: file 50/50 lines hit; added lines 11, instrumented 10, uncovered 0
+scripts/podman-guest-job-registration.test.ts: file 150/150 lines hit; added lines 57, instrumented 42, uncovered 0
+src/__tests__/extension-lifecycle-service-trusted-local.test.ts: file 114/116 lines hit; added lines 8, instrumented 7, uncovered 0
+src/__tests__/readiness.test.ts: file 73/73 lines hit; added lines 22, instrumented 19, uncovered 0
+src/extensions/__tests__/bundled-bootstrap-v4.test.ts: file 112/113 lines hit; added lines 71, instrumented 64, uncovered 0
+src/factory/guest-package-build.test.ts: file 45/45 lines hit; added lines 61, instrumented 45, uncovered 0
+src/factory/host-preparation-client.integration.test.ts: file 82/82 lines hit; added lines 102, instrumented 82, uncovered 0
+src/factory/reference-code/runner-install.test.ts: file 53/53 lines hit; added lines 62, instrumented 53, uncovered 0
+src/factory/reference-code/runner-packages.test.ts: file 97/97 lines hit; added lines 119, instrumented 97, uncovered 0
+src/factory/runner/host-launch-service.test.ts: file 205/205 lines hit; added lines 52, instrumented 43, uncovered 0
+src/factory/runner/host-launch-supervisor.test.ts: file 332/335 lines hit; added lines 128, instrumented 113, uncovered 0
+src/factory/runner/supervisor-process.test.ts: file 783/806 lines hit; added lines 17, instrumented 14, uncovered 0
+src/factory/runtime-composition.test.ts: file 601/601 lines hit; added lines 1, instrumented 1, uncovered 0
+src/factory/runtime-workers.test.ts: file 298/298 lines hit; added lines 13, instrumented 12, uncovered 0
+src/factory/startup-config.test.ts: file 555/556 lines hit; added lines 27, instrumented 22, uncovered 0
+bash line cover: merge 9bd32cc3b vs base 1f63311fb; trace /tmp/factory-platform-evidence/w00/w4h-merge/w4h-26-runner-wiring/case-check/bash-trace.txt
+no changed *.sh file

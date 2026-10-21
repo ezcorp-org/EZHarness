@@ -1,0 +1,3 @@
+=== typecheck-in-lock script-sha=dae508bace549724 bun=1.4.2 node=v24.14.1 2026-10-17T06:29:23Z
+resource-gate 2026-10-17T06:29:23Z hold-start disk=135G memAvailable=16GiB swapFreeKiB=4133768/17173956 floors disk>=100G mem>=6GiB mem+swap>=8388608KiB (swap component 2097152KiB)
+typecheck exit 0 at acce7a116b5677e0e109f8ef255a016fbe920c32 dirty 0 2026-10-17T06:30:25Z

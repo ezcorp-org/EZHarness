@@ -1,0 +1,10 @@
+bun test v1.4.2 (744846f84)
+{"ts":"2026-10-16T01:18:45.553Z","level":"warn","msg":"call-provenance resolve called with no ezCallId on the reverse-RPC","subsystem":"ext.call-provenance"}
+{"ts":"2026-10-16T01:18:45.554Z","level":"warn","msg":"call-provenance resolve called with no ezCallId on the reverse-RPC","subsystem":"ext.call-provenance"}
+{"ts":"2026-10-16T01:18:45.554Z","level":"error","msg":"reverse-RPC provenance unresolved — no valid host-issued ezCallId; failing fast","subsystem":"ext.tool-executor","method":"ezcorp/rbac-check","extensionId":"rbac-rpc-ext-instance-id","tokenActorExtensionId":null}
+{"ts":"2026-10-16T01:18:45.570Z","level":"warn","msg":"extension RBAC: acting user not found — deny-by-default","subsystem":"ext.tool-executor","extension":"rbac-rpc-ext","scope":"use"}
+
+ 13 pass
+ 0 fail
+ 43 expect() calls
+Ran 13 tests across 1 file. [972.00ms]

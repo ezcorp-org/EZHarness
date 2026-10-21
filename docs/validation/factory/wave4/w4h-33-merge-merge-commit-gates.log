@@ -1,0 +1,8 @@
+pin: bun 1.4.2; BUN_FEATURE_FLAG_DISABLE_SQL_AUTO_PIPELINING=1
+gate-integrity-origin-main exit=1 (unapproved; judged by the expected set)
+origin-main-expected-match exit=0 origin/main leg: PASS (findings equal the expected integ set)
+gate-integrity-base exit=1 If a change here is legitimate, a maintainer must apply the `gate-change-approved` label (sets GATE_CHANGE_APPROVED=1).
+base-expected-match exit=0 base leg: PASS (findings equal the expected integ set)
+new-file exit=0 New-file coverage gate PASSED: no new source files in this diff.
+patch exit=0 Patch coverage gate PASSED: all changed executable lines covered (4 file(s)).
+GATES at b6414ec0b base b0b7bedf1c0de65af84febe7811171021f573b1c status=0

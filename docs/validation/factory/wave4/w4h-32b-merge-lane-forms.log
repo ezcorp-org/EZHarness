@@ -1,0 +1,4 @@
+lane-forms: base env without CI,COVERAGE_LEGS_ONLY,CRITICAL_ONLY,EZCORP_RUN_PODMAN_TESTS,FACTORY_ONLY,RESIDUAL_ONLY
+lane-forms: vitest list by web/node_modules/.bin/vitest 5.0.3 (the web/package.json pin)
+lane moves: 0
+lane-forms: PASS (no changed test file)

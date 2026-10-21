@@ -1,0 +1,16 @@
+per-file lcov proof: merge d4f1c6b0f vs base bea35538d; lcov /tmp/factory-platform-evidence/w00/w4h-merge/w4h-27-compose-comes-up/merged.lcov
+packages/@ezcorp/factory-orchestrator/src/index.ts: file 12/12 lines hit; added lines 1, instrumented 1, uncovered 0
+packages/@ezcorp/factory-orchestrator/src/process.ts: file 277/277 lines hit; added lines 17, instrumented 17, uncovered 0
+packages/@ezcorp/factory-orchestrator/src/worker.ts: file 29/29 lines hit; added lines 7, instrumented 7, uncovered 0
+packages/@ezcorp/factory-orchestrator/src/workflow-bundle-build.ts: file 16/16 lines hit; added lines 16, instrumented 16, uncovered 0
+packages/@ezcorp/factory-orchestrator/src/workflow-bundle.ts: file 96/96 lines hit; added lines 96, instrumented 96, uncovered 0
+scripts/check-factory-image-shipped-config.ts: file 54/57 lines hit; added lines 96, instrumented 57, uncovered 3 -> [73, 74, 75]
+scripts/factory-fleet-init-local.ts: file 40/40 lines hit; added lines 30, instrumented 13, uncovered 0
+src/__tests__/helpers/factory-private-root.ts: file 114/121 lines hit; added lines 21, instrumented 17, uncovered 0
+src/factory/provisioning/compose-profile.ts: file 209/209 lines hit; added lines 30, instrumented 14, uncovered 0
+src/factory/provisioning/deployment.ts: file 271/271 lines hit; added lines 61, instrumented 26, uncovered 0
+src/factory/provisioning/fleet-cli.ts: file 185/185 lines hit; added lines 63, instrumented 31, uncovered 0
+src/factory/provisioning/fleet.ts: file 187/187 lines hit; added lines 53, instrumented 29, uncovered 0
+src/factory/provisioning/host.ts: file 253/253 lines hit; added lines 21, instrumented 7, uncovered 0
+src/factory/provisioning/platform.ts: file 124/124 lines hit; added lines 18, instrumented 8, uncovered 0
+TOTAL instrumented added lines 339, uncovered 3

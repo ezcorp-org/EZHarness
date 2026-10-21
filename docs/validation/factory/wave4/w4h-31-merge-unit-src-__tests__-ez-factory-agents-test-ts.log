@@ -1,0 +1,47 @@
+bun test v1.4.2 (744846f84)
+{"ts":"2026-10-16T01:05:43.996Z","level":"info","msg":"Created bundled ez-factory agent","subsystem":"ext.ez-factory.agents","name":"ez-factory extractor","id":"ecfa0000-fac7-4a9e-b0de-fac701000001"}
+{"ts":"2026-10-16T01:05:43.996Z","level":"info","msg":"Created bundled ez-factory agent","subsystem":"ext.ez-factory.agents","name":"ez-factory writer","id":"ecfa0000-fac7-4a9e-b0de-fac701000002"}
+{"ts":"2026-10-16T01:05:43.996Z","level":"info","msg":"Created bundled ez-factory agent","subsystem":"ext.ez-factory.agents","name":"ez-factory validator","id":"ecfa0000-fac7-4a9e-b0de-fac701000003"}
+{"ts":"2026-10-16T01:05:43.996Z","level":"info","msg":"Created bundled ez-factory agent","subsystem":"ext.ez-factory.agents","name":"ez-factory extractor","id":"ecfa0000-fac7-4a9e-b0de-fac701000001"}
+{"ts":"2026-10-16T01:05:43.997Z","level":"info","msg":"Created bundled ez-factory agent","subsystem":"ext.ez-factory.agents","name":"ez-factory writer","id":"ecfa0000-fac7-4a9e-b0de-fac701000002"}
+{"ts":"2026-10-16T01:05:43.997Z","level":"info","msg":"Created bundled ez-factory agent","subsystem":"ext.ez-factory.agents","name":"ez-factory validator","id":"ecfa0000-fac7-4a9e-b0de-fac701000003"}
+{"ts":"2026-10-16T01:05:43.997Z","level":"info","msg":"Created bundled ez-factory agent","subsystem":"ext.ez-factory.agents","name":"ez-factory extractor","id":"ecfa0000-fac7-4a9e-b0de-fac701000001"}
+{"ts":"2026-10-16T01:05:43.997Z","level":"info","msg":"Created bundled ez-factory agent","subsystem":"ext.ez-factory.agents","name":"ez-factory writer","id":"ecfa0000-fac7-4a9e-b0de-fac701000002"}
+{"ts":"2026-10-16T01:05:43.997Z","level":"info","msg":"Created bundled ez-factory agent","subsystem":"ext.ez-factory.agents","name":"ez-factory validator","id":"ecfa0000-fac7-4a9e-b0de-fac701000003"}
+{"ts":"2026-10-16T01:05:43.997Z","level":"info","msg":"Created bundled ez-factory agent","subsystem":"ext.ez-factory.agents","name":"ez-factory extractor","id":"ecfa0000-fac7-4a9e-b0de-fac701000001"}
+{"ts":"2026-10-16T01:05:43.997Z","level":"info","msg":"Created bundled ez-factory agent","subsystem":"ext.ez-factory.agents","name":"ez-factory writer","id":"ecfa0000-fac7-4a9e-b0de-fac701000002"}
+{"ts":"2026-10-16T01:05:43.997Z","level":"info","msg":"Created bundled ez-factory agent","subsystem":"ext.ez-factory.agents","name":"ez-factory validator","id":"ecfa0000-fac7-4a9e-b0de-fac701000003"}
+{"ts":"2026-10-16T01:05:43.997Z","level":"info","msg":"Created bundled ez-factory agent","subsystem":"ext.ez-factory.agents","name":"ez-factory extractor","id":"ecfa0000-fac7-4a9e-b0de-fac701000001"}
+{"ts":"2026-10-16T01:05:43.997Z","level":"info","msg":"Created bundled ez-factory agent","subsystem":"ext.ez-factory.agents","name":"ez-factory writer","id":"ecfa0000-fac7-4a9e-b0de-fac701000002"}
+{"ts":"2026-10-16T01:05:43.997Z","level":"info","msg":"Created bundled ez-factory agent","subsystem":"ext.ez-factory.agents","name":"ez-factory validator","id":"ecfa0000-fac7-4a9e-b0de-fac701000003"}
+{"ts":"2026-10-16T01:05:43.997Z","level":"info","msg":"Created bundled ez-factory agent","subsystem":"ext.ez-factory.agents","name":"ez-factory extractor","id":"ecfa0000-fac7-4a9e-b0de-fac701000001"}
+{"ts":"2026-10-16T01:05:43.997Z","level":"info","msg":"Created bundled ez-factory agent","subsystem":"ext.ez-factory.agents","name":"ez-factory writer","id":"ecfa0000-fac7-4a9e-b0de-fac701000002"}
+{"ts":"2026-10-16T01:05:43.997Z","level":"info","msg":"Created bundled ez-factory agent","subsystem":"ext.ez-factory.agents","name":"ez-factory validator","id":"ecfa0000-fac7-4a9e-b0de-fac701000003"}
+{"ts":"2026-10-16T01:05:43.997Z","level":"info","msg":"Created bundled ez-factory agent","subsystem":"ext.ez-factory.agents","name":"ez-factory writer","id":"ecfa0000-fac7-4a9e-b0de-fac701000002"}
+{"ts":"2026-10-16T01:05:43.997Z","level":"info","msg":"Removed stale ez-factory agent row(s)","subsystem":"ext.ez-factory.agents","name":"ez-factory extractor","removed":1}
+{"ts":"2026-10-16T01:05:43.997Z","level":"info","msg":"Created bundled ez-factory agent","subsystem":"ext.ez-factory.agents","name":"ez-factory extractor","id":"ecfa0000-fac7-4a9e-b0de-fac701000001"}
+{"ts":"2026-10-16T01:05:43.997Z","level":"info","msg":"Created bundled ez-factory agent","subsystem":"ext.ez-factory.agents","name":"ez-factory writer","id":"ecfa0000-fac7-4a9e-b0de-fac701000002"}
+{"ts":"2026-10-16T01:05:43.997Z","level":"info","msg":"Created bundled ez-factory agent","subsystem":"ext.ez-factory.agents","name":"ez-factory validator","id":"ecfa0000-fac7-4a9e-b0de-fac701000003"}
+{"ts":"2026-10-16T01:05:43.997Z","level":"info","msg":"Created bundled ez-factory agent","subsystem":"ext.ez-factory.agents","name":"ez-factory extractor","id":"ecfa0000-fac7-4a9e-b0de-fac701000001"}
+{"ts":"2026-10-16T01:05:43.997Z","level":"info","msg":"Created bundled ez-factory agent","subsystem":"ext.ez-factory.agents","name":"ez-factory writer","id":"ecfa0000-fac7-4a9e-b0de-fac701000002"}
+{"ts":"2026-10-16T01:05:43.997Z","level":"info","msg":"Created bundled ez-factory agent","subsystem":"ext.ez-factory.agents","name":"ez-factory validator","id":"ecfa0000-fac7-4a9e-b0de-fac701000003"}
+{"ts":"2026-10-16T01:05:43.997Z","level":"info","msg":"Created bundled ez-factory agent","subsystem":"ext.ez-factory.agents","name":"ez-factory extractor","id":"ecfa0000-fac7-4a9e-b0de-fac701000001"}
+{"ts":"2026-10-16T01:05:43.997Z","level":"info","msg":"Created bundled ez-factory agent","subsystem":"ext.ez-factory.agents","name":"ez-factory writer","id":"ecfa0000-fac7-4a9e-b0de-fac701000002"}
+{"ts":"2026-10-16T01:05:43.997Z","level":"info","msg":"Created bundled ez-factory agent","subsystem":"ext.ez-factory.agents","name":"ez-factory validator","id":"ecfa0000-fac7-4a9e-b0de-fac701000003"}
+{"ts":"2026-10-16T01:05:43.997Z","level":"warn","msg":"ez-factory agent dedupe failed","subsystem":"ext.ez-factory.agents","name":"ez-factory extractor","error":"Error: agent_configs unreachable"}
+{"ts":"2026-10-16T01:05:43.997Z","level":"info","msg":"Created bundled ez-factory agent","subsystem":"ext.ez-factory.agents","name":"ez-factory extractor","id":"ecfa0000-fac7-4a9e-b0de-fac701000001"}
+{"ts":"2026-10-16T01:05:43.997Z","level":"warn","msg":"ez-factory agent dedupe failed","subsystem":"ext.ez-factory.agents","name":"ez-factory writer","error":"Error: agent_configs unreachable"}
+{"ts":"2026-10-16T01:05:43.997Z","level":"info","msg":"Created bundled ez-factory agent","subsystem":"ext.ez-factory.agents","name":"ez-factory writer","id":"ecfa0000-fac7-4a9e-b0de-fac701000002"}
+{"ts":"2026-10-16T01:05:43.997Z","level":"warn","msg":"ez-factory agent dedupe failed","subsystem":"ext.ez-factory.agents","name":"ez-factory validator","error":"Error: agent_configs unreachable"}
+{"ts":"2026-10-16T01:05:43.997Z","level":"info","msg":"Created bundled ez-factory agent","subsystem":"ext.ez-factory.agents","name":"ez-factory validator","id":"ecfa0000-fac7-4a9e-b0de-fac701000003"}
+{"ts":"2026-10-16T01:05:43.997Z","level":"info","msg":"Created bundled ez-factory agent","subsystem":"ext.ez-factory.agents","name":"ez-factory extractor","id":"ecfa0000-fac7-4a9e-b0de-fac701000001"}
+{"ts":"2026-10-16T01:05:43.997Z","level":"info","msg":"Created bundled ez-factory agent","subsystem":"ext.ez-factory.agents","name":"ez-factory writer","id":"ecfa0000-fac7-4a9e-b0de-fac701000002"}
+{"ts":"2026-10-16T01:05:43.997Z","level":"info","msg":"Created bundled ez-factory agent","subsystem":"ext.ez-factory.agents","name":"ez-factory validator","id":"ecfa0000-fac7-4a9e-b0de-fac701000003"}
+{"ts":"2026-10-16T01:05:43.998Z","level":"info","msg":"Created bundled ez-factory agent","subsystem":"ext.ez-factory.agents","name":"ez-factory extractor","id":"ecfa0000-fac7-4a9e-b0de-fac701000001"}
+{"ts":"2026-10-16T01:05:43.998Z","level":"info","msg":"Created bundled ez-factory agent","subsystem":"ext.ez-factory.agents","name":"ez-factory writer","id":"ecfa0000-fac7-4a9e-b0de-fac701000002"}
+{"ts":"2026-10-16T01:05:43.998Z","level":"info","msg":"Created bundled ez-factory agent","subsystem":"ext.ez-factory.agents","name":"ez-factory validator","id":"ecfa0000-fac7-4a9e-b0de-fac701000003"}
+
+ 46 pass
+ 0 fail
+ 150 expect() calls
+Ran 46 tests across 1 file. [455.00ms]

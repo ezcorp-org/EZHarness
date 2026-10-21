@@ -1,0 +1,23 @@
+bun test v1.4.2 (744846f84)
+{"ts":"2026-10-17T23:50:55.300Z","level":"info","msg":"github-projects poll sweep","subsystem":"ext.github-projects.daemon","enabledLinks":1,"due":1,"fetched":1,"triggers":1,"newProposals":1,"autoSpawned":0,"degraded":0}
+{"ts":"2026-10-17T23:50:55.301Z","level":"info","msg":"github-projects poll sweep","subsystem":"ext.github-projects.daemon","enabledLinks":1,"due":0,"fetched":0,"triggers":0,"newProposals":0,"autoSpawned":0,"degraded":0}
+{"ts":"2026-10-17T23:50:55.309Z","level":"info","msg":"github-projects poll sweep","subsystem":"ext.github-projects.daemon","enabledLinks":1,"due":1,"fetched":1,"triggers":1,"newProposals":1,"autoSpawned":0,"degraded":0}
+{"ts":"2026-10-17T23:50:55.310Z","level":"info","msg":"github-projects poll sweep","subsystem":"ext.github-projects.daemon","enabledLinks":1,"due":0,"fetched":0,"triggers":0,"newProposals":0,"autoSpawned":0,"degraded":0}
+{"ts":"2026-10-17T23:50:55.310Z","level":"info","msg":"github-projects poll sweep","subsystem":"ext.github-projects.daemon","enabledLinks":1,"due":0,"fetched":0,"triggers":0,"newProposals":0,"autoSpawned":0,"degraded":0}
+{"ts":"2026-10-17T23:50:55.316Z","level":"info","msg":"github-projects poll sweep","subsystem":"ext.github-projects.daemon","enabledLinks":1,"due":1,"fetched":1,"triggers":1,"newProposals":1,"autoSpawned":0,"degraded":0}
+{"ts":"2026-10-17T23:50:55.320Z","level":"info","msg":"github-projects poll sweep","subsystem":"ext.github-projects.daemon","enabledLinks":1,"due":1,"fetched":1,"triggers":1,"newProposals":1,"autoSpawned":0,"degraded":0}
+{"ts":"2026-10-17T23:50:55.326Z","level":"info","msg":"github-projects poll sweep","subsystem":"ext.github-projects.daemon","enabledLinks":1,"due":1,"fetched":1,"triggers":1,"newProposals":1,"autoSpawned":0,"degraded":0}
+{"ts":"2026-10-17T23:50:55.329Z","level":"info","msg":"github-projects poll sweep","subsystem":"ext.github-projects.daemon","enabledLinks":1,"due":1,"fetched":1,"triggers":1,"newProposals":0,"autoSpawned":0,"degraded":0}
+{"ts":"2026-10-17T23:50:55.342Z","level":"info","msg":"github-projects poll sweep","subsystem":"ext.github-projects.daemon","enabledLinks":1,"due":1,"fetched":1,"triggers":1,"newProposals":1,"autoSpawned":1,"degraded":0}
+{"ts":"2026-10-17T23:50:55.357Z","level":"info","msg":"github-projects poll sweep","subsystem":"ext.github-projects.daemon","enabledLinks":1,"due":1,"fetched":1,"triggers":1,"newProposals":1,"autoSpawned":1,"degraded":0}
+{"ts":"2026-10-17T23:50:55.359Z","level":"info","msg":"github-projects poll sweep","subsystem":"ext.github-projects.daemon","enabledLinks":1,"due":1,"fetched":1,"triggers":1,"newProposals":1,"autoSpawned":0,"degraded":0}
+{"ts":"2026-10-17T23:50:55.361Z","level":"info","msg":"github-projects poll sweep","subsystem":"ext.github-projects.daemon","enabledLinks":1,"due":1,"fetched":1,"triggers":1,"newProposals":0,"autoSpawned":0,"degraded":0}
+{"ts":"2026-10-17T23:50:55.367Z","level":"info","msg":"github-projects poll sweep","subsystem":"ext.github-projects.daemon","enabledLinks":1,"due":1,"fetched":1,"triggers":1,"newProposals":1,"autoSpawned":1,"degraded":0}
+{"ts":"2026-10-17T23:50:55.370Z","level":"info","msg":"github-projects poll sweep","subsystem":"ext.github-projects.daemon","enabledLinks":1,"due":1,"fetched":1,"triggers":1,"newProposals":1,"autoSpawned":1,"degraded":0}
+{"ts":"2026-10-17T23:50:55.376Z","level":"info","msg":"reconciled 2 orphaned proposals","subsystem":"ext.github-projects.daemon","count":2,"commented":2}
+{"ts":"2026-10-17T23:50:55.381Z","level":"info","msg":"github-projects poll sweep","subsystem":"ext.github-projects.daemon","enabledLinks":1,"due":1,"fetched":1,"triggers":1,"newProposals":1,"autoSpawned":0,"degraded":0}
+
+ 9 pass
+ 0 fail
+ 51 expect() calls
+Ran 9 tests across 1 file. [1075.00ms]

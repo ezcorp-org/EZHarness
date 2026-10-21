@@ -1,0 +1,4 @@
+src/__tests__/preview-dynamic-e2e.docker.test.ts	Docker-only (DOCKER_TEST=1); Podman rule, not runnable here (team-lead ruling 1, 2026-10-15)
+src/__tests__/preview-uid-keystone.docker.test.ts	Docker-only (DOCKER_TEST=1); Podman rule, not runnable here (team-lead ruling 1, 2026-10-15)
+src/__tests__/task-stack-sdk-integration.test.ts	describe.skip in source; never runs (team-lead ruling 1, 2026-10-15)
+src/__tests__/todo-tracker-sdk-integration.test.ts	describe.skip in source; never runs (team-lead ruling 1, 2026-10-15)

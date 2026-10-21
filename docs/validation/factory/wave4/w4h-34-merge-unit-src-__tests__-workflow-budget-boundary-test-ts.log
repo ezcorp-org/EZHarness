@@ -1,0 +1,13 @@
+bun test v1.4.2 (744846f84)
+{"ts":"2026-10-17T23:43:23.595Z","level":"warn","msg":"workflow run parked at boundary — delegated token budget spent","subsystem":"workflow","workflowRunId":"e382c3e1-cec2-4a67-aaa2-57eaede7ea20","delegationId":"d-4ffd8566","spent":200,"maxTokensPerRun":150}
+{"ts":"2026-10-17T23:43:23.628Z","level":"warn","msg":"workflow run parked at boundary — delegated token budget spent","subsystem":"workflow","workflowRunId":"078403ce-c115-4f83-810f-964eb106e088","delegationId":"d-7922ebcc","spent":200,"maxTokensPerRun":150}
+{"ts":"2026-10-17T23:43:23.695Z","level":"warn","msg":"workflow run parked at boundary — delegated token budget spent","subsystem":"workflow","workflowRunId":"e91542f1-5a2c-4de4-9c9d-79eadbd335b9","delegationId":"d-5182608c","spent":200,"maxTokensPerRun":150}
+{"ts":"2026-10-17T23:43:23.903Z","level":"warn","msg":"workflow run parked at boundary — delegated token budget spent","subsystem":"workflow","workflowRunId":"6357d82e-04da-43a8-bab7-ada414da9c71","delegationId":"d-56d146e6","spent":200,"maxTokensPerRun":150}
+{"ts":"2026-10-17T23:43:23.956Z","level":"warn","msg":"workflow run parked at boundary — delegated token budget spent","subsystem":"workflow","workflowRunId":"97dc2501-34a5-4f2d-818e-d852e770b9f9","delegationId":"d-8dfbbeaf","spent":200,"maxTokensPerRun":150}
+{"ts":"2026-10-17T23:43:23.988Z","level":"warn","msg":"workflow run parked at boundary — delegated token budget spent","subsystem":"workflow","workflowRunId":"3390e7c8-5fc6-4e85-9385-6b4123854fb7","delegationId":"d-0e777c80","spent":200,"maxTokensPerRun":150}
+{"ts":"2026-10-17T23:43:24.014Z","level":"warn","msg":"workflow run parked at boundary — delegated token budget spent","subsystem":"workflow","workflowRunId":"3390e7c8-5fc6-4e85-9385-6b4123854fb7","delegationId":"d-0e777c80","spent":300,"maxTokensPerRun":250}
+
+ 24 pass
+ 0 fail
+ 80 expect() calls
+Ran 24 tests across 1 file. [2.78s]

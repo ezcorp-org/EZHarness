@@ -1,0 +1,12 @@
+bun test v1.4.2 (744846f84)
+{"ts":"2026-10-17T23:43:55.238Z","level":"warn","msg":"approval expired but its policy is unreadable — left pending","subsystem":"workflow.approval-timeout","approvalId":"b8499695-68ec-47a1-94b1-5413abcf463f","workflowRunId":"d587ba13-35fb-44fc-84d5-fe50453e888a","stepName":"gate"}
+{"ts":"2026-10-17T23:43:55.239Z","level":"info","msg":"approval timeout sweep","subsystem":"workflow.approval-timeout","scanned":1,"answered":0,"aborted":0,"deferred":1,"raced":0}
+{"ts":"2026-10-17T23:43:55.243Z","level":"warn","msg":"approval expired but its policy is unreadable — left pending","subsystem":"workflow.approval-timeout","approvalId":"b8499695-68ec-47a1-94b1-5413abcf463f","workflowRunId":"d587ba13-35fb-44fc-84d5-fe50453e888a","stepName":"gate"}
+{"ts":"2026-10-17T23:43:55.243Z","level":"info","msg":"approval timeout sweep","subsystem":"workflow.approval-timeout","scanned":1,"answered":0,"aborted":0,"deferred":1,"raced":0}
+{"ts":"2026-10-17T23:43:55.248Z","level":"warn","msg":"approval timed out — run cancelled","subsystem":"workflow.approval-timeout","approvalId":"b8499695-68ec-47a1-94b1-5413abcf463f","workflowRunId":"d587ba13-35fb-44fc-84d5-fe50453e888a","stepName":"gate","reason":"its approval timed out"}
+{"ts":"2026-10-17T23:43:55.248Z","level":"info","msg":"approval timeout sweep","subsystem":"workflow.approval-timeout","scanned":1,"answered":0,"aborted":1,"deferred":0,"raced":0}
+
+ 18 pass
+ 0 fail
+ 140 expect() calls
+Ran 18 tests across 1 file. [6.55s]
