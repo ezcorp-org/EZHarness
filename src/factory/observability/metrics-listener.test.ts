@@ -2,8 +2,8 @@ import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { chmod, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { makeFactoryTempPrivateRoot } from "../../__tests__/helpers/factory-private-root";
-import { factoryMetricRenderer } from "./metric-registry";
-import { FACTORY_METRICS_CONTENT_TYPE, loadFactoryMetricsToken, serveFactoryMetrics, serveFactoryReadyMetrics, startDeclaredFactoryMetrics, startFactoryMetricsListener, wellFormedFactoryMetricsEndpoint, type FactoryMetricsListener } from "./metrics-listener";
+import { FACTORY_METRIC_FAMILIES, factoryMetricRenderer } from "./metric-registry";
+import { FACTORY_METRICS_CONTENT_TYPE, FACTORY_ROLE_HOLDING_SERVICES, type FactoryRoleHoldingService, loadFactoryMetricsToken, serveFactoryMetrics, serveFactoryReadyMetrics, startDeclaredFactoryMetrics, startFactoryMetricsListener, wellFormedFactoryMetricsEndpoint, type FactoryMetricsListener } from "./metrics-listener";
 
 const TOKEN = "scrape-token-0123456789abcdefghijklmnop";
 
@@ -187,6 +187,47 @@ describe("a service's ready gauge", () => {
         held = [];
         expect(await scrape()).toContain('factory_service_role_held{role="container-runtime"} 0');
       } finally { await served.stop(); }
+    } finally { await rm(root, { recursive: true, force: true }); }
+  });
+
+  // W4H-35 session-6 defect: a supervisor served without a held-roles provider dropped factory_service_role_held, a family the
+  // registry declares for it (tests/postgres/factory-metrics-scrape.test.ts:108). The provider is now required for such a service,
+  // by type and at run time; a silent 0 would page nothing for a missing wiring (alert-rules.ts: factory_service_role_held == 1).
+  test("the services that must serve held roles are read from the registry, and the type names the same set", () => {
+    const declared = FACTORY_METRIC_FAMILIES.find((family) => family.name === "factory_service_role_held")?.services ?? [];
+    const typed: readonly FactoryRoleHoldingService[] = ["supervisor"];
+    expect([...FACTORY_ROLE_HOLDING_SERVICES]).toEqual([...declared]);
+    expect([...FACTORY_ROLE_HOLDING_SERVICES]).toEqual([...typed]);
+  });
+
+  test("a supervisor served without a held-roles provider is refused, by type and at run time", () => {
+    const endpoint = { hostname: "127.0.0.1", port: 0, scrapeTokenPath: "/nonexistent/token" };
+    // @ts-expect-error the supervisor declares factory_service_role_held, so its held-roles provider is required
+    expect(() => serveFactoryReadyMetrics(endpoint, "supervisor", () => true)).toThrow("the supervisor service declares factory_service_role_held: its held-roles provider is required");
+  });
+
+  test("a held-roles provider for a service that declares no held-roles family is refused", () => {
+    const endpoint = { hostname: "127.0.0.1", port: 0, scrapeTokenPath: "/nonexistent/token" };
+    // @ts-expect-error the gateway declares no factory_service_role_held family, so it takes no held-roles provider
+    expect(() => serveFactoryReadyMetrics(endpoint, "gateway", () => true, undefined, () => [])).toThrow("the gateway service declares no factory_service_role_held family");
+  });
+
+  test("every ready-gauge service serves exactly its declared family set", async () => {
+    const root = await makeFactoryTempPrivateRoot("w4h-35-declared-");
+    try {
+      await chmod(root, 0o700);
+      await writeFile(join(root, "token"), TOKEN, { mode: 0o600 });
+      const endpoint = { hostname: "127.0.0.1", port: 0, scrapeTokenPath: join(root, "token") };
+      const servers = { gateway: () => serveFactoryReadyMetrics(endpoint, "gateway", () => true), orchestrator: () => serveFactoryReadyMetrics(endpoint, "orchestrator", () => true), supervisor: () => serveFactoryReadyMetrics(endpoint, "supervisor", () => true, undefined, () => []) };
+      for (const [service, serve] of Object.entries(servers)) {
+        const served = await serve();
+        try {
+          const text = await (await fetch(`${served.url}/metrics`, { headers: { authorization: `Bearer ${TOKEN}` } })).text();
+          const names = new Set(text.split("\n").filter((line) => line !== "" && !line.startsWith("#")).map((line) => line.split(/[{ ]/)[0]));
+          const declared = FACTORY_METRIC_FAMILIES.filter((family) => family.services.includes(service as never)).map((family) => family.name);
+          expect(`${service} serves ${[...names].sort().join(" ")}`).toBe(`${service} serves ${[...declared].sort().join(" ")}`);
+        } finally { await served.stop(); }
+      }
     } finally { await rm(root, { recursive: true, force: true }); }
   });
 
