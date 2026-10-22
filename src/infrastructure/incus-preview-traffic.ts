@@ -4,6 +4,7 @@ import * as http from "node:http";
 import * as https from "node:https";
 import { createConnection, type Socket } from "node:net";
 import { connect as connectTls } from "node:tls";
+import { PREVIEW_HTTP_RESPONSE_MS } from "../runtime/preview/preview-http-policy";
 import { isValidPreviewId } from "../db/queries/preview-sessions";
 import { resolvePreviewAppHost } from "../runtime/preview/preview-proxy";
 import { encodeMaskedPreviewFrame, readUnmaskedPreviewFrame } from "./incus-transport/preview-websocket-codec";
@@ -46,10 +47,10 @@ function previewIdentity(origin: Origin, previewId: string): { host: string; ori
   return { host, origin: `${origin.protocol}//${host}` };
 }
 
-function requestOptions(origin: Origin, host: string, path: string, headers: Record<string, string> = {}): http.RequestOptions {
+function requestOptions(origin: Origin, host: string, path: string, headers: Record<string, string> = {}, tlsHost = host, timeoutMs = TIMEOUT_MS): http.RequestOptions {
   return { protocol: origin.protocol, hostname: origin.address, family: origin.family, port: origin.port,
-    path, method: "GET", agent: false, timeout: TIMEOUT_MS,
-    ...(origin.protocol === "https:" ? { servername: host.split(":")[0], rejectUnauthorized: true } : {}),
+    path, method: "GET", agent: false, timeout: timeoutMs,
+    ...(origin.protocol === "https:" ? { servername: tlsHost.split(":")[0], rejectUnauthorized: true } : {}),
     headers: { Host: host, ...headers } };
 }
 
@@ -57,11 +58,21 @@ function clientFor(origin: Origin): typeof http | typeof https {
   return origin.protocol === "https:" ? https : http;
 }
 
+type PreviewRequestPhase = "ready" | "handoff" | "http";
+const SAFE_TRANSPORT_CODES = new Set(["ECONNREFUSED", "ECONNRESET", "ETIMEDOUT", "EHOSTUNREACH", "ENETUNREACH",
+  "EPROTO", "ERR_TLS_CERT_ALTNAME_INVALID", "CERT_HAS_EXPIRED", "DEPTH_ZERO_SELF_SIGNED_CERT",
+  "UNABLE_TO_VERIFY_LEAF_SIGNATURE"]);
+
+function requestFailure(error: unknown, phase: PreviewRequestPhase): Error {
+  const code = error && typeof error === "object" && "code" in error ? error.code : undefined;
+  return new Error(`Preview request failed [${phase}:${typeof code === "string" && SAFE_TRANSPORT_CODES.has(code) ? code : "transport"}]`);
+}
+
 async function boundedGet(origin: Origin, host: string, path: string, limit: number,
-  headers: Record<string, string> = {}): Promise<{ status: number; headers: http.IncomingHttpHeaders; body: Buffer }> {
+  headers: Record<string, string> = {}, tlsHost = host, timeoutMs = TIMEOUT_MS, phase: PreviewRequestPhase = "ready"): Promise<{ status: number; headers: http.IncomingHttpHeaders; body: Buffer }> {
   return new Promise((resolve, reject) => {
     let exceeded = false;
-    const request = clientFor(origin).request(requestOptions(origin, host, path, headers), response => {
+    const request = clientFor(origin).request(requestOptions(origin, host, path, headers, tlsHost, timeoutMs), response => {
       const declared = response.headers["content-length"];
       if (declared && (!/^\d+$/.test(declared) || Number(declared) > limit)) {
         exceeded = true;
@@ -80,10 +91,10 @@ async function boundedGet(origin: Origin, host: string, path: string, limit: num
         body: Buffer.concat(chunks, size) }));
       response.on("error", () => reject(new Error(exceeded ? "Preview response exceeded its limit" : "Preview response failed")));
     });
-    const deadline = setTimeout(() => request.destroy(new Error("Preview request timed out")), TIMEOUT_MS);
+    const deadline = setTimeout(() => request.destroy(Object.assign(new Error("Preview request timed out"), { code: "ETIMEDOUT" })), timeoutMs);
     request.once("close", () => clearTimeout(deadline));
-    request.on("error", () => reject(new Error(exceeded ? "Preview response exceeded its limit" : "Preview request failed")));
-    request.on("timeout", () => request.destroy(new Error("Preview request timed out")));
+    request.on("error", error => reject(exceeded ? new Error("Preview response exceeded its limit") : requestFailure(error, phase)));
+    request.on("timeout", () => request.destroy(Object.assign(new Error("Preview request timed out"), { code: "ETIMEDOUT" })));
     request.end();
   });
 }
@@ -216,7 +227,7 @@ export function createIncusPreviewTrafficDriver(config: { env?: Record<string, s
       const origin = current();
       const target = previewIdentity(origin, previewId);
       if (!/^[a-f0-9]{64}$/.test(code)) throw new Error("Invalid preview handoff code");
-      const response = await boundedGet(origin, target.host, `/__open?c=${code}`, 16 * 1024);
+      const response = await boundedGet(origin, target.host, `/__open?c=${code}`, 16 * 1024, {}, target.host, TIMEOUT_MS, "handoff");
       if (response.status !== 302) return { status: response.status, cookie: "" };
       const setCookies = response.headers["set-cookie"] ?? [];
       const selected = setCookies.find(value => value.startsWith("__ezpreview="));
@@ -232,7 +243,7 @@ export function createIncusPreviewTrafficDriver(config: { env?: Record<string, s
       const host = wrongHost ? `invalid.preview.invalid${origin.portSuffix}`
         : malformedHost ? `invalid!.preview.${origin.previewBaseHost}${origin.portSuffix}` : target.host;
       const response = await boundedGet(origin, host, boundedPath(path), MAX_HTTP_BYTES,
-        cookie === null ? {} : { Cookie: previewCookie(cookie) });
+        cookie === null ? {} : { Cookie: previewCookie(cookie) }, target.host, PREVIEW_HTTP_RESPONSE_MS, "http");
       return { status: response.status, body: response.body,
         location: typeof response.headers.location === "string" ? response.headers.location : null };
     },

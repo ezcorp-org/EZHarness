@@ -3047,3 +3047,10 @@ smokes under the lock, detached-job wake-ups) are not repeated.
 
 - Test receiver reset must replace the complete request state. An aborted client can leave a server handler pending; clearing a shared deduplication set does not stop that handler from writing into the next test. Use an explicit real-HTTP barrier to prove reset isolation.
 - Keep diagnostic metadata outside the tested checkout when security inventories inspect ignored files. A harmless auth-shaped filename can be an actual test input.
+### Preview relay budgets and late starts (2026-10-21)
+
+- Read the actual deployed transport before linking a reproduced TLS defect to a live HTTP failure.
+- Budget the complete client, ingress and provider RPC chain. A guest command deadline does not bound sequential host dispatch and output reads.
+- A timed-out start can still return a handle. Settle only that original request within the existing cleanup reserve; otherwise report an unknown start outcome. Never claim cancellation without a handle or retry the start.
+- Exercise the pinned adapter's cloned request, raw platform request, finite idle timeout and real socket disconnect. Direct backend calls do not prove ingress behavior.
+- Generate the standard SvelteKit configuration before testing backend consumers that import web modules. Use the canonical per-file context; do not improvise Bun CLI argument order.

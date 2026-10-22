@@ -1,5 +1,6 @@
 import { afterAll, expect, spyOn, test } from "bun:test";
 import { randomUUID } from "node:crypto";
+import { eq } from "drizzle-orm";
 import { readFileSync } from "node:fs";
 import { sandboxPresetDigest } from "@ezcorp/extension-contract";
 import { INCUS_PRESETS } from "../../extensions/incus-sandbox/manifest";
@@ -76,10 +77,22 @@ test("SP09 host witness uses the real registry and token gates, then removes its
   const heldReadiness = new Promise<boolean>(resolve => { releaseReadiness = () => resolve(false); });
   const authorizePreview = createIncusPreviewAuthorizer({ db, caller,
     qualified: async () => { ordinaryReadinessCalls++; return heldReadiness; } });
+  const checkpointDeadline = Date.now() + 60_000;
   const backend = new IncusSandboxPreviewBackend({} as never);
   const served: string[] = [];
+  let shortenedSession: string | undefined;
   backend.serve = async request => {
     served.push(request.requestPath);
+    const [session] = await db.select().from(previewSessions).where(eq(previewSessions.id, request.previewId));
+    expect(request.expiresAt.getTime()).toBe(Math.min(session!.expiresAt.getTime(), checkpointDeadline));
+    if (served.length === 1) {
+      shortenedSession = request.previewId;
+      expect(request.expiresAt.getTime()).toBe(checkpointDeadline);
+      await db.update(previewSessions).set({ expiresAt: new Date(Date.now() + 20_000) })
+        .where(eq(previewSessions.id, request.previewId));
+    } else if (request.previewId === shortenedSession) {
+      expect(request.expiresAt.getTime()).toBeLessThan(checkpointDeadline);
+    }
     if (!running || request.targetPort !== 4173 || request.binding.workspaceId !== handle.sandboxId) {
       throw new Error("changed guest target");
     }
@@ -146,7 +159,7 @@ test("SP09 host witness uses the real registry and token gates, then removes its
   const checkpoint = spyOn(IncusQualificationCheckpointStore.prototype, "get")
     .mockImplementation(async () => ({ state: "CLAIMED", runId: "previewrun", nonce: "nonce",
       fixtureOperationId: handle.operationId, bindingId: handle.sandboxId, generation: 1,
-      connectionRevision: 1, deadlineAt: new Date(Date.now() + 100_000), scope } as never));
+      connectionRevision: 1, deadlineAt: new Date(checkpointDeadline), scope } as never));
   const witness = new IncusHostLiveWitness({ db,
     qualifications: {} as IncusQualificationStore,
     fixtures: {} as IncusQualificationFixtureService, previewBackend: backend, previewTraffic: traffic,

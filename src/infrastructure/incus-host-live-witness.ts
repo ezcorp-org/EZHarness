@@ -388,7 +388,9 @@ export class IncusHostLiveWitness implements HostIncusLiveWitness {
     const observedBackend: SandboxPreviewBackend = {
       open: request => backend.open(request), close: request => backend.close(request),
       serve: async request => {
-        const response = await backend.serve(request);
+        const response = await backend.serve({ ...request,
+          expiresAt: new Date(Math.min(request.expiresAt.getTime(), new Date(checkpoint.deadlineAt).getTime())),
+        });
         if (exact(request)) {
           observedInstanceId = request.binding.workspaceId;
           observedPort = request.targetPort!;

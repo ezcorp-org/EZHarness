@@ -1,3 +1,4 @@
+import { HTTP_SETTLEMENT_MS, PREVIEW_HTTP_RESPONSE_MS } from "../runtime/preview/preview-http-policy";
 import { createHash, randomUUID } from "node:crypto";
 import type { ProviderSandboxWorkspaceCaller } from "../runtime/workspaces/provider-backend";
 import type { SandboxPreviewBackend, SandboxPreviewConnectRequest, SandboxPreviewServeRequest,
@@ -13,7 +14,6 @@ const REQUEST_HEADERS = new Set(["accept", "accept-language", "content-type", "i
 const RESPONSE_HEADERS = new Set(["content-type", "cache-control", "location", "set-cookie", "etag", "last-modified", "content-encoding", "accept-ranges", "content-range"]);
 const SERVER_LIFETIME_MS = 15 * 60_000;
 const SERVER_READY_MS = 30_000;
-
 // The fixed launcher prints its kernel identity before untrusted server code
 // can write output. exec preserves that PID and the helper's process group.
 const SERVER_LAUNCH = `import json,os
@@ -78,22 +78,26 @@ function positivePort(value: number | null): number {
   return value!;
 }
 
-async function boundedBody(request: Request): Promise<Buffer> {
+async function boundedBody(request: Request, signal = request.signal): Promise<Buffer> {
+  signal.throwIfAborted();
   const declared = request.headers.get("content-length");
   if (declared && (!/^\d+$/.test(declared) || Number(declared) > MAX_REQUEST_BYTES)) throw new Error("Preview request body is too large");
   if (!request.body) return Buffer.alloc(0);
   const reader = request.body.getReader();
+  const abort = () => { void reader.cancel().catch(() => undefined); };
+  signal.addEventListener("abort", abort, { once: true });
   const chunks: Uint8Array[] = [];
   let size = 0;
   try {
     while (true) {
       const { done, value } = await reader.read();
+      signal.throwIfAborted();
       if (done) break;
       size += value.byteLength;
       if (size > MAX_REQUEST_BYTES) throw new Error("Preview request body is too large");
       chunks.push(value);
     }
-  } finally { reader.releaseLock(); }
+  } finally { signal.removeEventListener("abort", abort); reader.releaseLock(); }
   return Buffer.concat(chunks);
 }
 
@@ -114,7 +118,7 @@ function boundedPath(requestPath: string, search: string): string {
 type GuestAction = "process.start" | "process.inspect" | "process.readOutput" | "process.cancel";
 type GuestCall = (action: GuestAction, input: Record<string, unknown>, signal?: AbortSignal) => Promise<unknown>;
 
-async function guestPayload(request: SandboxPreviewServeRequest, now: number): Promise<string> {
+async function guestPayload(request: SandboxPreviewServeRequest, now: number, signal?: AbortSignal): Promise<string> {
   const port = positivePort(request.targetPort);
   if (request.expiresAt.getTime() <= now || !ALLOWED_METHODS.has(request.request.method)) {
     throw new Error("Sandbox preview is unavailable");
@@ -123,7 +127,7 @@ async function guestPayload(request: SandboxPreviewServeRequest, now: number): P
   const headers = [...request.request.headers]
     .filter(([name, value]) => REQUEST_HEADERS.has(name.toLowerCase()) && value.length <= 4096)
     .slice(0, 16);
-  const body = await boundedBody(request.request);
+  const body = await boundedBody(request.request, signal);
   const payload = Buffer.from(JSON.stringify({ port, method: request.request.method, path, headers,
     body: body.toString("base64") })).toString("base64");
   if (payload.length > 8192) throw new Error("Sandbox preview request exceeds the guest limit");
@@ -141,29 +145,58 @@ function guestCaller(caller: ProviderSandboxWorkspaceCaller, request: {
     signal: signal ?? (action === "process.cancel" ? undefined : (request.request?.signal ?? request.signal)) });
 }
 
-async function startGuest(call: GuestCall, payload: string, now: number,
-  launch = { code: GUEST_HTTP, name: "EZH_PREVIEW_REQUEST", lifetime: 12_000 }): Promise<{ processId: string; bootId: string }> {
-  const started = object(await call("process.start", { argv: ["python3", "-c", launch.code], cwd: ".", user: "sandbox",
-    env: [{ name: launch.name, value: payload }], processDeadlineMs: now + launch.lifetime }));
+/** A single absolute budget covers every relay RPC, including a stalled caller. */
+function boundedGuestCaller(call: GuestCall, deadline: number, now: () => number, parent?: AbortSignal): GuestCall & { signal: AbortSignal } {
+  const remaining = Math.max(0, deadline - now());
+  const signal = AbortSignal.any([AbortSignal.timeout(remaining), ...(parent ? [parent] : [])]);
+  const check = () => {
+    if (parent?.aborted) throw new Error("Sandbox preview was cancelled [http:client_abort]");
+    if (signal.aborted || now() >= deadline) throw new Error("Sandbox preview response deadline expired [http:deadline]");
+  };
+  const bounded: GuestCall = async (action, input) => {
+    check();
+    let rejectAbort: (() => void) | undefined;
+    const aborted = new Promise<never>((_resolve, reject) => {
+      rejectAbort = () => { try { check(); } catch (error) { reject(error); } };
+      signal.addEventListener("abort", rejectAbort, { once: true });
+    });
+    try {
+      const result = await Promise.race([call(action, input, signal), aborted]);
+      check();
+      return result;
+    } finally { if (rejectAbort) signal.removeEventListener("abort", rejectAbort); }
+  };
+  return Object.assign(bounded, { signal });
+}
+
+function startedProcess(value: unknown): { processId: string; bootId: string } {
+  const started = object(value);
   if (started.ok !== true || typeof started.processId !== "string" || typeof started.bootId !== "string") {
     throw new Error("Sandbox preview process did not start");
   }
   return { processId: started.processId, bootId: started.bootId };
 }
 
-async function awaitGuest(call: GuestCall, processId: string, bootId: string, signal: AbortSignal): Promise<void> {
+async function startGuest(call: GuestCall, payload: string, now: number,
+  launch = { code: GUEST_HTTP, name: "EZH_PREVIEW_REQUEST", lifetime: 12_000 }): Promise<{ processId: string; bootId: string }> {
+  return startedProcess(await call("process.start", { argv: ["python3", "-c", launch.code], cwd: ".", user: "sandbox",
+    env: [{ name: launch.name, value: payload }], processDeadlineMs: now + launch.lifetime }));
+}
+
+async function awaitGuest(call: GuestCall, processId: string, bootId: string, signal: AbortSignal, terminal: () => void = () => {}): Promise<void> {
   for (let attempt = 0; attempt < POLLS; attempt++) {
     if (signal.aborted) {
-      await call("process.cancel", { processId, bootId }).catch(() => undefined);
-      throw new Error("Sandbox preview was cancelled");
+      throw new Error("Sandbox preview was cancelled [http:client_abort]");
     }
     const inspected = object(await call("process.inspect", { processId, bootId }));
     const process = object(inspected.process);
-    if (process.state === "succeeded") return;
-    if (process.state !== "starting" && process.state !== "running" && process.state !== "unknown") throw new Error("Sandbox preview process failed");
+    if (process.state === "succeeded") { terminal(); return; }
+    if (process.state !== "starting" && process.state !== "running" && process.state !== "unknown") {
+      if (["failed", "timed_out", "cancelled", "interrupted"].includes(String(process.state))) terminal();
+      throw new Error("Sandbox preview process failed");
+    }
     await Bun.sleep(500);
   }
-  await call("process.cancel", { processId, bootId }).catch(() => undefined);
   throw new Error("Sandbox preview process exceeded its deadline");
 }
 
@@ -299,11 +332,47 @@ export class IncusSandboxPreviewBackend implements SandboxPreviewBackend {
   }
 
   async serve(request: SandboxPreviewServeRequest): Promise<Response> {
-    const payload = await guestPayload(request, this.now());
-    const call = guestCaller(this.caller, request);
-    const { processId, bootId } = await startGuest(call, payload, this.now());
-    await awaitGuest(call, processId, bootId, request.request.signal);
-    return browserResponse(await readGuestOutput(call, request, processId, bootId), request.request.method);
+    const startedAt = this.now();
+    const deadline = Math.min(startedAt + PREVIEW_HTTP_RESPONSE_MS, request.expiresAt.getTime());
+    let started: { processId: string; bootId: string } | undefined;
+    let pendingStart: Promise<unknown> | undefined;
+    const guest = guestCaller(this.caller, request);
+    const rawCall: GuestCall = async (action, input, signal) => {
+      const pending = guest(action, input, signal);
+      if (action === "process.start") pendingStart = pending;
+      const result = await pending;
+      if (action === "process.start") started = startedProcess(result);
+      return result;
+    };
+    const call = boundedGuestCaller(rawCall, deadline - HTTP_SETTLEMENT_MS, this.now, request.request.signal);
+    const payload = await guestPayload(request, startedAt, call.signal);
+    let terminal = false;
+    try {
+      started = await startGuest(call, payload, this.now());
+      await awaitGuest(call, started.processId, started.bootId, request.request.signal, () => { terminal = true; });
+      return browserResponse(await readGuestOutput(call, request, started.processId, started.bootId), request.request.method);
+    } catch (error) {
+      const settlementDeadline = Math.min(deadline, this.now() + HTTP_SETTLEMENT_MS);
+      if (!started && pendingStart && (call.signal.aborted || this.now() >= deadline - HTTP_SETTLEMENT_MS)) {
+        try {
+          // Wait for the original start only; never dispatch a replacement.
+          const settle = boundedGuestCaller(() => pendingStart!, settlementDeadline, this.now);
+          await settle("process.start", {});
+          if (!started) throw new Error("No process identity returned");
+        } catch (settlementError) {
+          throw new AggregateError([error, settlementError], "Sandbox preview start outcome is unconfirmed [http:start_unknown]");
+        }
+      }
+      if (started && !terminal) {
+        try {
+          const cleanup = boundedGuestCaller(rawCall, settlementDeadline, this.now);
+          if (object(await cleanup("process.cancel", started)).ok !== true) throw new Error("Preview cancellation was refused");
+        } catch (cleanupError) {
+          throw new AggregateError([error, cleanupError], "Sandbox preview failed and cancellation is unconfirmed");
+        }
+      }
+      throw error;
+    }
   }
 
   async connectWebSocket(request: SandboxPreviewConnectRequest): Promise<SandboxPreviewSocket> {

@@ -1,4 +1,5 @@
 import { expect, spyOn, test } from "bun:test";
+import { request as httpRequest } from "node:http";
 import { createProviderSandboxWorkspaceBackend, type ProviderSandboxWorkspaceCaller } from "../runtime/workspaces/provider-backend";
 import { sandboxWorkspaceTarget, type SandboxPreviewConnectRequest, type SandboxPreviewServeRequest, type SandboxWorkspaceBinding } from "../runtime/workspaces/target";
 import { IncusSandboxPreviewBackend } from "./incus-preview-backend";
@@ -367,7 +368,8 @@ test("cancellation during unknown polling cancels the same handle without anothe
     await expect(backend.serve(preview(new Request("https://preview.example/", { signal: controller.signal })))).rejects.toThrow("cancelled");
     expect(calls.map(call => call.action)).toEqual(["process.start", "process.inspect", "process.cancel"]);
     expect(calls[2]!.payload).toEqual({ processId: "same-process", bootId: "same-boot" });
-    expect(calls[2]!.signal).toBeUndefined();
+    expect(calls[2]!.signal).toBeInstanceOf(AbortSignal);
+    expect(calls[2]!.signal!.aborted).toBe(false);
   } finally { sleep.mockRestore(); }
 });
 
@@ -375,4 +377,161 @@ test("preview helper fixtures refuse a missing portable Python interpreter", () 
   const which = spyOn(Bun, "which").mockReturnValue(null);
   try { expect(() => hostPython3()).toThrow("require python3 on PATH"); }
   finally { which.mockRestore(); }
+});
+
+test("one absolute response deadline stops later RPCs and keeps cancellation bounded", async () => {
+  let now = 1_000;
+  const calls: string[] = [];
+  const backend = new IncusSandboxPreviewBackend({ async call(input) {
+    calls.push(input.action);
+    if (input.action === "process.start") return { ok: true, processId: "same", bootId: "boot" };
+    if (input.action === "process.inspect") { now += 55_000; return { ok: true, process: { state: "running" } }; }
+    expect(input.signal?.aborted).toBe(false);
+    return { ok: true };
+  } }, () => now);
+  await expect(backend.serve({ ...preview(new Request("http://preview.example/")),
+    expiresAt: new Date(100_000) })).rejects.toThrow();
+  expect(calls).toEqual(["process.start", "process.inspect", "process.cancel"]);
+});
+
+test("session expiry prevents dispatch and an unconfirmed cancellation stays a failure", async () => {
+  let calls = 0;
+  const backend = new IncusSandboxPreviewBackend({ async call() { calls++; return {}; } });
+  await expect(backend.serve({ ...preview(new Request("http://preview.example/")),
+    expiresAt: new Date(Date.now() - 1) })).rejects.toThrow();
+  expect(calls).toBe(0);
+  const abort = new AbortController();
+  const cancelled = new IncusSandboxPreviewBackend({ async call(input) {
+    if (input.action === "process.start") return { ok: true, processId: "same", bootId: "boot" };
+    if (input.action === "process.inspect") { abort.abort(); return { ok: true, process: { state: "running" } }; }
+    return { ok: false };
+  } });
+  await expect(cancelled.serve(preview(new Request("http://preview.example/", { signal: abort.signal }))))
+    .rejects.toThrow("cancellation is unconfirmed");
+});
+
+test("client disconnect reaches the real Bun request and cancels only its started preview", async () => {
+  const calls: string[] = [];
+  let inspecting!: () => void;
+  const entered = new Promise<void>(resolve => { inspecting = resolve; });
+  let finished!: () => void;
+  const done = new Promise<void>(resolve => { finished = resolve; });
+  const backend = new IncusSandboxPreviewBackend({ async call(input) {
+    calls.push(input.action);
+    if (input.action === "process.start") return { ok: true, processId: "same", bootId: "boot" };
+    if (input.action === "process.cancel") {
+      expect(input.payload).toEqual({ processId: "same", bootId: "boot" });
+      expect(input.signal?.aborted).toBe(false);
+      return { ok: true };
+    }
+    inspecting();
+    return await new Promise((_resolve, reject) => {
+      input.signal!.addEventListener("abort", () => reject(input.signal!.reason), { once: true });
+    });
+  } });
+  const server = Bun.serve({ hostname: "127.0.0.1", port: 0, async fetch(request) {
+    try { return await backend.serve(preview(request)); }
+    catch { return new Response(null, { status: 499 }); }
+    finally { finished(); }
+  } });
+  try {
+    const client = httpRequest(`http://127.0.0.1:${server.port}/proof`);
+    const closed = new Promise<void>(resolve => { client.once("error", () => resolve()); });
+    client.end();
+    await Promise.race([entered, Bun.sleep(1_000).then(() => { throw new Error("No inspect: " + calls.join(",")); })]);
+    client.destroy(new Error("Test client disconnected"));
+    await closed;
+    await Promise.race([done, Bun.sleep(2_000).then(() => { throw new Error("Disconnect did not cancel the relay"); })]);
+    expect(calls).toEqual(["process.start", "process.inspect", "process.cancel"]);
+  } finally { server.stop(true); }
+});
+
+test("the absolute deadline also guards output pages and a stalled cancellation", async () => {
+  let now = 1_000;
+  const calls: string[] = [];
+  const backend = new IncusSandboxPreviewBackend({ async call(input) {
+    calls.push(input.action);
+    if (input.action === "process.start") return { ok: true, processId: "same", bootId: "boot" };
+    if (input.action === "process.inspect") return { ok: true, process: { state: "succeeded" } };
+    now += 55_000;
+    return { ok: true, chunks: [], eof: false, nextCursor: { offsetBytes: 1 } };
+  } }, () => now);
+  await expect(backend.serve({ ...preview(new Request("http://preview.example/")),
+    expiresAt: new Date(100_000) })).rejects.toThrow("deadline");
+  expect(calls).toEqual(["process.start", "process.inspect", "process.readOutput"]);
+
+  const controller = new AbortController();
+  const stalled = new IncusSandboxPreviewBackend({ async call(input) {
+    if (input.action === "process.start") return { ok: true, processId: "same", bootId: "boot" };
+    if (input.action === "process.inspect") { controller.abort(); return { ok: true, process: { state: "running" } }; }
+    return new Promise(() => {});
+  } });
+  const began = Date.now();
+  await expect(stalled.serve(preview(new Request("http://preview.example/", { signal: controller.signal }))))
+    .rejects.toThrow("cancellation is unconfirmed");
+  expect(Date.now() - began).toBeLessThan(6_000);
+}, 7_000);
+
+test("a cancelled request body never starts a provider worker", async () => {
+  const controller = new AbortController();
+  let cancelled = false;
+  const body = new ReadableStream({ cancel() { cancelled = true; } });
+  let calls = 0;
+  const backend = new IncusSandboxPreviewBackend({ async call() { calls++; return {}; } });
+  const pending = backend.serve(preview(new Request("http://preview.example/", {
+    method: "POST", body, signal: controller.signal,
+  })));
+  controller.abort();
+  await expect(pending).rejects.toThrow();
+  expect(cancelled).toBe(true);
+  expect(calls).toBe(0);
+});
+
+test("a late start handle is settled once and cancelled inside the original reserve", async () => {
+  const controller = new AbortController();
+  let release!: (value: unknown) => void;
+  const pending = new Promise(resolve => { release = resolve; });
+  const calls: string[] = [];
+  const backend = new IncusSandboxPreviewBackend({ async call(input) {
+    calls.push(input.action);
+    if (input.action === "process.start") {
+      controller.abort();
+      queueMicrotask(() => release({ ok: true, processId: "late", bootId: "same-boot" }));
+      return pending;
+    }
+    expect(input.action).toBe("process.cancel");
+    expect(input.payload).toEqual({ processId: "late", bootId: "same-boot" });
+    return { ok: true };
+  } });
+  await expect(backend.serve(preview(new Request("http://preview.example/", { signal: controller.signal }))))
+    .rejects.toThrow("cancelled");
+  expect(calls).toEqual(["process.start", "process.cancel"]);
+});
+
+test("an aborted start without a settled handle reports unknown and never retries", async () => {
+  const controller = new AbortController();
+  let starts = 0;
+  const backend = new IncusSandboxPreviewBackend({ async call(input) {
+    expect(input.action).toBe("process.start");
+    starts++;
+    controller.abort();
+    return new Promise(() => {});
+  } });
+  const began = Date.now();
+  await expect(backend.serve(preview(new Request("http://preview.example/", { signal: controller.signal }))))
+    .rejects.toThrow("start outcome is unconfirmed [http:start_unknown]");
+  expect(starts).toBe(1);
+  expect(Date.now() - began).toBeLessThan(6_000);
+}, 7_000);
+
+test("an unrecognized process state cannot suppress cleanup", async () => {
+  const calls: string[] = [];
+  const backend = new IncusSandboxPreviewBackend({ async call(input) {
+    calls.push(input.action);
+    if (input.action === "process.start") return { ok: true, processId: "same", bootId: "boot" };
+    if (input.action === "process.inspect") return { ok: true, process: { state: "invented-terminal" } };
+    return { ok: true };
+  } });
+  await expect(backend.serve(preview(new Request("http://preview.example/")))).rejects.toThrow("failed");
+  expect(calls).toEqual(["process.start", "process.inspect", "process.cancel"]);
 });

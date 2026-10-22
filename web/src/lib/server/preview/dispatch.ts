@@ -1,3 +1,4 @@
+import { configurePreviewHttpResponse } from "$server/runtime/preview/preview-http-policy";
 import {
   parsePreviewHost,
   PREVIEW_HOST_INFIX,
@@ -97,7 +98,7 @@ export function previewNotFound(): Response {
 export async function servePreviewRequest(
   request: Request,
   parsed: ParsedPreviewHost,
-  platform?: { server?: { upgrade(req: unknown, opts?: { data?: unknown }): boolean }; request?: unknown },
+  platform?: { server?: { upgrade(req: unknown, opts?: { data?: unknown }): boolean; timeout?(request: Request, seconds: number): void }; request?: unknown },
 ): Promise<Response> {
   const url = new URL(request.url);
   const previewId = parsed.previewId;
@@ -137,6 +138,9 @@ export async function servePreviewRequest(
       },
     });
   }
+
+  // Retain a finite per-request relay budget; handoff and WS keep their limits.
+  configurePreviewHttpResponse(platform);
 
   // ── Everything else — token + registry gated serving ──
   const cookieToken = readCookie(request, PREVIEW_COOKIE_NAME);

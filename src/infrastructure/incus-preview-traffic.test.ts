@@ -1,4 +1,12 @@
 import { expect, test } from "bun:test";
+import { createServer } from "node:http";
+import { once } from "node:events";
+import { execFileSync } from "node:child_process";
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { configurePreviewHttpResponse } from "../runtime/preview/preview-http-policy";
+import { IncusSandboxPreviewBackend } from "./incus-preview-backend";
 import { createIncusPreviewTrafficDriver } from "./incus-preview-traffic";
 
 const PREVIEW_ID = "abcdefghjkmnpqrstvwxyz0123";
@@ -112,4 +120,109 @@ test("traffic driver rejects caller paths, credentials and oversized challenges 
       subprotocol: "vite-hmr", challenge: "x" })).rejects.toThrow("cookie");
     expect(hits).toBe(1);
   } finally { server.stop(true); }
+});
+
+
+test("HTTPS Host denials retain the approved TLS identity and reject a wrong certificate name", async () => {
+  const directory = mkdtempSync(join(tmpdir(), "ez-preview-host-tls-"));
+  const cert = join(directory, "cert.pem");
+  const key = join(directory, "key.pem");
+  try {
+    execFileSync("openssl", ["req", "-x509", "-newkey", "ec", "-pkeyopt", "ec_paramgen_curve:P-256",
+      "-nodes", "-keyout", key, "-out", cert, "-days", "1", "-subj", "/CN=localhost",
+      "-addext", "subjectAltName=DNS:localhost,DNS:*.preview.localhost"], { stdio: "ignore" });
+    // Extra CAs are read at process startup. Exercise the real driver without
+    // disabling verification or changing the HTTP Host denial cases.
+    const source = `
+      import { strict as assert } from "node:assert";
+      import { readFileSync } from "node:fs";
+      import { configurePreviewHttpResponse } from "../runtime/preview/preview-http-policy";
+import { IncusSandboxPreviewBackend } from "./incus-preview-backend";
+import { createIncusPreviewTrafficDriver } from ${JSON.stringify(import.meta.dir + "/incus-preview-traffic.ts")};
+      const id = ${JSON.stringify(PREVIEW_ID)};
+      const hosts = [];
+      const server = Bun.serve({hostname: "::", port: 0,
+        tls: {cert: readFileSync(process.env.TEST_CERT), key: readFileSync(process.env.TEST_KEY)},
+        fetch(request) {
+          const host = request.headers.get("host"); hosts.push(host);
+          return new Response("proof", {status: new URL(request.url).pathname === "/api/ready"
+            || host === id + ".preview.localhost:" + server.port ? 200 : 404});
+        }});
+      try {
+        const driver = base => createIncusPreviewTrafficDriver({env: {
+          EZCORP_PUBLIC_URL: "https://localhost:" + server.port, EZCORP_PREVIEW_APP_HOST: base}});
+        const traffic = driver("localhost"); await traffic.ready();
+        const request = {previewId: id, cookie: null, path: "/proof"};
+        assert.equal((await traffic.http(request)).status, 200);
+        assert.equal((await traffic.http({...request, wrongHost: true})).status, 404);
+        assert.equal((await traffic.http({...request, malformedHost: true})).status, 404);
+        assert(hosts.includes("invalid.preview.invalid:" + server.port));
+        assert(hosts.includes("invalid!.preview.localhost:" + server.port));
+        const wrongCertificate = driver("wrong.example"); await wrongCertificate.ready();
+        const before = hosts.length;
+        await assert.rejects(wrongCertificate.http(request), /Preview request failed/);
+        assert.equal(hosts.length, before);
+      } finally { server.stop(true); }
+    `;
+    const child = Bun.spawn([process.execPath, "-e", source], { env: { ...process.env,
+      NODE_EXTRA_CA_CERTS: cert, TEST_CERT: cert, TEST_KEY: key }, stdout: "pipe", stderr: "pipe" });
+    const [exit, stdout, stderr] = await Promise.all([child.exited,
+      new Response(child.stdout).text(), new Response(child.stderr).text()]);
+    expect({ exit, stdout, stderr }).toEqual({ exit: 0, stdout: "", stderr: "" });
+  } finally { rmSync(directory, { recursive: true, force: true }); }
+}, 15_000);
+
+
+test("plain HTTP relay preserves its largest supported body across real delayed RPCs and Bun ingress", async () => {
+  const body = "x".repeat(512 * 1024);
+  const output = Buffer.from(JSON.stringify({ status: 200, headers: [], body: Buffer.from(body).toString("base64") }));
+  const calls: string[] = [];
+  const binding = { projectId: "p", workspaceId: "b", connectionId: "c", providerId: "incus" as const,
+    generation: 1, presetId: "compose", releaseDigest: "a".repeat(64), presetDigest: "b".repeat(64), effectiveSettingsDigest: "c".repeat(64) };
+  const backend = new IncusSandboxPreviewBackend({ async call(input) {
+    calls.push(input.action);
+    expect(input.signal?.aborted).toBe(false);
+    await Bun.sleep(3_100);
+    if (input.action === "process.start") return { ok: true, processId: "p", bootId: "boot" };
+    if (input.action === "process.inspect") return { ok: true, process: { state: "succeeded" } };
+    const offset = (input.payload.cursor as { offsetBytes: number }).offsetBytes;
+    expect(input.payload.maxBytes).toBe(64 * 1024);
+    const page = output.subarray(offset, offset + 64 * 1024);
+    return { ok: true, chunks: [{ stream: "stdout", dataBase64: page.toString("base64") }],
+      eof: offset + page.length === output.length, nextCursor: { offsetBytes: offset + page.length } };
+  } });
+  const server = Bun.serve({ hostname: "127.0.0.1", port: 0, idleTimeout: 10, async fetch(request, bunServer) {
+    if (new URL(request.url).pathname === "/api/ready") return new Response("ready");
+    configurePreviewHttpResponse({ server: bunServer, request });
+    return backend.serve({ binding, previewId: PREVIEW_ID, userId: "owner", targetPort: 3000,
+      requestPath: "/proof", request, expiresAt: new Date(Date.now() + 90_000) });
+  } });
+  try {
+    const driver = traffic(boundPort(server));
+    await driver.ready();
+    const started = Date.now();
+    const response = await driver.http({ previewId: PREVIEW_ID, cookie: COOKIE, path: "/proof" });
+    expect(response.status).toBe(200);
+    expect(Buffer.from(response.body).toString()).toBe(body);
+    expect(calls).toEqual(["process.start", "process.inspect", ...Array(11).fill("process.readOutput")]);
+    expect(Date.now() - started).toBeGreaterThan(40_000);
+  } finally { server.stop(true); }
+}, 65_000);
+
+
+test("HTTP transport diagnostics retain only a fixed phase and safe error code", async () => {
+  const server = createServer((request, response) => {
+    if (request.url === "/api/ready") { response.end("ready"); return; }
+    request.socket.destroy();
+  });
+  server.listen(0, "127.0.0.1");
+  await once(server, "listening");
+  try {
+    const address = server.address();
+    if (!address || typeof address === "string") throw new Error("Missing test listener");
+    const driver = traffic(address.port);
+    await driver.ready();
+    await expect(driver.http({ previewId: PREVIEW_ID, cookie: COOKIE, path: "/private-path" }))
+      .rejects.toThrow("Preview request failed [http:ECONNRESET]");
+  } finally { server.close(); }
 });

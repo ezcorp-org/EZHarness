@@ -1,4 +1,5 @@
 {
+  "src/runtime/preview/preview-http-policy.ts": 100,
   "src/db/migrations/add-github-personal-pr-workspace-authority.ts": 100,
   "src/infrastructure/incus-feature-runtime.ts": 100,
   "src/infrastructure/incus-workspace-import-authority.ts": 100,
