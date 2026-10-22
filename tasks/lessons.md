@@ -3044,3 +3044,6 @@ smokes under the lock, detached-job wake-ups) are not repeated.
 - Compare newly mapped normal-hook and full-gate test inputs before the expensive run. A clean install and typecheck do not establish service prerequisites.
 - Read each real-database helper's required launch-time flags and isolated fixture URL. Never inherit a production database URL. Set Bun's SQL pipeline flag before process start, not inside tests.
 - Keep an owned loopback PostgreSQL fixture for mapped hook suites, record its exact identity, and remove only that fixture after validation. Default full-gate exclusions do not define normal-hook prerequisites.
+
+- Test receiver reset must replace the complete request state. An aborted client can leave a server handler pending; clearing a shared deduplication set does not stop that handler from writing into the next test. Use an explicit real-HTTP barrier to prove reset isolation.
+- Keep diagnostic metadata outside the tested checkout when security inventories inspect ignored files. A harmless auth-shaped filename can be an actual test input.
