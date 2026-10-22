@@ -236,15 +236,15 @@
       "directory": "docs/extensions/examples/substack-engagement",
       "entrypoint": "extension.ts",
       "files": 30,
-      "bytes": 292060,
-      "sourceDigest": "d3d0a0c028ab965187b39435bca718e620ea7c342c07c301fd9bd6b08fcd4983"
+      "bytes": 263929,
+      "sourceDigest": "464c325d043ee306da84d3ad0189e1c62c09729a2e5ea851fa705ae9b69d2b18"
     },
     "substack-pilot": {
       "directory": "docs/extensions/examples/substack-pilot",
       "entrypoint": "extension.ts",
       "files": 33,
-      "bytes": 238791,
-      "sourceDigest": "fce1e326977ae162d889cce77e386a143da6d82f1399b27403dcb7657e9a5a03"
+      "bytes": 210660,
+      "sourceDigest": "40250b87bda0afabf0f4c4261e7a40c9b4a8aa5bd52c39453a9d8fec81c38105"
     },
     "substack-pipeline": {
       "directory": "docs/extensions/examples/substack-pipeline",
