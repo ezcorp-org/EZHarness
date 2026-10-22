@@ -131,7 +131,7 @@ export const referenceS3ReleaseAdapter: RunnerReference = Object.freeze({
   package: "@ezcorp/s3-immutable-publish",
   manifestName: "s3-immutable-publish",
   version: "1.0.0",
-  digest: "sha256:7203ba8de0efb4605028579936399c49aeb96afefdada6835b539f7072affe09",
+  digest: "sha256:45d7695febade7f0ff0644e274e6c061d926c15b7ead686cd56024b031217bd7",
   export: "publish",
 });
 

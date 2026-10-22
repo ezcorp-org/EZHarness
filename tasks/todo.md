@@ -9444,3 +9444,14 @@ Reviewed hook repairs: registration/inventory originalRED5→GREEN30; four chang
 - [x] Run relevant types/lint and obtain independent review before commit.
 
 Review: actual original session59736 exited0 after three stable admission samples and the frozen root install. Real HTTPS regression1/6 assertions, sender unit19/84, real PostgreSQL sender18/80 all passed. Focused strict types, two-file lint and diff check passed. Complete receipt16945161 remains in `.cache/receiver-reset/validation`. Independent final source and saved-result review passed (055f1c8d / 16945161). Normal commit and final fixture cleanup remain pending. Exact owned512MiB PostgreSQL fixture is retained only for normal hooks, followed by separately reviewed strict cleanup. Production sender and PostgreSQL assertions remain unchanged.
+## 2026-10-21 dependency advisory repair
+
+- [x] Reproduce original dependency audit and verify official fixes.
+- [x] Update affected MCP/Vite declarations and Bun/npm locks.
+- [x] Run frozen installs, affected real consumers, and canonical S3 relock under shared lock.
+- [x] Complete independent closure review.
+- [ ] Complete normal commit with hooks.
+
+Review: original audit failed with three HIGH findings. MCP1.32.0 and Vite8.3.3 remove all HIGH findings without an allowlist change; one existing moderate sprintf-js finding remains. Original material1762 passed all18 phases, including supported type checks, web check/build and77 MCP tests/214 assertions. The tracked ai-kit npm lock had a real consistency failure; npm11.19 generated its replacement, then a clean legacy-peer install passed. Default npm still refuses the existing workspace peer protocol; the peer contract is unchanged.
+
+Canonical S3 relock ran in clean validation-only snapshot438672fb8 (parent8d60045) with supported frozen install and package build. All four original phases passed; actual pinned-image consumers passed6 tests/11 assertions, including failed-build refusal. SDK digest177eed0700a3073e3a109d16e049d20d43621b0abe1e39fa1cf53b6cf8c37484 and artifact45d7695febade7f0ff0644e274e6c061d926c15b7ead686cd56024b031217bd7 replace the prior closure; source/toolchain/image are unchanged. Independent final9 source/result review passed; exact two generated outputs transferred with old-byte and reviewed-hash checks. Normal hook refused the required first-party source lock; the unchanged canonical generator then updated only ai-kit bytes/digest and its --check passed. Final10 review and normal commit retry are next. This repair changes production dependency bytes and needs a matching future build/deployment; it does not update active ad1c or claim live acceptance. Receipts are in .cache/dependency-advisories.
