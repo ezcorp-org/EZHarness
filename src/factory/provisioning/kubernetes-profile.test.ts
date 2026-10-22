@@ -10,7 +10,7 @@ import {
   writeFactoryTestDatabaseCredentials,
 } from "../../__tests__/helpers/factory-private-root";
 import { factoryComposeProject } from "./compose-profile";
-import { FACTORY_CONTAINER_PATHS, FACTORY_CONTAINER_SERVICES, renderFactoryInstallationBundle, type FactoryInstallationBundle } from "./deployment";
+import { FACTORY_CONTAINER_PATHS, FACTORY_CONTAINER_SERVICES, FACTORY_HARNESS_DATA_DIRECTORIES, renderFactoryInstallationBundle, type FactoryInstallationBundle } from "./deployment";
 import {
   factoryKubernetesImages,
   factoryKubernetesManifestStream,
@@ -137,6 +137,27 @@ describe("renderFactoryKubernetesInstallation", () => {
     expect(copier.command.join(" ")).toContain("umask 077 && mkdir -p -m 0700 /delivered/gateway-secrets/private && cp -L /source/gateway/* /delivered/gateway-secrets/private/ && chmod 0600 /delivered/gateway-secrets/private/*");
     expect(copier.command.join(" ")).toContain("mkdir -p -m 0700 /delivered/readiness/orchestration");
     expect(copier.command.join(" ")).not.toContain("/source/pool/");
+  });
+
+  // W4H-35 run 13: the harness's boot resolves its project root and HOME (boot.ts isWithin: realpath, fail closed), and a new
+  // harness-data claim holds neither, so the pod's init makes every harness data directory the Compose profile makes (one list).
+  test("the pod's init makes every harness data directory before the harness starts, as the Compose profile does", () => {
+    const [deployment] = kind(objects, "Deployment");
+    const spec = podSpec(deployment!);
+    const copier = spec.initContainers![0]!;
+    const harness = spec.containers.find((container) => container.name === "harness")!;
+    expect(copier.volumeMounts).toContainEqual({ name: "harness-data", mountPath: "/delivered/harness-data" });
+    for (const directory of FACTORY_HARNESS_DATA_DIRECTORIES) expect(copier.command.join(" ")).toContain(`mkdir -p -m 0700 /delivered/harness-data/${directory}`);
+    // Every harness path under the data mount is one of them: the project root, HOME, and each subPath mount of the claim.
+    const env = Object.fromEntries(harness.env.map((entry) => [entry.name, entry.value]));
+    const underData = [env.EZCORP_PROJECT_ROOT!, env.HOME!].map((path) => path.slice(FACTORY_CONTAINER_PATHS.data.length + 1));
+    expect([env.EZCORP_PROJECT_ROOT!, env.HOME!].every((path) => path.startsWith(`${FACTORY_CONTAINER_PATHS.data}/`))).toBe(true);
+    const subPaths = harness.volumeMounts.filter((mount) => mount.name === "harness-data" && mount.subPath).map((mount) => mount.subPath!);
+    expect([...underData, ...subPaths].filter((directory) => !FACTORY_HARNESS_DATA_DIRECTORIES.includes(directory))).toEqual([]);
+    // Owned as Compose's: the init makes them as the harness's own user and group, and the pod's fsGroup is that group.
+    const { runAsUser, runAsGroup } = harness.securityContext as { runAsUser: number; runAsGroup: number };
+    expect(copier.securityContext).toMatchObject({ runAsUser, runAsGroup });
+    expect(spec.securityContext).toMatchObject({ runAsUser, fsGroup: runAsUser });
   });
 
   test("only the harness writes project data; the product reads readiness it does not write", () => {

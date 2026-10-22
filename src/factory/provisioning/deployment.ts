@@ -57,6 +57,13 @@ export const FACTORY_CONTAINER_PATHS = Object.freeze({
   projects: "/var/lib/ezcorp/projects",
 });
 
+/**
+ * The harness data directories, under the data directory, that must exist before the harness boots: its project root and HOME
+ * (boot.ts resolves them and refuses an unresolvable one) and the app state it mounts at /app/.ezcorp. One list for both
+ * profiles: Compose makes them on the host, the hosted pod's init makes them on the harness-data claim.
+ */
+export const FACTORY_HARNESS_DATA_DIRECTORIES: readonly string[] = Object.freeze(["projects", "home", "app-state"]);
+
 export const FACTORY_DEFAULT_DATABASE_POOL_MAX = Object.freeze({ harness: 4, gateway: 2 });
 
 /** The fleet's scrape token in each tenant process's delivery (C11 M4); copied from the fleet host's material. */
@@ -467,7 +474,7 @@ export async function writeFactoryDeliveries(bundle: FactoryInstallationBundle):
     } finally { await directory.close(); }
   }
   // The harness boots only with its projects root and home present (`boot.ts` refuses an unresolvable project root).
-  for (const directory of [bundle.runtimeDirectory, bundle.readinessDirectory, resolve(bundle.readinessDirectory, "orchestration"), bundle.dataDirectory, resolve(bundle.dataDirectory, "projects"), resolve(bundle.dataDirectory, "home"), resolve(bundle.dataDirectory, "app-state")]) {
+  for (const directory of [bundle.runtimeDirectory, bundle.readinessDirectory, resolve(bundle.readinessDirectory, "orchestration"), bundle.dataDirectory, ...FACTORY_HARNESS_DATA_DIRECTORIES.map((name) => resolve(bundle.dataDirectory, name))]) {
     const handle = await openFactoryPrivateDirectory(directory);
     await handle.close();
   }

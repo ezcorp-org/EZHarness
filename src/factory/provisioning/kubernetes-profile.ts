@@ -34,7 +34,7 @@
  */
 import { createHash } from "node:crypto";
 import type { FactoryInstallationBundle } from "./deployment";
-import { FACTORY_CONTAINER_PATHS, FACTORY_CONTAINER_SERVICES, FACTORY_HOST_SERVICE_BASE_ENVIRONMENT } from "./deployment";
+import { FACTORY_CONTAINER_PATHS, FACTORY_CONTAINER_SERVICES, FACTORY_HARNESS_DATA_DIRECTORIES, FACTORY_HOST_SERVICE_BASE_ENVIRONMENT } from "./deployment";
 import { factoryComposeProject } from "./compose-profile";
 import { FACTORY_KUBERNETES_SUPERVISOR_PATHS, FACTORY_KUBERNETES_SUPERVISOR_STATE, FACTORY_NODE_ADDRESS } from "./kubernetes-paths";
 import { FactoryProvisioningError } from "./steps";
@@ -233,7 +233,9 @@ export function renderFactoryKubernetesInstallation(bundle: FactoryInstallationB
             // Above the harness's 25 s shutdown hard timeout, so it drains and closes its database before SIGKILL.
             terminationGracePeriodSeconds: 30,
             securityContext: restrictedPod(settings.runAsUser),
-            initContainers: [deliverSecrets([...FACTORY_CONTAINER_SERVICES.map(delivered), readinessOf(ORCHESTRATION)], image, settings.runAsUser)],
+            // The harness data directories (one list with Compose): a new harness-data claim holds none, and the harness's boot
+            // refuses an unresolvable project root or HOME (boot.ts isWithin fails closed).
+            initContainers: [deliverSecrets([...FACTORY_CONTAINER_SERVICES.map(delivered), readinessOf(ORCHESTRATION), ...FACTORY_HARNESS_DATA_DIRECTORIES.map((subPath) => ({ volume: "harness-data", subPath }))], image, settings.runAsUser)],
             containers,
             volumes: [
               ...FACTORY_CONTAINER_SERVICES.flatMap((service) => [

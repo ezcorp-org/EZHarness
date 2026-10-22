@@ -32,6 +32,7 @@ import {
   FACTORY_RELEASE_S3_PREFIX,
   FACTORY_DEFAULT_DATABASE_POOL_MAX,
   FACTORY_DEPLOYED_SERVICES,
+  FACTORY_HARNESS_DATA_DIRECTORIES,
   FACTORY_METRICS_TOKEN_FILE,
   FactoryDeploymentStep,
   factoryDeploymentHandle,
@@ -541,7 +542,8 @@ describe("writeFactoryDeliveries", () => {
     }
     expect(bundle.deliveries.harness.files[FACTORY_INGRESS_PROOF_FILE]).toEqual({ source: join(installation.secretDirectory, FACTORY_INGRESS_PROOF_FILE), optional: true });
     // The harness boots only with its projects root and home present.
-    for (const directory of [bundle.runtimeDirectory, bundle.readinessDirectory, bundle.dataDirectory, join(bundle.dataDirectory, "projects"), join(bundle.dataDirectory, "home"), join(bundle.dataDirectory, "app-state")]) expect(await mode(directory)).toBe(0o700);
+    for (const directory of [bundle.runtimeDirectory, bundle.readinessDirectory, bundle.dataDirectory, ...FACTORY_HARNESS_DATA_DIRECTORIES.map((name) => join(bundle.dataDirectory, name))]) expect(await mode(directory)).toBe(0o700);
+    expect([...FACTORY_HARNESS_DATA_DIRECTORIES].sort()).toEqual(["app-state", "home", "projects"]);
   });
 
   test("the orchestration writer has its own private directory; the pool and supervisor records are the fleet host's", async () => {
