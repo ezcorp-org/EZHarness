@@ -116,6 +116,61 @@ test("the MCP rate limiter resolves ip-address with corrected IPv6 classificatio
   expect(new ip.Address6("fea0::1").isLinkLocal()).toBe(true);
 });
 
+test("the MCP Express consumer uses patched body-parser and accepts ordinary JSON and gzip requests", async () => {
+  const expressPath = mcpRequire.resolve("express");
+  const expressRequire = createRequire(expressPath);
+  expect(expressRequire("body-parser/package.json").version).toBe("2.4.0");
+  // Use Node's real HTTP and compression streams, as used by the MCP server.
+  // The child has no uncaught-exception handler that could hide parser failures.
+  const child = Bun.spawn(["node", "--eval", `
+    const assert = require("node:assert/strict");
+    const http = require("node:http");
+    const { gzipSync } = require("node:zlib");
+    const express = require(process.argv[1]);
+    const app = express();
+    app.use(express.json());
+    app.post("/echo", (req, res) => res.json(req.body));
+    const server = app.listen(0, "127.0.0.1", async () => {
+      try {
+        for (const compressed of [false, true, false]) {
+          const value = { message: "Ordinary MCP request", compressed };
+          const json = JSON.stringify(value);
+          const body = compressed ? gzipSync(json) : Buffer.from(json);
+          const headers = { "content-type": "application/json", "content-length": body.length };
+          if (compressed) headers["content-encoding"] = "gzip";
+          const response = await new Promise((resolve, reject) => {
+            const request = http.request({ host: "127.0.0.1", port: server.address().port,
+              path: "/echo", method: "POST", agent: false, headers }, response => {
+              let text = "";
+              response.setEncoding("utf8");
+              response.on("data", chunk => { text += chunk; });
+              response.on("error", reject);
+              response.on("end", () => resolve({ status: response.statusCode, body: JSON.parse(text) }));
+            });
+            request.on("error", reject);
+            request.end(body);
+          });
+          assert.deepEqual(response, { status: 200, body: value });
+        }
+        console.log(JSON.stringify({ requests: 3, gzip: true, uncompressed: true, survived: true }));
+      } catch (error) {
+        console.error(error);
+        process.exitCode = 1;
+      } finally {
+        server.close();
+        server.closeAllConnections();
+      }
+    });
+  `, expressPath], { stdout: "pipe", stderr: "pipe", timeout: 5000 });
+  const [exit, stdout, stderr] = await Promise.all([
+    child.exited,
+    new Response(child.stdout).text(),
+    new Response(child.stderr).text(),
+  ]);
+  expect({ exit, stderr }).toEqual({ exit: 0, stderr: "" });
+  expect(JSON.parse(stdout)).toEqual({ requests: 3, gzip: true, uncompressed: true, survived: true });
+});
+
 test("ai-kit rejects an oversized chat batch before validating each entry with patched Zod", async () => {
   const { spawnChatsInput } = await import("../../packages/@ezcorp/ai-kit/src/types");
   const result = spawnChatsInput.safeParse({ chats: Array.from({ length: 11 }, () => ({})) });

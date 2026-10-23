@@ -9560,3 +9560,17 @@ Review: The real Bun HTTP test reproduced ECONNRESET with the default idle limit
 Plan: update the existing root override, ai-kit exact declaration and web declaration only as required to resolve all Zod copies to4.6.6. Keep unrelated dependency versions, audit policy and release controls unchanged. Use small deterministic element-visit/issue assertions, never an OOM payload or timing threshold. No live app, service, release build, provider activation or push.
 
 Review: saved39b audit failed two high Zod findings. The actual ai-kit schema produced23 issues for an11-entry batch instead of rejecting its10-entry limit first; the web parser visited3 elements before its size check. Both bounded reproductions now pass. Root/web security tests16, SDK client29, MCP6, shape5 and real web contract75 pass. Backend/package/Python types and canonical web check pass with zero Svelte errors/warnings; normal frozen installs rebuild the workspace packages. All592root and643web non-Zod package entries remain unchanged. Root authorized one additional standalone npm-lock critical repair: proxy-addr2.0.7→2.0.8, matching the unchanged Bun resolution;126 other package entries remain unchanged. Normal metadata-only npm generation retains the existing workspace peer declaration and layout. Canonical Bun audit and separate npm high-floor audit pass; npm default audit still exits1 for three retained moderate findings. Source-lock regeneration changes only ai-kit. Activead1c retains its embedded Zod4.5.4 and needs a normal separately reviewed rebuild; this host source patch does not activate or patch that immutable artifact. Independent source review passes (receipt66c50ea8). Normal commit hooks pass: Biome6, both security files16tests and source-lock check; no bypass. Evidence: .cache/zod-security-checks.
+
+## Body-parser compressed trailing-body security repair (2026-10-23)
+- [x] Preserve the prior non-reproducing child result; stop further crash probes after screening and use approved ordinary HTTP compatibility checks.
+- [x] Update only affected same-major dependency locks with normal tools.
+- [x] Verify preserved resolutions, frozen installs, canonical and standalone audit floors.
+- [x] Verify normal HTTP requests and SDK consumers; regenerate source manifest.
+- [x] Independent source review and measured SDK/S3 handoff; complete the normal commit with hooks.
+- [x] Close all9 tracked manager locks, including both shipped examples; preserve their126 other records each and audit all3 standalone locks at high floor.
+
+### Review — body-parser security repair
+- Independent baseline review PASS57b00824 on8changed files. All9managerlocks closed; no declarations/overrides/gates changed.
+-49targeted tests, canonical types, frozenroot/web, Biome, normal source-lock check and canonical/3standalone high-floor audits pass. Examples preserve126other records each; SDK79b/S3inputs unchanged, no relock.
+- No crash was reproduced or claimed. Screening stopped further probes; ordinary real HTTP compatibility and patched-version/audit evidence are retained.
+- Normal commit and hook result are retained in .cache/body-parser-security-checks/commit.* and final source receipts; no push or live action.

@@ -3078,3 +3078,6 @@ smokes under the lock, detached-job wake-ups) are not repeated.
 - Resolve compiler aliases through the pinned package.json bin mapping before choosing an executable. The native TypeScript alias can expose tsc instead of tsgo; do not fall back to a different compiler or install new dependencies.
 - Trace runtime dependency resolutions and every tracked standalone lock before declaring a security update complete. A clean root/web Bun audit does not prove a legacy npm graph or an immutable provider artifact is patched.
 - For an exact reviewed security version, use a targeted package update and verify nested resolutions. A caret range can select a later patch while leaving a vulnerable nested copy until the targeted update resolves it.
+
+- If a requested security reproduction is blocked, stop that step. Preserve its actual result and use the approved version, ordinary compatibility and audit checks. A prior successful old-version probe is not a reproduced failure.
+- Before a dependency security freeze, enumerate every tracked package-manager lock, including shipped example packages. Root/web audits do not cover their standalone lock snapshots.

@@ -236,15 +236,15 @@
       "directory": "docs/extensions/examples/substack-engagement",
       "entrypoint": "extension.ts",
       "files": 30,
-      "bytes": 263929,
-      "sourceDigest": "464c325d043ee306da84d3ad0189e1c62c09729a2e5ea851fa705ae9b69d2b18"
+      "bytes": 264118,
+      "sourceDigest": "41d61564c824ae50088f0885ea51a009e55daab165146fa8be902935130a1d69"
     },
     "substack-pilot": {
       "directory": "docs/extensions/examples/substack-pilot",
       "entrypoint": "extension.ts",
       "files": 33,
-      "bytes": 210660,
-      "sourceDigest": "40250b87bda0afabf0f4c4261e7a40c9b4a8aa5bd52c39453a9d8fec81c38105"
+      "bytes": 210849,
+      "sourceDigest": "68196a5e0ca874706db1999ca9c6698330a32da9b2ba5360e7847e9c0d993036"
     },
     "substack-pipeline": {
       "directory": "docs/extensions/examples/substack-pipeline",
@@ -369,8 +369,8 @@
       "directory": "packages/@ezcorp/ai-kit",
       "entrypoint": "extension.ts",
       "files": 55,
-      "bytes": 408103,
-      "sourceDigest": "253258f7e380e348e1b5c08282f7d488f7d91129dacfe8e62eef898972222de5"
+      "bytes": 430121,
+      "sourceDigest": "2425d9ca0301f283d6f26cf76ba74d912e308c53fefeb3dbd9d1142ac4586751"
     }
   }
 }
