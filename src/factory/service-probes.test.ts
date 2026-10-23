@@ -90,7 +90,7 @@ const open = new AbortController().signal;
 describe("probeFactoryServices", () => {
   test("runs every probe and reports each verdict, so one failure hides no other", async () => {
     const probes: FactoryServiceProbe[] = [
-      { service: "temporal", probe: async () => {} },
+      { service: "temporal", probe: async () => undefined },
       { service: "object-storage", probe: async () => { throw new FactoryServiceProbeError("object_storage_down"); } },
       { service: "pool-admission", probe: async () => { throw new FactoryServiceProbeError("pool_down"); } },
     ];
@@ -109,8 +109,8 @@ describe("probeFactoryServices", () => {
     const events: FactoryProbeTraceEvent[] = [];
     const results = await probeFactoryServices([
       // Ignores its signal entirely: only the deadline race can end it.
-      { service: "object-storage", probe: (signal) => { seen = signal; return new Promise<void>(() => {}); } },
-      { service: "temporal", probe: async () => {} },
+      { service: "object-storage", probe: (signal) => { seen = signal; return new Promise<undefined>(() => {}); } },
+      { service: "temporal", probe: async () => undefined },
     ], open, { deadlineMs: 50, trace: (event) => events.push(event) });
     expect(results).toEqual([
       { service: "object-storage", available: false, detail: "object_storage_probe_timeout" },
@@ -124,7 +124,7 @@ describe("probeFactoryServices", () => {
   test("a probe that honours its signal is aborted with the named timeout", async () => {
     const results = await probeFactoryServices([{
       service: "pool-admission",
-      probe: (signal) => new Promise<void>((_, reject) => { signal.addEventListener("abort", () => reject(signal.reason), { once: true }); }),
+      probe: (signal) => new Promise<undefined>((_, reject) => { signal.addEventListener("abort", () => reject(signal.reason), { once: true }); }),
     }], open, { deadlineMs: 50 });
     expect(results).toEqual([{ service: "pool-admission", available: false, detail: "pool_admission_probe_timeout" }]);
   });
@@ -146,14 +146,14 @@ describe("probeFactoryServices", () => {
     const controller = new AbortController();
     controller.abort();
     let ran = false;
-    const results = await probeFactoryServices([{ service: "temporal", probe: async () => { ran = true; } }], controller.signal);
+    const results = await probeFactoryServices([{ service: "temporal", probe: async () => { ran = true; return undefined; } }], controller.signal);
     expect(ran).toBe(false);
     expect(results).toEqual([{ service: "temporal", available: false, detail: "probe_aborted" }]);
     expect(availableFactoryServices(results)).toEqual([]);
   });
 
   test("returns the available set in the required-service order", async () => {
-    const probes = [...FACTORY_REQUIRED_SERVICES].reverse().map((service) => ({ service, probe: async () => {} }));
+    const probes = [...FACTORY_REQUIRED_SERVICES].reverse().map((service) => ({ service, probe: async () => undefined }));
     const results = await probeFactoryServices(probes, open);
     expect(availableFactoryServices(results)).toEqual([...FACTORY_REQUIRED_SERVICES]);
     expect(unavailableFactoryServices(results)).toEqual([]);

@@ -83,7 +83,7 @@ describe("promtool evaluates every forced case (C11 A1-A10)", () => {
 describe("a live Prometheus over a real installation (C11 A1-A10)", () => {
   type Fixture = Awaited<ReturnType<typeof setupFactoryPostgres>>;
   let fixture: Fixture;
-  let directory: string;
+  let directory = "";
   let harness: FactoryMetricsListener;
   let gateway: FactoryMetricsListener | undefined;
   // W4H-35: the supervisor's held runtime role, 0 while quiet and 1 when forced (C11 FactoryServiceRoleHeld).
@@ -144,7 +144,7 @@ describe("a live Prometheus over a real installation (C11 A1-A10)", () => {
     await gateway?.stop();
     await supervisor?.stop();
     await fixture?.close();
-    await rm(directory, { recursive: true, force: true });
+    if (directory) await rm(directory, { recursive: true, force: true });
   }, 60_000);
 
   test("a quiet installation fires nothing", async () => {

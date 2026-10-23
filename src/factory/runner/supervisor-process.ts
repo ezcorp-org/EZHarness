@@ -45,7 +45,6 @@
  * successful observation is older than the staleness bound, the published
  * record degrades.
  */
-import { stat } from "node:fs/promises";
 import { connect, isIP } from "node:net";
 import { FACTORY_NODE_ADDRESS } from "../provisioning/kubernetes-paths";
 import { createPrivateKey } from "node:crypto";

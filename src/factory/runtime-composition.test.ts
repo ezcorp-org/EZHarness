@@ -654,7 +654,7 @@ describe("startFactoryRuntime validates its own inputs", () => {
     await writeReadyRecords(root);
     let ran = false;
     const runtime = await start(root, {
-      extraProbes: [{ service: "object-storage", probe: async () => { ran = true; } }],
+      extraProbes: [{ service: "object-storage", probe: async () => { ran = true; return undefined; } }],
     });
     expect(ran).toBe(true);
     expect(runtime.report().probes.filter((probe) => probe.service === "object-storage")).toHaveLength(2);

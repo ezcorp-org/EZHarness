@@ -32,7 +32,7 @@ import type { FactoryHeldRoleEntry } from "./runtime-workers";
 export interface FactoryServiceProbe {
   readonly service: FactoryService;
   /** Resolves when the service is genuinely live, with the roles it holds (if any). Throws or rejects otherwise. */
-  probe(signal: AbortSignal): Promise<void | readonly FactoryHeldRoleEntry[]>;
+  probe(signal: AbortSignal): Promise<undefined | readonly FactoryHeldRoleEntry[]>;
 }
 
 export interface FactoryServiceProbeResult {
@@ -84,7 +84,7 @@ export interface FactoryProbeOptions {
 }
 
 /** Run one probe under its own deadline, abandoning it (and aborting its signal) when the deadline passes. */
-async function probeWithin(probe: FactoryServiceProbe, signal: AbortSignal, deadlineMs: number): Promise<void | readonly FactoryHeldRoleEntry[]> {
+async function probeWithin(probe: FactoryServiceProbe, signal: AbortSignal, deadlineMs: number): Promise<undefined | readonly FactoryHeldRoleEntry[]> {
   const deadline = new AbortController();
   const timeout = new FactoryServiceProbeError(`${probe.service.replaceAll("-", "_")}_probe_timeout`);
   let timer: ReturnType<typeof setTimeout> | undefined;
@@ -184,7 +184,13 @@ export interface FactorySupervisorProbeTarget {
   preflight(signal: AbortSignal): Promise<void>;
 }
 
-function probeOf(service: FactoryService, run: (signal: AbortSignal) => Promise<void | readonly FactoryHeldRoleEntry[]>): FactoryServiceProbe {
+/** A probe that only proves liveness: it holds no roles. */
+function probeOf(service: FactoryService, run: (signal: AbortSignal) => Promise<void>): FactoryServiceProbe {
+  return heldProbeOf(service, async (signal) => { await run(signal); return undefined; });
+}
+
+/** A probe that proves liveness and reports the roles the service holds. */
+function heldProbeOf(service: FactoryService, run: (signal: AbortSignal) => Promise<undefined | readonly FactoryHeldRoleEntry[]>): FactoryServiceProbe {
   return Object.freeze({ service, probe: run });
 }
 
@@ -259,7 +265,7 @@ export function factorySupervisorProbe(target: FactorySupervisorProbeTarget): Fa
  * the supervisor publishes about itself.
  */
 export function factorySupervisorReadinessProbe(identity: FactoryProbeIdentity & { readonly supervisorReadinessFilePath: string }): FactoryServiceProbe {
-  return probeOf("host-supervisor", async () => {
+  return heldProbeOf("host-supervisor", async () => {
     // The supervisor is shared by every installation on its host: match the host this installation names.
     const record = await readFactoryServiceReadiness(factorySupervisorReadinessOptions({
       hostId: identity.hostId,
@@ -308,7 +314,7 @@ export function factoryPoolNetworkProbe(identity: Pick<FactoryProbeIdentity, "po
 
 /** The hosted profile's supervisor probe: its record from its own route, over the host launch transport. */
 export function factorySupervisorNetworkProbe(identity: Pick<FactoryProbeIdentity, "hostId" | "readinessHeartbeatMs">, source: FactoryReadinessSource, clock: () => number = Date.now): FactoryServiceProbe {
-  return probeOf("host-supervisor", async (signal) => {
+  return heldProbeOf("host-supervisor", async (signal) => {
     let record: unknown;
     try { record = await source.read(signal); } catch { throw new FactoryServiceReadinessError("host-supervisor"); }
     return supervisorHeld(identity.hostId, verifyFactoryServiceReadiness(record, factorySupervisorReadinessExpectation(identity), clock()));
