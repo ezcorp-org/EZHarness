@@ -64,6 +64,7 @@
 	},
 	"overrides": {
 		"cookie": "0.7.2",
+    "dompurify": "3.4.17",
 		"qs": "6.16.0",
 		"sharp": "0.35.5"
 	},

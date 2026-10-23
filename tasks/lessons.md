@@ -3058,3 +3058,5 @@ smokes under the lock, detached-job wake-ups) are not repeated.
 - When a shared dependency version changes, scan all bundled extension manifest declarations and package files, then regenerate their canonical locks. Run the real bundled dependency check before calling the update complete. Root-only package and lock checks miss exact example pins.
 
 - Before a protected source copy, derive the index from the exact runtime input closure, including nested pin metadata. Exclude diagnostic streams that the unchanged strict reader cannot accept. Verify every indexed file with that same reader before the first write; source-generation tests do not prove copy admission.
+
+- Run the unchanged canonical dependency audit before a long validation or release handoff. Advisory data can change while source and locked dependency bytes stay identical. Upgrade the supported locked dependency; do not infer an application exploit mode from an audit finding alone.
