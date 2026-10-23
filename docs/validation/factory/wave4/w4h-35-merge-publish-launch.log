@@ -1,0 +1,6 @@
+pre-wait publish 2026-10-23T06:56:24Z: no /proc/locks holder of /tmp/ezcorp-validation-heavy.lock (inode 23725769); word 27b08857
+publish exit 0 2026-10-23T06:56:25Z
+remote main 802d46288ab9f15310a5d54bd038b14075789286; expected 802d46288ab9f15310a5d54bd038b14075789286
+identity step: exit 0 (identity-check commits 802d46288..b701cf0e2: 32 commit(s) checked, clean)
+published: integ/w00 b701cf0e28dc39ccd5415964318bf02917cf0c0f (was 802d46288); worktree on integ/w00
+try 1 2026-10-23T06:56:25Z: exit 0: STOP (no retry)

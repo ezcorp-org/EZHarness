@@ -1,0 +1,24 @@
+CRAP: --changed against 802d46288ab9f15310a5d54bd038b14075789286 → 37 measured file(s) in diff
+
+CRAP: 284 functions in 37 files (max 30, warn 15)
+
+Worst 15:
+     30.0  cc= 30 cov=100%  src/factory/provisioning/fleet.ts:153 kubernetesValid
+     26.0  cc= 26 cov=100%  src/factory/installation-startup.ts:792 installationCollaborators
+     25.0  cc= 25 cov=100%  src/factory/pool/service-routes.ts:148 poolRoute
+     23.0  cc= 23 cov=100%  src/factory/runner/supervisor-process.ts:323 parseFactorySupervisorProcessConfig
+     21.0  cc= 21 cov=100%  src/factory/installation-startup.ts:644 startFactoryInstallation
+     21.0  cc= 21 cov=100%  src/factory/service-readiness.ts:135 validRecord
+     17.0  cc= 17 cov=100%  src/factory/service-readiness.ts:120 validHeld
+     16.0  cc= 16 cov=100%  src/factory/provisioning/secrets.ts:189 verify
+     16.0  cc= 16 cov=100%  src/factory/service-readiness.ts:98 snapshotExpectation
+     15.0  cc= 15 cov=100%  src/factory/pool/process.ts:263 runConfiguredFactoryPoolProcess
+     14.0  cc= 14 cov=100%  src/factory/runtime-composition.ts:256 startFactoryRuntime
+     13.0  cc= 13 cov=100%  src/factory/provisioning/deployment.ts:268 renderFactoryInstallationBundle
+     13.0  cc= 13 cov=100%  src/factory/provisioning/host.ts:423 render
+     12.0  cc= 12 cov=100%  src/factory/provisioning/deployment.ts:455 writeFactoryDeliveries
+     12.0  cc= 12 cov=100%  src/factory/provisioning/fleet.ts:243 parseFactoryFleetSettings
+
+9 function(s) above the warn line (not failing).
+
+✓ no touched function exceeds CRAP 30

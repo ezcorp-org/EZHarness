@@ -1,0 +1,2 @@
+Mutation: no mutatable file in the diff against origin/main (scope: src/lib/**/*.ts, !src/lib/**/*.test.ts, !src/lib/**/*.d.ts, !src/lib/**/__tests__/**, !src/lib/server/**) — nothing to do.
+mutation-lane: PASS (no mutatable change: fresh skipped receipt coverage/quality/mutation-summary.json)
