@@ -1,0 +1,26 @@
+ACCEPT wp/w4h-29-sdk-closure-list at 6c15783d9 (one test file: the SDK-closure invariant names the one guest-package builder)
+
+validator-8, 2026-10-14. W4H-29 fixes the class-C red of PR 341 (ci 38518989878, Coverage shard 0): src/factory/guest-sdk-closure.test.ts
+still listed three packagers that W4H-26 (34d592140) moved behind src/factory/guest-package-build.ts.
+
+- Identity: 1 commit over 486e6a558, author and committer <USER> with the noreply address; no personal address.
+- Scope: only src/factory/guest-sdk-closure.test.ts differs from 486e6a558: throughClosure = ["src/factory/guest-package-build.ts"]
+  with a comment naming the three stagers.
+- Read, not assumed: guest-package-build.ts imports factorySdkClosure (line 7) and calls it on packages/@ezcorp/factory-sdk/src for
+  every staged package (line 72); scripts/factory-graph-proof/guest-package.ts:66, src/factory/reference-code/guest.ts:80 and
+  web/e2e/factory-services/guest.ts:99 stage through its stageFactoryGuestPackage and no longer name the SDK directory.
+- Red-first: the test file is red on 486e6a558 by assertion (the list check) and green at the head (8 pass).
+- Mutants against the whole guard file: the builder with a fixed SDK module list instead of factorySdkClosure -> 2 fail (the
+  staged-imports check and the list check); the builder naming the SDK directory but skipping the closure -> 1 fail (the
+  staged-imports check). The W14 "no fixed SDK module list" intent still holds after the list change.
+- The new standing list w00/invariant-tests.txt (integrator-5): every test it names exists and passes at the head (52 test steps
+  green in this hold, including the guard file).
+- gate-integrity main (origin/main 1981febd2) exit 0, "Gate integrity PASSED" (log sha256 b1a0297506aab4a1), base leg 0; lint 0
+  errors and 0 warnings.
+
+## Addendum (the owner's report): w4h-29/report.txt sha256 649b68316e6099a4, read after it appeared
+It names the same frozen head 6c15783d9 over 486e6a558 and the noreply identity; no personal address. Its results agree with mine:
+red at 486e6a558 7 pass 1 fail (the hosted diff), 8/0 at the head; the builder's factorySdkClosure call at line 72; gate-integrity
+0 on both legs (its gi-main.log sha256 b1a0297506aab4a1 = mine). Its 13 red files in a whole src/factory sweep are Podman-guest
+integration suites (CI runs them after the runner setup) and two suites that need `svelte-kit sync` (55/0 and 16/0 after it), none
+touched by this change. The ACCEPT above stands.

@@ -1,0 +1,18 @@
+docs(validation): wave4 receipts for the w4h-35 merge (W16 Kubernetes profile, GPU and CPU-only profiles, wrapped keys)
+
+W4H-35 (wp/w4h-35-w16-k8s-profiles 3698c8e84; validator-8 ACCEPT 1a1d092727d57a54; run 13 ACCEPT d2e23947cf9654c9) merged as
+b701cf0e2 (parents 802d46288 + 3698c8e84; tree db72146552 = the trial tree and the head tree). Identity in the R1 form (fork point
+063b3d16e; 31 commits and 93 staged files clean). Commit: word <WORD>, exit 0 with the full-run hook, 44 mapped files (team-lead's
+list-bound ruling) on an own pg15, PG_HOOK derived, 979 tests 0 fail, hook-zero empty, in-lock typecheck exit 0; commit record
+ACCEPT fb8dc89873d7702f.
+Hold: run 1 (word <WORD>) 159 of 161 green, red the lane-bound alert-evaluator.integration (it ran in the unit list without pg) and
+lane-forms (5 ci.yml line pins moved +4 by the setup-node step); root cause: the folder had no extra-legs.sh, so the mandatory legs
+were missing (REJECT 140d80ad6e954716). Run 2 (word <WORD>) 174 legs, all exit 0, status 0 (heavy-batch.log fae2687dfc2fc330;
+merge-commit-gates status 0; both gate-integrity legs plain PASS, 0 findings): (a) bundle-build 28/28, (b) lane-forms v8 39 lane runs
+0 red, (c) mutation-lane named PASS (no src/lib change), (d) preview-hosted-conmon 7/0, (e) sdk-digest 0; Prometheus presence by
+digest, evaluator 5/0 on the hold's own pg. validator-8 hold 2 ACCEPT, proven for publish (verdict-w4h-35.txt 4c08911cf745ec62;
+copied as w4h-35-validation.txt). Hold run 1 is named by manifest hash (attempt-1-9bb17fd1 7e754054c0ac2b3a).
+In-round tool fixes, installed: pg-class.py 61ececdd60b1d61c; lane-forms-leg.py 4d68ac871d30babc, lane-table.tsv ce85597098ee4f72;
+hold-w4f.sh dbdf25cf0fb59a27 (the extra-legs gate); gate-leg.sh 0037edeb941be7be; the folder's extra-legs.sh ef59e23d24c8e4ab,
+unit.txt 08122995e750958b and lane-pg.txt 6d3c6d33b923a573. Published 06:56:25Z on word <WORD>; identity clean (32 commits). Not pushed.
+189 receipts plus SHA256SUMS; SHA256SUMS append-only.

@@ -1,0 +1,42 @@
+ACCEPT wp/w4h-25-full-run at 1981febd23c3dbbc20b5d4d455414a4b8b2020d5 (the report as the documented state; the run FAILS; W10 pass line OPEN: the installation does not start)
+
+validator-8, 2026-10-13. Report evidence/w4h-25/report.txt sha256 dd462d6d7cbcf24b (checked).
+ACCEPT means: the report is true and complete as evidence. It does NOT mean the run passed. The run stopped at
+provisioning step 5 of 7 (deployment_not_ready). 0 model calls, 0 tokens (usage.json). No run, guest, check or publication.
+
+## Defects confirmed read-only at 1981febd2 (file:line)
+
+D1 CONFIRMED (blocker).
+  - packages/@ezcorp/factory-orchestrator/src/worker.ts:16 calls bundleWorkflowCode at worker start.
+  - process.ts:254 throws "factory orchestrator process failed".
+  - src/factory/orchestration-readiness.ts:8 has code factory_orchestration_unavailable.
+  - src/factory/provisioning/compose-profile.ts:209 throws deployment_not_ready.
+  - deploy/factory/compose/installation.yml:29 read_only: true; :30 /tmp tmpfs noexec; deploy/factory/Dockerfile:61 USER 65534:65534.
+  - logs/swc-repro.log: as-compose "create cache root /nonexistent/.cache: Read-only file system"; XDG cache on the noexec
+    /tmp "is mounted noexec"; XDG cache on an exec-able tmpfs "LOAD OK". logs/c-tenant-01-orchestrator.log holds the
+    Webpack and native-binding errors.
+D2 CONFIRMED. src/factory/provisioning/fleet-cli.ts:68 (provision) and :78 (observe) put a per-tenant error in the result
+  and return. Only a thrown error reaches io.fail, which sets exitCode 1 (:168). Record: logs/provision.json holds an
+  "error", and logs/hold.log says "provision exit=0", then HOLDING.
+D3 CONFIRMED. src/factory/startup-config.ts:289-296 and :565 accept a GitHub release destination (tokenPath).
+  src/factory/provisioning/deployment.ts has no release or destination field (only runnerProfiles at the startup
+  document). src/factory/release-declaration.ts:283 (S3) and :287 (GitHub) raise factory_release_destination_unknown.
+D4 CONFIRMED. scripts/factory-fleet-init-local.ts:18-25: one profile, @ezcorp/w09b-guest 1.0.0, budget 1,000 tokens.
+D5 CONFIRMED. fleet-cli.ts:151-152 and :176: platform, provision, observe, rotate, teardown, purge, upgrade, host, status.
+  There is no stop command.
+
+## Evidence checks
+
+- The 8 evidenceSha256 entries in run.json equal the files (recomputed).
+- The image id and digest in run.json equal `podman image inspect` (de1970514b9ec188, sha256:430e6c308c665734).
+- Secret sweep (sk-, Bearer, gh*_ and github_pat_, JWT, private keys, URLs with passwords, *_token values, AWS keys): no
+  secret. The hits are variable references in env.sh (the URL is built from variables, then unset) and a one-way
+  jwtSecretDigest in logs/status.json.
+
+## Notes (non-blocking)
+
+- N1: "the orchestrator restarted 240 times" is only in journey.md and report.txt. No record holds the count.
+  logs/c-tenant-01-orchestrator.log is a 300-line tail with 6 failures. Record `podman inspect --format {{.RestartCount}}`
+  next time.
+- N2: the evidence files are mode 0600 (other validators on another uid cannot read them).
+- N3: the report did not answer why the W16 G7 Compose proof passed. W4H-27 owns that question.

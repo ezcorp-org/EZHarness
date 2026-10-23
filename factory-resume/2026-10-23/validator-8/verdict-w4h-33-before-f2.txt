@@ -1,0 +1,37 @@
+# validator-8: W4H-33 verdict at 1dcaac301 (2026-10-16T08:1xZ): ACCEPT — one blocking finding found at 0cfd7b104 and fixed red first; every plan check holds
+Plan: plan-w4h-33.md (V1-V7, Addenda A-K; sha at this verdict e969832d1d38ff7e). Head 1dcaac301 = 0cfd7b104 + 86df17911 (fix) + 1dcaac301
+(gate file). Identity: identity-check commits 390c49a90..1dcaac301, 25 commits, clean.
+Holds (all mine, raw logs read; snapshots removed; Bun 1.4.2 pinned): light w4h-33 (0cfd7b104), heavy w4h-33-heavy (gated), follow-ups
+w4h-33-fu, -fu2, -fu3 (0cfd7b104), w4h-33-delta (1dcaac301), heavy base-red w4h-33-basered2 (390c49a90, gated).
+FINDING (BLOCKING, fixed): at 0cfd7b104 src/__tests__/git-spawn-context-guard.test.ts RED 18/1, "Unguarded git spawn in:
+scripts/test-skip-inventory.ts (env: env)". Fix 86df17911: withoutGitContext(process.env) (explicit-target class; accepted by team-lead).
+At 1dcaac301: the guard 19/19 and all 51 invariant legs green.
+Checks:
+- V1/A1 inventory: owner list compared (Addendum A); the never-running, Docker-only, env-gated and lane-set classes named and decided.
+- V2/A2/B1 the two retired describe.skip files deleted by ruling with the 10-behaviour replacement map; gate-integrity default/main/base
+  flag only these 2 deletions (ruled) at 0cfd7b104 and 1dcaac301.
+- V3/B2 Docker-only preview tests: the Podman form in the owner's candidate image passed 7/0 in my heavy hold; the uid map fits the
+  user's 65,536 subordinate ids; light runs show them VOID by design (no image), not skipped silently.
+- V4/A5/B7 fixtures: the address filter: 428 of 430 pairs differ only in address literals, 2 value-identical splits (accepted);
+  identity-check files clean (owner's 866-file run; parity 426 = 426 before).
+- V5/A9 timeouts: 10 runs each 29/0; declared 65 s / 125 s = 6 x p95 rounded (W4H-24 rule).
+- V6/I4 inventory test 25/0; mutants: unknown registry id RED, suite dropped RED, malformed form unchecked RED, unlisted precondition
+  unchecked RED; the precondition contract 6/0 and the guard-always-skips mutant RED (3 named).
+- A8/B3 ripgrep action: registrations 50/0; a job dropping the action RED; actionlint: the same 3 self-hosted label findings at base and
+  head (pre-existing, not this package's).
+- D1-D4 pgvector pin: registration test green; tag back in a workflow line RED; tag in the json RED.
+- C/E/G/H sub-conversation: base-red BY ASSERTION on 390c49a90 with the head's spec ("Validation failed ... agentConfigId: Invalid UUID",
+  Expected 201, Received 400 at spec line 52); green at the head in my heavy run (real-auth specs 4/4 incl. the return-to-main case);
+  vitest 514/514; mutants routing removed, dedup removed, empty id back, last-not-reversed, any-sub-taken, handler order swapped, lazy
+  load removed, lazy response ignored: all RED by assertion; E1 (ChatThread renders the block only for records without an agent config
+  id; the route resolves no names), E2 (one serialiser subConversationBody), G1 (send-message.ts the only writer of the store), the DROP
+  rationale (lazy load on open; startSubConversation resets the store) read at the head.
+- B4 placeholder: the sub-agent run on the parent conversation RED. B5 real PDP: a denied decision RED (the executor refuses).
+- I1 price-chart with no outside network 10/0 and 6/0; routing removed RED. I3 staging: green under umask 077; the old script RED 2/1.
+- Typecheck 0 (0cfd7b104 and 1dcaac301); handlers-vs-interface clean (red at 703621531); lint 0; boundaries 0; manifest-lock 34/0.
+- Coverage: every gated changed line covered (api.ts by its canonical producer 100/0); production-proof-plan.ts 73-74 outside
+  SOURCE_GLOBS (exercised by a spawn test; informational).
+- Two unit-coverage failures in my one-process run were cross-file state; each file alone is green (19/0, 5/0).
+Limits: the base-red run's END shared-config check could not run (w00/config-check.py was deleted by the host's /tmp cleanup at
+07:55:48Z); its START check passed; the run's result stands.
+ACCEPT at 1dcaac301.

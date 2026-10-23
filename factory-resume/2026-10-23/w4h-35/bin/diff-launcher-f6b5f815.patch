@@ -1,0 +1,11 @@
+--- evidence/w4h-35/bin/launch-kind-proof.sh.v-f6b5f815	2026-10-16 11:30:44.936579293 -0400
++++ evidence/w4h-35/bin/launch-kind-proof.sh	2026-10-16 15:19:26.295404237 -0400
+@@ -2,6 +2,8 @@
+ # launch-kind-proof.sh: ONLY on team-lead's explicit word. One gated-flock job, label w4h35-kind-proof, from the worktree.
+ E=evidence/w4h-35; W=/home/<USER>/work/EZCorp/EZHarness/.worktrees/w4h-35
+ cd "$W" || exit 1
++# The preflight outside the lock, before the start gate (team-lead ruling R2-2): a missing binary, image, or path fails here by name.
++bash "$E/repro/kind-proof.sh" preflight >> "$E/logs/gated-kind-proof.log" 2>&1 || { echo "preflight failed outside the lock $(date -u +%FT%TZ); not launched" >> "$E/logs/gated-kind-proof.log"; exit 66; }
+ echo "launched $(date -u +%FT%TZ) on team-lead's word (head $(git rev-parse --short HEAD); driver $(sha256sum "$E/repro/kind-proof.sh" | cut -c1-16))" >> "$E/logs/gated-kind-proof.log"
+ GATED_FLOCK_BUN_REPO=$W GATED_FLOCK_MEM_MARGIN_GIB=3 GATED_FLOCK_START_MEM_GIB=12 GATED_FLOCK_YIELD_FILE=evidence/w4h-28/proof/real-run.pending GATED_FLOCK_EXIT_FILE=$E/proof.exit \
+   setsid nohup bash evidence/w00/gated-flock.sh w4h35-kind-proof "$E/logs/gated-kind-proof.log" timeout 14400 bash "$E/repro/kind-proof.sh" all > "$E/logs/kind-proof-launch.nohup" 2>&1 < /dev/null &

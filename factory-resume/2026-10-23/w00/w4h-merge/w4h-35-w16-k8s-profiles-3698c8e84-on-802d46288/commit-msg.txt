@@ -1,0 +1,4 @@
+merge: wp/w4h-35-w16-k8s-profiles 3698c8e84 into integ/w00 (the Kubernetes hosted profile, GPU and CPU-only resource profiles and the wrapped-key material (W4H-35))
+
+No gate change of W4H-35's own: both gate-integrity legs (base and origin/main) plain PASS, 0 findings, no expected-findings file
+(team-lead ruling 2026-10-21: origin/main = the merge base 802d46288; tree = 063b3d16e's).

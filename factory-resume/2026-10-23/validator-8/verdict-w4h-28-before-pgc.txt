@@ -1,0 +1,224 @@
+# validator-8: W4H-28 follow-up publish ec092aa75, receipts 8d38db465, tasks b0b7bedf1 and push14 to PR 341: OK (2026-10-16 ~17:00Z)
+(This file was held at 6c56008a5c4cc877 until the push, so the receipt w4h-28-hcf-validation.txt and the PR body name the same hash.)
+- Publish 15:39:10Z (fef0d7d2a -> ec092aa75); receipts 8d38db465: 115 receipts byte-equal to receipts-sources.txt 81a5ab0cf67b2402, SHA256SUMS
+  +115 append-only = 4fb5e09b901f7b46, P7 receipts present (verdict 6c56008a5c4cc877, owner report c4a3cd0a74771505, foreign-sources and case
+  logs); tasks b0b7bedf1: lessons.md +14 -0 = my dry run (block 3 before "#### Owners"). Identity fef0d7d2a..b0b7bedf1 7 clean.
+- Push14: body followup5c 36a18afab8ff17c9 confirmed at 15:47:43Z on w4h-36's FINAL line; push exit 0 at 16:55:03Z; followup-3 fef0d7d2a ->
+  b0b7bedf1, main 934531e2e unchanged, only that ref moved (my read 16:58:59Z); applied = live = 36a18afab8ff17c9; PR 341 OPEN at b0b7bedf1.
+- Open: the hosted compare of ci 38935662589 and the <HOSTED-COMPARISON-3> fill (named only on a FINAL line).
+
+# validator-8: W4H-28 follow-up integration hold on ec092aa75: OK, the merge may be published (2026-10-16 ~15:45Z)
+Record: w00/w4h-merge/w4h-28-hcf-38ec686d8-on-fef0d7d2a/ (heavy-batch.log 0cfc5c2065594e9f, one section 1-251, 15:29:03-15:34:57Z; HEAVY DONE
+status=0 dirty=0; heavy.exit 0; hold-gate.log a19d13684617e3b3). Merge commit OK'd earlier (plan-w4h-28.md); installed toolset = R1-R7 set.
+- 79 START = 79 END, all exit 0; no OOM; own pg gone; config 8841afbedf4c59d8 at the end.
+- Unit 56 legs = unit.txt (the 51 invariants + the 5 hook tests), none empty, no 97. Guard set 518/0. Static: build, typecheck, lint,
+  boundaries, factory boundaries, schema drift all 0. actionlint 0 (ci.yml and actionlint.yaml change).
+- R1 (heavy-merge-commit-gates.log 719e321078a75921): origin/main and base legs each found exactly "scripts/merge-lcov.ts" = the per-folder
+  expected sets 99c49be48fbf9679: PASS both; raw exits 1 as expected; new-file and patch PASSED; GATES status=0. Equal to the owner's
+  gate-integrity (proof/report.txt c4a3cd0a74771505 lines 228-229: one finding on default, main and base, equal to gi-expected).
+- R4: bun-producer-api-client 100/0, empty-node-shim 1/0, web-utility 0. R7 (heavy-lcov-foreign-sources.log 87785d2b469d808a): "0 foreign of
+  1270 SF record(s)" = merged.lcov dde856bbfef94954's 1270 SF records (receipt).
+- Case leg (heavy-w4h28hcf-cases.log fae0672320317f0f): 9/9 CASE PASS; every changed test line covered (quality-report-producers 47/47 of its
+  added lines instrumented); output written in this folder (case-check/), no other folder.
+Verdict: OK, ec092aa75 may be published; then receipts (P7 form, this verdict at its hash when copied), and the push with followup5c after P1/P2.
+
+# validator-8: W4H-28 hosted follow-up FINAL head 38ec686d8 (4 commits on c8ae394ca): ACCEPT (2026-10-16 ~15:55Z); deltas since 415d2356f
+- Identity: identity-check commits c8ae394ca..38ec686d8: 4 clean (<USER> noreply).
+- 0f881ebff (N1, test only; merge-lcov.ts already matched `${root}/`): a sibling folder sharing the root's prefix is dropped. My no-slash
+  mutant RED 4/1; head 5/0. Owner logs: n1-red-mutant 3d78a33590adfa7e (4/1), n1-green-at-415 0321caf07f06c1ed (5/0).
+- 38ec686d8 (N2): the floor, the CRAP gate and the ratchet run on `${{ !cancelled() && steps.merge-lcov.outcome == 'success' }}` (the ratchet's
+  push condition inside); the `${{ }}` wrap is required (a bare leading `!` is a YAML tag). quality-report-producers asserts !cancelled() and
+  no always(): head 4/0; my back-to-always mutant RED 2/2. Owner logs: n2-red 4e67cbbff553ebae (2/2), n2-green bb953943fc091331 (4/0).
+- Also in 38ec686d8, NOT ruled: .github/actionlint.yaml (6 lines) declares the self-hosted labels factory-real and factory-gpu (= the w00
+  labels file); it clears the 3 pre-existing unknown-label findings. Accepted as hygiene (no workflow behaviour, no gate value); named here.
+  actionlint 1.7.7 with the repository config, no -config-file: 0 on all workflows (the owner used 1.7.12, log 9890ad3fcf8c6297).
+- Gate integrity vs c8ae394ca: still exactly 1 finding, merge-lcov.ts (per-folder expected set at the merge). Report: proof/report.txt
+  b38da5503ce7f7a2.
+Verdict: ACCEPT 38ec686d8 for its detached merge onto the post-W4H-36 head; its hold runs actionlint and the R7 foreign-source check.
+
+# validator-8: W4H-28 hosted follow-up at its new head 415d2356f (2 commits on c8ae394ca): ACCEPT (2026-10-16 ~15:00Z); supersedes the fc8894e71 section below
+- 415d2356f^ = fc8894e71 (judged below, unchanged). Identity: identity-check commits c8ae394ca..415d2356f: 2 clean (<USER> noreply).
+- Commit 2 (+85 -3: ci.yml, the new quality-report-producers.test.ts) fixes F3 at its root: "Merge lcov" is its own step (id merge-lcov);
+  "Enforce per-file thresholds" follows; Global coverage floor and CRAP gate run `always() && steps.merge-lcov.outcome == 'success'`, the
+  main-only ratchet adds `&& github.event_name == 'push'`; each still fails the job on its own verdict. No gate value changed.
+- My runs (snapshot moved to 415d2356f, tree clean): quality-report-producers 4/0; coverage-outside-repo 4/0; the ci.yml-reading files
+  ci-required-aggregation 40/0, combined-runner-legs 8/0, coverage-leg-lcov-guard 48/0, dependency-denylist 10/0, factory-ci-registration
+  3/0, runtime-version-pins 3/0, typescript-tsgo-wiring 7/0, visual-evidence-capture 23/0; e2e-lanes 31/1 in MY snapshot only (one
+  playwright --list collection case; 32/0 in every integration hold on the real worktree; the change touches neither web/ nor that test).
+  actionlint 1.7.7 with the labels file on the new ci.yml: 0. Gate integrity vs c8ae394ca: still exactly the one merge-lcov.ts finding.
+- Mutants on ci.yml (copies): CRAP gate without `if` RED 3/1; floor without always() RED 3/1; ratchet back to push-only RED 3/1; CRAP gate
+  without the merge condition RED 3/1. Owner logs: red 90e234df3f845d29 (1/3), green acf7ffa1ca25ee46 (4/0), F2 widened 595fd772a486e679 (1/3).
+- Note N2 (non-blocking): `always()` also runs these steps on a CANCELLED run; `!cancelled() &&` is the usual form. N1 (below) stands.
+Verdict: ACCEPT 415d2356f for its merge onto the post-W4H-36 head; the hold runs actionlint (ci.yml changed) and judges merge-lcov.ts by a
+per-folder expected set; F4 parity with R7.
+
+# validator-8: W4H-28 hosted follow-up fc8894e71 (wp/w4h-28-hosted-coverage-fix, from c8ae394ca): ACCEPT (2026-10-16 ~14:40Z)
+Plan: plan-w4h-28.md Addendum BF (F1-F4). Evidence: validator-8/hcf-check/; my snapshot /tmp/v5-snaps/validator-8-hcf (archive of fc8894e71,
+install --ignore-scripts, pinned bun 1.4.2; tree clean after every run).
+- Scope: 1 commit, 5 files +143 -8; <USER> noreply author = committer; identity-check commits c8ae394ca..fc8894e71: 1 clean.
+- F1: scripts/merge-lcov.ts drops, in absorbInputBlock (the funnel of every producer), every record whose canonical key is absolute (outside
+  the repository root) unless under a declared --source-root; --source-root without a value is refused (usage, exit 2); no gate value
+  changed. Only the three fixture suites pass --source-root (their sources live in /tmp). My runs: coverage-outside-repo 4/0, coverage-gate
+  18/0, gate-scripts 254/0, merge-lcov-shard-vote 18/0. Owner's logs: red 7c13e2bb789beed9 (0/4), green d9b8ff1585045961 (4/0).
+- F2 (my mutants, on copies in the snapshot): drop src/* too RED (outside-repo 1, gate-scripts 1); drop */providers/* RED (1); source roots
+  ignored RED (1/1/11/17); no drop RED (3). No repository file can be excluded silently.
+- F3: the "MISSING REPORT: crap" is a cascade: ci.yml at c8ae394ca line 1408 "CRAP gate (touched functions)" has no `if:` and was skipped after
+  the global floor failed; "Quality summary" (if: always() && bun ok) runs `quality-report.ts --expect coverage,crap`, so a skipped gate reads
+  as a missing report. No second defect. Satisfied. Leftover (gate-change route on main, not this follow-up): the summary names a SKIPPED gate
+  as MISSING; pass only the gates that ran, or run the CRAP step under always().
+- Gate integrity vs c8ae394ca (my run): exactly 1 finding, "coverage gate tool changed (M): scripts/merge-lcov.ts" — judged by a per-folder
+  expected set in the follow-up's merge folder (R1 form); the hosted label is the user's decision.
+- Note N1 (non-blocking): a --source-root matched without the trailing "/" survives the tests (fixture-only option); a one-line case
+  (a sibling folder sharing the prefix is dropped) would close it.
+Verdict: ACCEPT fc8894e71 for its merge after W4H-36. F4 (local per-file gate parity, R7) is judged with the integrator's tool.
+
+# validator-8: W4H-28 INTEGRATION HOLD VERDICT (2026-10-16T10:2xZ): OK — the merge 7e5365696 may be published
+Record: w00/w4h-merge/w4h-28-reference-run/heavy-batch.log efffb814e8bd4aa5; THIS run = lines 755-1505, "=== heavy 2026-10-16T09:33:24Z",
+section sha256 59b270a1395e941a (my own hash of lines 755..end); heavy.exit 0 (9a271f2a916b0b6e); hold-gate.log 357ccc4c611131f5 (gate green,
+"ok bun 1.4.2 ... node v24..."). My tool hold-six-checks.py 87f80c09318ad0a5 (red first on hold 1), read only:
+1 OK heavy.exit 0; HEAD 7e5365696; index-tree 36fe098c6; "HEAVY DONE status=0 dirty=0 2026-10-16T10:12:10Z".
+2 OK 246 END lines, all exit=0 (0 non-zero, 0 exit 97).
+3 OK case-check: 148/148 "CASE PASS", 0 MISSING, no uncovered changed test line.
+4 OK owner proof legs present and exit 0: orchestrator-v8-node24141 ("ℹ pass 101", "ℹ fail 0"), gateway-activities-case,
+  extension-runner-package-test (142/0), both Podman file_legs (no "MISSING listed leg file"), owner-legs-test, pass-kit, run-marker,
+  w4h28-red-first-cases.
+5 OK merge gates: origin/main leg PASS against the EMPTY expected set; base PASSED; new-file and patch PASSED; "GATES at 7e5365696... base
+  b7dbd9210... status=0"; the merge commit's author and committer the <USER> noreply address.
+6 OK no leg hidden: START 246 = END 246, no duplicate name; unit legs 206 = unit.txt 206; pg legs 9 = pg.txt 9; all 51 invariant tests in unit.
+7 OK image legs: the merge touches no Dockerfile (my git diff), and the record has no image-* leg; the 12 lines with "image" are the gate,
+  START and END lines of four unit legs whose FILE names contain "image" (image-shipped-isolation-registration, image-precondition,
+  check-factory-image-shipped-config, reference-image-materials), all exit 0; 0 actionlint lines (no .github file in the merge).
+Memory kills (kernel log, both CONSTRAINT_MEMCG in a libpod scope; bun; anon-rss ~127 MB under the test's 128 MiB limit; UID 231069): 09:50:03Z
+in unit-packages--ezcorp-extension-runner-tests-podman-integration-test-ts (09:47:43-09:50:03Z, 19/0) and 10:02:48Z in
+extension-runner-package-test (09:58:16-10:02:49Z, 142/0, the package suite incl. podman.integration.test.ts): both the test "kernel PID,
+temporary storage, memory and descendant cancellation limits hold" (podman.integration.test.ts:422), whose "oom" action is killed by design
+and asserted (request rejects; diagnostics "memory_limit"). Expected, not masked.
+OK to publish 7e5365696.
+
+# validator-8: W4H-28 DELTA VERDICT at 5deb91a25 (2026-10-16T08:3xZ): ACCEPT — the hold-1 finding (2 uncovered test lines) fixed at the root
+Delta 028f71efa..5deb91a25 = one commit, test only (src/__tests__/credential-store-bundled.test.ts; identity-check 390c49a90..5deb91a25: 40
+commits clean). Follow-up hold w4h-28-delta-5deb91a25 (followup-w4h-28-delta.legs 1a78eb48f3747662, lock-free, exit 0; config start/end =
+baseline; snapshot removed; my core.sh):
+- only that file changed; the test 1/0; measured as the case leg measures (bunfig-testfiles.toml, coverageSkipTestFiles = false): 21
+  instrumented lines, ZERO lines at 0 hits; the new read() lines 23-25 hit (12, 25, 16); the fake keeps only what getAuth reads and
+  asserts requested == ["openai-codex"] and the derived key = the stored access token (no cover-only call).
+- mutant m-read-returns-nothing (read() returns undefined): RED by assertion, by name.
+- invariant legs: 51 legs, 598 tests, all green.
+- The owner's final legs at 5deb91a25 (legs/final-5deb91a25/summary.txt 4ad2ccd51bf84785): worst rc=0; static all 0; focused "legs not
+  green: 0", patch PASSED (62 files), new-file PASSED (13), CRAP clean; guard "head 5deb91a25, 41 files; 518 pass, 0 fail" (on the
+  reconstructed guard-suites.sh, which I checked byte-equal to the original); gate-integrity default/main/base 0; red-on-base 34 RED.
+Everything of the ACCEPT at 028f71efa below carries over (the delta touches no source file). ACCEPT at 5deb91a25. Before publish: the
+re-prep at 5deb91a25 judged, the new merge commit, and my six checks on its hold (Addenda BA, BC), with the remaining hold tools OK
+(test-count.sh's Playwright fix first).
+
+# validator-8: W4H-28 verdict note 3 (2026-10-16): rule 11 corrected (a mutant per new-module commit) — satisfied; ACCEPT stands
+Each of the 11 load-error commits now has a planted mutant RED by assertion (10 run at 028f71efa: followup-w4h-28-mutants.legs
+649b02328ba5b471, out w4h-28-mutants-028f71efa; b6c3f846d by AR-1/AR-3 of Addendum AV and f2-literal-back). List with test names:
+plan-w4h-28.md Addendum BB. Remaining condition before `launch.sh publish`: the case list carries every one of the 67 void-case names
+(one fleet name open with integrator-5), then my six hold checks (Addendum BA).
+
+# validator-8: W4H-28 verdict correction 2 (2026-10-16): the red-first proof for the void legs is NOT in the case-check
+The ACCEPT section below says the by-name red-first of the six load-error commits (and the five hunk-reversal load errors) is "the
+integrator's case-check (148 cases) on base". That is wrong. case-check.sh 79eb4acad3c2b062 (read in full) runs the hook-mapped root test
+files and case-files-extra AT THE MERGE and requires each warn-cases.txt name to PASS there (green by name), then measures the changed
+test lines; it runs nothing on the base. The only red-on-base evidence for those commits is the owner's red.sh (red-on-base.txt at
+028f71efa: 34 files RED, 3 green by design, 0 NOT RED): FILE level, and it counts a load error (a module the base lacks) as RED.
+State: for the 11 commits that add the module or export their tests import, no by-name red by assertion exists anywhere; the red is
+"the test file cannot load or fails on base". For code that did not exist, a load error is the only red the parent can give, so this
+is a question of the rule, not a defect in W4H-28: ruling asked of team-lead (accept the file-level red on base for new-module commits,
+as in earlier packages, or require a stub-based assertion red). The package verdict is otherwise unchanged; ACCEPT stands only under that
+ruling.
+
+# validator-8: W4H-28 FINAL VERDICT at 028f71efa (2026-10-16T07:1xZ): ACCEPT — F1 and F2 fixed red first; all freeze checks hold; integration plan sound
+Head 028f71efa = 6c0b99d37 + 6a01d36a5 (F1; F2 named-list form) + 028f71efa (F2 single-owner form, team-lead's confirmed target).
+Hold: hold-w4h-28-final.sh 1aa3ef2e673eabe5 (HEAD_REF=028f71efa; pkg-common.sh a443869cfe632faa) under gated-flock 07:00:54-07:07:23Z
+(bun pin ok 1.4.2 from the integration worktree; snapshot removed; shared config = the accepted baseline at start and end); exit 1
+ONLY from red-first legs my rule voids for a load error (below), none of them a survivor.
+- F1 FIXED: git-spawn-context-guard 19/19 at the head; mutant f1-spawn-env-removed (the env argument dropped) RED by name. Class:
+  ROOT = join(import.meta.dir, "..") (the script's own repository; no explicit-target mode; the owner confirms) ->
+  currentRepositoryGitContext is right.
+- F2 FIXED (single-owner form): guest-sdk-closure 8/8; guest-sdk-closure.test.ts byte-identical to 6c0b99d37 (the named entry of
+  6a01d36a5 removed again); grep at 028f71efa: the sources matching the invariant's SDK-directory pattern are exactly its list
+  (guest-package-build.ts = the one owner, factorySdkSourceDirectory(); the 2 schemas-only guests; the 3 non-packager scripts);
+  relock.ts derives references.ts from the owner (same string); provision.ts and package.ts do not match. Mutant f2-literal-back
+  (the literal back in relock.ts) RED by name.
+- Invariant legs: 51 legs, 598 tests, all green. Identity (team pattern check) clean.
+- AQ-iv / AQ-v / AW at the head: my Node producer 101/101 (gateway case passes), V8 lcov DA:36 and DA:187 hit (TN ezcorp-node-v8);
+  AW mutant RED by name (100/1).
+- Red-first, standard form (red_parent: the parent tree + the head's tests): RED by assertion: e16710964 (P-F3 ladder, 12 named),
+  305a0b8e8 (runner unclassified, 3), 648016a50 (runner 500, 4); by hunk reversal: 3193e78b3, 462279f99, 978293379, e9995f70b (as at
+  6c0b99d37). Load error at the parent (the commit itself adds the symbol or module the test imports: ProviderCredentialUnusableError,
+  ProviderNotConfiguredError, ./codex-login-import, runCodexLoginImportCli, ./codex-import-deployment, ./relock and
+  s3ReleaseAdapterProvidedDigests; and for hunk reversal the exports of 8910cfd8f, 7929ab652, e14886409, 3d706b9e2, 07f431527):
+  d8b1a6c05 (also 3 named assertion fails), 11114bea1, 0cd2c83e1, ad2f309ae, 140567e30, b6c3f846d: not a red by my rule, not a
+  survivor; their by-name red-first is the integrator's case-check (148 cases) on base, and the owner's red logs.
+- AC-3 PostgreSQL form: tests/postgres/factory-console.test.ts 27/0 on my own pg15 with the shared storage folder (my setup gap of
+  the first run fixed: pgrun's PGRUN_KEEP_STORAGE=1); container removed.
+- Owner's raw outputs at 028f71efa (AQ-ii): summary.txt 46e2fcb5157eddee worst rc=0; focused 119 suite lines 0 not green, the
+  focused summary 124 sub-legs incl. 51 "invariant:<path> rc=0"; patch "PASSED ... (62 file(s))"; new-file "13"; CRAP clean; Node
+  101/101; guard 518/0; gate-integrity default/main/base PASSED; red-on-base 34 RED + 3 green by design, 0 NOT RED.
+- Integration re-prep at 028f71efa: merge tree a22da2923 recomputed equal; hook 59 recomputed equal; unit 207 holds the hook tests
+  and all 51 invariants; pg 9; extra-legs.sh ccb74651619564b5 (file_leg); all relayed hashes equal (plan-w4h-28 d1d3c2ffb9f2bb98).
+- Accepted-with-closure: fleet-cli modelProvider test comes in W4H-34's rebased head (team-lead ruling).
+ACCEPT: the integrator may launch at 028f71efa.
+
+# validator-8: W4H-28 verdict correction 1 (2026-10-16, before the report): 07f431527 is NOT a clean red by my rule
+The text below lists 07f431527 (fleet model pin) under "RED by assertion". Its reversed run has 2 named assertion fails AND a load
+error in another file (Export LOCAL_MODEL_PROVIDER not found in scripts/factory-fleet-init-local.ts), so my red rule voids it
+(RED-LOAD-ERROR). It belongs with the load-error group (red-first by name: the integrator's case-check). The verdict is unchanged:
+NOT ACCEPTED at 6c0b99d37 for F1 and F2.
+
+# validator-8: W4H-28 final verdict at 6c0b99d37 (2026-10-16): NOT ACCEPTED — 2 blocking findings (two repository invariant tests RED at the frozen head); every other freeze check holds
+Plan: plan-w4h-28.md (Addenda A-AW). Hold: hold-w4h-28-final.sh 871789a692ae2f18 under gated-flock (06:36-06:42Z; bun pin logged
+"ok bun 1.4.2" from the integration worktree; snapshot removed; shared config = the accepted baseline at start and end).
+
+BLOCKING FINDINGS (repository tests in w00/invariant-tests.txt; deterministic source scans; both files new in W4H-28 via b6c3f846d):
+F1 src/__tests__/git-spawn-context-guard.test.ts RED 18/1: "Unguarded git spawn in: scripts/relock-s3-release-adapter.ts (env:
+   <absent>)". Line 14: Bun.spawn(["git", "status", "--porcelain"], { cwd: ROOT, stdout: "pipe" }) passes no env. Fix: route it
+   through currentRepositoryGitContext() from @ezcorp/sdk/git (a current-repository spawn).
+F2 src/__tests__/guest-sdk-closure.test.ts RED 7/1: "every source that names the SDK source directory stages SDK modules through
+   the closure helper, or is named" lists src/factory/s3-release-adapter/relock.ts (line 13: S3_RELEASE_ADAPTER_SDK_PATH =
+   "packages/@ezcorp/factory-sdk/src/references.ts"). Fix: use the closure helper, or (a ruling for team-lead, since it edits the
+   guard's list) name relock.ts in the test's allowed list with its reason.
+Why no one saw them: the owner's guard leg runs w00/guard-suites.sh's 41 files (518/0), which hold neither test; the focused set
+does not map them. The integrator's prepared hold runs the 51 invariant tests in unit.txt, so it would go red on both.
+
+HOLDS (each read raw):
+- AQ-i: the owner's legs.test.sh ff2be680f2588aed on MY COPIES of the leg scripts (only the shared lib.sh read in place): 31/0,
+  incl. the red-first case (the old final.sh backup with every leg failing exits 0). summary.txt 1c5bd3ff9731b7a5 worst rc=0.
+- AQ-ii: focused.out d8a31e1fe0b7a080: 68 suite lines, 1,228 pass, 0 fail; patch "PASSED ... (61 files)"; new-file "13 new source
+  files gated"; CRAP "no touched function exceeds 30" (8 above the warn line, not failing); orchestrator-v8.log 6555fce2f0ebac72
+  101/101 with the gateway case by name; guard.out 518/0; gi default/main/base "PASSED"; red-on-base.txt 34 RED + 3 green by design
+  with reasons (several base reds are load errors of new modules: by-name red-first binds in the integrator's case-check).
+- AQ-iv: my changed-lines tool over the gate's own merged lcov (focused-dir/lcov.info): 1,601 executable changed lines, 1 missed:
+  scripts/factory-graph-proof/stack-documents.ts:133, outside SOURCE_GLOBS (the repo gate does not cover it; informational). Over
+  the 70 raw producer files my tool counts 18 more, all lines the canonical merge drops as non-executable for those producers.
+- AQ-v / AW: only packages/@ezcorp/factory-transport/src/index.ts is V8-canonical and changed (90-entry list). My own run of
+  scripts/factory-orchestrator-coverage.sh: 101/101, the gateway case passes; my V8 lcov DA:36=1, DA:187=26 (TN ezcorp-node-v8),
+  equal to the owner's l69 lcov and the merged lcov. AW mutant (ceiling 64 -> 16 MiB): RED by name, 100/1, "shares a bounded
+  credential-reloading HTTP transport without Temporal imports". 64 MiB = contracts line 167 (Addendum AW).
+- Fix commits, green at the head and red with ONLY their code hunks reversed (rule_pair): RED by assertion: 3193e78b3 (oauth
+  bundle, 1 fail), 462279f99 (S-1/S-2 + Google discovery, 6 named fails), 978293379 (B, both provision-determinism tests),
+  e9995f70b (AC-3 known cost: "one snapshot carries every section, bounded and scoped to its own tenant"), 07f431527 (fleet model
+  pin, 2 named fails), 6c0b99d37 (AW above). Load error only (the commit adds the export or module the test imports: not a red by
+  my rule; their by-name red-first is the integrator's case-check on base): 8910cfd8f, 7929ab652, e14886409, 3d706b9e2. Hunks no
+  longer reverse at the head (later commits edit the same lines; SETUP, not judged): d8b1a6c05, 11114bea1, e16710964, 0cd2c83e1,
+  ad2f309ae, 140567e30, 305a0b8e8, 648016a50, b6c3f846d — for these the owner's red logs (red/*.log) and the integrator's
+  by-name case-check carry the red-first proof. All 19 green legs pass at the head.
+- Identity: identity-check.sh commits 390c49a90..6c0b99d37 clean. Invariant legs: 51 legs, 598 tests; 49 green, 2 red (F1, F2).
+- My PG console leg did not run (my wrapper unset EZCORP_FACTORY_STORAGE_SECRETS_DIR, which the suite needs): my setup gap, not
+  judged; the integrator's pg list carries tests/postgres/factory-console.test.ts on its own pg15.
+- AR-1, AR-3, AS, AQ-iii closed earlier (Addenda AT-AV); the AQ-iii independent digests equal the lock (artifact 54dcd1fd...).
+
+INTEGRATION PLAN (integrator-5, read): the hook list equals my own recomputation with the repo's staged_test_targets at 6c0b99d37
+(58 = my 58 minus the orchestrator test + the package line, which is the hook's own rule); unit.txt 206 holds every hook test and
+all 51 invariant tests; pg.txt 9 incl. factory-console; extra-legs.sh 6c7ae88c0568a869 has the Node producer on Node 24.14.1 with
+the gateway case by name, the extension-runner package suite, both Podman suites, legs.test.sh / pass-kit / run-marker, and the
+by-name case-check. Note (not a finding): `[ -f "$t" ] && leg ...` would skip a missing Podman file silently; both exist at
+6c0b99d37. The plan is sound; it would show F1 and F2 as red.
+
+ACCEPTED-WITH-CLOSURE (ruled by team-lead, not a blocker): W4H-28 has no test for modelProvider on the fleet-cli installations line
+(W4H-34's rebase trial: dropping it survives 31/31); W4H-34 adds the red-first test at its rebased head; I check it there.
+
+Verdict: NOT ACCEPTED at 6c0b99d37 because of F1 and F2. Re-check after the fix: the two invariant tests green, the fix commit
+under the normal hook, identity, and a delta read (only the fixed files change); everything above carries over unchanged.

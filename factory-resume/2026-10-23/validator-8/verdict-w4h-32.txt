@@ -1,0 +1,153 @@
+== 2026-10-17T04:58:18Z Correction to the HOLD OK section below: the lock-condition-hold.log hash is 2df2909bf5846bd5 (recomputed), not "e2df2909bf5846bd5" (my typing error). Nothing else changes; the HOLD OK stands.
+
+== 2026-10-17T04:58:12Z HOLD OK ba9acd166ed4711b9c2523fc6071485ebcdcbe78 (W4H-32 re-merge: 13c439661 onto e8d996d72): PLAIN GREEN
+Records (sha256/16, each recomputed and equal to the integrator list): heavy.exit 9a271f2a916b0b6e (value 0); heavy-batch.log 987d83a6963b377c (HEAD ba9acd166, index-tree 2a450a184; 181 legs END exit=0, none other; HEAVY DONE status=0 dirty=0 04:57:00Z); hold-gate e6c3d8700f2e77f5; lock e2df2909bf5846bd5; diff-files 4545aed76f9f5dc3.
+(a) bundle-build 733e7feae5d3de31: 28/28, 0 expected, 0 red (the EMPTY set). (b) lane-forms v6 b90217268c24e925 (hold-w4f.sh c0edd64bd3b7da9c, --base e8d996d72): the pinned-vitest line; 3 MOVED, all new files (A in the diff); 11 files, 11 runs, 0 red; no classifier red. (c) mutation-lane 168c8e74687801c0: PASS, 23 mutants. Fact: the hosted form mutates only the web files changed against origin/main; W4H-32 src/ is outside that job, as on hosted CI; my own planted mutants on W4H-32 were judged at ACCEPT. (d) preview-hosted-conmon 11cc6e2c03af1523 7/0; preview-isolation-proof 48ffbc4ee0db3df3 7/0.
+Cases 30c4b8f5b85e4cbf: 28 of 28 CASE PASS, exit 0; every changed test file has 0 uncovered (guest-package-harness-install.test.ts 107/107: the round-1 line 52 is now covered).
+Gates 493060c7ae7d5c49: GATES status=0; main leg = the expected set ea41e0e9a9bb5462; base leg PASSED and matches EMPTY; new-file PASS (1); patch PASS (13 files). typecheck-all cb0d5e3a5f853699 exit 0, lint 0, schema-drift 0, web-build 0, crap-changed-base 0, graph mock pass "outcome: passed", lcov-foreign 0 of 1589. The hook ran 13 under the list-bound word. No secret pattern in the heavy logs.
+
+== W4H-32 head 13c439661d3d1a414b0669943f29fa151267838f on 8fb4474e9: ACCEPT (delta review of the two new commits on c586125ab) (validator-8, 2026-10-17T01:52:24Z by date -u)
+- b4f0661a6 (parent c586125ab, <USER> noreply): guest-package-harness-install.test.ts +7: one case calls FreshStore.build(), asserts the
+  throw 'the preparation must not build' and builds === 1; the guard is kept. By the hold's measure (coverageSkipTestFiles=false): red at
+  c586125ab 100/101 uncovered [52]; green 107/107 (fix52/green/cover52.txt); the throw-removed mutant fails the case 2/1. Line 52 is
+  credited because the class's method now runs (my fieldcov/field5 agrees).
+- 13c439661 (parent b4f0661a6, <USER> noreply): scripts/factory-graph-proof/guest-package.ts comment only (+3 -1), leftover 3 (w4h-28b's
+  wording note) closed.
+- fix52/hashes.txt: 11 lines, all equal (it does not list itself).
+- The rest of the head is the accepted c586125ab (verdict sections below); the two commits change one test file and one comment.
+This ACCEPT names 13c439661d3d1a414b0669943f29fa151267838f for the re-merge onto the base after W4H-33b's publish, with a full hold (team-lead's order).
+
+== CORRECTION to the two sections below (validator-8, 2026-10-17T01:51:52Z by date -u): my claim that a guard-call case does not change DA 52 is WRONG.
+fieldcov/field5.test.ts (pinned Bun 1.4.2, coverageSkipTestFiles=false): the same derived class with its field initializer, and the test
+calling build() and asserting the throw: the initializer line is attributed (DA:4,30). Without the call (field2) it is DA 0. So Bun credits
+that initializer line only when a method of the class runs; my 'not attributed when the base is imported' was too broad. Team-lead's guard-
+call fix turns line 52 green (the owner's fix52/green 107/107 agrees). Route A is not needed; the owner's head 13c439661 uses the guard case.
+
+== W4H-32 hold attribution, confirmed from the hold's own lcov (validator-8, 2026-10-17T01:50:10Z by date -u)
+case-check/cov-src-factory-guest-package-harness-install-test-ts/lcov.info at 7de009ec4: DA:51,80 DA:52,0 DA:53,87 DA:54,2. Line 52 is
+'builds = 0;' (the field initializer); line 53, 'override async build()' (the guard), is ALREADY counted (DA 87). A case that calls the
+guard and asserts the throw is a sound addition (it proves the sentinel live) but does not change DA 52: Bun 1.4.2 does not attribute
+a derived class's initializer or constructor code when the base is imported (fieldcov/field2, field3). The fix that turns the leg green is
+route A: 'declare builds?: number;' with the count set in build() (fieldcov/field4: no DA 0). Both together are the right head.
+
+== W4H-32 hold on 7de009ec4ec25794b5ee93b45710eb79bc4b2614: NOT OK (RED, 1 leg; a Bun coverage-attribution artifact, not a package defect) (validator-8, 2026-10-17T01:47:24Z by date -u)
+heavy.exit 1 (4355a46b19d348dc); heavy-batch.log 33d21ca3fca1d95c: 175 legs exit 0, 1 exit 1 (w4h32-cases; heavy-w4h32-cases.log
+36bcd27dab386be1). Green as required: storage-secrets-dir; bundle-build 'EXPECTED ai-kit: matched', 28 bundles, 27 succeeded, 0 red
+(heavy-bundle-build.log 12e794ac2ae7745c); web-bunleg-changed 0 (no web bun-pool file changed); lcov-foreign-sources 0; graph-mock-pass
+0 (heavy-graph-mock-pass.log 03c86a416e158ce7); merge-commit-gates 0 (676bcb739e460690); CASE PASS 28/28. The hold records no tool-hash
+header (the known gap).
+The red: src/factory/guest-package-harness-install.test.ts 'file 100/101 lines hit ... uncovered 1 -> [52]'; line 52 is 'builds = 0;',
+the field initializer of 'class FreshStore extends PodmanRunner' (PodmanRunner from another module, with its own constructor). The file
+ran (2 tests), and the test asserts expect(fresh.builds).toBe(0), which fails if the initializer did not run: the line executes.
+My reproduction with the pinned Bun 1.4.2 and coverageSkipTestFiles=false (validator-8/fieldcov/): a field initializer in a class whose
+base is in the same file is attributed (DA hit); in a class extending a base from another module that has a constructor it reports DA 0
+although the test proves it ran (field2.test.ts); the constructor-assignment form also reports its constructor line DA 0 (field3.test.ts).
+So code in such a derived class's initializer or constructor body is not attributed by Bun's coverage: a tool artifact.
+No case-check input exists for a coverage artifact (warn-cases and tracked-skip-lines cover other classes). Routes for team-lead:
+ (A) owner test-only change at a new head that has no derived-class initializer code (e.g. 'declare builds?: number;' and the count set
+     in build(), the assertion on 'fresh.builds ?? 0'), red-first not applicable (coverage only), then re-merge and a full hold;
+ (B) a ruled, narrow case-check input for this artifact (file:line, checked by a parser to be an initializer or constructor line of a class
+     with 'extends' of an imported base, plus an assertion that reads the field), red first with a planted real uncovered line, a case-leg
+     re-run and the union route.
+My recommendation: (A): it adds no exemption tool that could hide a real uncovered line, and the change is one test file. No publish.
+
+== W4H-32 rebased head c586125ab4e18732efa22d89b7d2280ecc879386 on 8fb4474e9: ACCEPT (validator-8, 2026-10-16T22:35:53Z by date -u)
+Two records judged as one, same head (tree 577909d0cc5a):
+- Rebase job run-20261016T221955Z (22:19:55Z-22:29:23Z): head on 8fb4474e9, 15 commits (the 14 accepted + T1c 9f636011f, read OK
+  before: it kills my surviving putFiles-digest mutant, 7/1); proof/w4h-32-frozen-9f636011f = 9f636011f; 0 stops in report mode;
+  identity 15/0 noreply; diff-equality vs 9f636011f 32 files, 0 different; titles ok; static 0; gate-integrity binding (8fb4474e9)
+  PASSED, main leg = exactly the 3 lines of expect-main-w4h33-base.txt 6e315f8400142f3f; typecheck in-lock 0; coverage gates 0
+  (new-file 0, patch 0 over 13 files); heavy legs green. hashes.txt 18 lines all equal. Its status 1 came only from leg 6 (graph
+  mock pass) refusing to start: EZCORP_FACTORY_STORAGE_SECRETS_DIR unset (driver gap; outcome unknown, not failed).
+- Mock-only job mockhead-20261016T223323Z (one gated job w4h32-mockhead, 22:33:23Z-22:34:48Z, status 0; mock-head-in-lock.sh
+  4222c9ad7d5cff2a refuses unless the worktree is at the head and clean): graph mock pass at c586125ab PASSED, 7 steps
+  (graph/w4h32-rebased-mock.json 7da550c41359d0b8). 13 of 14 hashes.txt lines equal; the 14th is hashes.txt's own line,
+  e3b0c44298fc1c14 = the empty-file hash (it hashed itself while being written): a record artifact, not a mismatch.
+- Driver change: mock-lib.sh 92de313a1423ca40 -> afd7f9a2c3cb9505 (diff 1b8cf863a78b7a34) = the secrets-directory lookup only;
+  no match leaves the variable empty and run.sh refuses by name (safe). Note: several matches would take the first by name;
+  exactly 1 exists now (counted by name, contents not read).
+- rebase-in-lock.sh 6c0708a0d6fe474a: diff vs a3d5c1e702e655c9 = the stop policy only (REBASE_STOPS=report records stop-N.txt
+  with the conflicted list taken before the abort); launch-rebase2.sh a54b0df83360a7ef pins EXPECT_JOB. Used with 0 stops.
+This ACCEPT names c586125ab4e18732efa22d89b7d2280ecc879386 for the merge prep on 8fb4474e9.
+
+== Time correction to the section below (validator-8, 2026-10-16T22:11:52Z by date -u): the label '~21:45Z' on the fix B 788a514c8 ACCEPT is wrong. That section was written at 2026-10-16T20:50:22Z (file write time), after my checks at 20:49:27Z-20:49:40Z (w32-fixB-check/ log write times). The verdict content and the ACCEPT are unchanged.
+
+== W4H-32 fix B head 788a514c81a8fb9547d24508374863d9a2fef85e: ACCEPT (Addendum H met) (validator-8, 2026-10-16 ~21:45Z)
+Delta over f1efc9289 (accepted): 9e7337212 (C05 row "Prepare a release built outside the lifecycle", docs only) then 788a514c8
+(guest-package-build.ts collects the built files, checks their digest, stores the artifact copy; guest-package.ts builder =
+productExtensionRunner(blobs, db, runner) with one FileBlobStore; T1 2 cases; T2 new file, 2 cases). Parents checked: 788a514c8^1 =
+9e7337212, 9e7337212^1 = f1efc9289; on b0b7bedf1. Identity: 14 commits b0b7bedf1..788a514c8, author and committer <USER> noreply.
+H1 row first: yes (9e7337212 is the row alone). H5: w4h-28b's review "sound" is on record (one wording note: the comment dropped the
+still-true "second and third references reuse the first one's verified artifacts").
+H2: T1 stores the copy under the build's digest and refuses a tampered collection by name with nothing stored; T2 restores a fresh real
+store through productExtensionRunner, receipt digest equal, builds 0, readiness warnings [{runner_artifact_rehydrated, count 1}]; a raw
+runner refuses factory_package_artifact_unavailable {artifact_missing, ENOENT}, builds 0.
+H3: owner mutants m11 (raw artifact_missing builds), m12 (copy not stored), m13 (collected digest unchecked) KILLED (mutants/summary.txt).
+H4, in one gated lock turn (mock-in-lock.sh asserts both heads and a clean fix tree): mock pass at 9e7337212 FAILED with the hold's red
+(factory_package_artifact_unavailable {artifact_missing, ENOENT}); at 788a514c8 PASSED, 7 steps; in-lock typecheck 0 (lowest 12.3 GiB);
+coverage at 788a514c8 dirty=0: new-file 0 (1 file), patch 0 (13 files). All 20 lines of the run's hashes.txt re-computed and equal;
+report.txt 28ece37df24693802644ca2da7dab9fed6e6a4e071c5b66323fed95c052c2003 equal.
+My own checks (snapshot /tmp/v5-snaps/validator-8-w32 at 788a514c8, clean; no gated job queued; logs in validator-8/w32-fixB-check/):
+ - gate-integrity BASE_REF=b0b7bedf1: exit 0, PASSED.
+ - T1 at 788a514c8: 7 pass, 0 fail. T1 (the new test file) on 9e7337212: 5 pass, 2 fail, the 2 new cases = owner's red3.
+ - My mutant "first digest check skipped": T1 exit 1, KILLED.
+ - My mutant "second check removed" (the stored copy's digest from putFiles): T1 exit 0, SURVIVES. The check is reachable through the
+   BlobStore contract (putFiles returns blobs.put's digest); a store that lies is caught later because getFiles re-hashes on read
+   (artifact_corrupt). Finding, not blocking: add a T1 case with a store whose put returns another digest, or state the check as
+   defence in depth.
+ - Green logs green3/ ran 19:11-19:16Z (before the W4H-33 hold at 19:50Z); the file times 20:02Z are a copy. The lock-free typecheck
+   at 19:12:03Z is the owner's own lesson 8.
+Note, not blocking: mock-in-lock.sh checks only the fix tree for cleanliness, not the parent tree.
+Next: the integrator preps 788a514c8 on b0b7bedf1; the hold must show graph-mock-pass green.
+
+# validator-8: CORRECTION to the hold verdict below (2026-10-16 ~19:20Z): the red is a CONTRACT GAP IN THE PROOF HARNESS, not a product regression
+Read at c28a965ce (with the owner's trace): scripts/factory-graph-proof/guest-package.ts:131-144 builds FactoryPackagePreparations with a RAW
+PodmanRunner (new PodmanRunner({ root: options.runnerRoot, ... })) as its builder; a raw runner answers artifact_missing, never the builder
+contract's host_preparation_not_built. The product wires the contract correctly: attempt-composition.ts:106 defaults the builder to
+productExtensionRunner (the rehydrating runner over the product's release blobs), and the hosted path uses the supervisor client that answers
+host_preparation_not_built. W4H-32 changed no harness file (git log b0b7bedf1..f1efc9289 -- scripts/factory-graph-proof/: empty). So W4H-32's
+stricter rule is right, and the harness's builder does not meet it. The hold stays NOT OK to publish (a required leg is red).
+Fix forms (my view, the ruling is the coordinator's): A (revert the build trigger) weakens a ruled named refusal — no. C (the harness shares
+the store) hides the path — no. B (the harness release keeps its built artifact in the release blobs, as the product does, and prepares
+through productExtensionRunner, so the first install restores it) makes the harness use the product's own builder and contract — yes. Red
+first: graph mock at the fix's parent red, green at the fix; the harness belongs to W4H-28 per the briefs, so the coordinator names the owner.
+
+# validator-8: W4H-32 integration hold on c28a965ce: NOT OK to publish — REAL RED (graph mock pass), a product regression of W4H-32 (2026-10-16 ~19:10Z)
+Record: w00/w4h-merge/w4h-32-runner-rehydrate-f1efc9289-on-b0b7bedf1/ (heavy.exit 1 4355a46b19d348dc; heavy-batch.log 359afff87e5971e8, 267 legs, 266
+exit 0). The one red: graph-mock-pass (heavy-graph-mock-pass.log b84914d2d24b1ca2): "the runner package could not be installed:
+FactoryPackagePreparationError: factory_package_artifact_unavailable: {code: artifact_missing, errorClass: Error, errorCode: ENOENT}".
+Cause (read at c28a965ce): package-preparation.ts hydrate() builds only when builderHasNoBuild(error), i.e. FactoryHostPreparationError
+"host_preparation_not_built" (:95-96); every other read error is artifactUnavailable (:99) — W4H-32's ruled B4 change (8eb34fcf7, eaf8f5aab:
+"a raw artifact_missing refuses by name"). The mock graph boot's first install reads an artifact never built, and its runner answers a raw
+artifact_missing (ENOENT), not host_preparation_not_built: the install now refuses. The base b0b7bedf1 passes this leg (the W4H-28 follow-up
+hold). The rest is green: gates status 0 by the expected sets, 0 foreign of 1586, the case leg, the Podman legs, PG 15.
+Gap (mine and the owner's): W4H-32's evidence has no graph mock pass, and my ACCEPT at f1efc9289 did not require one for a change to the
+preparation's build rule. The ACCEPT stands for what it checked; it does not cover this path.
+Verdict: NOT OK to publish c28a965ce. Next: the owner reproduces red first (graph mock pass at f1efc9289 red, at b0b7bedf1 green) and the
+coordinator rules the form of the fix (which builder answers host_preparation_not_built on a first install, or which raw missing may build);
+fixed at a new head, red first, with a graph mock pass among the owner's legs; then a new merge and hold.
+
+# validator-8: W4H-32 verdict at the rebased head f1efc92891270c5d027f08b590b21410b7325785 (onto integ/w00 b0b7bedf1): ACCEPT (2026-10-16 ~17:25Z)
+Plan: plan-w4h-32.md (Addenda A-G). Frozen head 9418f9d5b kept as proof/w4h-32-frozen-9418f9d5b. Evidence: w4h-32/rebase/run-20261016T170105Z/
+(hashes.txt: 28 entries, all re-computed equal by me); owner report.txt 028d936ff6f00791 (with the 17:16Z close; the message named 6d9882af...).
+- G1 rebase: rebase-in-lock.sh 140bf2eba0d34e6c runs every rebase and continue with `-c rerere.enabled=false`; 5 stops (contracts.md x2,
+  service.test.ts, coverage-thresholds.json, host-preparation-client.ts), each by its saved resolver; 0 "previous resolution" lines.
+- G2 R1: my range-diff 2c394a681..9418f9d5b vs b0b7bedf1..f1efc9289 = the owner's byte for byte (5 "=", 7 "!"); 12 commits. R2: 28 files,
+  the same set; the +/- lines equal per file except coverage-thresholds.json (the trailing comma moves to the base's new last key) and
+  package-preparation.podman.integration.test.ts (the L1 `type` import). R3: contracts.md +3 -0 over the base; W4H-32's C05 row and C10
+  amendment once each (the second "Rehydrate a missing runner artifact" hit is the amendment's reference); W4H-28/W4H-36 rows intact
+  ("Bound a gateway transport response" 1, "Answer a refusal from the extension runner" 1); added lines = the frozen head's (sha 545bcb60).
+  R4: service.test.ts titles = base 10 + W4H-32's 2 = 12; coverage-thresholds = base + W4H-32's 1 key, exactly.
+- G3 L1 closed: lint "Checked 6308 files ... No fixes applied", 0 warnings.
+- G4 identity-check commits b0b7bedf1..f1efc9289: 12 clean; typecheck in the lock 0 (lowest 13.0 GiB).
+- G5 gate-integrity: base vs b0b7bedf1 (binding) "PASSED"; origin/main (informational) exactly 1 finding, scripts/merge-lcov.ts (the base's
+  ruled change) = the ruled set {scripts/merge-lcov.ts}; the job's status 1 there is the script's hard-coded "expect zero" (owner leftover).
+- G6 legs at the new head: static 0; coverage 18/50/6/30/1 all 0 fail, new-file and patch 0; heavy runner-package 148/0, preparation-podman
+  1/0, host-preparation-client 8/0, trusted-local 3/0, PG 30/0. My snapshot of f1efc9289 (pinned bun, --ignore-scripts, clean after):
+  service.test.ts 12/0, runner-rehydration.test.ts 15/0; mutants re-run where a resolved file is involved: m9 (restore bound reverted;
+  service.test.ts) RED 11/1, m3 (retry unbounded) RED 14/1 by assertion, m4 (warning dropped) RED 13/2 by assertion.
+- CORRECTION to my 9418f9d5b judgment (plan-w4h-32.md Addendum F, "all 12 RED by assertion"): m9 is red by BEHAVIOUR, not by an expect()
+  line — with the restore bound reverted the 129 MiB upload is refused and the client's read ends ECONNRESET (the same at 9418f9d5b and
+  at f1efc9289). It is a real kill (not a load error), but the wording "by assertion" was wrong for m9. Note for a later round (not
+  blocking): the restore test could assert the status of the refused upload by name.
+Verdict: ACCEPT f1efc9289 for its merge onto b0b7bedf1 with expected sets main = {scripts/merge-lcov.ts}, base = empty.

@@ -1,0 +1,5 @@
+# The hosted builder of the "Factory image under shipped isolation" job: ubuntu-latest = runner image ubuntu24/20261012.334,
+# whose readme lists Podman 4.9.3 and Buildah 1.33.7 (the Ubuntu noble packages). Local base only (--pull=never).
+FROM docker.io/library/ubuntu:24.04@sha256:534baea6a22c03a63003dbc8dbe78fe34bc0d7e595d9a9dc9834884ff530eb55
+RUN apt-get update -qq && DEBIAN_FRONTEND=noninteractive apt-get install -y -qq --no-install-recommends podman=4.9.3+ds1-1ubuntu0.2 ca-certificates >/dev/null \
+  && rm -rf /var/lib/apt/lists/*

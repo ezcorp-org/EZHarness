@@ -1,0 +1,29 @@
+--- evidence/w4h-35/bin/node-probe.sh.v-f9bda6fc	2026-10-17 03:17:14.267591679 -0400
++++ evidence/w4h-35/bin/node-probe.sh	2026-10-17 03:19:36.599855342 -0400
+@@ -35,6 +35,8 @@
+ rm -rf -- "$ctx"; say "built $FACTORY_TAG (Podman's digest $(podman image inspect "$FACTORY_TAG" --format '{{.Digest}}'))"
+ podman tag "$NGINX" "$NGINX_TAG"
+ images_json() { podman exec "$NODE" crictl images --digests -o json; }   # RAW, unfiltered: the fixture for the driver's resolver test
++# The image id (config digest) CRI reports for a reference, or "none" when it does not resolve (team-lead condition 2).
++image_id() { podman exec "$NODE" crictl inspecti -o json "$1" 2> /dev/null | python3 -I -c 'import json,sys; print(json.load(sys.stdin)["status"]["id"])' 2> /dev/null || echo none; }
+ probe() {  # <tag> <name for the records>
+   local tag=$1 n=$2 repo=${1%:*} idx ref before tagrc after
+   podman save --format oci-archive "$tag" | podman exec -i "$NODE" ctr --namespace=k8s.io images import --all-platforms --digests --snapshotter=overlayfs - > "$D/$n-ctr-import.log" 2>&1
+@@ -42,12 +44,17 @@
+   say "$n: imported $tag; the node's index digest: $idx"
+   podman exec "$NODE" ctr -n k8s.io images ls > "$D/$n-ctr-images-before.txt" 2>&1; images_json > "$D/$n-crictl-images-before.json" 2>&1
+   ref=$repo@$idx
++  local tagid_before refid_before tagid_after refid_after
++  tagid_before=$(image_id "$tag"); refid_before=$(image_id "$ref")
++  say "$n: image id before: tag $tagid_before; $ref $refid_before"
+   podman exec "$NODE" crictl inspecti "$ref" > /dev/null 2>&1; before=$?
+   say "$n: RED check, crictl inspecti $ref before the tag: exit $before"
+   podman exec "$NODE" ctr -n k8s.io images tag "$tag" "$ref" > "$D/$n-ctr-tag.log" 2>&1; tagrc=$?
+   say "$n: ctr images tag: exit $tagrc ($(tail -1 "$D/$n-ctr-tag.log" | cut -c1-160))"
+   podman exec "$NODE" crictl inspecti "$ref" > /dev/null 2>&1; after=$?
+   say "$n: GREEN check, crictl inspecti $ref after the tag: exit $after"
++  tagid_after=$(image_id "$tag"); refid_after=$(image_id "$ref")
++  say "$n: image id after: tag $tagid_after; $ref $refid_after; $( [ "$tagid_after" = "$refid_after" ] && [ "$tagid_after" = "$tagid_before" ] && echo same || echo DIFFERENT)"
+   podman exec "$NODE" ctr -n k8s.io images ls > "$D/$n-ctr-images-after.txt" 2>&1; images_json > "$D/$n-crictl-images-after.json" 2>&1
+   say "$n: result before=$before tag=$tagrc after=$after"
+ }

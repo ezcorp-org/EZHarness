@@ -1,0 +1,6 @@
+docs(tasks): lessons block 9 and the factory release task list from w4h-36 (the W4H-35 round)
+
+Appends w4h-36's block 9 (tasks-lessons-block-9.md 233973d7705f68ba, 194 lines) to the end of tasks/lessons.md and its
+release task block (tasks-todo-release-block.md afb3881911ca6fe9, 90 lines, A1-A6 ticked) as the last section of tasks/todo.md; no
+other file changes. Both files are byte-equal to w4h-36's dry run at d6ba7dedb (lessons.after.md eea01c3b5859cced, todo.after.md
+2f7e86448bf0adbd). Committed after the W4H-35 receipts (d6ba7dedb) on its tasks word.

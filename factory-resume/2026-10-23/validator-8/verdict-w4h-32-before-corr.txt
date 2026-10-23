@@ -1,0 +1,39 @@
+# validator-8: W4H-32 integration hold on c28a965ce: NOT OK to publish — REAL RED (graph mock pass), a product regression of W4H-32 (2026-10-16 ~19:10Z)
+Record: w00/w4h-merge/w4h-32-runner-rehydrate-f1efc9289-on-b0b7bedf1/ (heavy.exit 1 4355a46b19d348dc; heavy-batch.log 359afff87e5971e8, 267 legs, 266
+exit 0). The one red: graph-mock-pass (heavy-graph-mock-pass.log b84914d2d24b1ca2): "the runner package could not be installed:
+FactoryPackagePreparationError: factory_package_artifact_unavailable: {code: artifact_missing, errorClass: Error, errorCode: ENOENT}".
+Cause (read at c28a965ce): package-preparation.ts hydrate() builds only when builderHasNoBuild(error), i.e. FactoryHostPreparationError
+"host_preparation_not_built" (:95-96); every other read error is artifactUnavailable (:99) — W4H-32's ruled B4 change (8eb34fcf7, eaf8f5aab:
+"a raw artifact_missing refuses by name"). The mock graph boot's first install reads an artifact never built, and its runner answers a raw
+artifact_missing (ENOENT), not host_preparation_not_built: the install now refuses. The base b0b7bedf1 passes this leg (the W4H-28 follow-up
+hold). The rest is green: gates status 0 by the expected sets, 0 foreign of 1586, the case leg, the Podman legs, PG 15.
+Gap (mine and the owner's): W4H-32's evidence has no graph mock pass, and my ACCEPT at f1efc9289 did not require one for a change to the
+preparation's build rule. The ACCEPT stands for what it checked; it does not cover this path.
+Verdict: NOT OK to publish c28a965ce. Next: the owner reproduces red first (graph mock pass at f1efc9289 red, at b0b7bedf1 green) and the
+coordinator rules the form of the fix (which builder answers host_preparation_not_built on a first install, or which raw missing may build);
+fixed at a new head, red first, with a graph mock pass among the owner's legs; then a new merge and hold.
+
+# validator-8: W4H-32 verdict at the rebased head f1efc92891270c5d027f08b590b21410b7325785 (onto integ/w00 b0b7bedf1): ACCEPT (2026-10-16 ~17:25Z)
+Plan: plan-w4h-32.md (Addenda A-G). Frozen head 9418f9d5b kept as proof/w4h-32-frozen-9418f9d5b. Evidence: w4h-32/rebase/run-20261016T170105Z/
+(hashes.txt: 28 entries, all re-computed equal by me); owner report.txt 028d936ff6f00791 (with the 17:16Z close; the message named 6d9882af...).
+- G1 rebase: rebase-in-lock.sh 140bf2eba0d34e6c runs every rebase and continue with `-c rerere.enabled=false`; 5 stops (contracts.md x2,
+  service.test.ts, coverage-thresholds.json, host-preparation-client.ts), each by its saved resolver; 0 "previous resolution" lines.
+- G2 R1: my range-diff 2c394a681..9418f9d5b vs b0b7bedf1..f1efc9289 = the owner's byte for byte (5 "=", 7 "!"); 12 commits. R2: 28 files,
+  the same set; the +/- lines equal per file except coverage-thresholds.json (the trailing comma moves to the base's new last key) and
+  package-preparation.podman.integration.test.ts (the L1 `type` import). R3: contracts.md +3 -0 over the base; W4H-32's C05 row and C10
+  amendment once each (the second "Rehydrate a missing runner artifact" hit is the amendment's reference); W4H-28/W4H-36 rows intact
+  ("Bound a gateway transport response" 1, "Answer a refusal from the extension runner" 1); added lines = the frozen head's (sha 545bcb60).
+  R4: service.test.ts titles = base 10 + W4H-32's 2 = 12; coverage-thresholds = base + W4H-32's 1 key, exactly.
+- G3 L1 closed: lint "Checked 6308 files ... No fixes applied", 0 warnings.
+- G4 identity-check commits b0b7bedf1..f1efc9289: 12 clean; typecheck in the lock 0 (lowest 13.0 GiB).
+- G5 gate-integrity: base vs b0b7bedf1 (binding) "PASSED"; origin/main (informational) exactly 1 finding, scripts/merge-lcov.ts (the base's
+  ruled change) = the ruled set {scripts/merge-lcov.ts}; the job's status 1 there is the script's hard-coded "expect zero" (owner leftover).
+- G6 legs at the new head: static 0; coverage 18/50/6/30/1 all 0 fail, new-file and patch 0; heavy runner-package 148/0, preparation-podman
+  1/0, host-preparation-client 8/0, trusted-local 3/0, PG 30/0. My snapshot of f1efc9289 (pinned bun, --ignore-scripts, clean after):
+  service.test.ts 12/0, runner-rehydration.test.ts 15/0; mutants re-run where a resolved file is involved: m9 (restore bound reverted;
+  service.test.ts) RED 11/1, m3 (retry unbounded) RED 14/1 by assertion, m4 (warning dropped) RED 13/2 by assertion.
+- CORRECTION to my 9418f9d5b judgment (plan-w4h-32.md Addendum F, "all 12 RED by assertion"): m9 is red by BEHAVIOUR, not by an expect()
+  line — with the restore bound reverted the 129 MiB upload is refused and the client's read ends ECONNRESET (the same at 9418f9d5b and
+  at f1efc9289). It is a real kill (not a load error), but the wording "by assertion" was wrong for m9. Note for a later round (not
+  blocking): the restore test could assert the status of the refused upload by name.
+Verdict: ACCEPT f1efc9289 for its merge onto b0b7bedf1 with expected sets main = {scripts/merge-lcov.ts}, base = empty.

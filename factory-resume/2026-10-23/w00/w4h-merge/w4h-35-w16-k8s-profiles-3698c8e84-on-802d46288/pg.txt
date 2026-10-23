@@ -1,0 +1,7 @@
+./tests/postgres/factory-metrics-scrape.test.ts
+./tests/postgres/factory-provisioning.test.ts
+./tests/postgres/factory-gateway-process.test.ts
+./tests/postgres/factory-installation-metrics.test.ts
+./tests/postgres/factory-pool-metrics.test.ts
+./tests/postgres/factory-pool-process.test.ts
+./tests/postgres/factory-restore.test.ts

@@ -1,0 +1,21 @@
+--- bin/run10-launch.sh.v-ef520f12	2026-10-17 04:02:04.908822055 -0400
++++ bin/run10-launch.sh	2026-10-17 04:03:34.406983961 -0400
+@@ -1,14 +1,14 @@
+ #!/usr/bin/env bash
+-# run10-launch.sh: team-lead's word on validator-8's run-10 OK by hash (driver 6394feef at 58b3ab8d9). One launch at most; every check in logs/run10-launch.log.
++# run10-launch.sh: team-lead's word on validator-8's run-10 OK by hash (driver be4d5c88 at 8736b4fd3; team-lead run-9 route ruling). One launch at most; every check in logs/run10-launch.log.
+ set -uo pipefail
+ E=evidence/w4h-35; R=$E/repro; L=$E/logs/run10-launch.log; W=/home/<USER>/work/EZCorp/EZHarness/.worktrees/w4h-35
+ say() { echo "[$(date -u +%FT%TZ)] $*" >> "$L"; }
+ say "run-10 launch script start"
+-for f in "$R/kind-proof.sh=6394feefa6ef2bc3" "$R/known-unresolvable.txt=ef3f997454d201d6" "$R/hosted-images.ts=c1e6b91f78106a9a" "$R/hosted-settings.ts=54fd6ae163aa1fa2" "$R/kind-podman-shim/podman=3dc765045abfee6c" "$E/bin/launch-kind-proof.sh=98cc4eed521361f3"; do
++for f in "$R/kind-proof.sh=be4d5c885777b635" "$R/known-unresolvable.txt=ef3f997454d201d6" "$R/hosted-images.ts=c1e6b91f78106a9a" "$R/hosted-settings.ts=54fd6ae163aa1fa2" "$R/kind-podman-shim/podman=3dc765045abfee6c" "$E/bin/launch-kind-proof.sh=98cc4eed521361f3"; do
+   h=$(sha256sum "${f%%=*}" | cut -c1-16); [ "$h" = "${f##*=}" ] || { say "STOP: ${f%%=*} is $h, not ${f##*=}"; exit 3; }
+ done
+-[ "$(git -C "$W" rev-parse --short HEAD)" = 58b3ab8d9 ] && [ -z "$(git -C "$W" status --short)" ] || { say "STOP: worktree is not a clean 58b3ab8d9"; exit 3; }
+-say "hashes ok (driver 6394feefa6ef2bc3, known-unresolvable ef3f997454d201d6, hosted-images c1e6b91f78106a9a, hosted-settings 54fd6ae163aa1fa2, shim 3dc765045abfee6c, launcher 98cc4eed521361f3); head 58b3ab8d9 clean"
++[ "$(git -C "$W" rev-parse --short HEAD)" = 8736b4fd3 ] && [ -z "$(git -C "$W" status --short)" ] || { say "STOP: worktree is not a clean 8736b4fd3"; exit 3; }
++say "hashes ok (driver be4d5c885777b635, known-unresolvable ef3f997454d201d6, hosted-images c1e6b91f78106a9a, hosted-settings 54fd6ae163aa1fa2, shim 3dc765045abfee6c, launcher 98cc4eed521361f3); head 8736b4fd3 clean"
+ [ ! -e "$E/proof" ] && [ ! -e "$E/proof.exit" ] || { say "STOP: proof/ or proof.exit present before the preflight"; exit 3; }
+ left="fleet=$([ -e "$HOME/.w4h35-fleet" ] && echo yes || echo no) runner=$([ -e "$HOME/.w4h35-runner" ] && echo yes || echo no) containers=$(podman ps -a --format '{{.Names}}' | grep -c w4h35) networks=$(podman network ls --format '{{.Name}}' | grep -cE 'w4h35|^kind$') volumes=$(podman volume ls --format '{{.Name}}' | grep -c w4h35) storedirs=$(ls -d "${XDG_RUNTIME_DIR:-/run/user/$(id -u)}"/w4h35-stores.* 2> /dev/null | wc -l) scratch=$(ls -d /tmp/w4h35-scratch.* 2> /dev/null | wc -l)"
+ say "clean-state check: $left"

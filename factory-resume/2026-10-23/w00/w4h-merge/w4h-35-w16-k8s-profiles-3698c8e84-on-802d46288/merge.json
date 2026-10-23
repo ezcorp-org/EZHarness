@@ -1,0 +1,46 @@
+{
+ "package": "w4h-35",
+ "kind": "package merge: W4H-35 (W16), the Kubernetes hosted profile, GPU and CPU-only resource profiles and the wrapped-key material, merged onto integ/w00 802d46288",
+ "branch": "wp/w4h-35-w16-k8s-profiles",
+ "head": "3698c8e842f2223e600ddbf65fe8d5b3d938a586",
+ "base": "802d46288ab9f15310a5d54bd038b14075789286",
+ "main": "802d46288ab9f15310a5d54bd038b14075789286",
+ "mergeSha": "b701cf0e28dc39ccd5415964318bf02917cf0c0f",
+ "treeEquality": {
+  "trialTree": "db72146552be0b02a227ab52d2c632e02f2a929a",
+  "mergeTree": "db72146552be0b02a227ab52d2c632e02f2a929a",
+  "equal": true
+ },
+ "validatorVerdict": "validator-8: ACCEPT of 3698c8e84 (verdict-w4h-35.txt 1a1d092727d57a54); run 13 at 3698c8e84 ACCEPT (d2e23947cf9654c9); merge commit record ACCEPT (fb8dc89873d7702f); hold 1 REJECT (140d80ad6e954716); hold 2 ACCEPT, proven for publish (4c08911cf745ec62; copied as w4h-35-validation.txt)",
+ "gateChange": "none of W4H-35's own: merge-commit-gates status 0; both gate-integrity legs plain PASS, 0 findings, no expected-findings file (origin/main = the base 802d46288, tree = 063b3d16e's); scripts/coverage-thresholds.json +6 add-only (service-roles.ts and five files at 100) and .github/workflows/ci.yml +4 (a sha-pinned setup-node step) judged stricter",
+ "identity": "R1 (merge-identity-lib.sh), package mode: fork point 063b3d16e, 31 commits and 93 staged files clean; publish step: 32 commits clean (identity-publish.txt)",
+ "commit": {
+  "form": "detached merge; the full-run hook EZ_PRECOMMIT_TEST_MAX=44 (team-lead's list-bound ruling, the bound list hook-mapped-3698c8e84.txt d04237120e2e1b0c) on an own pg15; PG_HOOK=1 derived (pg-hook-lib.sh); rerere off; <USER> noreply",
+  "try1": "commit word <WORD> (team-lead's bounded retry, try 3; two earlier manual launches refused at the lock condition with no job: commit-gate.log.refused-1/-2): exit 0, 44/44 files, 979 tests pass 0 fail, hook-zero empty; in-lock typecheck exit 0"
+ },
+ "hold": {
+  "run1": "word <WORD>: 161 legs, 2 red (the lane-bound alert-evaluator.integration ran in the unit list without pg; lane-forms: 5 ci.yml line pins moved +4); root cause: the folder had no extra-legs.sh, so the mandatory legs were missing; records in attempt-1-9bb17fd1/ (manifest 7e754054c0ac2b3a)",
+  "run2": "word <WORD>, 05:54:00Z-06:51:06Z: 174 legs, all exit 0, status 0; heavy-batch.log fae2687dfc2fc330; extra-legs.sh ef59e23d24c8e4ab logged by the F4 gate",
+  "legs": {
+   "a_bundle_build": "exit 0, EMPTY expected set: 28 bundled extensions, 28 succeeded",
+   "b_lane_forms_v8": "exit 0: 38 changed test files, 39 lane runs, 0 red; text-anchor ci pins, no drift",
+   "c_mutation_lane": "exit 0: named PASS, no mutatable file in the diff (scope src/lib/**)",
+   "d_preview_hosted_conmon": "7/0 (preview-isolation-proof 7/0)",
+   "e_sdk_digest": "exit 0",
+   "w4h35": "Prometheus presence by digest (no pull), evaluator 5/0 on the hold's own pg under pull-never.conf"
+  }
+ },
+ "inRoundToolFixes": {
+  "F2/H1 pg classifier (team-lead, validator-8 H1)": "pg-class.py 61ececdd60b1d61c, pg-class.test.sh a802765c2ed1aca1; unit.txt v2 08122995e750958b = unit.targeted.txt minus check-factory-lanes.ts --bound-tests (bound-tests.out c0ad3de494a6ec36)",
+  "F3/H2 lane table text anchors": "lane-forms-leg.py 4d68ac871d30babc, lane-table.tsv ce85597098ee4f72, lane-forms-leg.test.sh 19b8aa010d636be4",
+  "F4 extra-legs gate": "w4f-merge/hold-w4f.sh dbdf25cf0fb59a27, hold-extra-legs.test.sh 080b8723494e6b4e",
+  "F1 extra legs": "extra-legs.sh ef59e23d24c8e4ab (a named copy of W4H-34's 1e33e813998a66fb), lane-pg.txt 6d3c6d33b923a573",
+  "gate leg (H2 empty sets)": "gate-leg.sh 0037edeb941be7be, hold-own-pg.sh ae2025476f4625f8"
+ },
+ "published": "integ/w00 802d46288 -> b701cf0e2 at 2026-10-23T06:56:25Z by publish-if-main.sh on publish word <WORD>; remote main 802d46288 = expected; identity-publish 32 commits clean",
+ "pushed": false,
+ "excludedFromReceipts": [
+  "heavy-build-* and heavy-web-build (standard)",
+  "the attempt folders (named here by manifest hash)"
+ ]
+}

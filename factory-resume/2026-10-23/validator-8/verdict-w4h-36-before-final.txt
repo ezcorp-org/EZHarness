@@ -1,0 +1,92 @@
+# validator-8: W4H-36 documents ACCEPT (2026-10-16); the final verdict at the final head checks only that delta
+F4 FIXED: followup4-pr-body-draft.md 3910cc8870e740d8 says "36 lessons, one line of recurrences and the leftovers";
+identity-check files (v5) clean. Unchanged: docs-draft-v10.md bca742b5542518d6 (36 lessons + 1 recurrence line),
+leftovers-2026-10-16.md 7d8013940d52dbbf, tasks-lessons-block.md d6405a63fc0fa149, tasks-todo-leftover-block.md
+5584faf6c0d3fb93, landing f6763f94d1206f2d, wsync c0c9bb238a0d2afe, extract-blocks.py bc67edc9d00aac09.
+Documents: ACCEPT at these shas. Commits a083585e5, b4cee07c0, 7e4dbaae0: ACCEPT (rows match the code; merge after W4H-28).
+Open for the final head: the integ merge with W4H-28 (C10 row stays above the W4H-28 amendments; no conflict), the removal
+of the stale C05 note as its own commit, and the C03 memoryBytes clause against validator-composition.ts:116-121.
+
+# validator-8: W4H-36 re-check (2026-10-16) of F1-F3 — all three FIXED; one small wording finding F4; final ACCEPT waits
+# for the final head (after W4H-28 lands)
+Files re-checked (no new commits; head 7e4dbaae0): docs-draft-v10.md bca742b5542518d6; leftovers-2026-10-16.md
+7d8013940d52dbbf; followup4-pr-body-draft.md 2ec3a098120bd30d; tasks-lessons-block.md d6405a63fc0fa149;
+tasks-todo-leftover-block.md 5584faf6c0d3fb93; unchanged: landing f6763f94d1206f2d, wsync c0c9bb238a0d2afe, extract-blocks.py
+bc67edc9d00aac09.
+- F1 FIXED: the draft diff against my copy of e8c43e09645d9eac adds exactly the two validator lessons (exit 127 of a step
+  with no kind; the typecheck into the lock when the host stays under 16 GiB), credited to validator-8, W4H-31.
+- F2 FIXED: the closed AB-1/AB-2 entry names a083585e5 (the W4H-36 merge commit replaces it at landing).
+- F3 FIXED: 32g (runtime-tools-grep.test.ts:246 and :259 are the two test.skipIf(!HAS_RG) cases at 390c49a90), 31a
+  (scripts/import-codex-login.ts line 15 at a1290b31a imports ./factory-graph-proof/codex-import-deployment), 75a (the
+  pid-reuse limit); also in the tasks leftover block.
+- The four blocks re-extract byte-equal from the new draft; identity-check files (v5 ef09124c9d7360ed) clean on the 5
+  changed files.
+- F4 (wording, small): the PR body says "37 lessons"; the draft has 36 lesson bullets (20 owner, 5 validator, 1 validator
+  and integrator, 4 integrator, 6 coordinator) plus one "Recurrences" line that repeats earlier rules. Write "36 lessons"
+  (or "36 lessons and a recurrences line").
+Verdict: documents ACCEPT once F4 is fixed; the commits' ACCEPT stands; the final verdict is written at the final head (after
+the integ merge with W4H-28, the stale C05-note removal and the C03 memoryBytes clause), checking only that delta.
+
+# validator-8: W4H-36 verdict (2026-10-16) — commits ACCEPT; documents: 3 findings to fix (re-check the delta)
+Frozen head b4cee07c0 on 390c49a90 (wp/w4h-36-docs-v10). Plan: plan-w4h-36.md (+ Addendum A 46f96ee9f4a87196); standing
+rules plan-common-w4h-32-36.md 147bb9ec215b3a14. Evidence: validator-8/w4h-36-check/.
+
+## Commits (ACCEPT)
+- Scope: 2 commits, both noreply (identity-check v4 commits 390c49a90..b4cee07c0, explicit shas, main repo: clean);
+  diff = docs/plans/2026-09-12-composable-factory-platform-contracts.md only (+3).
+- a083585e5, C05 runner refusal row, checked against 2a0c65e74: refusal shape {code, stage, message, retryable} plus
+  errorClass/errorCode (core.ts:15-16; service.ts:319-321); a RunnerError -> 400 with its text, invalid_request includes a
+  body that is not a JSON object (service.ts:71-72); artifact_missing is a RunnerError (400) with {Error, ENOENT}; any other
+  error -> 500 runner_internal_error with the deepest cause's class and code from the shared errorShape
+  (extension-contract error-shape.ts), never its message; client: one attempt, no repeat after 500. Matches.
+- b4cee07c0, C10 readiness-document row (four base codes, ruled KEEP), checked against factory-broker.ts at 390c49a90:
+  schema factory.provider-readiness.v1 (:24); fields provider, model, ready, credentialKind (null when none),
+  requiredCredentialKind when the pin names one, failures, checkedAtMs (:40-54, :128-135); order model_not_available first
+  then one credential code (:125-126); ready only with no failures (:131); model_pin_mismatch from the call-time path
+  (:167-173). Matches.
+- Merge order (W4H-28 first, then W4H-36): git merge-file of the contracts document (base 390c49a90, W4H-28 a1290b31a,
+  W4H-36 b4cee07c0) on copies: 0 conflicts; the C05 row lands at line 175; the C10 row at 350, ABOVE the W4H-28 amendments
+  (354, 358), so its words "the W4H-28 amendments below" are true after the merge (not at this base alone). C03 not
+  duplicated. The stale-note removal is a later, separate commit (checked when it exists).
+
+## Documents (current files; they changed after SHAS.txt, so these are the shas I judged)
+  e8c43e09645d9eac w00/wave4i/docs-draft-v10.md
+  5d28aa0bf718ad8f w00/leftovers-2026-10-16.md
+  3f140334a4161105 w00/wave4i/followup4-pr-body-draft.md
+  abd2546118260939 w4h-36/tasks-lessons-block.md
+  f6763f94d1206f2d w4h-36/tasks-todo-landing-block.md
+  c0c9bb238a0d2afe w4h-36/tasks-todo-wsync-block.md
+  8f7ca9e39f082eb1 w4h-36/tasks-todo-leftover-block.md
+  bc67edc9d00aac09 w4h-36/extract-blocks.py
+  2900081b1f954ef0 w00/leftovers-2026-10-13.md
+- Identity: identity-check files on all 8 files clean; secret-like lines 0.
+- The 2026-10-13 ledger is unchanged (2900081b1f954ef0).
+- extract-blocks.py on copies reproduces all four tasks blocks byte for byte; placeholders only the known ones
+  (landing: W4H-28-MERGE/RECEIPTS/VERDICT; W-SYNC: W4H-31-HOLD/RECEIPTS); the PR body's placeholders are GATE-CHANGES,
+  HOSTED-COMPARISON, W4H-28-VERDICT, W4H-31-HOLD (for the integrator); 0 unexpected.
+- W4H-28 facts in v10 (line 129-) and the PR body equal my reads: run <MSG-ID>; lock
+  15:01:36-15:02:56Z; generate 1,318 + 92 tokens, 178, 2,122 ms; review 334 + 57, 62, 2,173 ms; envelope 1,801 / 240;
+  10/10; ordinary/releases/w4h28/real-9/run1, candidate.json 6,231 B, manifest.json 540 B = effect digest; record
+  ae7a2fba9035010a.
+- Lessons: 34 bullets (owners 20 incl. the hook-cap lesson; validator 4; integrator 4; coordinator 6) + a recurrences line.
+  Every one I sampled traces to the coordinator log or a pending-lesson file (incl. "object literal" and "optional field"
+  in the owners' files).
+- Ledger: 75 numbered open items in 4 groups, a closed section, a stale-lines section.
+
+## Findings (documents; fix, then I re-check the delta)
+F1 Two validator lessons are missing, and the count is off: the owner reported "validator 20-24" (5); there are 4 validator
+   bullets. Missing (validator-8/pending-lesson.md, W4H-31 entry): (1) "step <leg> <kind> <command...>: a missing kind runs
+   the command as the kind (exit 127); read every exit=127 at once"; (4) "when the host stays under 16 GiB, move the
+   typecheck into the lock (>= 12 GiB) instead of waiting for hours". Neither is in v9 (not a recurrence).
+F2 Ledger rule broken once: "An item closes only with its landing commit", but the closed entry for the runner wire error
+   codes (W4H-28 AB-1, AB-2) says "the contracts row lands with W4H-36" without the commit. Name a083585e5 (or the merge
+   commit once it exists).
+F3 Ledger misses three items from my records: (a) the two rg-gated tests never run on hosted (no workflow installs
+   ripgrep), ruled into W4H-33's scope; (b) the product CLI scripts/import-codex-login.ts imports a proof-harness module
+   (scripts/factory-graph-proof/codex-import-deployment.ts): a layering note from W4H-28 F2; (c) the live-pid run marker
+   yields to an unrelated live process that reuses the pid (a stated, safe-side limit of gated-flock).
+
+## Verdict
+Commits a083585e5 and b4cee07c0: ACCEPT, for a merge AFTER W4H-28 (the C10 row's forward reference needs it).
+Documents: not yet; F1-F3 are small text fixes. After the owner fixes them I re-check only the changed lines (diff of the
+files above) and the new shas, then write the final ACCEPT for the documents in this file (new section on top).

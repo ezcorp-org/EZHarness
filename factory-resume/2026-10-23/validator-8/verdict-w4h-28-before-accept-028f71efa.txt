@@ -1,0 +1,60 @@
+# validator-8: W4H-28 verdict correction 1 (2026-10-16, before the report): 07f431527 is NOT a clean red by my rule
+The text below lists 07f431527 (fleet model pin) under "RED by assertion". Its reversed run has 2 named assertion fails AND a load
+error in another file (Export LOCAL_MODEL_PROVIDER not found in scripts/factory-fleet-init-local.ts), so my red rule voids it
+(RED-LOAD-ERROR). It belongs with the load-error group (red-first by name: the integrator's case-check). The verdict is unchanged:
+NOT ACCEPTED at 6c0b99d37 for F1 and F2.
+
+# validator-8: W4H-28 final verdict at 6c0b99d37 (2026-10-16): NOT ACCEPTED — 2 blocking findings (two repository invariant tests RED at the frozen head); every other freeze check holds
+Plan: plan-w4h-28.md (Addenda A-AW). Hold: hold-w4h-28-final.sh 871789a692ae2f18 under gated-flock (06:36-06:42Z; bun pin logged
+"ok bun 1.4.2" from the integration worktree; snapshot removed; shared config = the accepted baseline at start and end).
+
+BLOCKING FINDINGS (repository tests in w00/invariant-tests.txt; deterministic source scans; both files new in W4H-28 via b6c3f846d):
+F1 src/__tests__/git-spawn-context-guard.test.ts RED 18/1: "Unguarded git spawn in: scripts/relock-s3-release-adapter.ts (env:
+   <absent>)". Line 14: Bun.spawn(["git", "status", "--porcelain"], { cwd: ROOT, stdout: "pipe" }) passes no env. Fix: route it
+   through currentRepositoryGitContext() from @ezcorp/sdk/git (a current-repository spawn).
+F2 src/__tests__/guest-sdk-closure.test.ts RED 7/1: "every source that names the SDK source directory stages SDK modules through
+   the closure helper, or is named" lists src/factory/s3-release-adapter/relock.ts (line 13: S3_RELEASE_ADAPTER_SDK_PATH =
+   "packages/@ezcorp/factory-sdk/src/references.ts"). Fix: use the closure helper, or (a ruling for team-lead, since it edits the
+   guard's list) name relock.ts in the test's allowed list with its reason.
+Why no one saw them: the owner's guard leg runs w00/guard-suites.sh's 41 files (518/0), which hold neither test; the focused set
+does not map them. The integrator's prepared hold runs the 51 invariant tests in unit.txt, so it would go red on both.
+
+HOLDS (each read raw):
+- AQ-i: the owner's legs.test.sh ff2be680f2588aed on MY COPIES of the leg scripts (only the shared lib.sh read in place): 31/0,
+  incl. the red-first case (the old final.sh backup with every leg failing exits 0). summary.txt 1c5bd3ff9731b7a5 worst rc=0.
+- AQ-ii: focused.out d8a31e1fe0b7a080: 68 suite lines, 1,228 pass, 0 fail; patch "PASSED ... (61 files)"; new-file "13 new source
+  files gated"; CRAP "no touched function exceeds 30" (8 above the warn line, not failing); orchestrator-v8.log 6555fce2f0ebac72
+  101/101 with the gateway case by name; guard.out 518/0; gi default/main/base "PASSED"; red-on-base.txt 34 RED + 3 green by design
+  with reasons (several base reds are load errors of new modules: by-name red-first binds in the integrator's case-check).
+- AQ-iv: my changed-lines tool over the gate's own merged lcov (focused-dir/lcov.info): 1,601 executable changed lines, 1 missed:
+  scripts/factory-graph-proof/stack-documents.ts:133, outside SOURCE_GLOBS (the repo gate does not cover it; informational). Over
+  the 70 raw producer files my tool counts 18 more, all lines the canonical merge drops as non-executable for those producers.
+- AQ-v / AW: only packages/@ezcorp/factory-transport/src/index.ts is V8-canonical and changed (90-entry list). My own run of
+  scripts/factory-orchestrator-coverage.sh: 101/101, the gateway case passes; my V8 lcov DA:36=1, DA:187=26 (TN ezcorp-node-v8),
+  equal to the owner's l69 lcov and the merged lcov. AW mutant (ceiling 64 -> 16 MiB): RED by name, 100/1, "shares a bounded
+  credential-reloading HTTP transport without Temporal imports". 64 MiB = contracts line 167 (Addendum AW).
+- Fix commits, green at the head and red with ONLY their code hunks reversed (rule_pair): RED by assertion: 3193e78b3 (oauth
+  bundle, 1 fail), 462279f99 (S-1/S-2 + Google discovery, 6 named fails), 978293379 (B, both provision-determinism tests),
+  e9995f70b (AC-3 known cost: "one snapshot carries every section, bounded and scoped to its own tenant"), 07f431527 (fleet model
+  pin, 2 named fails), 6c0b99d37 (AW above). Load error only (the commit adds the export or module the test imports: not a red by
+  my rule; their by-name red-first is the integrator's case-check on base): 8910cfd8f, 7929ab652, e14886409, 3d706b9e2. Hunks no
+  longer reverse at the head (later commits edit the same lines; SETUP, not judged): d8b1a6c05, 11114bea1, e16710964, 0cd2c83e1,
+  ad2f309ae, 140567e30, 305a0b8e8, 648016a50, b6c3f846d — for these the owner's red logs (red/*.log) and the integrator's
+  by-name case-check carry the red-first proof. All 19 green legs pass at the head.
+- Identity: identity-check.sh commits 390c49a90..6c0b99d37 clean. Invariant legs: 51 legs, 598 tests; 49 green, 2 red (F1, F2).
+- My PG console leg did not run (my wrapper unset EZCORP_FACTORY_STORAGE_SECRETS_DIR, which the suite needs): my setup gap, not
+  judged; the integrator's pg list carries tests/postgres/factory-console.test.ts on its own pg15.
+- AR-1, AR-3, AS, AQ-iii closed earlier (Addenda AT-AV); the AQ-iii independent digests equal the lock (artifact 54dcd1fd...).
+
+INTEGRATION PLAN (integrator-5, read): the hook list equals my own recomputation with the repo's staged_test_targets at 6c0b99d37
+(58 = my 58 minus the orchestrator test + the package line, which is the hook's own rule); unit.txt 206 holds every hook test and
+all 51 invariant tests; pg.txt 9 incl. factory-console; extra-legs.sh 6c7ae88c0568a869 has the Node producer on Node 24.14.1 with
+the gateway case by name, the extension-runner package suite, both Podman suites, legs.test.sh / pass-kit / run-marker, and the
+by-name case-check. Note (not a finding): `[ -f "$t" ] && leg ...` would skip a missing Podman file silently; both exist at
+6c0b99d37. The plan is sound; it would show F1 and F2 as red.
+
+ACCEPTED-WITH-CLOSURE (ruled by team-lead, not a blocker): W4H-28 has no test for modelProvider on the fleet-cli installations line
+(W4H-34's rebase trial: dropping it survives 31/31); W4H-34 adds the red-first test at its rebased head; I check it there.
+
+Verdict: NOT ACCEPTED at 6c0b99d37 because of F1 and F2. Re-check after the fix: the two invariant tests green, the fix commit
+under the normal hook, identity, and a delta read (only the fixed files change); everything above carries over unchanged.

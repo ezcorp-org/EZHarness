@@ -1,0 +1,141 @@
+REJECT wp/w4h-26-runner-wiring at fa15418c447c (re-frozen; code 27412cb92; G1 stands: the HostRunner alias is unchanged; the visibility condition is met)
+
+validator-8, 2026-10-14. Re-validation at the re-frozen head per team-lead (plan eabdf7819bcb40d0 + Addendum A). Owner report
+w4h-26/report.txt 86620a7cddd665d2 (the first freeze kept as report-d2d78d98e.txt). The verdict at d2d78d98e follows below
+unchanged; it is also kept byte-equal in verdict-w4h-26-at-d2d78d98e.txt (sha256 9360f9199ee215da).
+
+## At fa15418c4
+Identity (first): 22 commits 1981febd2..fa15418c4, author and committer <USER> with the noreply address on every one; the
+   personal address 0 times in the diff, the commit messages and identities, and the owner's evidence folder.
+Delta d2d78d98e..fa15418c4: 27412cb92 (readiness visibility) and fa15418c4 (gate file, todo). 9 files: readiness.ts,
+   runner-install.ts, bundled-bootstrap.ts, bundled.ts, their three tests, gate file, todo. Every other file equals d2d78d98e,
+   so my legs at d2d78d98e carry over for them (supervisor-process.ts and the guard test included).
+G1 STANDS. supervisor-process.ts:309-311 still binds `PodmanRunner: HostRunner` and writes `class extends HostRunner`; the
+   guard test is unchanged and green only because of the alias (at d2d78d98e: alias undone -> guard red; the flagged
+   suite makes 0 podman calls). The acceptable fixes and the re-validation steps are as stated below in G1.
+Visibility condition (team-lead's midpoint condition) MET:
+- staging publishes readiness detail.diagnostics.builtinRunnerPackages: {state: "awaiting-administrator"} with no
+  administrator; {state: "staged", staged: [...], failed: [{manifestName, error}]} per package; {state: "failed", error}
+  for a whole-staging failure (also logged). readiness.ts merges named diagnostics into every readiness value.
+- Red-first on the d2d78d98e sources: bundled-bootstrap-v4.test.ts red by assertion (9); readiness.test.ts and
+  runner-install.test.ts are load errors there (new exports), covered by the mutants.
+- Mutants 6 of 6 red: diagnostic not published; diagnostics not merged into readiness; whole failure hidden as waiting; whole
+  failure not logged; a per-package failure not listed; the factory flag ignored.
+- The final proof proof/final-2.json (32d3a144e4ed20d9) shows both states on /api/ready: the boot read before the
+  administrator existed {state: "awaiting-administrator"}; after it, stagingDiagnostic {state: "staged", staged:
+  ["reference-code", "reference-code-validator"], failed: []}.
+D7 replay on final-2.json (w4h-26-tools/d7-replay.ts): 9 of 9 OK. Tree id 9ef0aba3 = git write-tree; recorded connection =
+   fixture; sealed snapshot sha256:e020cd2462727d66 (4,017 B) = recomputed; port sha256:122de9ab33ece4b0 = recomputed (new
+   material id, so a new port digest); measured zero usage; the pinned guest image; receipt = binding; the run stopped at
+   generate-private-candidate with factory_native_package_untrusted; 16 HTTP steps 2xx.
+Gates at fa15418c4: gate-integrity main (origin/main 1981febd2) exit 0, 0 findings, log sha256 b1a0297506aab4a1; lint 0;
+   factory boundaries and boundaries 0; gitleaks 0; new-file, patch and CRAP --changed pass over 51 suites plus the SDK leg
+   and the PostgreSQL suites (package-preparation 27, console 27 on my own PostgreSQL and private storage, removed after);
+   guard set 522 pass (42 files); typecheck exit 0 (lowest MemAvailable 14.4 GiB). Changed lines of the delta: 30 executable,
+   0 missed. The package-wide misses are the same as at d2d78d98e (signature lines, lone `},`, must-not-run stubs, and the two
+   proof-harness builders my heavy leg ran for real at d2d78d98e, unchanged since).
+New note N5: the per-package and whole-failure `error` strings are published on /api/ready as given (String(error)). If
+   /api/ready is reachable without a session, a failure text could carry host paths; a code plus a short reason would be
+   safer. Not blocking.
+Still open, as before: V1 (my own E2E refusal on main) and H4 after a supervisor restart.
+
+## Prior verdict (REJECT at d2d78d98e), unchanged
+REJECT wp/w4h-26-runner-wiring at d2d78d98e03bc05e25112997017d179130724547 (code 610ca637d; one finding: G1 the HostRunner alias evades the Podman-guest guard)
+
+validator-8, 2026-10-14. Plan plan-w4h-26.md eabdf7819bcb40d0 with Addendum A. Owner report w4h-26/report.txt 9bb9a7be72ced967.
+Legs ran on git-archive snapshots outside the evidence folder (removed after). The build leg ran under gated-flock with the gate
+checked once in the lock. My own PostgreSQL and my own private storage stack (project v8-w4h26-storage) were used and removed.
+No shared service was touched.
+
+## Identity (ordered first)
+20 commits 1981febd2..d2d78d98e: author and committer are <USER> with the noreply address on every commit (0 others). No changed
+line carries the user's personal address.
+
+## Finding (blocking)
+
+G1 610ca637d renames the supervisor's runner class to escape the Podman-guest guard instead of telling the guard.
+- The guard: scripts/podman-guest-job-registration.test.ts:25 STARTS_GUEST = /\bnew \w*PodmanRunner\(|\bextends PodmanRunner\b/,
+  "A source that constructs a Podman runner, or defines one". Its intent (header, W4H-12): a CI step that runs a test file
+  reaching a Podman guest must run after `bash scripts/setup-extension-runner-ci.sh --install`, or the step fails on
+  "image not known".
+- The change: src/factory/runner/supervisor-process.ts:309-311 `const { PodmanRunner: HostRunner, ... } = await load();` and
+  `return class extends HostRunner {...}`. The class still extends PodmanRunner; only the name the regex sees is gone.
+- What the guard said before the rename (run at 2d6fd50ce): "ci.yml factory-deployment-operations (Factory deployment and
+  operations): Provision a tenant against the real engine: runs a Podman-guest test before ... --install"
+  (the step runs ./tests/postgres/factory-provisioning.test.ts on the factory-real runner).
+- Proof that the alias is what silences it: with the alias undone (`PodmanRunner` restored in both lines) the registration
+  test is red again (1 fail: "every step that runs a Podman-guest test runs after the runner setup in its job").
+- Consequence measured: that suite, run at the head with every podman call logged (a logging wrapper first on PATH), makes 0
+  podman calls and 0 guest starts (63 pass). So the guard's flag was a static false positive (the suite reaches
+  supervisor-process.ts through imports but never invokes the loader). The class is legitimately host-plane: the supervisor's
+  runner for builds and launches.
+- Judgment: a rename that escapes the pattern is a gate evasion in form, whatever the runtime truth; the next real
+  PodmanRunner subclass written the same way would pass unseen. Acceptable fixes: an explicit, tested exemption in the guard
+  that names this loader (supervisor-process.ts / factoryProvisionedRunnerLoader) and its reason (a class definition the
+  named suites never instantiate), or a guard rule that tells a defined-but-uninvoked loader apart, with a test; then the
+  alias reverted. Re-validation: guard green with `extends PodmanRunner` restored, the exemption's test red when it is
+  removed, and my podman-call log of the flagged suite still 0.
+
+## Green, per plan (evidence in validator-8/w4h-26-light, -light2, -heavy)
+
+D6, the internal host-plane operation (closest read):
+- H1 the two C05 contract rows (docs/plans/2026-09-12-...-contracts.md) are commit 66fc1acf7, before the D6 code 6ba267aea; the
+  code matches the row (source + expected digest over W01b mTLS, supervisor recomputes and refuses, digest-pinned build image,
+  no network, bounded time, receipt only on artifact equality, idempotent build identity, not a public route).
+- H2 no change to src/api-registry.ts; the route is FACTORY_HOST_PREPARATION_PATH on the host-launch listener only; a
+  preparation for another tenant than the mTLS peer is refused 403 (host-launch-service.ts answerPreparation).
+- H3 supervisor: filesDigest(files) !== sourceDigest -> 409 source_digest_mismatch before any build; client: the answer's
+  files must digest to the named artifact (host_preparation_artifact_mismatch); product: the build's source, artifact,
+  image and manifest digests must equal the binding's (factory_package_build_mismatch), the collected files must digest
+  to the binding's artifact, and only then the receipt.
+- H4 build identity = digest of tenant, project, reference, trust revision, release, source, artifact, image and manifest
+  digests (unchanged from base); the host joins a repeat of the same identity and refuses the same identity with other source.
+- H5 the build is the extension runner's: image docker.io/oven/bun@sha256:9114c058... (pinned, `--pull=never`),
+  `--network=none`, `--read-only`, buildLimits with a deadline that cancels; the host bounds a preparation at 240 s.
+D4: projectScoped serves a global installation only through extension_project_bindings with this project, the active
+   release, the current generation and the owner.
+D3: boot staging only when factories are enabled (runner-install.ts); staged installations are global, owned by the first
+   active administrator, disabled until that administrator approves; a staging failure is reported and boot continues.
+D1/D2: profile rules (equal allocations may share a class; a duplicate runner and an unpinned configured digest are refused);
+   one guest entry per REFERENCE_CODE_IMPLEMENTATIONS export, held equal by runner-packages.test.ts.
+D7 replay (w4h-26-tools/d7-replay.ts over proof/final.json 698c29aa00328084), 9 of 9:
+- tree id: the product's factoryGitTreeId = real `git write-tree` = 9ef0aba3b0b16561 (5 files);
+- the run's recorded connection = the fixture's (commit c x40);
+- sealed snapshot.json = recomputed sha256:e020cd2462727d66, 4,017 bytes, sealed;
+- port = recomputed sha256:f7f9fa0a4e13cdea (attempt output and result.json material);
+- attempt completed with measured 0 usage; guest image = the repo's pinned DEFAULT_IMAGE; receipt artifact and source =
+  the binding's; the run stopped at generate-private-candidate with factory_native_package_untrusted; 16 HTTP steps 2xx.
+Post-midpoint fixes: the port as an artifact reference to the sealed material (mutant "storage not the material" killed);
+   the route handler split (host-launch-service 23 pass, D6 mutants killed, CRAP pass); the two C13 inventory rows (they add
+   required imports, stricter; check-factory-boundaries pass).
+Proof harnesses: buildGraphGuest (scripts/factory-graph-proof/guest-package.ts) and buildFactoryGuest
+   (web/e2e/factory-services/guest.ts) both build for real through the shared builder (heavy leg, 2 pass), every changed
+   executable line of both hit.
+
+Mutants: 20 of 20 red. D6 7 (peer tenant check, supervisor source digest, preparation timeout, client artifact digest, product
+binding artifact, same identity other source, repeat rebuilds); D4 4 (release, generation, project, no binding); D3 1 (flag);
+D1 3; D2 2; port material 1; backoff 1; the guard alias undone 1 (red).
+Red-first on the base sources (head tests kept): assertion reds in startup-config (D1), bundled-bootstrap-v4 (D3),
+runtime-workers and runtime-composition (D5); the new-module tests are load errors there (not counted) and are covered by
+the mutants. readiness.test.ts and the registration guard are unchanged files and pass on base, as expected.
+Gates at d2d78d98e: gate-integrity main (origin/main 1981febd2) 0 findings and base 0; lint 0; factory boundaries and
+boundaries 0; gitleaks 0; new-file and patch coverage pass and CRAP --changed pass over the union of 49 suites plus the SDK
+leg and the PostgreSQL suites; guard set 522 pass (42 files); typecheck exit 0 (tc rule, lock-free). Changed lines: 590
+executable, 17 not hit, all of them multi-line parameter lists, lone `},` lines, or two test stubs that must never run.
+Suites at the head: 49 bun files green (owner's focused list plus mine), SDK leg 15, PostgreSQL package-preparation 27,
+console 27, package-fence 17, provisioning 63 (all on my own PostgreSQL; the first two with my own storage).
+
+## Open in my plan (stated, not counted)
+- V1: I did not re-run the end-to-end refusal on main myself; its harness uses the shared stores. I read the owner's R1
+  records and matched each refusal to the code at 1981febd2 (startup-config.ts:500/:801, native-runner-policy.ts:141,
+  package-preparation.ts:219). I will run it on my own storage at re-validation if team-lead wants it.
+- H4 after a supervisor restart: the host's join map is in memory (64 entries); a retry of the same build identity after a
+  restart goes to a new runner instance. Not tested here; to test at re-validation (one restart between build and receipt).
+
+## Notes (non-blocking)
+N1 The local fleet's shared cpu allocation rises from 1,000 to 50,000 tokens for the w09b guest too (disclosed).
+N2 generateCandidate's configurationDigest stays the definition's placeholder (disclosed); the later package owns it.
+N3 bundled.ts imports ../factory/boot and runner-install even with factories off (runner-install returns at once); no work
+   is done, but "returns before it loads anything" is true only of runner-packages.
+N4 My own tool errors, corrected: the first harness-build test asked the e2e build for a `guest` field it does not have
+   (its field is `reference`); the first coverage union lacked the owner's boot suites and the SDK leg's path rewrite.

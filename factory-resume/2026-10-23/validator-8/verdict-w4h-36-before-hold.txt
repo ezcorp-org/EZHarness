@@ -1,0 +1,172 @@
+# validator-8: W4H-36 FINAL ACCEPT (2026-10-16 ~10:52Z): commits df92f4339, 3099fc3af, 425196fbe, 7cac5837c and the documents
+F8 FIXED: leftovers-2026-10-16.md 2837a8e79add335d (from b0eada4510b251bb): the six 74a lines (183-188) removed and inserted
+once, byte-equal, after 74 in "### Host, evidence and administration"; the rest of the file equal; line multiset equal; numbering
+in order (0 breaks), no duplicate, 1..75 present; identity clean; mirror equal. SHAS.txt bfddd5717e71dff2.
+Documents ACCEPT at: docs-draft-v10.md b10f1292a1ea2d1e; leftovers-2026-10-16.md 2837a8e79add335d; followup4-pr-body-draft.md
+50c6c177a21f2ee9; extract-blocks.py 1d1a6a4573ccc3ff; blocks lessons d6405a63fc0fa149, lessons-2 88217c3545d0a26e, landing
+cad0ac6d848f6756, wsync 316c8349aaa641e2, leftover 5584faf6c0d3fb93, leftover-2 e91e4ac1b725097d, correction 798c09260467ea29.
+Merge into integ after W4H-33 (with the next push). Any later edit of these files needs a new re-check.
+
+# validator-8: W4H-36 re-check of F5-F7 (2026-10-16 ~10:45Z): all three FIXED; one new numbering finding F8
+Stable files (unchanged 10:39:08-10:41Z; SHAS.txt 1a52109eacf6153d agrees): docs-draft-v10.md b10f1292a1ea2d1e, leftovers-2026-10-16.md
+b0eada4510b251bb, tasks-todo-leftover-block-2.md e91e4ac1b725097d; the other blocks unchanged. (The owner's message named
+b9603dc80228c5a0 / a748ec05118afeb9 / 00f44bee076cd9b0; those were edited again with the coordinator's sweep wording, so I judged these.)
+- F5 FIXED: "Dockerfile:43 (at c8ae394ca)" in ledger 31c and v10 3b. F6 FIXED: 74a and v10 3b say the folder does not exist, the
+  07:55Z sweep by all evidence, "install fresh" on the user's word (= the coordinator's ruling). F7 FIXED: item 32 note is closed
+  history naming e4aa0cb44 and e0d806c2a90595d4. 0 hits for the three old strings in all 10 files.
+- v10 delta from c6b8555217795061: only the two 3b items (9 lines). Ledger delta from 1ebed03a9e47c241: only 31c, 32, 74a.
+- extract-blocks.py on my copy: "part 1 present, part 2 absent"; all 7 blocks byte-equal to the owner's; identity clean.
+- Duplicate check (coordinator's ask): 84 block items, 0 duplicates within the blocks, 0 part-2 items already at integ.
+- Ledger numbering (coordinator's ask): 94 items, no duplicate number, 1..75 all present; BUT order broken once:
+F8 74a stands at line 183 in "### Tests, gates and CI" (after 70d, before the "### Host" section starts with 71). It belongs after
+   74 in "### Host, evidence and administration" (beside 74b). Move it; no text change.
+Verdict: documents ACCEPT once F8 is moved (I re-check the move: same item bytes, new position, numbering in order). Commits ACCEPT stands.
+
+# validator-8: W4H-36 FINAL verdict at 7cac5837c (2026-10-16 ~10:45Z) — commits ACCEPT; documents ACCEPT after 3 small text fixes (F5-F7)
+Head 7cac5837c on c8ae394ca (wp/w4h-36-docs-v10); ref proof/w4h-36-pre-rebase = 7e4dbaae0. Plan: plan-w4h-36.md 6216ee69ef8456aa
+(rebase addendum R1-R6). Evidence: validator-8/w4h-36-check/final/.
+
+## Commits (ACCEPT)
+- R1/R2 rebase: my `git range-diff 390c49a90..7e4dbaae0 c8ae394ca..425196fbe` = the owner's range-diff-3.txt dfbe2081a2b0782a.
+  Commit 3 is "="; commit 2 is "!" only in context lines (the W4H-28 amendment now sits beside it); commit 1 is unpaired
+  because its context moved. For all three pairs the changed lines (git diff -U0, +/- lines only) and the full message are
+  sha16-equal: a083585e5 = df92f4339 (1fe23c590c0db0e3), b4cee07c0 = 3099fc3af (32372f73441b01d5), 7e4dbaae0 = 425196fbe
+  (b459ca8ee3ccc3a3); each touches only the contracts document. Parent chain starts at c8ae394ca.
+- R3 identity: identity-check commits c8ae394ca..7cac5837c: 4 commits clean; author = committer = the <USER> noreply.
+- R4 rerere: no conflict; the owner reports -c rerere.enabled=false. Changed lines are equal, so no replayed resolution can
+  have changed content.
+- R5 fourth commit 7cac5837c (+2 -3, contracts only; c8ae394ca..7cac5837c touches that one file):
+  - The stale AB-1/AB-2 note is removed; 0 "belongs here" left; the C05 row "Answer a refusal from the extension runner" is
+    present once.
+  - C03 memory clause: validator-composition.ts at c8ae394ca line 116 `bounds.memoryBytes ?? allocation.memoryBytes`, 117-119
+    the refusal `factory_validator_resource_denied` with the cost checks. Matches.
+  - Gateway ceiling row: factory-transport index.ts:36 `GATEWAY_MAX_RESPONSE_LIMIT_BYTES = 64 * 1024 * 1024`; :187 refuses a
+    non-safe-integer, <1 or > ceiling with "factory gateway byte limit is invalid" before any request; the test
+    gateway-activities.test.ts:208-214 refuses 0, -1, 0.5, NaN, Infinity, ceiling+1 and accepts the ceiling. Equal to the
+    host-preparation row (64 MiB; 4 MiB for every other reply). One row (1 hit for the constant). Plan rows met.
+
+## Documents
+Judged shas: docs-draft-v10.md c6b8555217795061; leftovers-2026-10-16.md 1ebed03a9e47c241; followup4-pr-body-draft.md
+50c6c177a21f2ee9; extract-blocks.py 1d1a6a4573ccc3ff; blocks: lessons d6405a63fc0fa149, lessons-2 88217c3545d0a26e, landing
+cad0ac6d848f6756, wsync 316c8349aaa641e2, leftover 5584faf6c0d3fb93, leftover-2 471ef127a2f3997d, correction 798c09260467ea29.
+- extract-blocks.py on my copies with integ tasks/ at c8ae394ca: exit 0, "part 1 present, part 2 absent", 1 correction; all 7
+  blocks byte-equal to the owner's. Two planted mutants RED (exit 1): a changed receipts sha in integ todo (MISSING at integ);
+  the correction pre-applied (MISSING + "correction not applicable"). The tool is not vacuous.
+- v10 delta from my accepted bca742b5542518d6: the landing state note, the filled values (equal to integ by the tool), part 2
+  (1b: 16 lessons; 3b: 8 leftovers), section 4 (OLD "Addenda A to AN" once at integ, NEW absent; my plan runs to BE).
+  Traced: invariant legs (W4H-28 NOT ACCEPTED 6c0b99d37; W4H-33 guard red 06:30Z; 51 = w00/invariant-tests.txt); rule 11 as
+  ruled; equivalent comment mutants (plan-w4h-28 :1009); the case-check correction; the .new install rule; the dead helper
+  call; the integrator's own pkill (log 02:58Z); rerere; bounded remote reads; the live-body readback (b7dbd9210); the SSH
+  agent stall (03:12Z); combined headroom (resource-gate.sh: 6 GiB AND 8 GiB); /tmp cleanup.
+- PR body delta from the live 68bfbd174fbeee23: one line, "addenda A to AN and later" -> "A to BE". True.
+- Ledger delta from the accepted 7d8013940d52dbbf: new 31b, 31c, 32 note, 32h, 49a (node_pin hashes = my OK, plan-gate :191-192),
+  70a-70d (the six old trial branches exist by name), 74a, 74b; closures name 7e5365696 / cc6bfe54b; AB-1/AB-2 names df92f4339,
+  a083585e5 and 7cac5837c. 2026-10-13 ledger unchanged (2900081b1f954ef0).
+- identity-check files on the 10 documents: clean. Mirror w4h-36/: 16 files, 0 drift.
+
+## Findings (small text; fix, then I re-check the changed lines only)
+F5 Dockerfile line: ledger 31c and v10 3b (so tasks-todo-leftover-block-2) say "deploy/factory/Dockerfile:46". At c8ae394ca,
+   the head the ledger names, the bundle build is line 43 (also 43 at 390c49a90); 46 holds only on W4H-35's def32c1a4. Write
+   ":43" or name the tree.
+F6 Bun 1.3.14: ledger 74a and v10 3b say the folder "holds an empty bun binary and no bunx". At 10:3xZ the folder
+   /tmp/factory-tools/bun-1.3.14 does not exist (/tmp/factory-tools mtime 09:53:37Z). State the present fact (folder absent)
+   and keep the repair item.
+F7 Ledger item 32 note: "The owner adds the namespace list's pin test ... at a new W4H-33 head; the merge waits for the delta
+   verdict." Done: fixed red first at e4aa0cb44, delta ACCEPT (verdict-w4h-33.txt e0d806c2a90595d4). Write it as closed history.
+
+## Verdict
+Commits df92f4339, 3099fc3af, 425196fbe, 7cac5837c: ACCEPT for the merge after W4H-33. Documents: ACCEPT once F5-F7 are fixed
+(re-check of the changed lines and new shas only; the blocks must re-extract and the tool must pass at the integ head then).
+
+# validator-8: W4H-36 documents ACCEPT (2026-10-16); the final verdict at the final head checks only that delta
+F4 FIXED: followup4-pr-body-draft.md 3910cc8870e740d8 says "36 lessons, one line of recurrences and the leftovers";
+identity-check files (v5) clean. Unchanged: docs-draft-v10.md bca742b5542518d6 (36 lessons + 1 recurrence line),
+leftovers-2026-10-16.md 7d8013940d52dbbf, tasks-lessons-block.md d6405a63fc0fa149, tasks-todo-leftover-block.md
+5584faf6c0d3fb93, landing f6763f94d1206f2d, wsync c0c9bb238a0d2afe, extract-blocks.py bc67edc9d00aac09.
+Documents: ACCEPT at these shas. Commits a083585e5, b4cee07c0, 7e4dbaae0: ACCEPT (rows match the code; merge after W4H-28).
+Open for the final head: the integ merge with W4H-28 (C10 row stays above the W4H-28 amendments; no conflict), the removal
+of the stale C05 note as its own commit, and the C03 memoryBytes clause against validator-composition.ts:116-121.
+
+# validator-8: W4H-36 re-check (2026-10-16) of F1-F3 — all three FIXED; one small wording finding F4; final ACCEPT waits
+# for the final head (after W4H-28 lands)
+Files re-checked (no new commits; head 7e4dbaae0): docs-draft-v10.md bca742b5542518d6; leftovers-2026-10-16.md
+7d8013940d52dbbf; followup4-pr-body-draft.md 2ec3a098120bd30d; tasks-lessons-block.md d6405a63fc0fa149;
+tasks-todo-leftover-block.md 5584faf6c0d3fb93; unchanged: landing f6763f94d1206f2d, wsync c0c9bb238a0d2afe, extract-blocks.py
+bc67edc9d00aac09.
+- F1 FIXED: the draft diff against my copy of e8c43e09645d9eac adds exactly the two validator lessons (exit 127 of a step
+  with no kind; the typecheck into the lock when the host stays under 16 GiB), credited to validator-8, W4H-31.
+- F2 FIXED: the closed AB-1/AB-2 entry names a083585e5 (the W4H-36 merge commit replaces it at landing).
+- F3 FIXED: 32g (runtime-tools-grep.test.ts:246 and :259 are the two test.skipIf(!HAS_RG) cases at 390c49a90), 31a
+  (scripts/import-codex-login.ts line 15 at a1290b31a imports ./factory-graph-proof/codex-import-deployment), 75a (the
+  pid-reuse limit); also in the tasks leftover block.
+- The four blocks re-extract byte-equal from the new draft; identity-check files (v5 ef09124c9d7360ed) clean on the 5
+  changed files.
+- F4 (wording, small): the PR body says "37 lessons"; the draft has 36 lesson bullets (20 owner, 5 validator, 1 validator
+  and integrator, 4 integrator, 6 coordinator) plus one "Recurrences" line that repeats earlier rules. Write "36 lessons"
+  (or "36 lessons and a recurrences line").
+Verdict: documents ACCEPT once F4 is fixed; the commits' ACCEPT stands; the final verdict is written at the final head (after
+the integ merge with W4H-28, the stale C05-note removal and the C03 memoryBytes clause), checking only that delta.
+
+# validator-8: W4H-36 verdict (2026-10-16) — commits ACCEPT; documents: 3 findings to fix (re-check the delta)
+Frozen head b4cee07c0 on 390c49a90 (wp/w4h-36-docs-v10). Plan: plan-w4h-36.md (+ Addendum A 46f96ee9f4a87196); standing
+rules plan-common-w4h-32-36.md 147bb9ec215b3a14. Evidence: validator-8/w4h-36-check/.
+
+## Commits (ACCEPT)
+- Scope: 2 commits, both noreply (identity-check v4 commits 390c49a90..b4cee07c0, explicit shas, main repo: clean);
+  diff = docs/plans/2026-09-12-composable-factory-platform-contracts.md only (+3).
+- a083585e5, C05 runner refusal row, checked against 2a0c65e74: refusal shape {code, stage, message, retryable} plus
+  errorClass/errorCode (core.ts:15-16; service.ts:319-321); a RunnerError -> 400 with its text, invalid_request includes a
+  body that is not a JSON object (service.ts:71-72); artifact_missing is a RunnerError (400) with {Error, ENOENT}; any other
+  error -> 500 runner_internal_error with the deepest cause's class and code from the shared errorShape
+  (extension-contract error-shape.ts), never its message; client: one attempt, no repeat after 500. Matches.
+- b4cee07c0, C10 readiness-document row (four base codes, ruled KEEP), checked against factory-broker.ts at 390c49a90:
+  schema factory.provider-readiness.v1 (:24); fields provider, model, ready, credentialKind (null when none),
+  requiredCredentialKind when the pin names one, failures, checkedAtMs (:40-54, :128-135); order model_not_available first
+  then one credential code (:125-126); ready only with no failures (:131); model_pin_mismatch from the call-time path
+  (:167-173). Matches.
+- Merge order (W4H-28 first, then W4H-36): git merge-file of the contracts document (base 390c49a90, W4H-28 a1290b31a,
+  W4H-36 b4cee07c0) on copies: 0 conflicts; the C05 row lands at line 175; the C10 row at 350, ABOVE the W4H-28 amendments
+  (354, 358), so its words "the W4H-28 amendments below" are true after the merge (not at this base alone). C03 not
+  duplicated. The stale-note removal is a later, separate commit (checked when it exists).
+
+## Documents (current files; they changed after SHAS.txt, so these are the shas I judged)
+  e8c43e09645d9eac w00/wave4i/docs-draft-v10.md
+  5d28aa0bf718ad8f w00/leftovers-2026-10-16.md
+  3f140334a4161105 w00/wave4i/followup4-pr-body-draft.md
+  abd2546118260939 w4h-36/tasks-lessons-block.md
+  f6763f94d1206f2d w4h-36/tasks-todo-landing-block.md
+  c0c9bb238a0d2afe w4h-36/tasks-todo-wsync-block.md
+  8f7ca9e39f082eb1 w4h-36/tasks-todo-leftover-block.md
+  bc67edc9d00aac09 w4h-36/extract-blocks.py
+  2900081b1f954ef0 w00/leftovers-2026-10-13.md
+- Identity: identity-check files on all 8 files clean; secret-like lines 0.
+- The 2026-10-13 ledger is unchanged (2900081b1f954ef0).
+- extract-blocks.py on copies reproduces all four tasks blocks byte for byte; placeholders only the known ones
+  (landing: W4H-28-MERGE/RECEIPTS/VERDICT; W-SYNC: W4H-31-HOLD/RECEIPTS); the PR body's placeholders are GATE-CHANGES,
+  HOSTED-COMPARISON, W4H-28-VERDICT, W4H-31-HOLD (for the integrator); 0 unexpected.
+- W4H-28 facts in v10 (line 129-) and the PR body equal my reads: run <MSG-ID>; lock
+  15:01:36-15:02:56Z; generate 1,318 + 92 tokens, 178, 2,122 ms; review 334 + 57, 62, 2,173 ms; envelope 1,801 / 240;
+  10/10; ordinary/releases/w4h28/real-9/run1, candidate.json 6,231 B, manifest.json 540 B = effect digest; record
+  ae7a2fba9035010a.
+- Lessons: 34 bullets (owners 20 incl. the hook-cap lesson; validator 4; integrator 4; coordinator 6) + a recurrences line.
+  Every one I sampled traces to the coordinator log or a pending-lesson file (incl. "object literal" and "optional field"
+  in the owners' files).
+- Ledger: 75 numbered open items in 4 groups, a closed section, a stale-lines section.
+
+## Findings (documents; fix, then I re-check the delta)
+F1 Two validator lessons are missing, and the count is off: the owner reported "validator 20-24" (5); there are 4 validator
+   bullets. Missing (validator-8/pending-lesson.md, W4H-31 entry): (1) "step <leg> <kind> <command...>: a missing kind runs
+   the command as the kind (exit 127); read every exit=127 at once"; (4) "when the host stays under 16 GiB, move the
+   typecheck into the lock (>= 12 GiB) instead of waiting for hours". Neither is in v9 (not a recurrence).
+F2 Ledger rule broken once: "An item closes only with its landing commit", but the closed entry for the runner wire error
+   codes (W4H-28 AB-1, AB-2) says "the contracts row lands with W4H-36" without the commit. Name a083585e5 (or the merge
+   commit once it exists).
+F3 Ledger misses three items from my records: (a) the two rg-gated tests never run on hosted (no workflow installs
+   ripgrep), ruled into W4H-33's scope; (b) the product CLI scripts/import-codex-login.ts imports a proof-harness module
+   (scripts/factory-graph-proof/codex-import-deployment.ts): a layering note from W4H-28 F2; (c) the live-pid run marker
+   yields to an unrelated live process that reuses the pid (a stated, safe-side limit of gated-flock).
+
+## Verdict
+Commits a083585e5 and b4cee07c0: ACCEPT, for a merge AFTER W4H-28 (the C10 row's forward reference needs it).
+Documents: not yet; F1-F3 are small text fixes. After the owner fixes them I re-check only the changed lines (diff of the
+files above) and the new shas, then write the final ACCEPT for the documents in this file (new section on top).

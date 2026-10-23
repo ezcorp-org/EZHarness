@@ -1,0 +1,69 @@
+# validator-8: W4H-33 integration hold on 15d71f83b (2026-10-16 10:41:22-11:06:14Z): NOT OK to publish — 2 red legs; 3 of the 4 red causes are hold-tool gaps, not product or test defects
+Record: w00/w4h-merge/w4h-33-test-hygiene-e4aa0cb44-on-c8ae394ca/ (heavy-batch.log 1-592, HEAVY DONE status=1 dirty=0; heavy.exit 1).
+OK parts: 193 START = 193 END, no duplicate; 184 exit 0; the 7 exit-97 legs = the 7 ruled not-runnable files exactly; unit 165 =
+unit.txt, pg 0; guard set 524/0; static 0; preview proof in the merge's own image 7/0 + receipt + image removed by name (no image left);
+price-chart NONET 10/0 and 6/0; real-auth specs 4 passed (the spec itself asserts the ai-kit child counts: 7 pass/no skip, 1 pass + the
+tracked skip lines, 4 pass/no skip); actionlint 0 (my verbose re-run at 15d71f83b: 9 workflow files, clean; it does not lint the composite
+action.yml, a tool limit); web 83/0 and 179/0; graph mock 0; CRAP 0; no OOM; own pg gone; config 8841afbedf4c59d8 before and after.
+Red 1, merge-commit-gates:
+- both gate-integrity legs: exactly the two ruled deletions, nothing else. The origin/main match fails because the expected file is the
+  SHARED w00/expected-integ-findings-vs-main.txt (empty); the base leg has no expected-file form (label text only).
+- patch: web/src/lib/api.ts "NO lcov data". Not a missing test: coverage-config.ts BUN_CANONICAL_PRODUCERS names its sole producer
+  "ezcorp-bun-api" (scripts/api-client-coverage.sh), which this hold never runs; at 1dcaac301 that producer gave 100/0 (my verdict).
+Red 2, w4h33-red-first-cases (case-check v8):
+- 19 CASE PASS; 6 "MISSING or not passed" = the six web vitest names (send-message.test.ts, ChatThread.coverage.component.test.ts):
+  case-check v8 drops every web/ file (line 24), so web names are MISSING by construction (not in team-lead's list).
+- changed test lines: bundled 15-17, fanout 18 lines, quickstart 39-40 uncovered: the three suites are list-bound; in the real run
+  bundled 15-17 and fanout 18-19 execute (precondition probes), but the other lines are inside tests that SKIP by ruling (c) until the
+  ai-kit deployed lane exists (leftover 32h).
+- bash cover: production-suite 112 is a `case` pattern line; xtrace never prints pattern lines; the branch DID run (trace: line 114
+  "[[ preview-isolation == runtime-resources ]]"). preview-isolation 33-37 are continuation lines of the podman command traced at line
+  32 (4 test runs). bash-line-cover.py 767e675453ecd968 has no rule for either: two false reds.
+- The case leg's folder argument and its trace path name the OLD folder w4h-33-test-hygiene/ (byte-copied extra-legs.sh line 32): the
+  output was written there; the lists read there equal the ruled folder's (warn 5da55c9c775b2105, whole c2051757657f9227), so no
+  judgement changed, but the record is split across two folders.
+Verdict: NOT OK to publish 15d71f83b. Repairs as in my message to team-lead (2026-10-16 ~11:45Z).
+
+# validator-8: W4H-33 DELTA VERDICT at e4aa0cb44 (2026-10-16T10:1xZ): ACCEPT — finding F2 (preview list unpinned) fixed red first
+Delta 1dcaac301..e4aa0cb44: one test-only commit (production-proof-results.test.ts); identity 26 clean. declaredTests shared by the namespace
+and the new preview pin; the file 6/0; 12 of 12 instrumented changed lines hit; my two mutants on PREVIEW_ISOLATION_PROOF_TESTS (a dropped
+entry; an undeclared name) RED 5/1 each by the new pin; 51 invariant legs green; red-on-base.txt and report.txt append-only (prefix hashes
+equal the earlier ones). Everything of the ACCEPT at 1dcaac301 below carries over. Detail: plan-w4h-33.md Addendum N.
+
+# validator-8: W4H-33 verdict at 1dcaac301 (2026-10-16T08:1xZ): ACCEPT — one blocking finding found at 0cfd7b104 and fixed red first; every plan check holds
+Plan: plan-w4h-33.md (V1-V7, Addenda A-K; sha at this verdict e969832d1d38ff7e). Head 1dcaac301 = 0cfd7b104 + 86df17911 (fix) + 1dcaac301
+(gate file). Identity: identity-check commits 390c49a90..1dcaac301, 25 commits, clean.
+Holds (all mine, raw logs read; snapshots removed; Bun 1.4.2 pinned): light w4h-33 (0cfd7b104), heavy w4h-33-heavy (gated), follow-ups
+w4h-33-fu, -fu2, -fu3 (0cfd7b104), w4h-33-delta (1dcaac301), heavy base-red w4h-33-basered2 (390c49a90, gated).
+FINDING (BLOCKING, fixed): at 0cfd7b104 src/__tests__/git-spawn-context-guard.test.ts RED 18/1, "Unguarded git spawn in:
+scripts/test-skip-inventory.ts (env: env)". Fix 86df17911: withoutGitContext(process.env) (explicit-target class; accepted by team-lead).
+At 1dcaac301: the guard 19/19 and all 51 invariant legs green.
+Checks:
+- V1/A1 inventory: owner list compared (Addendum A); the never-running, Docker-only, env-gated and lane-set classes named and decided.
+- V2/A2/B1 the two retired describe.skip files deleted by ruling with the 10-behaviour replacement map; gate-integrity default/main/base
+  flag only these 2 deletions (ruled) at 0cfd7b104 and 1dcaac301.
+- V3/B2 Docker-only preview tests: the Podman form in the owner's candidate image passed 7/0 in my heavy hold; the uid map fits the
+  user's 65,536 subordinate ids; light runs show them VOID by design (no image), not skipped silently.
+- V4/A5/B7 fixtures: the address filter: 428 of 430 pairs differ only in address literals, 2 value-identical splits (accepted);
+  identity-check files clean (owner's 866-file run; parity 426 = 426 before).
+- V5/A9 timeouts: 10 runs each 29/0; declared 65 s / 125 s = 6 x p95 rounded (W4H-24 rule).
+- V6/I4 inventory test 25/0; mutants: unknown registry id RED, suite dropped RED, malformed form unchecked RED, unlisted precondition
+  unchecked RED; the precondition contract 6/0 and the guard-always-skips mutant RED (3 named).
+- A8/B3 ripgrep action: registrations 50/0; a job dropping the action RED; actionlint: the same 3 self-hosted label findings at base and
+  head (pre-existing, not this package's).
+- D1-D4 pgvector pin: registration test green; tag back in a workflow line RED; tag in the json RED.
+- C/E/G/H sub-conversation: base-red BY ASSERTION on 390c49a90 with the head's spec ("Validation failed ... agentConfigId: Invalid UUID",
+  Expected 201, Received 400 at spec line 52); green at the head in my heavy run (real-auth specs 4/4 incl. the return-to-main case);
+  vitest 514/514; mutants routing removed, dedup removed, empty id back, last-not-reversed, any-sub-taken, handler order swapped, lazy
+  load removed, lazy response ignored: all RED by assertion; E1 (ChatThread renders the block only for records without an agent config
+  id; the route resolves no names), E2 (one serialiser subConversationBody), G1 (send-message.ts the only writer of the store), the DROP
+  rationale (lazy load on open; startSubConversation resets the store) read at the head.
+- B4 placeholder: the sub-agent run on the parent conversation RED. B5 real PDP: a denied decision RED (the executor refuses).
+- I1 price-chart with no outside network 10/0 and 6/0; routing removed RED. I3 staging: green under umask 077; the old script RED 2/1.
+- Typecheck 0 (0cfd7b104 and 1dcaac301); handlers-vs-interface clean (red at 703621531); lint 0; boundaries 0; manifest-lock 34/0.
+- Coverage: every gated changed line covered (api.ts by its canonical producer 100/0); production-proof-plan.ts 73-74 outside
+  SOURCE_GLOBS (exercised by a spawn test; informational).
+- Two unit-coverage failures in my one-process run were cross-file state; each file alone is green (19/0, 5/0).
+Limits: the base-red run's END shared-config check could not run (w00/config-check.py was deleted by the host's /tmp cleanup at
+07:55:48Z); its START check passed; the run's result stands.
+ACCEPT at 1dcaac301.
