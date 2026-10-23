@@ -1,0 +1,77 @@
+diff --git a/src/__tests__/helpers/factory-webhook-receiver.ts b/src/__tests__/helpers/factory-webhook-receiver.ts
+index b18fa99..890ad9a 100644
+--- a/src/__tests__/helpers/factory-webhook-receiver.ts
++++ b/src/__tests__/helpers/factory-webhook-receiver.ts
+@@ -88,11 +88,15 @@ export async function startTestWebhookReceiver(options: TestWebhookReceiverOptio
+   const delivered = new Set<string>();
+   let status = 200;
+   let hook: ((request: ReceivedNotification) => Promise<void>) | null = null;
++  // A request counts only in the reset generation it arrived in: a hook that outlives its test must not add
++  // to the next test's counts (W4H-35, ci 39956956620 root 2: a late key made N7 see two logical deliveries).
++  let generation = 0;
+   const server = Bun.serve({
+     hostname: options.hostname ?? "127.0.0.1",
+     port: options.port ?? 0,
+     tls: { cert: tls.cert, key: tls.key },
+     async fetch(request) {
++      const arrivedIn = generation;
+       const body = await request.text();
+       const header = (name: string) => request.headers.get(name);
+       const received: ReceivedNotification = {
+@@ -104,12 +108,12 @@ export async function startTestWebhookReceiver(options: TestWebhookReceiverOptio
+         signatureValid: verify(options.secret, header("x-ezcorp-timestamp"), body, header("x-ezcorp-signature")),
+         timestampValid: Math.abs((options.now ?? Date.now)() / 1000 - Number(header("x-ezcorp-timestamp"))) <= (options.toleranceS ?? FACTORY_NOTIFICATION_SIGNATURE_TOLERANCE_S),
+       };
+-      requests.push(received);
++      if (arrivedIn === generation) requests.push(received);
+       if (hook) await hook(received);
+       // A bad signature or a stale timestamp is refused before deduplication: a replay never counts.
+       if (received.signatureValid === false || !received.timestampValid) return new Response(null, { status: 401 });
+       // Without a key a receiver cannot deduplicate, so every such request is its own logical delivery.
+-      if (status >= 200 && status < 300) delivered.add(received.idempotencyKey ?? `no-key-${requests.length}`);
++      if (status >= 200 && status < 300 && arrivedIn === generation) delivered.add(received.idempotencyKey ?? `no-key-${requests.length}`);
+       return new Response(null, { status, ...(status >= 300 && status < 400 ? { headers: { location: "https://127.0.0.1:1/" } } : {}) });
+     },
+   });
+@@ -120,7 +124,7 @@ export async function startTestWebhookReceiver(options: TestWebhookReceiverOptio
+     logical: () => delivered,
+     answer(next) { status = next; },
+     onRequest(next) { hook = next; },
+-    reset() { requests.length = 0; delivered.clear(); status = 200; hook = null; },
++    reset() { generation += 1; requests.length = 0; delivered.clear(); status = 200; hook = null; },
+     async stop() { server.stop(true); },
+   };
+ }
+diff --git a/src/factory/notification-sender.test.ts b/src/factory/notification-sender.test.ts
+index 0431cc9..1826306 100644
+--- a/src/factory/notification-sender.test.ts
++++ b/src/factory/notification-sender.test.ts
+@@ -228,7 +228,7 @@ describe("loading the declared destinations (C11 N8, N9)", () => {
+ 
+ describe("the receiver's replay bound (C11 N3)", () => {
+   const secret = new TextEncoder().encode("r".repeat(32));
+-  let clockS = 1_700_000_000;
++  const clockS = 1_700_000_000;
+   let receiver: TestWebhookReceiver;
+   beforeAll(async () => { receiver = await startTestWebhookReceiver({ secret, now: () => clockS * 1000 }); });
+   afterAll(async () => { await receiver.stop(); });
+@@ -254,4 +254,19 @@ describe("the receiver's replay bound (C11 N3)", () => {
+     expect([...receiver.logical()].sort()).toEqual(["fn1-a", "fn1-d"]);
+     expect(receiver.requests.map((request) => request.timestampValid)).toEqual([true, true, false, false, true]);
+   });
++
++  test("a request whose hook outlives reset() counts in no later test (W4H-35, ci 39956956620 root 2)", async () => {
++    let arrived!: () => void;
++    let release!: () => void;
++    const inHook = new Promise<void>((resolve) => { arrived = resolve; });
++    receiver.onRequest(() => { arrived(); return new Promise<void>((resolve) => { release = resolve; }); });
++    const late = post(clockS, "fn1-late");
++    await inHook;
++    receiver.reset();
++    expect(await post(clockS, "fn1-next")).toEqual({ status: 200 });
++    release();
++    await late;
++    expect([...receiver.logical()]).toEqual(["fn1-next"]);
++    expect(receiver.requests.map((request) => request.idempotencyKey)).toEqual(["fn1-next"]);
++  });
+ });

@@ -1,0 +1,8 @@
+fix(factory): the test webhook receiver counts a request only in the reset generation it arrived in
+
+Hosted ci 39956956620 failed tests/postgres/factory-notification-sender.test.ts:334 (C11 N7, "Expected 1, Received 2"). An earlier
+test's receiver hook (F8, `await Bun.sleep(50)`) outlives that test: the receiver adds the request's key after the hook, so the key
+lands in a later test's set after its reset(). On a runner with the right timing, N7 saw its own key and F8's.
+
+The receiver now takes the reset generation when a request arrives and records the request and its key only if no reset came between.
+A unit case holds a hook across reset() and proves the late request counts nowhere. The file's const lint is fixed on the way.

@@ -1,0 +1,7 @@
+chore(factory): the must-fix lint and test-cleanup items from the W4H-35 merge hold
+
+- src/factory/runner/supervisor-process.ts: remove the unused `stat` import (new from W4H-35).
+- src/factory/service-probes.ts: probe results are `undefined | held roles`, not `void | ...` (3 noConfusingVoidType). A probe that
+  only proves liveness is built by probeOf; the two supervisor probes that report held roles by heldProbeOf. Fixtures return undefined.
+- src/factory/observability/alert-evaluator.integration.test.ts: afterAll removes its directory only when beforeAll made it, so a
+  failed setup reports one failure with its real cause, not a second "path must be a string" error that hides it.

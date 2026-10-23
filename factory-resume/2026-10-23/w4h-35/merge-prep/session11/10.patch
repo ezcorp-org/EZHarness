@@ -1,0 +1,41 @@
+diff --git a/web/e2e/personal-github-settings.spec.ts b/web/e2e/personal-github-settings.spec.ts
+index 616a8c4..25b5249 100644
+--- a/web/e2e/personal-github-settings.spec.ts
++++ b/web/e2e/personal-github-settings.spec.ts
+@@ -2,6 +2,9 @@ import { test, expect, captureEvidence } from "./fixtures/test-base.js";
+ 
+ const member = { user: { id: "owner-a", email: "owner@test.local", name: "Owner", role: "member" } };
+ const deviceReviewId = "00000000-0000-4000-8000-000000000002";
++// The page clock of the clock tests. An expiry they show must come from this clock, not the runner's: once real time is more than
++// 2^31-1 ms (24.8 days) past it, Playwright's clock fires the expiry timer after 1 ms (W4H-35, ci 39956956620 root 3).
++const pageClockStart = new Date("2026-09-23T12:00:00.000Z");
+ const deviceAttempt = (attemptId = "00000000-0000-4000-8000-000000000001", userCode = "ABCD-EFGH") => ({
+ 	attemptId, userCode, verificationUri: "https://github.com/login/device",
+ 	expiresAt: new Date(Date.now() + 600_000).toISOString(), intervalSeconds: 1,
+@@ -182,7 +185,7 @@ test("device polling failure allows a manual check and reports denied approval",
+ });
+ 
+ test("an unverified code expires even when the connection check fails", async ({ page, mockApi }) => {
+-	await page.clock.install({ time: new Date("2026-09-23T12:00:00.000Z") });
++	await page.clock.install({ time: pageClockStart });
+ 	await mockApi({ routes: {
+ 		"/api/auth/me": () => member,
+ 		"/api/github/connection": () => ({ status: "disconnected", configured: true, authMode: "device" }),
+@@ -206,12 +209,15 @@ test("an unverified code expires even when the connection check fails", async ({
+ });
+ 
+ test("failed account lookup retires its one-use code and starts a fresh request", async ({ page, mockApi }) => {
+-	await page.clock.install({ time: new Date("2026-09-23T12:00:00.000Z") });
++	await page.clock.install({ time: pageClockStart });
+ 	let starts = 0;
+ 	await mockApi({ routes: {
+ 		"/api/auth/me": () => member,
+ 		"/api/github/connection": () => ({ status: "disconnected", configured: true, authMode: "device" }),
+-		"/api/github/device/start": () => deviceAttempt(starts++ === 0 ? "00000000-0000-4000-8000-000000000001" : "00000000-0000-4000-8000-000000000003", starts === 1 ? "ABCD-EFGH" : "WXYZ-1234"),
++		"/api/github/device/start": () => ({
++			...deviceAttempt(starts++ === 0 ? "00000000-0000-4000-8000-000000000001" : "00000000-0000-4000-8000-000000000003", starts === 1 ? "ABCD-EFGH" : "WXYZ-1234"),
++			expiresAt: new Date(pageClockStart.getTime() + 600_000).toISOString(),
++		}),
+ 	} });
+ 	await page.route("**/api/github/device/poll", (route) => route.fulfill({
+ 		status: 409, json: { code: "DEVICE_RESTART_REQUIRED", error: "GitHub account lookup failed. Start a new connection." },

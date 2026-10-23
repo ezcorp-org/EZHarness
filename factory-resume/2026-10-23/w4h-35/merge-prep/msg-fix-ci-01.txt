@@ -1,0 +1,9 @@
+fix(factory): pin the podman-remote download with sha256sum -c, which the hosted image builder accepts
+
+The hosted job "Factory image under shipped isolation" (ci 39956956620) builds on ubuntu-latest with Podman 4.9.3 and Buildah 1.33.
+That builder refuses `ADD --checksum` ("ADD only supports the --chmod=<permissions> and the --chown=<uid:gid> flag"), so the factory
+image did not build. The host's Podman 5.8.7 accepts the flag, which is why the local builds were green.
+
+The Dockerfile now downloads with a plain ADD and checks the file in the very next RUN with `sha256sum -c` against the same digest.
+scripts/check-factory-deployment-locks.ts accepts only that pair: the check must name the same destination, have 64 hex digits and be
+the next instruction. It refuses ADD --checksum by name, so the form the hosted builder rejects cannot come back.

@@ -1,0 +1,27 @@
+Session 11 plan (w4h-35, 2026-10-23; team-lead ruling: one session set, commits 08-11 on wp/w4h-35-w16-k8s-profiles at 3698c8e84;
+w4h-35 owns all). Supersedes session-08-plan.txt 20652a664b423105. For validator-8's OK by hash, then team-lead's word.
+COMMITS (patches in merge-prep/session11/, made as a chain in merge-prep/session11-scratch, head tree checks below):
+ 08 08.patch 15021d3d6a9bab34 (= fix-ci-01.patch) R1: Dockerfile ADD + next-RUN sha256sum -c; the lock checker accepts only that pair.
+    red commit08.red.log 1dcc280bbca82fe6 (3 fail) -> green commit08.green.log c0dd5864c8c3ca1f (16/16);
+    mutant: --checksum back in the Dockerfile, commit08.mutant-old-dockerfile.log 015d255898dbe178 RED. Notes fix-ci-01-notes.txt e5af01cc849c53ff.
+ 09 09.patch f4eee05cdbe703c0 R2: the test receiver counts a request only in the reset generation it arrived in; plus the file's
+    pre-existing useConst lint (clockS). red commit09.red.log (1 fail) -> green commit09.green.log (20/20);
+    mutant: no generation check on delivered.add, commit09.mutant-no-generation.log RED. Mechanism demo r2-leak-demo.log a2fa229f4b0e0a41.
+ 10 10.patch b2cdd95b3e4b073a R3: personal-github-settings.spec.ts :208 takes its expiry from the page clock (pageClockStart, shared
+    with :184). Red-first and the mutant (the runner-clock expiry back = the code before) are the R3 leg below, in the lock.
+ 11 11.patch c9862d2cac3ac389 must-fix: lint-fix-01 d5c19df782ffe66c + lint-fix-02 8c02d265de36d642 + test-fix-01 9523e39259b12f96.
+    lint 0 on the 5 files; probe tests 122/122 commit11.probe-tests.log; alert test without pg: exactly 1 named fail
+    commit11.alert-green.log; mutant: the network supervisor probe back on probeOf, commit11.mutant-held-dropped.log RED (1 fail).
+HEAD CHECKS (lock-free, done): typecheck backend + tests legs green under the tc-gate, session11.typecheck.log; lint 0 on every touched file.
+LOCK LEGS (one gated-flock job; coord word line 1; 2 lock reads lock=free; veto; resource gate):
+ L1 apply 08..11 in the clean worktree, one commit each through the pre-commit hook (commit-locked form), each commit's red-first
+    file re-run as recorded above.
+ L2 R3 red-first: bin/r3-github-repeat.sh 9cfa421f8f3fec54 on a27d301c4 (scratch-tree.sh 38d221856311f3af) --repeat-each 20: expect :208
+    RED on every repeat; then on the new head: expect :208 and :184 GREEN on every repeat.
+ L3 R2: own pg; `pg bash bin/r2-notif-repeat.sh <a27d301c4 tree> <out> 200 600` (the old receiver; a count) and the same on the new head
+    (expect 0 N7 red). Both are records: R2 is fixed by 09 whether or not the old tree reproduces in 10 min.
+ L4 full factory image with the hosted builder: build the builder from hosted-builder/Containerfile babe6afbbbc5feb1 (record its id),
+    then hosted-builder/hosted-builder-leg.sh 7176b0452b1ab5a8 <new head> (expect exit 0); host Podman 5.8.7 (w00 image-leg form) too.
+ L5 the fast stage and C9 at the new head, as in sessions 5-10.
+ L6 remove the builder image by id; records hashed; report. THE R1 BUILD PROOF IS THE NEXT HOSTED RUN on the pushed head.
+NOT YET WRITTEN: the session-11 launcher (merge13 launcher form). It follows this plan after the OK.
