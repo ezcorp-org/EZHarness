@@ -9520,3 +9520,10 @@ Review results: hosted trace confirms desktop variant was not rendered at immedi
 - [x] Complete independent review and normal commit hooks.
 
 Review: real management GET regression failed before fix and passed after fix. Twelve route tests pass. 36 focused contract/checkpoint/live-case tests pass. Biome checks all five source/test files. Full web check reports zero errors and warnings; backend typecheck passes. Actual route LCOV covers 98/98 executable lines. Independent source review passes. The focused real-auth Playwright case passes (1 test, 6.6 minutes including bundled bootstrap); normal commit hooks pass (lint and all selected tests). No live integration performed.
+
+## Sub-conversation contract test timing
+- [x] Reproduce the real Vitest contract test with cold module timing.
+- [x] Separate proven module preparation from behavior without weakening real schema validation.
+- [x] Verify focused tests, types, lint, independent review, and normal commit hooks.
+
+Review: real schema import consumed 382ms while behavior consumed 1.42ms. A private Vite probe delaying the unchanged real schema transform by 5200ms reproduces the exact timeout (74 pass, 1 fail). Moving real module preparation outside the timed behavior gives 75 pass under the same probe and ordinary configuration. Scoped types, Biome, and diff checks pass. Independent review passes. Normal commit hooks pass (Biome and the actual 75-test Vitest file). No production changes.
