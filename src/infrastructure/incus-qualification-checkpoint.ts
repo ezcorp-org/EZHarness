@@ -1,3 +1,4 @@
+import { INCUS_QUALIFICATION_PHASE_MS } from "./incus-admission-contract";
 import { createHash, createPublicKey, verify } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { sql } from "drizzle-orm";
@@ -417,7 +418,7 @@ export class IncusQualificationCheckpointStore {
   private async recoveryFixture(input: RecoveryFaultAuthority): Promise<FixtureIdentityRow> {
     const row = await this.get(input.runId);
     const now = this.now();
-    const recoveryDeadlineMs = row?.claimedAt ? new Date(row.claimedAt).getTime() + 20 * 60_000 : Number.NaN;
+    const recoveryDeadlineMs = row?.claimedAt ? new Date(row.claimedAt).getTime() + INCUS_QUALIFICATION_PHASE_MS : Number.NaN;
     if (row?.state !== "CLAIMED" || row.nonce !== input.nonce
       || !sameScope(row.scope, input.scope)
       || input.fixtureOperationId !== `qual-recovery-${input.runId}`

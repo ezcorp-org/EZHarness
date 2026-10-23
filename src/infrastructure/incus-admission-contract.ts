@@ -1,3 +1,6 @@
+/** Maximum time for one qualification preparation or claimed continuation phase. */
+export const INCUS_QUALIFICATION_PHASE_MS = 20 * 60_000;
+
 import type { SandboxCompatibilityObservation } from "@ezcorp/extension-contract";
 import { digest } from "../../scripts/incus/model";
 import type { CapacityObservation } from "./incus-operator/capacity";

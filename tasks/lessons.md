@@ -3068,3 +3068,7 @@ smokes under the lock, detached-job wake-ups) are not repeated.
 - Check the current frozen package compiler declaration and executable before dispatch. Use its local path; a tool lookup must not download an undeclared compiler.
 
 - For UI loading regressions, trace the exact store/API consumer before delaying a request. Require RED at the reported helper boundary, not an unrelated fixture precondition.
+
+### Claimed qualification status
+- A restart handoff deadline does not bound the claimed continuation. Check the durable claim time and the continuation limit. Never remove expiry for a state that can remain after a crash.
+- Do not infer a failed run from an intermediate management label. Check its exact terminal record.

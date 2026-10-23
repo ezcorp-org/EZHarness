@@ -74,7 +74,7 @@ function feature(state: string, operation: { id: string; kind: string; state: st
 type FeatureFixture = ReturnType<typeof feature> & { tombstonedAt?: string | null; cleanupConfirmedAt?: string | null; cleanupRecoveryEligible?: boolean;
 	cleanupRecovery?: { id: string; state: string; failedDestroyOperationId: string; stopOperationId: string; destroyOperationId: string } | null };
 
-async function mockManagement(page: Page, options: { initiallyQualified?: boolean; rejectSelectedReadiness?: boolean; initialFeature?: ReturnType<typeof feature>; loseFirstCreateResponse?: boolean; rejectFirstCreate?: boolean; holdApply?: boolean; preparedProject?: { id: string; name: string }; preparedBindingId?: string } = {}) {
+async function mockManagement(page: Page, options: { initiallyQualified?: boolean; holdQualification?: boolean; rejectSelectedReadiness?: boolean; initialFeature?: ReturnType<typeof feature>; loseFirstCreateResponse?: boolean; rejectFirstCreate?: boolean; holdApply?: boolean; preparedProject?: { id: string; name: string }; preparedBindingId?: string } = {}) {
 	let qualified = options.initiallyQualified ?? false;
 	let qualificationRunId: string | null = null;
 	const selectedProject = options.preparedProject ?? project;
@@ -92,9 +92,9 @@ async function mockManagement(page: Page, options: { initiallyQualified?: boolea
 	const applyStarted = new Promise<void>(resolve => { signalApplyStarted = resolve; });
 	const applyReply = new Promise<void>(resolve => { releaseApplyReply = resolve; });
 	await page.route("**/api/infrastructure/incus/management", route => route.fulfill({ json: {
-		environments: [{ ...environment, qualified, qualificationState: qualified ? "qualified" : environment.qualificationState,
+		environments: [{ ...environment, qualified, qualificationState: qualified ? "qualified" : qualificationRunId ? "running" : environment.qualificationState,
 			qualificationRunId,
-			qualificationValidUntil: qualified ? "2027-01-01T00:00:00.000Z" : null, blockedReason: qualified ? null : environment.blockedReason }],
+			qualificationValidUntil: qualified ? "2027-01-01T00:00:00.000Z" : null, blockedReason: qualified ? null : qualificationRunId ? "Qualification is running." : environment.blockedReason }],
 		projects: [selectedProject], features: currentFeature ? [currentFeature] : [], truncated: false,
 	} }));
 	const capacityPlan = { schemaVersion: 1, setupId: environment.setupId, installationId: environment.installationId,
@@ -119,7 +119,7 @@ async function mockManagement(page: Page, options: { initiallyQualified?: boolea
 		if (options.rejectSelectedReadiness) return route.fulfill({ status: 409, json: {
 			code: "qualification_unavailable", message: "The Incus qualification fixture is unavailable for this scope. Check host logs and its saved status.",
 		} });
-		qualified = true;
+		qualified = !options.holdQualification;
 		qualificationRunId = String(body.operationId);
 		return route.fulfill({ status: 202, json: { run: { runId: body.operationId, state: "AWAITING_RESTART" } } });
 	});
@@ -173,7 +173,7 @@ async function mockManagement(page: Page, options: { initiallyQualified?: boolea
 		if (body.action === "status") return route.fulfill({ json: { binding: currentFeature, operation: currentFeature?.operation ?? null } });
 		return route.fulfill({ status: 202, json: { state: "DISPATCHED", operation: currentFeature?.operation } });
 	});
-	return { actions, createKeys, createKeyAttempts, applyStarted, releaseApplyReply: () => releaseApplyReply?.(),
+	return { actions, createKeys, createKeyAttempts, applyStarted, completeQualification: () => { qualified = true; }, releaseApplyReply: () => releaseApplyReply?.(),
 		setFeature: (value: FeatureFixture) => { currentFeature = value; } };
 }
 
@@ -791,4 +791,29 @@ test("idle qualification refreshes after expiry @evidence", async ({ page }, tes
 	await expect(page.locator(".environment-card .pill")).toHaveText("Not qualified");
 	expect(reads).toBeGreaterThan(before);
 	await captureEvidence(page, testInfo, "incus-idle-expiry");
+});
+
+
+test("claimed qualification stays running beyond the restart handoff", async ({ page }) => {
+	await page.clock.install({ time: new Date("2026-10-23T17:57:00Z") });
+	const { actions, completeQualification } = await mockManagement(page, { holdQualification: true });
+	await page.goto("/extensions/incus-management");
+	await prepareQualification(page);
+	await page.getByRole("button", { name: "Run live qualification" }).click();
+	await expect(page.locator(".environment-card .pill")).toHaveText("Qualifying");
+	const submitted = actions.filter(action => action.endpoint === "qualification");
+	expect(submitted).toHaveLength(1);
+	await page.clock.fastForward(120_000);
+	await expect(page.locator(".environment-card .pill")).toHaveText("Qualifying");
+	await page.reload();
+	await expect(page.locator(".environment-card .pill")).toHaveText("Qualifying");
+	await expect(page.getByText("Qualification is running.", { exact: true })).toBeVisible();
+	await expect(page.getByRole("button", { name: "Create project sandbox" })).toBeDisabled();
+	await expect(page.getByTestId("qualification-workflow")).toContainText("Qualification status is being checked");
+	expect(actions.map(action => action.body.action)).toEqual(["plan", "apply", "qualify"]);
+	completeQualification();
+	await page.clock.fastForward(15_000);
+	await expect(page.locator(".environment-card .pill")).toHaveText("Qualified");
+	await expect(page.getByRole("button", { name: "Create project sandbox" })).toBeEnabled();
+	expect(actions.filter(action => action.endpoint === "qualification")).toEqual(submitted);
 });

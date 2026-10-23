@@ -1,5 +1,5 @@
 import { IncusAdmissionReadinessService } from "$server/infrastructure/incus-admission-readiness";
-import { IncusAdmissionReadinessError, incusReadinessFailureReason } from "$server/infrastructure/incus-admission-contract";
+import { INCUS_QUALIFICATION_PHASE_MS, IncusAdmissionReadinessError, incusReadinessFailureReason } from "$server/infrastructure/incus-admission-contract";
 import { json } from "@sveltejs/kit";
 import { ContractError } from "@ezcorp/extension-contract";
 import { sql } from "drizzle-orm";
@@ -19,7 +19,7 @@ interface Connection {
   installationId: string; releaseId: string; connectionId: string; connectionRevision: number; label: string;
   setupId: string | null;
 }
-interface Run { runId: string; state: string; deadlineAt: string }
+interface Run { runId: string; state: string; deadlineAt: string; claimedAt: string | null }
 type CleanupBinding = Parameters<typeof permitsFailedCleanupInspection>[0];
 type CleanupJournal = Parameters<typeof permitsFailedCleanupInspection>[1];
 interface FeatureRow {
@@ -54,12 +54,14 @@ async function environmentStatus(db: ReturnType<typeof getDb>, qualifications: I
       });
     }
   }
-  const [run] = releaseRows<Run>(await db.execute(sql`SELECT run_id AS "runId", state, deadline_at AS "deadlineAt"
+  const [run] = releaseRows<Run>(await db.execute(sql`SELECT run_id AS "runId", state, deadline_at AS "deadlineAt", claimed_at AS "claimedAt"
     FROM incus_qualification_runs WHERE scope = ${JSON.stringify(scope)}::jsonb
     AND connection_revision = ${connection.connectionRevision}
     ORDER BY deadline_at DESC, run_id DESC LIMIT 1`));
-  const running = run && ["AWAITING_RESTART", "CLAIMED"].includes(run.state)
-    && new Date(run.deadlineAt).getTime() > Date.now();
+  const now = Date.now();
+  const claimedAt = run?.claimedAt ? new Date(run.claimedAt).getTime() : Number.NaN;
+  const running = run && (run.state === "AWAITING_RESTART" && new Date(run.deadlineAt).getTime() > now
+    || run.state === "CLAIMED" && claimedAt <= now && now < claimedAt + INCUS_QUALIFICATION_PHASE_MS);
   const failed = run && run.state !== "COMPLETED" && !running;
   return { ...connection, releaseGeneration: active.installation.generation,
     presetId: preset.id, label: `${connection.label} · ${preset.id}`, profile: preset.profile, limits: preset.limits,

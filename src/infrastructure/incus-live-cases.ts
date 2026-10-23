@@ -10,10 +10,9 @@ import {
 } from "@ezcorp/extension-contract";
 import { GUEST_HELPER_SHA256 } from "./incus-guest/protocol";
 import { IncusQualificationOperationUnsettledError, type IncusLiveCaseEvidence, type IncusQualificationScope } from "./incus-qualification";
-import { IncusAdmissionReadinessError, type IncusReadinessFailureReason } from "./incus-admission-contract";
+import { INCUS_QUALIFICATION_PHASE_MS, IncusAdmissionReadinessError, type IncusReadinessFailureReason } from "./incus-admission-contract";
 
 const CASE_IDS = ["SP01", "SP02", "SP03", "SP04", "SP05", "SP06", "SP07", "SP08"] as const;
-const QUALIFICATION_PHASE_MS = 20 * 60_000;
 const RESTART_HANDOFF_MS = 110_000;
 const MARKER_PATH = "ezh-qualification-marker";
 const COMPOSE_PATH = "ezh-qualification-compose.yaml";
@@ -500,7 +499,7 @@ export async function beginDurableIncusLiveCases(options: IncusLiveRunnerOptions
   const now = options.now ?? Date.now;
   requireFact(validDurableRun(run.runId, run.nonce), "run identity is invalid");
   requireFact(Number.isSafeInteger(run.deadlineMs) && run.deadlineMs > now()
-    && run.deadlineMs <= now() + QUALIFICATION_PHASE_MS,
+    && run.deadlineMs <= now() + INCUS_QUALIFICATION_PHASE_MS,
   "qualification preparation deadline is invalid");
   await observeLiveStart(witness, scope, preset);
   const state: FixtureRunState = { primary: null, unrelated: null, recovery: null,
@@ -539,7 +538,7 @@ export async function resumeDurableIncusLiveCases(options: IncusLiveRunnerOption
   const now = options.now ?? Date.now;
   requireFact(validDurableRun(run.runId, run.nonce), "run identity is invalid");
   const primary = await witness.claimRestart(scope, preset, run.runId, run.nonce);
-  const continuationDeadlineMs = now() + QUALIFICATION_PHASE_MS;
+  const continuationDeadlineMs = now() + INCUS_QUALIFICATION_PHASE_MS;
   requireFact(primary.operationId === `qual-primary-${run.runId}`, "claimed primary fixture changed");
   const state: FixtureRunState = { primary, unrelated: null, recovery: null,
     primaryDestroyed: false, unrelatedDestroyed: false, recoveryDestroyed: false };

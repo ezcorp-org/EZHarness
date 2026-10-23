@@ -1,4 +1,4 @@
-import { afterAll, beforeAll, beforeEach, expect, mock, test } from "bun:test";
+import { afterAll, beforeAll, beforeEach, expect, mock, spyOn, test } from "bun:test";
 import { ContractError } from "@ezcorp/extension-contract";
 import type { LiveSandboxPresetQualification } from "@ezcorp/extension-contract";
 import { PGlite } from "@electric-sql/pglite";
@@ -105,6 +105,31 @@ test("shows saved running, expired, failed, and qualified outcomes", async () =>
     qualificationRunId: "baseline-run", baselineRunId: "baseline-run", lastQualificationRunId: "run" });
   rows = [[connection], [], [], [run]];
   expect((await (await request()).json()).environments[0]).toMatchObject({ qualified: false, qualificationState: "running" });
+});
+
+test("keeps a claimed continuation running after its handoff deadline", async () => {
+  rows = [[connection], [], [], [{ ...run, state: "CLAIMED",
+    deadlineAt: new Date(Date.now() - 60_000).toISOString(),
+    claimedAt: new Date(Date.now() - 120_000).toISOString() }]];
+  expect((await (await request()).json()).environments[0]).toMatchObject({
+    qualified: false, qualificationState: "running", qualificationRunId: "run",
+    blockedReason: "Qualification is running." });
+});
+
+test("bounds claimed continuations by their durable claim time", async () => {
+  const now = Date.parse("2026-10-23T17:59:00Z");
+  const clock = spyOn(Date, "now").mockReturnValue(now);
+  try {
+    for (const [claimedAt, expected] of [
+      [new Date(now - 20 * 60_000 + 1).toISOString(), "running"],
+      [new Date(now - 20 * 60_000).toISOString(), "failed"],
+      [new Date(now + 1).toISOString(), "failed"],
+      [null, "failed"], ["invalid", "failed"], [undefined, "failed"],
+    ] as const) {
+      rows = [[connection], [], [], [{ ...run, state: "CLAIMED", claimedAt }]];
+      expect((await (await request()).json()).environments[0].qualificationState).toBe(expected);
+    }
+  } finally { clock.mockRestore(); }
 });
 
 test("keeps existing features visible when their release is inactive or changed", async () => {

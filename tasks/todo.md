@@ -9510,3 +9510,13 @@ Review: both author commits are clean and reviewed. DOMPurify3.4.17 passes the c
 - [ ] Independent review and normal commit.
 
 Review results: hosted trace confirms desktop variant was not rendered at immediate count. Original corrected list-GET regression fails at the same bottom-sheet wait (3000ms); fixed helper passes all five project-panel Chromium cases, including delayed desktop/mobile. Svelte check: zero errors/warnings. Biome: two files clean. Initial wrong single-project GET fixture failed its own count precondition; retained as invalid evidence, not a valid RED. Runtime/package/lock source unchanged.
+
+## Claimed Incus management status
+- [x] Reproduce expired handoff deadline during CLAIMED through real GET route.
+- [x] Use one bounded phase duration for continuation, cleanup, and management.
+- [x] Verify active, stale, missing claim time, expired handoff, and terminal states.
+
+- [x] Verify the Qualifying UI after 120 seconds and reload with the existing real-auth Playwright lane.
+- [x] Complete independent review and normal commit hooks.
+
+Review: real management GET regression failed before fix and passed after fix. Twelve route tests pass. 36 focused contract/checkpoint/live-case tests pass. Biome checks all five source/test files. Full web check reports zero errors and warnings; backend typecheck passes. Actual route LCOV covers 98/98 executable lines. Independent source review passes. The focused real-auth Playwright case passes (1 test, 6.6 minutes including bundled bootstrap); normal commit hooks pass (lint and all selected tests). No live integration performed.
