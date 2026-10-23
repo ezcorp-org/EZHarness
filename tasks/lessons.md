@@ -3060,3 +3060,9 @@ smokes under the lock, detached-job wake-ups) are not repeated.
 - Before a protected source copy, derive the index from the exact runtime input closure, including nested pin metadata. Exclude diagnostic streams that the unchanged strict reader cannot accept. Verify every indexed file with that same reader before the first write; source-generation tests do not prove copy admission.
 
 - Run the unchanged canonical dependency audit before a long validation or release handoff. Advisory data can change while source and locked dependency bytes stay identical. Upgrade the supported locked dependency; do not infer an application exploit mode from an audit finding alone.
+
+### Cross-layer fixture clocks (2026-10-22)
+
+- A fixed injected clock is not enough when the actual called backend uses Date.now. Freeze both at the same fixture time and restore the spy in finally, including failed cleanup.
+- Reproduce aging defects with an explicit wall-clock gap. Keep the real maximum deadline boundary test; do not extend the production window to accommodate stale fixture dates.
+- Check the current frozen package compiler declaration and executable before dispatch. Use its local path; a tool lookup must not download an undeclared compiler.

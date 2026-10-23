@@ -9481,3 +9481,22 @@ Review: the unchanged real dependency check reproduced13PASS/2FAIL against insta
 - [ ] Complete independent source/result review and normal hooks before commit.
 
 Review: canonical audit reproduced both critical/high findings before edits. Original admitted session29040 passed all11 phases: supported Bun lock generation, frozen root/web installs, workspace package build, canonical audit,70 sanitizer tests/174 assertions, Svelte check0errors/0warnings,7 MarkdownRenderer component tests, real Chromium search-markup test with production build, lint2files and diff check. Web graph now has DOMPurify3.4.17; only its generated row/integrity and exact override changed. Wrapper4.4.0 and every other web lock byte remain unchanged; root/SDK/S3/source-manifest inputs are unchanged. Canonical root+web audit has no blocking findings or exceptions; one existing moderate ip-address advisory is below its high floor. Existing Vite future-loader notice remains in logs. Actual app consumers use string sanitization and allowed tags/attributes; no advisory-specific app exploit mode is claimed. Independent review and normal hooks follow. No provider change, deployment, audit exception or gate weakening. Official patched release: https://github.com/advisories/GHSA-cg2g-xh64-v4q7 and https://github.com/advisories/GHSA-mrv2-3pqr-j5jr .
+
+## Hosted shard 9 clock fixture repair (2026-10-22)
+- [x] Reproduce native backend/caller failure with a deterministic clock gap over 30 days.
+- [x] Use one coherent fixture clock; retain production deadline validation.
+- [x] Verify native consumers and deadline boundary denials, types and lint.
+- [ ] Obtain independent review; normal commit with hooks.
+
+Review: independent source and saved RED/GREEN CLEAR. Explicit 2036 wall clock: original two native consumers fail; coherent fixture clock passes all16 cases/68 assertions. Exact30-day execution window accepts boundary and rejects +1ms before invocation. Frozen root/web installs and workspace build passed. Local declared tsc test types and Biome passed. Original malformed test-ID and undeclared tsgo launcher failures retained in ignored evidence. Normal commit pending. Production code and validation window unchanged.
+
+## 2026-10-23 combined security and clock integration
+
+- [x] Independently review both repairs and complete their normal author commits:4c0d10744 and7151b81b3.
+- [x] Prepare the integration worktree's own frozen dependencies, package builds and canonical audit. Original90236 exited0; all four steps passed with no timeout, error or surviving children.
+- [x] Combine the reviewed source. Resolve only the two task-note conflicts by preserving both records.
+- [ ] Commit through normal hooks, freeze the exact source, and run one required fast gate.
+- [ ] Push and collect exact-source hosted results; verify and deploy the corrected bundle.
+- [ ] Finish the existing live qualification, ten cycles and ordinary AI workspace journey.
+
+Review: both author commits are clean and reviewed. DOMPurify3.4.17 passes the canonical audit and real sanitizer consumers. The explicit2036 fixture reproduces both old failures; all16 clock tests now pass, including deadline boundary rejection. Production deadline validation is unchanged. The installed8d app remains behind the access hold. Do not deploy the staged2c19 bundle.

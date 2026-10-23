@@ -1,4 +1,4 @@
-import { afterEach, expect, spyOn, test } from "bun:test";
+import { afterEach, beforeEach, expect, spyOn, test } from "bun:test";
 import { PGlite } from "@electric-sql/pglite";
 import { drizzle } from "drizzle-orm/pglite";
 import type { SandboxProtocolOperation } from "@ezcorp/extension-contract";
@@ -20,6 +20,11 @@ import { sandboxWorkspaceTarget, createSandboxAgentProviders } from "../runtime/
 
 const open: PGlite[] = [];
 const now = Date.parse("2026-09-22T12:00:00Z");
+let restoreClock: (() => void) | undefined;
+beforeEach(() => {
+  const clock = spyOn(Date, "now").mockReturnValue(now);
+  restoreClock = () => clock.mockRestore();
+});
 
 async function setup(defaultInvoke = false, hostOwned = true) {
   const pglite = new PGlite();
@@ -83,7 +88,10 @@ async function setup(defaultInvoke = false, hostOwned = true) {
     setResponse: (next: typeof response) => { response = next; } };
 }
 
-afterEach(async () => { await Promise.all(open.splice(0).map(db => db.close())); });
+afterEach(async () => {
+  try { await Promise.all(open.splice(0).map(db => db.close())); }
+  finally { restoreClock?.(); }
+});
 
 test("native tools deny the next guest call after the initiating member loses membership", async () => {
   const { caller, db, pglite, binding, calls, setResponse } = await setup(false, false);
@@ -224,6 +232,19 @@ test("shell 10s and grep 30s process starts keep RPC deadline within process dea
   expect(calls.map(call => call.input.rpcDeadlineMs)).toEqual([now + 10_000, now + 30_000, now + 30_000]);
   expect(calls.map(call => call.input.processDeadlineMs)).toEqual([now + 10_000, now + 30_000, now + 60_000]);
   expect(calls.every(call => Number(call.input.rpcDeadlineMs) <= Number(call.input.processDeadlineMs))).toBe(true);
+});
+
+test("process deadline execution window keeps its exact 30-day boundary", async () => {
+  const { caller, binding, calls, setResponse } = await setup();
+  setResponse(() => ({ ok: true, processId: "process-1", bootId: "boot-1", startedAt: new Date(now).toISOString() }));
+  const maximum = now + 30_000 + 30 * 24 * 60 * 60 * 1_000;
+  const request = { binding, toolCallId: "deadline-boundary:1", action: "process.start" as const,
+    payload: { argv: ["true"], cwd: ".", user: "workspace", env: [], processDeadlineMs: maximum } };
+  expect(await caller.call(request)).toMatchObject({ ok: true });
+  await expect(caller.call({ ...request, toolCallId: "deadline-overflow:1",
+    payload: { ...request.payload, processDeadlineMs: maximum + 1 } })).rejects.toThrow("allowed execution window");
+  expect(calls).toHaveLength(1);
+  expect(calls[0]?.input).toMatchObject({ rpcDeadlineMs: now + 30_000, processDeadlineMs: maximum });
 });
 
 test("stale binding, release, connection, and revoked state deny before invocation", async () => {
