@@ -9500,3 +9500,13 @@ Review: independent source and saved RED/GREEN CLEAR. Explicit 2036 wall clock: 
 - [ ] Finish the existing live qualification, ten cycles and ordinary AI workspace journey.
 
 Review: both author commits are clean and reviewed. DOMPurify3.4.17 passes the canonical audit and real sanitizer consumers. The explicit2036 fixture reproduces both old failures; all16 clock tests now pass, including deadline boundary rejection. Production deadline validation is unchanged. The installed8d app remains behind the access hold. Do not deploy the staged2c19 bundle.
+
+
+## Hosted desktop picker helper race (Oct23)
+- [x] Inspect exact hosted trace and classify fixture timing failure.
+- [x] Reproduce original real browser helper against delayed project rendering.
+- [x] Wait for rendered picker variant without changing timeout or app behavior.
+- [x] Verify desktop and mobile paths, types and lint.
+- [ ] Independent review and normal commit.
+
+Review results: hosted trace confirms desktop variant was not rendered at immediate count. Original corrected list-GET regression fails at the same bottom-sheet wait (3000ms); fixed helper passes all five project-panel Chromium cases, including delayed desktop/mobile. Svelte check: zero errors/warnings. Biome: two files clean. Initial wrong single-project GET fixture failed its own count precondition; retained as invalid evidence, not a valid RED. Runtime/package/lock source unchanged.

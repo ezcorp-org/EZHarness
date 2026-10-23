@@ -3066,3 +3066,5 @@ smokes under the lock, detached-job wake-ups) are not repeated.
 - A fixed injected clock is not enough when the actual called backend uses Date.now. Freeze both at the same fixture time and restore the spy in finally, including failed cleanup.
 - Reproduce aging defects with an explicit wall-clock gap. Keep the real maximum deadline boundary test; do not extend the production window to accommodate stale fixture dates.
 - Check the current frozen package compiler declaration and executable before dispatch. Use its local path; a tool lookup must not download an undeclared compiler.
+
+- For UI loading regressions, trace the exact store/API consumer before delaying a request. Require RED at the reported helper boundary, not an unrelated fixture precondition.
