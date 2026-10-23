@@ -104,3 +104,32 @@ test("isomorphic-dompurify removes active markup with the patched sanitizer", ()
   expect(purifier.sanitize('<img src="x" onerror="alert(1)"><b>safe</b>'))
     .toBe('<img src="x"><b>safe</b>');
 });
+
+test("web and the mutation protocol reject oversized collections before parsing elements", () => {
+  const mutationRequire = createRequire(strykerRequire.resolve("mutation-server-protocol"));
+  for (const caller of [require, mutationRequire]) {
+    const { z } = caller("zod") as typeof import("zod");
+    let visited = 0;
+    const element = z.string().superRefine(() => { visited++; });
+    const cases = [
+      { schema: z.array(element).max(2), oversized: ["a", "b", "c"], valid: ["a", "b"] },
+      { schema: z.array(element).length(2), oversized: ["a", "b", "c"], valid: ["a", "b"] },
+      { schema: z.set(element).max(2), oversized: new Set(["a", "b", "c"]), valid: new Set(["a", "b"]) },
+      { schema: z.map(element, element).size(2), oversized: new Map([["a", "a"], ["b", "b"], ["c", "c"]]),
+        valid: new Map([["a", "a"], ["b", "b"]]) },
+    ];
+    for (const { schema, oversized, valid } of cases) {
+      for (const parser of [schema, z.compile(schema, { strict: true })]) {
+        visited = 0;
+        const result = parser.safeParse(oversized);
+        expect(result.success).toBe(false);
+        expect(result.error?.issues.map(issue => issue.code)).toEqual(["too_big"]);
+        expect(visited).toBe(0);
+        expect(parser.parse(valid)).toEqual(valid);
+      }
+    }
+    const invalid = z.array(z.string()).max(2).safeParse(Array.from({ length: 32 }, () => 0));
+    expect(invalid.error?.issues.map(issue => issue.code)).toEqual(["too_big"]);
+    expect(caller("zod/package.json").version).toBe("4.6.6");
+  }
+});

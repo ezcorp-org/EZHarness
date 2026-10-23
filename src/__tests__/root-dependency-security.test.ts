@@ -7,6 +7,8 @@ import { join } from "node:path";
 // Resolve from each real caller. A clean root lockfile is not enough if an old
 // nested copy remains available to the package that actually requires it.
 const rootRequire = createRequire(import.meta.url);
+const aiKitRequire = createRequire(rootRequire.resolve("@ezcorp/ai-kit"));
+const mcpRequire = createRequire(aiKitRequire.resolve("@modelcontextprotocol/sdk/server/mcp.js"));
 const drizzleRequire = createRequire(rootRequire.resolve("drizzle-kit"));
 const loaderRequire = createRequire(drizzleRequire.resolve("@esbuild-kit/esm-loader"));
 const coreRequire = createRequire(loaderRequire.resolve("@esbuild-kit/core-utils"));
@@ -103,8 +105,6 @@ test("AJV resolves fast-uri with consistent percent-encoded host normalization",
 });
 
 test("the MCP rate limiter resolves ip-address with corrected IPv6 classification", () => {
-  const aiKitRequire = createRequire(rootRequire.resolve("@ezcorp/ai-kit"));
-  const mcpRequire = createRequire(aiKitRequire.resolve("@modelcontextprotocol/sdk/server/mcp.js"));
   const rateLimitRequire = createRequire(mcpRequire.resolve("express-rate-limit"));
   const ip = rateLimitRequire("ip-address") as {
     Address4: new (value: string) => { isInSubnet: (other: unknown) => boolean };
@@ -114,6 +114,20 @@ test("the MCP rate limiter resolves ip-address with corrected IPv6 classificatio
   // 10.4.0 treated the unrelated IPv6 address as inside this IPv4 subnet.
   expect(new ip.Address6("a00::1").isInSubnet(new ip.Address4("10.0.0.0/8"))).toBe(false);
   expect(new ip.Address6("fea0::1").isLinkLocal()).toBe(true);
+});
+
+test("ai-kit rejects an oversized chat batch before validating each entry with patched Zod", async () => {
+  const { spawnChatsInput } = await import("../../packages/@ezcorp/ai-kit/src/types");
+  const result = spawnChatsInput.safeParse({ chats: Array.from({ length: 11 }, () => ({})) });
+  expect(result.success).toBe(false);
+  expect(result.error?.issues.map(({ code, path }) => ({ code, path })))
+    .toEqual([{ code: "too_big", path: ["chats"] }]);
+  const valid = { chats: [{ projectId: "global", initialMessage: "Bounded request" }] };
+  expect(spawnChatsInput.parse(valid)).toEqual(valid);
+  for (const caller of [aiKitRequire, mcpRequire]) {
+    expect(caller("zod/package.json").version).toBe("4.6.6");
+    expect(caller("zod")).toBe(aiKitRequire("zod"));
+  }
 });
 
 test("schema glob and ExcelJS archiver use bounded brace expansion in each supported major", () => {

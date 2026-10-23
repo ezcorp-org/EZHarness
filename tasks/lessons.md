@@ -3076,3 +3076,5 @@ smokes under the lock, detached-job wake-ups) are not repeated.
 - When adding the same side effect to existing action branches, keep each call in its authorized branch. Reuse the helper implementation; do not add a combined predicate that increases complexity or obscures authorization.
 
 - Resolve compiler aliases through the pinned package.json bin mapping before choosing an executable. The native TypeScript alias can expose tsc instead of tsgo; do not fall back to a different compiler or install new dependencies.
+- Trace runtime dependency resolutions and every tracked standalone lock before declaring a security update complete. A clean root/web Bun audit does not prove a legacy npm graph or an immutable provider artifact is patched.
+- For an exact reviewed security version, use a targeted package update and verify nested resolutions. A caret range can select a later patch while leaving a vulnerable nested copy until the targeted update resolves it.

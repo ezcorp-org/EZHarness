@@ -60,7 +60,7 @@
 		"marked": "^18.0.14",
 		"svelte-adapter-bun": "^1.0.1",
 		"svelte-dnd-action": "^0.9.79",
-		"zod": "^4.6.5"
+		"zod": "4.6.6"
 	},
 	"overrides": {
 		"cookie": "0.7.2",
