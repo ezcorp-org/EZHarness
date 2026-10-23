@@ -1,5 +1,6 @@
 """Local file/bundle tests; requires Linux user namespaces and subordinate IDs."""
 import importlib.util
+import contextlib
 import ctypes
 import json
 import os
@@ -8,6 +9,7 @@ import subprocess
 import sys
 import tempfile
 import time
+import types
 import unittest
 from unittest import mock
 from pathlib import Path
@@ -83,6 +85,74 @@ class AdmissionAuthorityTests(unittest.TestCase):
             authority.launch_service_digest = "x"
             with self.assertRaises(TimeoutError):
                 authority.observe(11)
+
+    def test_snapshot_real_tree_preserves_fresh_maps_without_ancestry_walks(self):
+        authority = self.authority()
+        nested = self.root / "snapshot-fixture" / "space and λ" / ".ezcorp"
+        nested.mkdir(parents=True)
+        changed = nested / "..kept"
+        changed.write_text("first")
+        (self.root / ".ezcorp" / "excluded").write_text("runtime")
+        (self.root / "snapshot-link").symlink_to(nested, target_is_directory=True)
+
+        def expected_snapshot():
+            return {str(path.relative_to(self.root)): AUTHORITY.signature(status)
+                    for path, status in authority.verifier.immutable_entries(self.root)}
+
+        expected_before = expected_snapshot()
+        self.assertIn(".", expected_before)
+        self.assertIn("snapshot-link", expected_before)
+        self.assertNotIn("snapshot-link/..kept", expected_before)
+        self.assertNotIn(".ezcorp/excluded", expected_before)
+        self.assertIn("snapshot-fixture/space and λ/.ezcorp/..kept", expected_before)
+        actual_scandir = os.scandir
+        stat_calls = []
+
+        def counted_entry(entry):
+            fresh_stat = mock.Mock(wraps=entry.stat)
+            stat_calls.append(fresh_stat)
+            return types.SimpleNamespace(path=entry.path, name=entry.name, stat=fresh_stat)
+
+        @contextlib.contextmanager
+        def counted_scandir(directory):
+            with actual_scandir(directory) as entries:
+                yield map(counted_entry, entries)
+
+        with mock.patch.object(Path, "relative_to", autospec=True, side_effect=Path.relative_to) as ancestry, \
+                mock.patch.object(authority.verifier.os, "scandir", side_effect=counted_scandir):
+            before = authority.snapshot()
+            self.assertEqual(before, expected_before)
+            changed.write_text("a different size proves a fresh read")
+            after = authority.snapshot()
+        self.assertEqual(after, expected_snapshot())
+        self.assertNotEqual(before["snapshot-fixture/space and λ/.ezcorp/..kept"],
+                            after["snapshot-fixture/space and λ/.ezcorp/..kept"])
+        # Every child gets one fresh no-follow stat per pass, including the
+        # excluded root runtime directory; the root itself uses Path.lstat.
+        self.assertEqual(len(stat_calls), 2 * len(expected_before))
+        for fresh_stat in stat_calls:
+            self.assertEqual(fresh_stat.call_args_list, [mock.call(follow_symlinks=False)])
+        self.assertEqual(ancestry.call_count, 0)
+
+    def test_snapshot_lexical_keys_reject_outside_and_prefix_sibling_paths(self):
+        authority = self.authority()
+        status = self.root.lstat()
+        for path in (self.root.parent / "outside", self.root.with_name(self.root.name + "-sibling") / "file"):
+            with self.subTest(path=path), \
+                    mock.patch.object(authority.verifier, "immutable_entries", return_value=iter([(path, status)])):
+                with self.assertRaises(ValueError):
+                    authority.snapshot()
+
+    def test_snapshot_lexical_keys_preserve_root_anchors(self):
+        authority = self.authority()
+        status = self.root.lstat()
+        for root in (Path("/"), Path("//")):
+            paths = [root, root / "inside" / "file"]
+            expected = {str(path.relative_to(root)): AUTHORITY.signature(status) for path in paths}
+            authority.root = root
+            with self.subTest(root=root), \
+                    mock.patch.object(authority.verifier, "immutable_entries", return_value=iter((path, status) for path in paths)):
+                self.assertEqual(authority.snapshot(), expected)
 
     def test_fresh_snapshot_rejects_membership_type_root_and_same_size_content_drift(self):
         mutations = [lambda: (self.root / "added").write_text("new"),

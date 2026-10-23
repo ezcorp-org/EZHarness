@@ -103,10 +103,18 @@ class AdmissionAuthority:
 
     def snapshot(self, deadline=None):
         facts = {}
+        root_key = str(self.root)
+        prefix = root_key if root_key.endswith(os.sep) else root_key + os.sep
         for count, (path, status) in enumerate(self.verifier.immutable_entries(self.root), start=1):
             check_deadline(deadline)
             require(count <= 120000, "bundle closure too large")
-            relative = str(path.relative_to(self.root))
+            path_key = str(path)
+            if path_key == root_key:
+                relative = "."
+            elif path_key.startswith(prefix):
+                relative = path_key[len(prefix):]
+            else:
+                raise ValueError("bundle enumeration escaped root")
             require(relative not in facts, "bundle enumeration repeated a path")
             require(status.st_uid == self.owner, "bundle owner changed")
             if not stat.S_ISLNK(status.st_mode):

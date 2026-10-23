@@ -9527,3 +9527,13 @@ Review: real management GET regression failed before fix and passed after fix. T
 - [x] Verify focused tests, types, lint, independent review, and normal commit hooks.
 
 Review: real schema import consumed 382ms while behavior consumed 1.42ms. A private Vite probe delaying the unchanged real schema transform by 5200ms reproduces the exact timeout (74 pass, 1 fail). Moving real module preparation outside the timed behavior gives 75 pass under the same probe and ordinary configuration. Scoped types, Biome, and diff checks pass. Independent review passes. Normal commit hooks pass (Biome and the actual 75-test Vitest file). No production changes.
+
+## Admission snapshot path work
+- [x] Confirm the actual namespace profile and its source pins.
+- [x] Reproduce ancestry churn with the real file-tree snapshot consumer and deterministic counters.
+- [x] Replace only relative-key extraction; preserve fresh metadata and every guard.
+- [x] Verify focused authority tests, parent parity, syntax/diff checks and independent review before normal commit.
+
+Plan: optimize the measured Path.relative_to ancestry work only. No shared verifier/stager change, timeout change, live action or additional acceptance series. Root continues current A independently.
+
+Review: actual supervisor-namespace profile attributes 5.233 of 6.164 profiled seconds to 95,533 Path.relative_to calls. The real file-tree regression fails on the parent with 86 ancestry calls and passes with zero after this change. Both passes retain one fresh no-follow stat for every child. The original parent snapshot method and candidate produce equal full maps before and after a real file change. All 11 authority tests pass; syntax and diff checks pass. Independent source review and an independent eight-test run pass. Shared stager bytes and all authority source outside snapshot remain unchanged. Evidence is in .cache/snapshot-checks. These local results do not claim a deployed timing result.
