@@ -16,7 +16,7 @@ import { DELIVERY_STATES } from "../../delivery-queue/delivery-states.ts";
 import { POOL_LEASE_STATES, POOL_RESOURCE_CLASSES } from "../pool/pool-states.ts";
 import type { FactoryReleaseState } from "../releases.ts";
 import type { FactoryAttemptLaunchState } from "../runner/attempt-wire.ts";
-import { FACTORY_CONTAINER_RUNTIME_ROLE } from "../service-readiness.ts";
+import { FACTORY_CONTAINER_RUNTIME_ROLE } from "../service-roles.ts";
 
 /** The product roles a service may hold (C12 "Container runtime readiness (hosted)"): the closed set of `factory_service_role_held`. */
 export const FACTORY_HELD_ROLE_LABELS: readonly string[] = Object.freeze([FACTORY_CONTAINER_RUNTIME_ROLE.role]);

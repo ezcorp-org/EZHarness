@@ -21,6 +21,7 @@
  */
 import { basename, dirname, resolve } from "node:path";
 import { privateDirectory, readPrivateBounded, writePrivateBoundedAtomic } from "./private-files";
+import { FACTORY_CONTAINER_RUNTIME_ROLE } from "./service-roles.ts";
 import type { FactoryHeldRoleEntry } from "./runtime-workers";
 
 const MAX_READINESS_BYTES = 4_096;
@@ -233,11 +234,7 @@ export const FACTORY_SUPERVISOR_READINESS_SCHEMA = "factory.supervisor-readiness
  */
 export const FACTORY_SUPERVISOR_FACTS = Object.freeze(["hostKeyReady", "runnerReady", "hostServicesReady"] as const);
 
-/**
- * The supervisor's one product role that waits instead of degrading (C12 row "Container runtime readiness (hosted)"): it is held,
- * with `runnerReady` false, while the container runtime does not answer.
- */
-export const FACTORY_CONTAINER_RUNTIME_ROLE = Object.freeze({ role: "container-runtime", workPackage: "W16" });
+export { FACTORY_CONTAINER_RUNTIME_ROLE };
 
 /**
  * The host supervisor serves every installation on its host (C12), so its

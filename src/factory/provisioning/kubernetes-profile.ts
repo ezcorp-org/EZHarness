@@ -78,7 +78,8 @@ const LIMITS: Readonly<Record<(typeof FACTORY_CONTAINER_SERVICES)[number], { rea
   orchestrator: { memory: "512Mi", cpu: "500m" },
 });
 
-const COMMANDS: Readonly<Record<(typeof FACTORY_CONTAINER_SERVICES)[number], readonly string[]>> = Object.freeze({
+/** Each tenant container's entry command; the node-run ones are loaded under the pinned Node by scripts/factory-node-entries-registration.test.ts. */
+export const FACTORY_CONTAINER_COMMANDS: Readonly<Record<(typeof FACTORY_CONTAINER_SERVICES)[number], readonly string[]>> = Object.freeze({
   gateway: ["bun", "src/factory/gateway-process.ts", `${FACTORY_CONTAINER_PATHS.secrets}/gateway.json`],
   harness: ["bun", "src/factory/provisioning/secret-env.ts", `${FACTORY_CONTAINER_PATHS.secrets}/secret-env.json`, "--", "bun", "web/build/index.js"],
   orchestrator: ["node", "src/factory/orchestration-process.ts", `${FACTORY_CONTAINER_PATHS.secrets}/orchestrator.json`],
@@ -190,7 +191,7 @@ export function renderFactoryKubernetesInstallation(bundle: FactoryInstallationB
     name: service,
     image,
     imagePullPolicy: "IfNotPresent",
-    command: [...COMMANDS[service]],
+    command: [...FACTORY_CONTAINER_COMMANDS[service]],
     // The harness checks host, installation header, and ingress proof in both profiles (C12 row "Trusted
     // ingress"); the proof file arrives with the harness's Secret, and only the fleet's ingress sets the header.
     env: environment(bundle.environment[service]),
