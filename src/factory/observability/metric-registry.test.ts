@@ -49,6 +49,10 @@ describe("the metric registry (C11 M1, M2)", () => {
     }
   });
 
+  test("the held-roles family is the supervisor's alone, with the closed role set (W4H-35, C11 FactoryServiceRoleHeld)", () => {
+    expect(FACTORY_METRIC_FAMILIES.find((family) => family.name === "factory_service_role_held")).toMatchObject({ type: "gauge", services: ["supervisor"], labels: { role: ["container-runtime"] } });
+  });
+
   test("covers each family the plan names", () => {
     const names = new Set(FACTORY_METRIC_FAMILIES.map((family) => family.name));
     for (const name of [

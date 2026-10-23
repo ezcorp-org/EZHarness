@@ -440,3 +440,39 @@ tests:
       - eval_time: 2m
         alertname: FactoryMetricsTargetDown
         exp_alerts: []
+  - name: "FactoryServiceRoleHeld: a role held for 2 minutes"
+    interval: 15s
+    input_series:
+      - series: factory_service_role_held{job="factory-supervisor",instance="supervisor:9468",role="container-runtime"}
+        values: 1x12
+    alert_rule_test:
+      - eval_time: 2m
+        alertname: FactoryServiceRoleHeld
+        exp_alerts:
+          - exp_labels:
+              job: factory-supervisor
+              instance: supervisor:9468
+              role: container-runtime
+              severity: page
+            exp_annotations:
+              summary: A shared service holds a product role; a dispatch that needs the role is refused by name
+              action: Restore the container runtime on that node (its socket, group and service); the supervisor resumes by itself
+              runbook: docs/factory-deployment.md#c11-alerts-and-operator-actions
+  - name: "FactoryServiceRoleHeld: no role held"
+    interval: 15s
+    input_series:
+      - series: factory_service_role_held{job="factory-supervisor",instance="supervisor:9468",role="container-runtime"}
+        values: "0x12"
+    alert_rule_test:
+      - eval_time: 2m
+        alertname: FactoryServiceRoleHeld
+        exp_alerts: []
+  - name: "FactoryServiceRoleHeld: held just under 1 minute"
+    interval: 15s
+    input_series:
+      - series: factory_service_role_held{job="factory-supervisor",instance="supervisor:9468",role="container-runtime"}
+        values: 0x3 1x8
+    alert_rule_test:
+      - eval_time: 1m45s
+        alertname: FactoryServiceRoleHeld
+        exp_alerts: []

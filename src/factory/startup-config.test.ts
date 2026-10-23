@@ -5,6 +5,7 @@ import { referenceCodeModelPin, referenceCodeV1 } from "@ezcorp/factory-sdk";
 import { digestObject } from "../extensions/v4/blobs";
 import { FACTORY_GUEST_BROKER_AUDIENCE } from "./runner/guest-broker-contract";
 import {
+  factoryStartupPoolTransport,
   FACTORY_RELEASE_ENTITLED_S3_ROOT,
   FACTORY_STARTUP_CONFIG_SCHEMA,
   FACTORY_STARTUP_FIELDS,
@@ -267,6 +268,71 @@ describe("the host launch transport and the host stop keys", () => {
     ]) {
       expect(() => parseFactoryStartupConfig({ ...valid(), hostStopKeys: bad })).toThrow();
     }
+  });
+});
+
+describe("where the shared pool's and supervisor's readiness is read (W4H-35, hosted profile)", () => {
+  const hostLaunch = {
+    baseUrl: "https://factory-supervisor.ezcorp-factory-system.svc:41003",
+    serverName: "factory-supervisor.ezcorp-factory-system.svc",
+    attemptTokenSecretPath: "/run/secrets/attempt-token",
+    tls: { caPath: "/run/secrets/ca.pem", certificatePath: "/run/secrets/client.pem", privateKeyPath: "/run/secrets/client.key", serviceTokenPath: "/run/secrets/service.token" },
+  };
+  const network = () => {
+    const document = valid({ hostReadiness: "network", hostLaunch });
+    delete document.poolReadinessFilePath;
+    delete document.supervisorReadinessFilePath;
+    return document;
+  };
+
+  test("absent, both records are files and both paths are required", () => {
+    expect(parseFactoryStartupConfig(valid()).hostReadiness).toBeUndefined();
+    const document = valid();
+    delete document.poolReadinessFilePath;
+    delete document.supervisorReadinessFilePath;
+    expect(reject(document).missing).toEqual(["poolReadinessFilePath", "supervisorReadinessFilePath"]);
+  });
+
+  // Merge of W4H-35 (checkHostReadiness) and W4H-34 (checkNotifications, checkMetrics): a hosted document that declares all three
+  // sections is accepted, and each check still refuses only its own bad field.
+  test("a network document with metrics and notifications is accepted; each check names only its own bad field (merge W4H-34 x W4H-35)", () => {
+    const metrics = { hostname: "0.0.0.0", port: 9466, scrapeTokenPath: "/run/ezcorp/secrets/metrics-token" };
+    const notifications = { destinations: [{ name: "operators", kind: "webhook", url: "https://receiver.test:8443/n", secretPath: "/run/ezcorp/secrets/notify" }] };
+    const all = () => ({ ...network(), metrics, notifications });
+    const config = parseFactoryStartupConfig(all());
+    expect([config.hostReadiness, config.metrics, config.notifications?.destinations.length]).toEqual(["network", metrics, 1]);
+    expect(reject({ ...all(), metrics: { ...metrics, port: 0 } }).invalid).toEqual(["metrics"]);
+    expect(reject({ ...all(), notifications: { destinations: [{ ...notifications.destinations[0]!, kind: "smtp" }] } }).invalid).toEqual(["notifications.destinations[0].kind"]);
+    expect(reject({ ...all(), hostReadiness: "other" }).invalid).toEqual(["hostReadiness"]);
+  });
+
+  test("network: no file path, and the supervisor's record travels over the host launch transport", () => {
+    const config = parseFactoryStartupConfig(network());
+    expect(config.hostReadiness).toBe("network");
+    expect(config.poolReadinessFilePath).toBeUndefined();
+    expect(config.supervisorReadinessFilePath).toBeUndefined();
+  });
+
+  test("one source only: a network document naming a file, another value, or no host launch transport is refused by name", () => {
+    expect(reject({ ...network(), poolReadinessFilePath: "/run/factory/pool.json" }).invalid).toEqual(["poolReadinessFilePath"]);
+    expect(reject({ ...network(), supervisorReadinessFilePath: "/run/factory/supervisor.json" }).invalid).toEqual(["supervisorReadinessFilePath"]);
+    expect(reject({ ...network(), hostReadiness: "file" }).invalid).toContain("hostReadiness");
+    const withoutTransport = network();
+    delete withoutTransport.hostLaunch;
+    expect(reject(withoutTransport).missing).toEqual(["hostLaunch.baseUrl"]);
+  });
+});
+
+describe("the pool transport (W4H-35: a hosted pool is dialled by service name and verified by its certificate's name)", () => {
+  const tls = { caPath: "/run/tls/ca.pem", certificatePath: "/run/tls/cert.pem", privateKeyPath: "/run/tls/key.pem" };
+
+  test("serverName is optional, an identity, and carried into the one transport every pool client uses", () => {
+    expect(parseFactoryStartupConfig(valid()).pool.serverName).toBeUndefined();
+    const hosted = { baseUrl: "https://factory-pool.ezcorp-factory-system.svc.cluster.local:41002", serverName: "localhost", serviceTokenPath: "/run/secrets/pool-token", tls };
+    expect(parseFactoryStartupConfig(valid({ pool: hosted })).pool).toEqual(hosted);
+    expect(reject(valid({ pool: { ...hosted, serverName: "" } })).invalid).toContain("pool.serverName");
+    expect(factoryStartupPoolTransport(hosted)).toEqual({ baseUrl: hosted.baseUrl, serverName: "localhost", tls: { ...tls, serviceTokenPath: "/run/secrets/pool-token" } });
+    expect(factoryStartupPoolTransport({ ...hosted, serverName: undefined })).toEqual({ baseUrl: hosted.baseUrl, tls: { ...tls, serviceTokenPath: "/run/secrets/pool-token" } });
   });
 });
 

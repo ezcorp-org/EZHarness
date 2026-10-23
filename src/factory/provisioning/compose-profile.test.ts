@@ -14,7 +14,7 @@ import {
   FACTORY_COMPOSE_UPGRADE_SERVICES,
   FactoryComposeHostTarget,
   FactoryComposeTarget,
-  FactoryComposeUpgradeTarget,
+  factoryComposeUpgradeDeployer,
   factoryCommandCheck,
   factoryComposeEnvironment,
   factoryComposeHostProject,
@@ -30,7 +30,7 @@ import {
   type FactoryComposeTargetOptions,
 } from "./compose-profile";
 import { factoryDeploymentHandle, renderFactoryInstallationBundle, type FactoryInstallationBundle } from "./deployment";
-import type { FactoryInstallationBuilds } from "./fleet-upgrade";
+import { FactoryProfileUpgradeTarget, type FactoryInstallationBuilds } from "./fleet-upgrade";
 import { factoryFleetHostIdentity, factoryFleetHostPaths, type FactoryFleetHostBuild, type FactoryFleetHostBundle } from "./host";
 import type { FactoryInstallationContext } from "./installation";
 import { openFactoryPrivateDirectory } from "./secret-files";
@@ -568,12 +568,12 @@ describe("FactoryComposeHostTarget", () => {
   });
 });
 
-describe("FactoryComposeUpgradeTarget", () => {
+describe("the Compose upgrade deployer under the profile upgrade target", () => {
   const build = (component: string) => ({ buildId: `${component}-2`, image: `registry.test/${component}@sha256:${"f".repeat(64)}`, revision: "a".repeat(40), releaseDirectory: `/srv/releases/${component}` });
   const BUILDS: FactoryInstallationBuilds = { host: build("host"), orchestrator: build("orchestrator"), harness: build("harness") };
   const healthy = (command: readonly string[]) => isCompose(command, "ps") ? { code: 0, stdout: HEALTHY, stderr: "" } : undefined;
   const summary = (execute: ReturnType<typeof fakeExecutor>) => execute.calls.map((call) => composeArgs(call.command).filter((arg) => !arg.startsWith("--")).join(" "));
-  const upgrade = (execute: FactoryCommandExecutor, rendered: string[], used: FactoryFleetHostBuild[]) => new FactoryComposeUpgradeTarget(async (value) => { rendered.push(value.tenantId); return bundle; }, target(execute, { ...virtualClock(), fetchStatus: async () => 200 }), { async useBuild(value) { used.push(value); } });
+  const upgrade = (execute: FactoryCommandExecutor, rendered: string[], used: FactoryFleetHostBuild[]) => new FactoryProfileUpgradeTarget(async (value) => { rendered.push(value.tenantId); return bundle; }, factoryComposeUpgradeDeployer(target(execute, { ...virtualClock(), fetchStatus: async () => 200 })), { async useBuild(value) { used.push(value); } });
 
   test("the host component moves the fleet host onto the build and touches no installation service", async () => {
     const execute = fakeExecutor(healthy);
@@ -616,6 +616,11 @@ describe("factorySpawnExecutor", () => {
 
   test("captures stdout and stderr separately with the exit code", async () => {
     expect(await factorySpawnExecutor(["sh", "-c", "echo out; echo err >&2; exit 3"])).toEqual({ code: 3, stdout: "out\n", stderr: "err\n" });
+  });
+
+  test("feeds stdin only when given, so a secret document travels through a pipe and never through argv", async () => {
+    expect(await factorySpawnExecutor(["cat"], { stdin: new TextEncoder().encode("piped\n") })).toEqual({ code: 0, stdout: "piped\n", stderr: "" });
+    expect(await factorySpawnExecutor(["cat"])).toEqual({ code: 0, stdout: "", stderr: "" });
   });
 
   test("passes the extra environment and working directory", async () => {

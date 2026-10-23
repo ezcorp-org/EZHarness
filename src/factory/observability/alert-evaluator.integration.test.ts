@@ -86,6 +86,9 @@ describe("a live Prometheus over a real installation (C11 A1-A10)", () => {
   let directory: string;
   let harness: FactoryMetricsListener;
   let gateway: FactoryMetricsListener | undefined;
+  // W4H-35: the supervisor's held runtime role, 0 while quiet and 1 when forced (C11 FactoryServiceRoleHeld).
+  let supervisor: FactoryMetricsListener | undefined;
+  let supervisorHeld: readonly string[] = [];
   const counters = new FactoryMetricCounters();
   const container = `w4h-34-prometheus-${randomBytes(4).toString("hex")}`;
   let api = "";
@@ -110,6 +113,7 @@ describe("a live Prometheus over a real installation (C11 A1-A10)", () => {
     harness = await serveFactoryMetrics({ hostname: "127.0.0.1", port: await freePort(), scrapeTokenPath: privateToken }, "harness",
       () => collectFactoryInstallationMetrics({ database: fixture.db as never, tenantId: METRIC_TENANT, interpreterBuild: METRIC_BUILD, counters }));
     gateway = await serveFactoryReadyMetrics({ hostname: "127.0.0.1", port: await freePort(), scrapeTokenPath: privateToken }, "gateway", () => true);
+    supervisor = await serveFactoryReadyMetrics({ hostname: "127.0.0.1", port: await freePort(), scrapeTokenPath: privateToken }, "supervisor", () => true, undefined, () => supervisorHeld);
     const target = (url: string) => url.replace("http://", "");
     // The self-hosted profile's own config and target lists, only with one-second intervals.
     await writeFile(join(directory, "factory-alerts.yml"), renderFactoryAlertRuleFile());
@@ -121,6 +125,7 @@ describe("a live Prometheus over a real installation (C11 A1-A10)", () => {
     for (const [name, text] of Object.entries(factoryPrometheusTargetFiles([
       { service: "harness", address: target(harness.url), tenant: METRIC_TENANT },
       { service: "gateway", address: target(gateway.url), tenant: METRIC_TENANT },
+      { service: "supervisor", address: target(supervisor.url) },
     ]))) await writeFile(join(directory, "targets", name), text, { mode: 0o644 });
     const port = await freePort();
     api = `http://127.0.0.1:${port}`;
@@ -137,6 +142,7 @@ describe("a live Prometheus over a real installation (C11 A1-A10)", () => {
     await podman(["rm", "-f", "-v", "-t", "0", container]);
     await harness?.stop();
     await gateway?.stop();
+    await supervisor?.stop();
     await fixture?.close();
     await rm(directory, { recursive: true, force: true });
   }, 60_000);
@@ -146,6 +152,15 @@ describe("a live Prometheus over a real installation (C11 A1-A10)", () => {
     await Bun.sleep(8_000);
     expect(await alerts()).toEqual([]);
   }, 60_000);
+
+  // C11 scope (W4H-35, w4h-34's condition 3): the evaluator's target list gives the supervisor target no tenant label, as production does.
+  test("the supervisor's target carries no tenant label, and the installation targets carry theirs", async () => {
+    const list = async (service: string) => JSON.parse(await readFile(join(directory, "targets", `factory-${service}.json`), "utf8")) as Array<{ labels: Record<string, string> }>;
+    const supervisorTargets = await list("supervisor");
+    expect(supervisorTargets).toHaveLength(1);
+    expect(supervisorTargets[0]!.labels).not.toHaveProperty("tenant");
+    for (const service of ["harness", "gateway"]) expect((await list(service))[0]!.labels.tenant).toBe(METRIC_TENANT);
+  });
 
   test("every forced condition fires its alert, carrying the C11 operator action", async () => {
     const now = Date.now();
@@ -163,6 +178,7 @@ describe("a live Prometheus over a real installation (C11 A1-A10)", () => {
     counters.securityDenial("cross_tenant_broker");
     await gateway!.stop();
     gateway = undefined;
+    supervisorHeld = ["container-runtime"];
 
     const expected = new Set(FACTORY_ALERT_RULES.map((rule) => rule.alert));
     let firing: Awaited<ReturnType<typeof alerts>> = [];
@@ -175,8 +191,14 @@ describe("a live Prometheus over a real installation (C11 A1-A10)", () => {
     for (const rule of FACTORY_ALERT_RULES) {
       const alert = firing.find((candidate) => candidate.labels.alertname === rule.alert)!;
       expect(alert.labels.severity).toBe(rule.severity);
-      // The target list's installation label reaches every alert, so the page names the installation.
-      expect(alert.labels.tenant).toBe(METRIC_TENANT);
+      // The target list's installation label reaches every installation alert, so the page names the installation. A host-scoped rule
+      // (C11 scope `host`: the supervisor's, one per host for every installation) names the host by job and carries no tenant.
+      if (rule.scope === "host") {
+        expect(alert.labels.job).toBe("factory-supervisor");
+        expect(alert.labels).not.toHaveProperty("tenant");
+      } else {
+        expect(alert.labels.tenant).toBe(METRIC_TENANT);
+      }
       expect(alert.annotations).toEqual(factoryAlertAnnotations(rule) as Record<string, string>);
     }
     await writeFile(join(process.env.W4H34_EVIDENCE_DIR ?? directory, "live-alerts.json"), JSON.stringify(firing, null, 2));

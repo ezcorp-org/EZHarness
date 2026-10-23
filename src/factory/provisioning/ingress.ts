@@ -45,6 +45,8 @@ export interface FactoryIngressRoute {
   readonly hostname: string;
   readonly installationId: string;
   readonly upstreamPort: number;
+  /** The harness's host, when it is not on the ingress's loopback: the hosted profile's harness service (W4H-35). */
+  readonly upstreamHost?: string;
   readonly state: FactoryIngressRouteState;
   /** The installation's ingress proof. Kept in the operator's private route file, never in the ledger. */
   readonly proof: string;
@@ -79,6 +81,8 @@ export interface FactoryIngressStepOptions {
   readonly reloader: FactoryIngressReloader;
   readonly probe: FactoryIngressProbe;
   readonly upstreamPort: (installation: FactoryInstallationContext) => number;
+  /** The hosted profile's harness service host; absent, the harness is on the ingress's loopback (Compose). */
+  readonly upstreamHost?: (installation: FactoryInstallationContext) => string;
   readonly run?: FactoryCommandRunner;
   readonly sleep?: (milliseconds: number) => Promise<void>;
   readonly attempts?: number;
@@ -91,7 +95,7 @@ function renderRoute(paths: FactoryIngressPaths, route: FactoryIngressRoute): st
   const key = `${paths.mountedRoot}/certs/${route.tenantId}.key`;
   const body = route.state === "serving"
     ? [
-      `    proxy_pass http://127.0.0.1:${route.upstreamPort};`,
+      `    proxy_pass http://${route.upstreamHost ?? "127.0.0.1"}:${route.upstreamPort};`,
       "    proxy_set_header Host $host;",
       "    proxy_set_header X-Forwarded-Host $host;",
       "    proxy_set_header X-Forwarded-Proto https;",
@@ -128,7 +132,8 @@ export function renderFactoryIngressConfig(paths: FactoryIngressPaths, routes: r
   for (const route of routes) {
     if (hostnames.has(route.hostname)) throw new FactoryProvisioningError("ingress_hostname_conflict", `Hostname ${route.hostname} is bound twice.`);
     hostnames.add(route.hostname);
-    if (!/^[a-z0-9.-]{1,253}$/.test(route.hostname) || !/^[A-Za-z0-9-]{1,64}$/.test(route.installationId) || !Number.isSafeInteger(route.upstreamPort) || !PROOF.test(route.proof)) throw new FactoryProvisioningError("ingress_route_invalid", `Route for ${route.tenantId} is invalid.`);
+    if (!/^[a-z0-9.-]{1,253}$/.test(route.hostname) || !/^[A-Za-z0-9-]{1,64}$/.test(route.installationId) || !Number.isSafeInteger(route.upstreamPort) || !PROOF.test(route.proof)
+      || (route.upstreamHost !== undefined && !/^[a-z0-9.-]{1,253}$/.test(route.upstreamHost))) throw new FactoryProvisioningError("ingress_route_invalid", `Route for ${route.tenantId} is invalid.`);
   }
   return [
     "# Rendered by the factory provisioner (C12 step 6). Do not edit: the next render replaces it.",
@@ -199,7 +204,7 @@ export class FactoryIngressStep implements FactoryProvisioningDriver {
   }
 
   private async writeRoute(installation: FactoryInstallationContext, state: FactoryIngressRouteState): Promise<void> {
-    const route: FactoryIngressRoute = { schemaVersion: "factory.ingress-route.v1", tenantId: installation.tenantId, hostname: installation.hostname, installationId: installation.installationId, upstreamPort: this.options.upstreamPort(installation), state, proof: await this.proof(installation) };
+    const route: FactoryIngressRoute = { schemaVersion: "factory.ingress-route.v1", tenantId: installation.tenantId, hostname: installation.hostname, installationId: installation.installationId, upstreamPort: this.options.upstreamPort(installation), ...(this.options.upstreamHost === undefined ? {} : { upstreamHost: this.options.upstreamHost(installation) }), state, proof: await this.proof(installation) };
     await replaceFactoryPrivateFile(factoryPrivatePath(dir(this.options.paths, "routes"), `${installation.tenantId}.json`), `${JSON.stringify(route)}\n`);
   }
 

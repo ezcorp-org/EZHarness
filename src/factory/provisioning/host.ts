@@ -29,12 +29,16 @@
  */
 import { createPrivateKey, createPublicKey, generateKeyPairSync, randomBytes } from "node:crypto";
 import { resolve } from "node:path";
+import { FactoryGpuHostProfileError, loadFactoryGpuHostProfiles } from "../pool/gpu-host-profiles";
 import { FACTORY_PROMETHEUS_CONTAINER_CONFIG, FACTORY_PROMETHEUS_CONTAINER_RULES, factoryPrometheusTargetFiles, renderFactoryPrometheusConfig, type FactoryPrometheusTarget } from "../observability/prometheus-config";
 import { parseFactoryPoolProcessConfig } from "../pool/process";
 import { parseFactorySupervisorProcessConfig } from "../runner/supervisor-process";
 import { createFactoryCertificateAuthority, issueFactoryCertificate, type FactoryCommandRunner } from "./certificates";
 import type { FactoryDatabaseCredential, FactoryDatabaseStep } from "./database";
 import { factoryDatabasePairs } from "./database";
+import { factoryComposeProject } from "./compose-profile";
+import type { FactoryFleetResources } from "./fleet";
+import { FACTORY_KUBERNETES_SUPERVISOR_PATHS, FACTORY_KUBERNETES_SUPERVISOR_STATE, FACTORY_NODE_ADDRESS, factoryKubernetesServiceUrl } from "./kubernetes-paths";
 import { factoryFleetResourceName, type FactoryInstallationContext, type FactoryStepResources } from "./installation";
 import { FACTORY_GUEST_BROKER_AUDIENCE, FACTORY_GUEST_BROKER_SCOPE } from "../runner/guest-broker-contract";
 import { FACTORY_HOST_KEY_ID, FACTORY_MESH_FILES, FACTORY_MESH_TOKEN_KEY_ID, FACTORY_POOL_AUDIENCE, factoryMeshIdentities, factoryMeshToken, factoryMeshTokenExpiry } from "./mesh";
@@ -183,12 +187,26 @@ export interface FactoryFleetHostSettings {
   readonly operatorRoot: string;
   readonly runtimeRoot: string;
   readonly portBase: number;
-  readonly cpuCapacity: number;
+  /** The fleet's attempt resource profile; under `gpu` this host is the pool's one GPU host. */
+  readonly resources: FactoryFleetResources;
+  /**
+   * The hosted profile (W4H-35): the supervisor runs as a DaemonSet in this
+   * namespace and reads its document from the DaemonSet's own paths; it dials
+   * the pool and each installation's harness by service name, verifying the
+   * certificate as `localhost`. Absent: the Compose host's unit and loopback.
+   */
+  readonly hosted?: FactoryHostedSettings;
   /** How the pool reaches the database cluster, from inside its container. */
   readonly database: { readonly host: string; readonly port: number };
   /** The fleet's default build, until an upgrade moves the host. */
   readonly build: FactoryFleetHostBuild;
 }
+
+/**
+ * The hosted profile's view of the fleet (W4H-35): the system namespace, the runner root, and whether the fleet names a monitoring
+ * namespace (C12 "Kubernetes deployment target"); without one the supervisor serves no /metrics.
+ */
+export interface FactoryHostedSettings { readonly systemNamespace: string; readonly runnerRoot: string; readonly monitored: boolean }
 
 export interface FactoryFleetHostOptions {
   readonly settings: FactoryFleetHostSettings;
@@ -202,6 +220,22 @@ export interface FactoryFleetHostOptions {
 }
 
 const containerSecret = (name: string) => `/run/ezcorp/secrets/${name}`;
+
+/** The GPU host profile file's name in the pool's delivery. */
+export const FACTORY_HOST_GPU_PROFILES_FILE = "gpu-host-profiles.json";
+
+/**
+ * The pool's resources for a fleet resource profile: CPU capacity always;
+ * under `gpu`, this host as the one GPU host and its delivered profile file.
+ * One function for every pool document that runs a profile (the fleet host,
+ * and the W19a graph proof's stack).
+ */
+export function factoryPoolResources(resources: FactoryFleetResources, hostId: string) {
+  const capacities = { cpu: resources.cpuCapacity };
+  return resources.profile === "gpu"
+    ? { capacities, gpuHosts: [hostId], gpuProfilesPath: containerSecret(FACTORY_HOST_GPU_PROFILES_FILE) }
+    : { capacities, gpuHosts: [], hosts: [hostId] };
+}
 
 export class FactoryFleetHost {
   readonly identity: FactoryFleetHostIdentity;
@@ -401,23 +435,36 @@ export class FactoryFleetHost {
         tenants: Object.fromEntries(admitted.map((entry) => [entry.harnessIdentity, { tenantId: entry.tenantId, tokenSubject: entry.tenantId }])),
         supervisors: { [this.identity.supervisor]: { supervisorId: this.identity.supervisor, tokenSubject: this.identity.supervisor, hostIds: [this.identity.hostId] } },
       },
-      resources: { capacities: { cpu: this.options.settings.cpuCapacity }, gpuHosts: [], hosts: [this.identity.hostId] },
+      resources: factoryPoolResources(this.options.settings.resources, this.identity.hostId),
       readinessFilePath: "/run/ezcorp/readiness/pool/pool.json", readinessHeartbeatMs: 4_000,
       metrics: { hostname: "0.0.0.0", port: this.identity.ports.poolMetrics, scrapeTokenPath: containerSecret(FACTORY_HOST_FILES.metricsScrapeToken) },
     });
-    const hostSecret = (name: string) => resolve(this.paths.supervisorDelivery, name);
+    const hosted = this.options.settings.hosted;
+    const hostSecret = (name: string) => resolve(hosted === undefined ? this.paths.supervisorDelivery : FACTORY_KUBERNETES_SUPERVISOR_PATHS.secrets, name);
+    // Where the supervisor dials the pool and an installation's guest-broker route: loopback on the Compose host, a service name hosted.
+    const dial = (service: string, namespace: string, port: number) => (hosted === undefined ? { baseUrl: `https://127.0.0.1:${port}` } : { baseUrl: factoryKubernetesServiceUrl(service, namespace, port), serverName: "localhost" });
     const supervisor = parseFactorySupervisorProcessConfig({
       schemaVersion: "factory.supervisor-process.v1", installationId: this.paths.context.installationId, hostId: this.identity.hostId,
       hostKeyPath: hostSecret(FACTORY_HOST_FILES.hostKey), hostKeyId: FACTORY_HOST_KEY_ID,
-      runnerRoot: this.paths.runnerRoot, readinessFilePath: resolve(this.paths.readinessDirectory, "supervisor", "supervisor.json"), readinessHeartbeatMs: 4_000,
-      metrics: { hostname: "127.0.0.1", port: this.identity.ports.supervisorMetrics, scrapeTokenPath: hostSecret(FACTORY_HOST_FILES.metricsScrapeToken) },
+      runnerRoot: hosted === undefined ? this.paths.runnerRoot : hosted.runnerRoot,
+      // Hosted, the host key arrives read-only and in memory: the durable state lives under the runner root (item 7).
+      ...(hosted === undefined ? {} : { stateDirectory: resolve(hosted.runnerRoot, FACTORY_KUBERNETES_SUPERVISOR_STATE) }),
+      readinessFilePath: hosted === undefined ? resolve(this.paths.readinessDirectory, "supervisor", "supervisor.json") : `${FACTORY_KUBERNETES_SUPERVISOR_PATHS.readinessDirectory}/supervisor.json`,
+      readinessHeartbeatMs: 4_000,
+      // C11 M4: on Compose, host loopback and the host's token file; hosted, the node's own address (the marker the supervisor
+      // resolves from the downward API) and the delivered private copy, and no listener at all without monitoring (W4H-35, D-A, N1).
+      ...(hosted === undefined
+        ? { metrics: { hostname: "127.0.0.1", port: this.identity.ports.supervisorMetrics, scrapeTokenPath: hostSecret(FACTORY_HOST_FILES.metricsScrapeToken) } }
+        : hosted.monitored
+          ? { metrics: { hostname: FACTORY_NODE_ADDRESS.marker, port: this.identity.ports.supervisorMetrics, scrapeTokenPath: hostSecret(FACTORY_HOST_FILES.metricsScrapeToken) } }
+          : {}),
       services: {
         // W01i: each harness peer is bound to its own tenant, so the host refuses a launch it names for another (403 forbidden_tenant).
-        hostname: "127.0.0.1", port: this.identity.ports.supervisor, peerTenants: Object.fromEntries(admitted.map((entry) => [entry.harnessIdentity, entry.tenantId])),
+        hostname: hosted === undefined ? "127.0.0.1" : "0.0.0.0", port: this.identity.ports.supervisor, peerTenants: Object.fromEntries(admitted.map((entry) => [entry.harnessIdentity, entry.tenantId])),
         hostKeyIdPath: hostSecret(FACTORY_HOST_FILES.hostKeyId),
         tls: { caPath: hostSecret(FACTORY_HOST_FILES.trustBundle), certificatePath: hostSecret(FACTORY_HOST_FILES.serverCertificate), privateKeyPath: hostSecret(FACTORY_HOST_FILES.serverKey) },
         pool: {
-          baseUrl: `https://127.0.0.1:${this.identity.ports.pool}`, serviceTokenPath: hostSecret(FACTORY_HOST_FILES.supervisorPoolToken),
+          ...dial("factory-pool", hosted?.systemNamespace ?? "", this.identity.ports.pool), serviceTokenPath: hostSecret(FACTORY_HOST_FILES.supervisorPoolToken),
           tls: { caPath: hostSecret(FACTORY_HOST_FILES.caCertificate), certificatePath: hostSecret(FACTORY_HOST_FILES.supervisorCertificate), privateKeyPath: hostSecret(FACTORY_HOST_FILES.supervisorKey) },
         },
         // W01g's guest-broker route of every admitted installation, keyed by its
@@ -426,7 +473,7 @@ export class FactoryFleetHost {
         // authority, which signs its route's server certificate.
         ...(admitted.length === 0 ? {} : {
           guestBrokers: Object.fromEntries(admitted.map((entry) => [entry.tenantId, {
-            baseUrl: `https://127.0.0.1:${factoryInstallationPorts(entry.tenantId, this.options.settings.portBase).guestBroker}`,
+            ...dial("harness", factoryComposeProject({ fleetId: this.options.settings.fleetId, tenantId: entry.tenantId }), factoryInstallationPorts(entry.tenantId, this.options.settings.portBase).guestBroker),
             serviceTokenPath: hostSecret(FACTORY_HOST_FILES.supervisorGuestBrokerToken),
             tls: { caPath: hostSecret(FACTORY_HOST_FILES.trustBundle), certificatePath: hostSecret(FACTORY_HOST_FILES.supervisorCertificate), privateKeyPath: hostSecret(FACTORY_HOST_FILES.supervisorKey) },
           }])),
@@ -440,6 +487,7 @@ export class FactoryFleetHost {
         pool: {
           [FACTORY_HOST_FILES.serverCertificate]: source(FACTORY_HOST_FILES.serverCertificate), [FACTORY_HOST_FILES.serverKey]: source(FACTORY_HOST_FILES.serverKey), [FACTORY_HOST_FILES.tokenPublicKey]: source(FACTORY_HOST_FILES.tokenPublicKey),
           [FACTORY_HOST_FILES.metricsScrapeToken]: source(FACTORY_HOST_FILES.metricsScrapeToken),
+          ...(this.options.settings.resources.profile === "gpu" ? { [FACTORY_HOST_GPU_PROFILES_FILE]: this.options.settings.resources.gpuProfilesPath } : {}),
         },
         supervisor: {
           [FACTORY_HOST_FILES.caCertificate]: source(FACTORY_HOST_FILES.caCertificate), [FACTORY_HOST_FILES.serverCertificate]: source(FACTORY_HOST_FILES.serverCertificate), [FACTORY_HOST_FILES.serverKey]: source(FACTORY_HOST_FILES.serverKey),
@@ -459,6 +507,7 @@ export class FactoryFleetHost {
    * plus every admitted installation's authority.
    */
   private async writeDeliveries(bundle: FactoryFleetHostBundle): Promise<void> {
+    await this.assertGpuProfiles();
     const [, poolPair] = factoryDatabasePairs(this.paths.context);
     const secrets = await openFactoryPrivateDirectory(this.paths.context.secretDirectory);
     const trust: string[] = [];
@@ -481,6 +530,17 @@ export class FactoryFleetHost {
     await write(this.paths.supervisorDelivery, bundle.deliveries.supervisor, { [FACTORY_HOST_FILES.trustBundle]: bundleText, "supervisor.json": `${JSON.stringify(bundle.supervisor)}\n` });
     for (const writer of ["pool", "supervisor"]) await openFactoryPrivateDirectory(resolve(this.paths.readinessDirectory, writer)).then((handle) => handle.close());
     await openFactoryPrivateDirectory(this.paths.runnerRoot).then((handle) => handle.close());
+  }
+
+  /** Under `gpu`, the profile file must declare exactly this host before the pool receives it; the pool would refuse it later, degraded. */
+  private async assertGpuProfiles(): Promise<void> {
+    const resources = this.options.settings.resources;
+    if (resources.profile !== "gpu") return;
+    try { await loadFactoryGpuHostProfiles(resources.gpuProfilesPath, [this.identity.hostId]); }
+    catch (error) {
+      if (!(error instanceof FactoryGpuHostProfileError)) throw error;
+      throw new FactoryProvisioningError("host_gpu_profiles_invalid", `The fleet's GPU host profile file is refused: ${error.code}.`);
+    }
   }
 
   /**

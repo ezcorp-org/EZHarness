@@ -17,9 +17,12 @@
  *
  * Wiring: the pool process loads `config.resources.gpuProfilesPath` with
  * `loadFactoryGpuHostProfiles` before its listener binds, so a bad or unproven
- * declaration keeps the pool degraded (`gpu_profiles_unavailable`). No lease
- * path consumes the registry yet: `factoryHeldAllocationDevices` has no
- * production caller, which the W16 gate file names.
+ * declaration keeps the pool degraded (`gpu_profiles_unavailable`). The pool
+ * records each host's profile with its registration, and the attempt
+ * preflight (`runner/attempt-preflight.ts`, W02d) authorizes a held GPU lease's
+ * devices from that record through `factoryHeldAllocationDevices`. A fleet
+ * selects the GPU profile in its settings (`resources`, W4H-35); the fleet host
+ * validates the file and delivers it to the pool.
  */
 import { basename, dirname, resolve } from "node:path";
 import { privateDirectory, readPrivateBounded } from "../private-files";

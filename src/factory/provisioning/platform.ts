@@ -98,6 +98,17 @@ export interface FactoryPlatformSettings {
   readonly temporalHttpPort: number;
   readonly ingressAddress: string;
   readonly ingressPort: number;
+  /** The hosted profile: the fleet's ingress runs in the cluster, so the platform starts every service but the Compose one (W4H-35). */
+  readonly hostedIngress?: boolean;
+}
+
+/** The platform template's services, and the nginx image its ingress runs: the one pin both deployment profiles use. */
+export async function factoryPlatformServices(repositoryRoot: string): Promise<{ readonly names: readonly string[]; readonly ingressImage: string }> {
+  const template = Bun.YAML.parse(await Bun.file(resolve(repositoryRoot, "deploy/factory/compose/platform.yml")).text()) as { services?: Record<string, { image?: unknown }> };
+  const services = template.services ?? {};
+  const ingressImage = services.ingress?.image;
+  if (typeof ingressImage !== "string") throw new FactoryProvisioningError("platform_template_invalid", "The platform template names no ingress image.");
+  return Object.freeze({ names: Object.freeze(Object.keys(services)), ingressImage });
 }
 
 export function factoryPlatformProject(fleetId: string): string { return `ezcorp-factory-${fleetId}-platform`; }
@@ -157,7 +168,8 @@ export async function startFactoryPlatform(settings: FactoryPlatformSettings, pa
   finally { await conf.close(); }
   const env = factoryPlatformEnvironment(settings, paths);
   await replaceFactoryPrivateFile(factoryPrivatePath(paths.root, "platform.env"), `${Object.entries(env).map(([key, value]) => `${key}=${value}`).join("\n")}\n`);
-  const result = await platformCompose(settings, paths, compose, execute, ["up", "--detach", "--remove-orphans"]);
+  const services = settings.hostedIngress === true ? (await factoryPlatformServices(settings.repositoryRoot)).names.filter((name) => name !== "ingress") : [];
+  const result = await platformCompose(settings, paths, compose, execute, ["up", "--detach", "--remove-orphans", ...services]);
   if (result.code !== 0) throw new FactoryProvisioningError("platform_compose_failed", `platform compose up failed: ${result.stderr.trim().split("\n").slice(-3).join(" | ").slice(0, 400)}`);
   if (serves) await waitForFactoryPlatform(serves, wait);
 }

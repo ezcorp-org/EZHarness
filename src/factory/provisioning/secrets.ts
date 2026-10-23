@@ -23,14 +23,15 @@
 import { createHash, randomBytes } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import { resolve } from "node:path";
-import { InstallationDataKey, StaticMasterKeyProvider, readOperatorMasterKey, type InstallationKeyWrap, type InstallationKeyWrapStore } from "../encryption";
+import { FactoryEncryptionError, InstallationDataKey, StaticMasterKeyProvider, readOperatorMasterKey, type InstallationKeyWrap, type InstallationKeyWrapStore } from "../encryption";
 import { loadFactoryTemporalPayloadCodec, parseFactoryKeyWrapFile } from "../file-key-wraps";
 import type { FactoryInstallationContext, FactoryProvisioningDriver, FactoryStepResources } from "./installation";
-import { ensureFactoryPrivateFile, factoryPrivatePath, openFactoryPrivateDirectory, readFactoryPrivateBytes, readFactoryPrivateText, removeFactoryPrivateDirectory, removeFactoryPrivateFile, replaceFactoryPrivateFile } from "./secret-files";
+import { ensureFactoryPrivateFile, factoryPrivatePath, openFactoryPrivateDirectory, readFactoryPrivateBytes, readFactoryPrivatePath, readFactoryPrivateText, removeFactoryPrivateDirectory, removeFactoryPrivateFile, replaceFactoryPrivateFile } from "./secret-files";
 import { FactoryProvisioningError } from "./steps";
 
 export const FACTORY_APPLICATION_SECRET_FILES = Object.freeze({ jwt: "application-jwt-secret", encryption: "application-encryption-secret", salt: "application-encryption-salt" });
 export const FACTORY_KEY_FILES = Object.freeze({ master: "master.key", wraps: "wraps.json" });
+export const FACTORY_ESCROW_WRAPS = `escrow-${FACTORY_KEY_FILES.wraps}`;
 const APPLICATION_SECRET = /^[A-Za-z0-9_-]{43}$/;
 const SALT = /^[a-f0-9]{32}$/;
 const MASTER_KEY_BYTES = 32;
@@ -48,6 +49,62 @@ export interface FactorySecretsStepOptions {
 
 export function factoryMasterKeyId(installation: FactoryInstallationContext, version = 1): string {
   return `master-${installation.installationId}-v${version}`;
+}
+
+/** The operator master key's file, named by its version. Version 1 keeps the name every existing installation has. */
+export function factoryMasterKeyFile(version: number): string {
+  return version === 1 ? FACTORY_KEY_FILES.master : `master-v${version}.key`;
+}
+
+/** The wraps under a superseded master key, kept beside it in the operator's directory until that key is revoked. */
+export function factoryRetainedWrapsFile(version: number): string {
+  return `retained-wraps-v${version}.json`;
+}
+
+/** The staging file a rotation writes the next wrap to before it replaces the live one. */
+const NEXT_WRAPS = "wraps.next.json";
+
+export interface FactoryCurrentMasterKey {
+  readonly version: number;
+  readonly id: string;
+  /** The operator's file holding this version. */
+  readonly path: string;
+}
+
+function currentMasterKey(installation: FactoryInstallationContext, version: number): FactoryCurrentMasterKey {
+  return Object.freeze({ version, id: factoryMasterKeyId(installation, version), path: factoryPrivatePath(installation.operatorDirectory, factoryMasterKeyFile(version)) });
+}
+
+/** The version a master key id of this installation names; undefined for any other id. */
+function masterKeyVersion(installation: FactoryInstallationContext, id: unknown): number | undefined {
+  const prefix = `master-${installation.installationId}-v`;
+  if (typeof id !== "string" || !id.startsWith(prefix) || !/^[1-9][0-9]{0,5}$/.test(id.slice(prefix.length))) return undefined;
+  return Number(id.slice(prefix.length));
+}
+
+/** Read for the version only: the private loader that opens the key checks the file's safety and refuses it by its own code. */
+async function readOptional(path: string): Promise<string | undefined> {
+  try { return await readFile(path, "utf8"); }
+  catch (error) { if ((error as NodeJS.ErrnoException).code === "ENOENT") return undefined; throw error; }
+}
+
+/**
+ * The installation's current master key: the one its wrap file is under. The
+ * live wrap file decides; after teardown, its escrow copy does; before step 4
+ * wrote anything, it is version 1. The wrap file is the one source, so a
+ * rotation interrupted before it replaced the wrap file leaves the old key
+ * current, and one interrupted after leaves the new one current.
+ */
+export async function readFactoryCurrentMasterKey(installation: FactoryInstallationContext): Promise<FactoryCurrentMasterKey> {
+  const text = await readOptional(factoryPrivatePath(installation.secretDirectory, FACTORY_KEY_FILES.wraps))
+    ?? await readOptional(factoryPrivatePath(installation.operatorDirectory, FACTORY_ESCROW_WRAPS));
+  if (text === undefined) return currentMasterKey(installation, 1);
+  let version: number | undefined;
+  try { version = masterKeyVersion(installation, (JSON.parse(text) as { wraps?: Array<{ masterKeyId?: unknown }> }).wraps?.[0]?.masterKeyId); }
+  catch { version = undefined; }
+  // The loader's own refusal for a wrap file it cannot read: one code for every unreadable wrap file.
+  if (version === undefined) throw new FactoryEncryptionError("factory_key_invalid");
+  return currentMasterKey(installation, version);
 }
 
 function digest(value: Uint8Array | string): string {
@@ -101,24 +158,29 @@ export function assertFactoryMasterKeyIsRaw(masterKey: Uint8Array, applicationSe
   if (masterKey.every((byte) => (byte >= 0x20 && byte < 0x7f) || byte === 0x0a || byte === 0x0d)) throw new FactoryProvisioningError("master_key_is_text", "The operator master key is printable text; it must be raw random bytes, not an encoded secret.");
 }
 
-export class FactorySecretsStep implements FactoryProvisioningDriver {
+/** Step 4's master-key life, beside the driver's own ensure, verify, teardown and rotate. */
+export interface FactoryMasterKeyDriver {
+  rotateMasterKey(installation: FactoryInstallationContext, recorded: FactoryStepResources): Promise<FactoryStepResources>;
+  revokeMasterKey(installation: FactoryInstallationContext, recorded: FactoryStepResources, version: number): Promise<void>;
+}
+
+export class FactorySecretsStep implements FactoryProvisioningDriver, FactoryMasterKeyDriver {
   readonly step = "secrets" as const;
   constructor(private readonly options: FactorySecretsStepOptions) {}
 
   async ensure(installation: FactoryInstallationContext): Promise<FactoryStepResources> {
+    const current = await readFactoryCurrentMasterKey(installation);
     const secrets = await openFactoryPrivateDirectory(installation.secretDirectory);
     const operator = await openFactoryPrivateDirectory(installation.operatorDirectory);
     try {
       await ensureFactoryPrivateFile(secrets, FACTORY_APPLICATION_SECRET_FILES.jwt, () => text(randomBytes(32).toString("base64url")));
       await ensureFactoryPrivateFile(secrets, FACTORY_APPLICATION_SECRET_FILES.encryption, () => text(randomBytes(32).toString("base64url")));
       await ensureFactoryPrivateFile(secrets, FACTORY_APPLICATION_SECRET_FILES.salt, () => text(randomBytes(16).toString("hex")));
-      await ensureFactoryPrivateFile(operator, FACTORY_KEY_FILES.master, () => randomBytes(MASTER_KEY_BYTES));
+      // Only the first key is created here; a later version is created by its rotation, and a revoked one never again.
+      if (current.version === 1) await ensureFactoryPrivateFile(operator, FACTORY_KEY_FILES.master, () => randomBytes(MASTER_KEY_BYTES));
     } finally { await secrets.close(); await operator.close(); }
-    const wrapsPath = factoryPrivatePath(installation.secretDirectory, FACTORY_KEY_FILES.wraps);
-    const masterKeyPath = factoryPrivatePath(installation.operatorDirectory, FACTORY_KEY_FILES.master);
-    const masterKeyId = factoryMasterKeyId(installation);
-    const master = await readOperatorMasterKey(masterKeyPath, masterKeyId, this.options.grantableRoots(installation));
-    await InstallationDataKey.loadOrCreate(installation.installationId, new ProvisionerKeyWrapFile(wrapsPath, installation.installationId, masterKeyId), new StaticMasterKeyProvider(master));
+    const master = await readOperatorMasterKey(current.path, current.id, this.options.grantableRoots(installation));
+    await InstallationDataKey.loadOrCreate(installation.installationId, this.wrapFile(installation, current.id), new StaticMasterKeyProvider(master));
     const resources = await this.resources(installation);
     await this.verify(installation, resources);
     return resources;
@@ -134,10 +196,9 @@ export class FactorySecretsStep implements FactoryProvisioningDriver {
     } finally { await secrets.close(); }
     if (applicationSecrets.some((value) => !APPLICATION_SECRET.test(value)) || !SALT.test(salt)) throw new FactoryProvisioningError("application_secret_invalid", "An application secret has an invalid format.");
     if (applicationSecrets[0] === applicationSecrets[1]) throw new FactoryProvisioningError("application_secret_shared", "The JWT and encryption secrets must differ.");
-    const operator = await openFactoryPrivateDirectory(installation.operatorDirectory);
-    let masterBytes: Uint8Array;
-    try { masterBytes = await readFactoryPrivateBytes(operator, FACTORY_KEY_FILES.master, 4 * 1024); }
-    finally { await operator.close(); }
+    const current = await readFactoryCurrentMasterKey(installation);
+    if (resources.masterKeyId !== current.id || resources.masterKeyFilePath !== current.path) throw new FactoryProvisioningError("secrets_resource_mismatch", "The recorded master key is not the one the wrap file is under.");
+    const masterBytes = await readFactoryPrivatePath(current.path, 4 * 1024);
     assertFactoryMasterKeyIsRaw(masterBytes, applicationSecrets);
     const grantableRoots = this.options.grantableRoots(installation);
     for (const root of grantableRoots.map((value) => resolve(value))) {
@@ -176,7 +237,7 @@ export class FactorySecretsStep implements FactoryProvisioningDriver {
    * New application secrets. Existing sessions stop verifying, which is the
    * point of rotating a JWT secret; the encryption secret is NOT rotated here,
    * because rows encrypted under it would become unreadable. A data-key rewrap
-   * under a new master key is `InstallationDataKey.rotate`, not this.
+   * under a new master key is `rotateMasterKey`, not this.
    */
   async rotate(installation: FactoryInstallationContext): Promise<FactoryStepResources> {
     await replaceFactoryPrivateFile(factoryPrivatePath(installation.secretDirectory, FACTORY_APPLICATION_SECRET_FILES.jwt), text(randomBytes(32).toString("base64url")));
@@ -185,27 +246,92 @@ export class FactorySecretsStep implements FactoryProvisioningDriver {
     return resources;
   }
 
-  private async resources(installation: FactoryInstallationContext): Promise<FactoryStepResources> {
-    const secrets = await openFactoryPrivateDirectory(installation.secretDirectory);
+  /**
+   * Rotate the operator master key (C12 "Key rotation and revocation").
+   *
+   * `recorded` is what the ledger holds. If the wrap file is already under a
+   * later key, an earlier run was interrupted after it replaced the wrap file:
+   * this completes that rotation and makes no further version. Otherwise the
+   * next key is written once (a rerun reuses it), checked as raw key material,
+   * the live wraps are kept beside the old key, and the same data key is
+   * wrapped under the next key into a staging file that then replaces the wrap
+   * file atomically. The data key, and every object encrypted under it, do not
+   * change.
+   */
+  async rotateMasterKey(installation: FactoryInstallationContext, recorded: FactoryStepResources): Promise<FactoryStepResources> {
+    const from = masterKeyVersion(installation, recorded.masterKeyId);
+    const current = await readFactoryCurrentMasterKey(installation);
+    if (from === undefined || current.version < from) throw new FactoryProvisioningError("secrets_resource_mismatch", "The recorded master key is not one this installation's wrap file has been under.");
+    if (current.version === from) await this.rewrap(installation, current);
+    const resources = await this.resources(installation);
+    await this.verify(installation, resources);
+    return resources;
+  }
+
+  private async rewrap(installation: FactoryInstallationContext, current: FactoryCurrentMasterKey): Promise<void> {
+    const next = currentMasterKey(installation, current.version + 1);
     const operator = await openFactoryPrivateDirectory(installation.operatorDirectory);
+    const secrets = await openFactoryPrivateDirectory(installation.secretDirectory);
+    let live: Uint8Array;
+    try {
+      await ensureFactoryPrivateFile(operator, factoryMasterKeyFile(next.version), () => randomBytes(MASTER_KEY_BYTES));
+      const applicationSecrets = [await readFactoryPrivateText(secrets, FACTORY_APPLICATION_SECRET_FILES.jwt), await readFactoryPrivateText(secrets, FACTORY_APPLICATION_SECRET_FILES.encryption)].map((value) => value.trim());
+      assertFactoryMasterKeyIsRaw(await readFactoryPrivateBytes(operator, factoryMasterKeyFile(next.version), 4 * 1024), applicationSecrets);
+      live = await readFactoryPrivateBytes(secrets, FACTORY_KEY_FILES.wraps);
+      await removeFactoryPrivateFile(secrets, NEXT_WRAPS);
+    } finally { await operator.close(); await secrets.close(); }
+    const roots = this.options.grantableRoots(installation);
+    const dataKey = await InstallationDataKey.loadExisting(installation.installationId, this.wrapFile(installation, current.id), new StaticMasterKeyProvider(await readOperatorMasterKey(current.path, current.id, roots)));
+    await replaceFactoryPrivateFile(factoryPrivatePath(installation.operatorDirectory, factoryRetainedWrapsFile(current.version)), live);
+    const staging = factoryPrivatePath(installation.secretDirectory, NEXT_WRAPS);
+    await dataKey.rotate(new ProvisionerKeyWrapFile(staging, installation.installationId, next.id), new StaticMasterKeyProvider(await readOperatorMasterKey(next.path, next.id, roots)));
+    await replaceFactoryPrivateFile(factoryPrivatePath(installation.secretDirectory, FACTORY_KEY_FILES.wraps), await readFactoryPrivatePath(staging));
+    const directory = await openFactoryPrivateDirectory(installation.secretDirectory);
+    try { await removeFactoryPrivateFile(directory, NEXT_WRAPS); } finally { await directory.close(); }
+  }
+
+  /**
+   * Revoke a superseded master key: remove it and the wraps kept under it. Only
+   * a version older than the current one can go, so every wrap the
+   * installation reads is already under the current key. Absent is success: a
+   * rerun changes nothing.
+   */
+  async revokeMasterKey(installation: FactoryInstallationContext, recorded: FactoryStepResources, version: number): Promise<void> {
+    if (!Number.isSafeInteger(version) || version < 1) throw new FactoryProvisioningError("master_key_revocation_invalid", "A master key version is a positive integer.");
+    const current = await readFactoryCurrentMasterKey(installation);
+    if (recorded.masterKeyId !== current.id) throw new FactoryProvisioningError("secrets_resource_mismatch", "The recorded master key is not the one the wrap file is under.");
+    if (version >= current.version) throw new FactoryProvisioningError("master_key_revocation_current", `Master key version ${version} is not older than the current version ${current.version}; rotate first.`);
+    const operator = await openFactoryPrivateDirectory(installation.operatorDirectory);
+    try {
+      await removeFactoryPrivateFile(operator, factoryMasterKeyFile(version));
+      await removeFactoryPrivateFile(operator, factoryRetainedWrapsFile(version));
+    } finally { await operator.close(); }
+  }
+
+  private wrapFile(installation: FactoryInstallationContext, masterKeyId: string): ProvisionerKeyWrapFile {
+    return new ProvisionerKeyWrapFile(factoryPrivatePath(installation.secretDirectory, FACTORY_KEY_FILES.wraps), installation.installationId, masterKeyId);
+  }
+
+  private async resources(installation: FactoryInstallationContext): Promise<FactoryStepResources> {
+    const current = await readFactoryCurrentMasterKey(installation);
+    const secrets = await openFactoryPrivateDirectory(installation.secretDirectory);
     try {
       return Object.freeze({
         jwtSecretPath: factoryPrivatePath(installation.secretDirectory, FACTORY_APPLICATION_SECRET_FILES.jwt),
         encryptionSecretPath: factoryPrivatePath(installation.secretDirectory, FACTORY_APPLICATION_SECRET_FILES.encryption),
         saltPath: factoryPrivatePath(installation.secretDirectory, FACTORY_APPLICATION_SECRET_FILES.salt),
         wrappedKeyFilePath: factoryPrivatePath(installation.secretDirectory, FACTORY_KEY_FILES.wraps),
-        masterKeyFilePath: factoryPrivatePath(installation.operatorDirectory, FACTORY_KEY_FILES.master),
-        masterKeyId: factoryMasterKeyId(installation),
+        masterKeyFilePath: current.path,
+        masterKeyId: current.id,
         jwtSecretDigest: digest((await readFactoryPrivateText(secrets, FACTORY_APPLICATION_SECRET_FILES.jwt)).trim()),
         encryptionSecretDigest: digest((await readFactoryPrivateText(secrets, FACTORY_APPLICATION_SECRET_FILES.encryption)).trim()),
         saltDigest: digest((await readFactoryPrivateText(secrets, FACTORY_APPLICATION_SECRET_FILES.salt)).trim()),
-        masterKeyDigest: digest(await readFactoryPrivateBytes(operator, FACTORY_KEY_FILES.master, 4 * 1024)),
+        masterKeyDigest: digest(await readFactoryPrivatePath(current.path, 4 * 1024)),
       });
-    } finally { await secrets.close(); await operator.close(); }
+    } finally { await secrets.close(); }
   }
 }
 
-export const FACTORY_ESCROW_WRAPS = `escrow-${FACTORY_KEY_FILES.wraps}`;
 
 /**
  * Copy the installation's wrap into the operator's escrow. The live wrap wins
@@ -238,9 +364,10 @@ export async function escrowFactoryWraps(installation: FactoryInstallationContex
  */
 export async function escrowFactoryArchiveKey(installation: FactoryInstallationContext): Promise<void> {
   await escrowFactoryWraps(installation);
+  const current = await readFactoryCurrentMasterKey(installation);
   const operator = await openFactoryPrivateDirectory(installation.operatorDirectory);
   try {
-    await readFactoryPrivateBytes(operator, FACTORY_KEY_FILES.master, 4 * 1024);
+    await readFactoryPrivateBytes(operator, factoryMasterKeyFile(current.version), 4 * 1024);
     await removeFactoryPrivateFile(operator, "first-admin-invitation.json");
   } finally { await operator.close(); }
   await removeFactoryPrivateDirectory(installation.secretDirectory);

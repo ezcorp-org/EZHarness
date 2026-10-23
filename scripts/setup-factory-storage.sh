@@ -7,7 +7,14 @@ repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 readonly repo_root
 readonly compose_file="$repo_root/compose.factory-storage.local.yml"
 readonly runtime_base="${XDG_RUNTIME_DIR:-}"
-readonly project_name="ezcorp-factory-storage-${UID}"
+# One project per store pair. The default is the host's shared pair; a proof that needs its own pair names its own
+# project and tenant ids (W4H-35's kind proof: EZCORP_FACTORY_STORAGE_PROJECT=w4h35-stores EZCORP_FACTORY_STORAGE_TENANTS="01 35").
+readonly default_project="ezcorp-factory-storage-${UID}"
+readonly project_name="${EZCORP_FACTORY_STORAGE_PROJECT:-$default_project}"
+# The shared pair keeps its credential-directory prefix, which other tools look up; another pair uses its project name.
+if [[ "$project_name" == "$default_project" ]]; then readonly secrets_prefix="ezcorp-factory-storage"; else readonly secrets_prefix="$project_name"; fi
+if [[ -v EZCORP_FACTORY_STORAGE_TENANTS ]]; then read -r -a tenant_ids <<< "$EZCORP_FACTORY_STORAGE_TENANTS"; else mapfile -t tenant_ids < <(seq -w 1 10); fi
+readonly tenant_ids
 
 # One engine rule for the whole repository (scripts/lib/container-engine.sh):
 # Podman by default on a developer host, Docker under CI, and
@@ -19,6 +26,11 @@ readonly project_name="ezcorp-factory-storage-${UID}"
 resolve_compose || exit 2
 
 fail() { printf '%s\n' "$1" >&2; exit 1; }
+
+[[ "$project_name" =~ ^[a-z0-9][a-z0-9-]{0,62}$ ]] || fail 'EZCORP_FACTORY_STORAGE_PROJECT must be a lowercase compose project name.'
+[[ "${#tenant_ids[@]}" -gt 0 ]] || fail 'EZCORP_FACTORY_STORAGE_TENANTS must name at least one two-digit tenant id.'
+for tenant in "${tenant_ids[@]}"; do [[ "$tenant" =~ ^[0-9]{2}$ ]] || fail 'EZCORP_FACTORY_STORAGE_TENANTS takes two-digit tenant ids only (tenant-XX).'; done
+[[ "$(printf '%s\n' "${tenant_ids[@]}" | sort -u | wc -l)" -eq "${#tenant_ids[@]}" ]] || fail 'EZCORP_FACTORY_STORAGE_TENANTS names a tenant twice.'
 
 require_loopback() {
   case "${EZCORP_FACTORY_STORAGE_BIND_IP:-127.0.0.1}" in
@@ -41,7 +53,7 @@ require_owned_credentials() {
   [[ -n "${EZCORP_FACTORY_STORAGE_SECRETS_DIR:-}" ]] || fail 'Set the generated credential directory before stop.'
   local canonical
   canonical="$(realpath -e -- "$EZCORP_FACTORY_STORAGE_SECRETS_DIR")"
-  [[ "$canonical" == "${runtime_base%/}"/ezcorp-factory-storage.* && "$(dirname -- "$canonical")" == "${runtime_base%/}" ]] || fail 'Credential directory must be generated directly below XDG_RUNTIME_DIR.'
+  [[ "$canonical" == "${runtime_base%/}/${secrets_prefix}".* && "$(dirname -- "$canonical")" == "${runtime_base%/}" ]] || fail 'Credential directory must be generated directly below XDG_RUNTIME_DIR.'
   [[ ! -L "$EZCORP_FACTORY_STORAGE_SECRETS_DIR" && "$(stat -c '%u' "$canonical")" == "$UID" ]] || fail 'Credential directory ownership is invalid.'
   [[ -f "$canonical/.factory-storage-owner" && ! -L "$canonical/.factory-storage-owner" && "$(cat "$canonical/.factory-storage-owner")" == "$project_name" ]] || fail 'Credential directory has no matching ownership record.'
 }
@@ -51,7 +63,7 @@ write_config() {
   umask 077
   {
     printf '{"identities":['
-    for tenant in $(seq -w 1 10); do
+    for tenant in "${tenant_ids[@]}"; do
       if [[ "$first" -eq 0 ]]; then printf ','; fi
       first=0
       printf '{"name":"tenant-%s","credentials":[{"accessKey":"%s","secretKey":"%s"}],"actions":["Read:tenant-%s/%s/*","List:tenant-%s/%s/*","Tagging:tenant-%s/%s/*","Write:tenant-%s/%s/*"]}' \
@@ -67,7 +79,7 @@ write_config() {
 seed_buckets() {
   local service="$1" tenant
   {
-    for tenant in $(seq -w 1 10); do
+    for tenant in "${tenant_ids[@]}"; do
       printf 's3.bucket.create -name=tenant-%s\n' "$tenant"
       printf 's3.bucket.versioning -name=tenant-%s -enable\n' "$tenant"
     done
@@ -81,7 +93,7 @@ start() {
     fail 'Factory storage containers already exist. Use their credential directory or stop them first.'
   fi
   local secrets_dir
-  secrets_dir="$(mktemp -d "${runtime_base%/}/ezcorp-factory-storage.XXXXXXXX")"
+  secrets_dir="$(mktemp -d "${runtime_base%/}/${secrets_prefix}.XXXXXXXX")"
   chmod 755 "$secrets_dir"
   (umask 077; printf '%s\n' "$project_name" > "$secrets_dir/.factory-storage-owner")
   export EZCORP_FACTORY_STORAGE_SECRETS_DIR="$secrets_dir"
@@ -111,7 +123,7 @@ recover() {
   if ! "$ENGINE" ps -aq --filter "label=com.docker.compose.project=$project_name" | read -r _; then
     fail 'No factory storage containers exist. Use up.'
   fi
-  if ls -d "${runtime_base%/}"/ezcorp-factory-storage.* >/dev/null 2>&1; then
+  if ls -d "${runtime_base%/}/${secrets_prefix}".* >/dev/null 2>&1; then
     fail 'A credential directory still exists. Use down, then up.'
   fi
   EZCORP_FACTORY_STORAGE_SECRETS_DIR=/nonexistent compose down

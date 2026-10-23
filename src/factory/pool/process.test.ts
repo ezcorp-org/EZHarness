@@ -70,12 +70,13 @@ class ProcessDatabase {
   async close(): Promise<void> { this.closed = true; if (this.failClose) throw new Error("secret close failure"); }
 }
 
+let served: (() => unknown) | undefined;
 function dependencies(database: ProcessDatabase, controller: AbortController, updates: FactoryPoolReadinessUpdate[], options: { startError?: boolean; stopError?: boolean; heartbeatError?: boolean; heartbeatSuccess?: boolean } = {}): FactoryPoolProcessDependencies {
   if (options.heartbeatError) database.failCheckAfter = 1;
   return {
     connect: () => database,
     readiness: () => ({ async write(update) { updates.push(update); return { schemaVersion: "factory.pool-readiness.v2", poolId: "p", observedAtMs: 1, ...update }; } }),
-    start: async input => { expect(input).toMatchObject({ hostname: "127.0.0.1", port: 8443 }); if (options.startError) throw new Error("secret listener error"); if (options.heartbeatSuccess) setTimeout(() => controller.abort(), 1_010); else if (!options.heartbeatError) controller.abort(); return { url: "https://127.0.0.1:8443", stop() { if (options.stopError) throw new Error("secret listener close failure"); updates.push({ lifecycle: "stopped", databaseReady: false, schemaReady: false, listenerReady: false }); } }; },
+    start: async input => { expect(input).toMatchObject({ hostname: "127.0.0.1", port: 8443 }); served = input.readiness; if (options.startError) throw new Error("secret listener error"); if (options.heartbeatSuccess) setTimeout(() => controller.abort(), 1_010); else if (!options.heartbeatError) controller.abort(); return { url: "https://127.0.0.1:8443", stop() { if (options.stopError) throw new Error("secret listener close failure"); updates.push({ lifecycle: "stopped", databaseReady: false, schemaReady: false, listenerReady: false }); } }; },
     ...(options.heartbeatSuccess ? {} : { wait: async (_milliseconds: number, signal: AbortSignal) => { if (!signal.aborted && !options.heartbeatError) controller.abort(); } }),
   };
 }
@@ -160,6 +161,8 @@ describe("factory pool process lifecycle", () => {
     expect(database.closed).toBe(true);
     expect(updates.some(value => value.lifecycle === "ready" && value.listenerReady)).toBe(true);
     expect(updates.at(-1)).toMatchObject({ lifecycle: "stopped", databaseReady: false });
+    // The listener serves the pool's own latest record: the hosted profile's readiness route (W4H-35).
+    expect(served?.()).toEqual({ schemaVersion: "factory.pool-readiness.v2", poolId: "p", observedAtMs: 1, ...updates.at(-1) });
   });
 
   test("serves its declared metrics endpoint over the ledger with its configured tenants, and keeps serving admission when it cannot (C11 M4)", async () => {
@@ -189,6 +192,21 @@ describe("factory pool process lifecycle", () => {
     expect(reports).toEqual(["factory_metrics_token_unreadable"]);
     expect(failingUpdates.some(value => value.lifecycle === "ready" && value.listenerReady)).toBe(true);
     expect(failingUpdates.at(-1)).toMatchObject({ lifecycle: "stopped" });
+  });
+
+  // Merge of W4H-34 (C11 M4) and W4H-35 (the hosted readiness route): a pool with a declared metrics endpoint serves BOTH. When its
+  // metrics listener starts, the readiness route already answers the ready record the pool published.
+  test("with a metrics endpoint, the pool's readiness route serves the ready record and /metrics is served too (merge W4H-34 x W4H-35)", async () => {
+    const metrics = { hostname: "127.0.0.1", port: 9465, scrapeTokenPath: "/run/ezcorp/secrets/pool-metrics-token" };
+    const { paths } = await fixture({ metrics });
+    const database = new ProcessDatabase(); const controller = new AbortController(); const updates: FactoryPoolReadinessUpdate[] = [];
+    const routeAtMetricsStart: unknown[] = [];
+    await runConfiguredFactoryPoolProcess(paths.config, controller.signal, {
+      ...dependencies(database, controller, updates),
+      metrics: async () => { routeAtMetricsStart.push(served?.()); return { url: "http://127.0.0.1:9465", stop: async () => {} }; },
+    });
+    expect(routeAtMetricsStart).toHaveLength(1);
+    expect(routeAtMetricsStart[0]).toMatchObject({ lifecycle: "ready", databaseReady: true, schemaReady: true, listenerReady: true });
   });
 
   test("refuses a malformed metrics endpoint in its configuration", async () => {
@@ -269,10 +287,18 @@ describe("factory pool process lifecycle", () => {
     expect(stopDatabase.closed).toBe(true);
   });
 
-  test("rejects inaccessible config without creating readiness", async () => {
+  // The read and the parse fail by different names (C12 row "Private paths of a hosted container (hosted)", kind proof run 10: one message for
+  // both hid that the pool could not read its delivered copy). The read names the private reader's own fixed reason, never a path.
+  test("rejects inaccessible config without creating readiness, naming the private reader's reason", async () => {
     const { paths } = await fixture(); await chmod(paths.config, 0o644);
     const controller = new AbortController();
-    await expect(runConfiguredFactoryPoolProcess(paths.config, controller.signal, dependencies(new ProcessDatabase(), controller, []))).rejects.toThrow("factory pool config is unavailable");
+    await expect(runConfiguredFactoryPoolProcess(paths.config, controller.signal, dependencies(new ProcessDatabase(), controller, []))).rejects.toThrow("factory pool config is unreadable (Private file must be owned, private, regular, and bounded.)");
+  });
+
+  test("rejects a config it can read but not parse as invalid, not as unreadable", async () => {
+    const { paths } = await fixture(); await writeFile(paths.config, "{ not json", { mode: 0o600 });
+    const controller = new AbortController();
+    await expect(runConfiguredFactoryPoolProcess(paths.config, controller.signal, dependencies(new ProcessDatabase(), controller, []))).rejects.toThrow(/^factory pool config is invalid$/);
   });
 });
 
@@ -305,5 +331,5 @@ test("main prints why the pool could not start, by the error's generic message, 
 test("the pool process started on a config it cannot read prints the reason and exits 1", async () => {
   const child = Bun.spawn([process.execPath, new URL("./process.ts", import.meta.url).pathname, "/nonexistent/w16-pool/pool.json"], { stdout: "pipe", stderr: "pipe" });
   const [code, stderr] = await Promise.all([child.exited, new Response(child.stderr).text()]);
-  expect({ code, stderr: stderr.trim() }).toEqual({ code: 1, stderr: "[factory-pool] failed to start: factory pool config is unavailable" });
+  expect({ code, stderr: stderr.trim() }).toEqual({ code: 1, stderr: "[factory-pool] failed to start: factory pool config is unreadable (ENOENT)" });
 });

@@ -16,6 +16,10 @@ import { DELIVERY_STATES } from "../../delivery-queue/delivery-states.ts";
 import { POOL_LEASE_STATES, POOL_RESOURCE_CLASSES } from "../pool/pool-states.ts";
 import type { FactoryReleaseState } from "../releases.ts";
 import type { FactoryAttemptLaunchState } from "../runner/attempt-wire.ts";
+import { FACTORY_CONTAINER_RUNTIME_ROLE } from "../service-roles.ts";
+
+/** The product roles a service may hold (C12 "Container runtime readiness (hosted)"): the closed set of `factory_service_role_held`. */
+export const FACTORY_HELD_ROLE_LABELS: readonly string[] = Object.freeze([FACTORY_CONTAINER_RUNTIME_ROLE.role]);
 
 export const FACTORY_METRIC_SERVICES = Object.freeze(["harness", "pool", "gateway", "orchestrator", "supervisor"] as const);
 export type FactoryMetricService = (typeof FACTORY_METRIC_SERVICES)[number];
@@ -106,6 +110,9 @@ export const FACTORY_METRIC_FAMILIES: readonly FactoryMetricFamily[] = Object.fr
     help: "Pool reservations holding or running capacity, by registered tenant." },
   { name: "factory_service_ready", type: "gauge", services: ["gateway", "orchestrator", "supervisor"], labels: {},
     help: "1 when the service reports itself ready, else 0." },
+  // C12 "Container runtime readiness (hosted)": the same fact as the record's held entry, for FactoryServiceRoleHeld (W4H-35).
+  { name: "factory_service_role_held", type: "gauge", services: ["supervisor"], labels: { role: FACTORY_HELD_ROLE_LABELS },
+    help: "1 while the service's readiness record holds this product role, else 0." },
   { name: "factory_metrics_label_refused_total", type: "counter", services: FACTORY_METRIC_SERVICES, labels: {},
     help: "Series this service dropped because a label value was outside its declared set." },
 ]);

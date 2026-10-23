@@ -21,6 +21,8 @@
  */
 import { basename, dirname, resolve } from "node:path";
 import { privateDirectory, readPrivateBounded, writePrivateBoundedAtomic } from "./private-files";
+import { FACTORY_CONTAINER_RUNTIME_ROLE } from "./service-roles.ts";
+import type { FactoryHeldRoleEntry } from "./runtime-workers";
 
 const MAX_READINESS_BYTES = 4_096;
 const ERROR_CODE = /^[a-z0-9_]{1,128}$/;
@@ -42,6 +44,11 @@ export interface FactoryServiceReadinessRecord {
   /** Named booleans the publisher actually observed. Never a credential. */
   readonly facts: Readonly<Record<string, boolean>>;
   readonly errorCode?: string;
+  /**
+   * The roles this publisher cannot perform now, in the product's one held-role entry shape (C12 row "Container runtime
+   * readiness (hosted)"). Each names a fact the record holds false; a ready record holds a fact false only with its entry.
+   */
+  readonly held?: readonly FactoryHeldRoleEntry[];
 }
 
 export interface FactoryServiceReadinessOptions {
@@ -54,9 +61,14 @@ export interface FactoryServiceReadinessOptions {
   readonly readinessHeartbeatMs?: number;
   /** Every fact the record must carry. A record missing one is not readable. */
   readonly factNames: readonly string[];
+  /** The facts a ready record may hold false, each only with the held entry of its role (by fact name). */
+  readonly heldFacts?: Readonly<Record<string, Pick<FactoryHeldRoleEntry, "role" | "workPackage">>>;
 }
 
-export type FactoryServiceReadinessUpdate = Pick<FactoryServiceReadinessRecord, "lifecycle" | "facts"> & { readonly errorCode?: string };
+/** What a reader expects of a record, wherever it is read from: the options without the file. */
+export type FactoryServiceReadinessExpectation = Omit<FactoryServiceReadinessOptions, "readinessFilePath">;
+
+export type FactoryServiceReadinessUpdate = Pick<FactoryServiceReadinessRecord, "lifecycle" | "facts" | "held"> & { readonly errorCode?: string };
 
 export interface FactoryServiceReadinessWriter {
   write(update: FactoryServiceReadinessUpdate): Promise<FactoryServiceReadinessRecord>;
@@ -81,23 +93,49 @@ function heartbeat(value: unknown): value is number {
   return Number.isSafeInteger(value) && (value as number) >= 1_000 && (value as number) <= 60_000;
 }
 
-type ReadinessExpectation = Omit<Required<FactoryServiceReadinessOptions>, "installationId"> & { readonly installationId?: string };
+type ReadinessExpectation = Omit<Required<FactoryServiceReadinessExpectation>, "installationId"> & { readonly installationId?: string };
 
-function snapshotOptions(options: FactoryServiceReadinessOptions): ReadinessExpectation {
-  const result = { ...options, readinessHeartbeatMs: options.readinessHeartbeatMs ?? 5_000 };
+function snapshotExpectation(options: FactoryServiceReadinessExpectation): ReadinessExpectation {
+  const result = { ...options, readinessHeartbeatMs: options.readinessHeartbeatMs ?? 5_000, heldFacts: options.heldFacts ?? {} };
   if (!text(result.schemaVersion) || !SERVICE_NAME.test(result.service) || (result.installationId !== undefined && !text(result.installationId)) || !text(result.instanceId)
-    || !pathText(result.readinessFilePath) || !heartbeat(result.readinessHeartbeatMs)
+    || !heartbeat(result.readinessHeartbeatMs)
     || !Array.isArray(result.factNames) || result.factNames.length < 1 || result.factNames.length > 32
-    || result.factNames.some((name) => !FACT_NAME.test(name)) || new Set(result.factNames).size !== result.factNames.length) {
+    || result.factNames.some((name) => !FACT_NAME.test(name)) || new Set(result.factNames).size !== result.factNames.length
+    || Object.keys(result.heldFacts).some((name) => !result.factNames.includes(name))) {
     throw new FactoryServiceReadinessError(options.service ?? "unknown");
   }
   return result;
 }
 
+function snapshotOptions(options: FactoryServiceReadinessOptions): ReadinessExpectation & { readonly readinessFilePath: string } {
+  const expected = snapshotExpectation(options);
+  if (!pathText(options.readinessFilePath)) throw new FactoryServiceReadinessError(expected.service);
+  return { ...expected, readinessFilePath: options.readinessFilePath };
+}
+
+/**
+ * At most 8 held entries, each exactly `{ role, workPackage, reason }` for a fact this expectation lets be held, that fact false,
+ * one entry per role; and a ready record holds no such fact false without its entry.
+ */
+function validHeld(held: unknown, facts: Readonly<Record<string, unknown>>, lifecycle: unknown, heldFacts: ReadinessExpectation["heldFacts"]): boolean {
+  if (held !== undefined && (!Array.isArray(held) || held.length < 1 || held.length > 8)) return false;
+  const entries = (held ?? []) as readonly unknown[];
+  const roles = new Set<string>();
+  for (const entry of entries) {
+    if (typeof entry !== "object" || entry === null || Array.isArray(entry)) return false;
+    const fields = entry as Record<string, unknown>;
+    if (Object.keys(fields).sort().join(",") !== "reason,role,workPackage" || typeof fields.reason !== "string" || !ERROR_CODE.test(fields.reason)) return false;
+    const fact = Object.entries(heldFacts).find(([, declared]) => declared.role === fields.role && declared.workPackage === fields.workPackage)?.[0];
+    if (fact === undefined || facts[fact] !== false || roles.has(fields.role as string)) return false;
+    roles.add(fields.role as string);
+  }
+  return lifecycle !== "ready" || Object.entries(heldFacts).every(([name, declared]) => facts[name] !== false || roles.has(declared.role));
+}
+
 function validRecord(value: unknown, expected: ReadinessExpectation): value is FactoryServiceReadinessRecord {
   if (typeof value !== "object" || value === null || Array.isArray(value)) return false;
   const record = value as Record<string, unknown>;
-  const allowed = new Set(["schemaVersion", "service", "installationId", "instanceId", "lifecycle", "observedAtMs", "facts", "errorCode"]);
+  const allowed = new Set(["schemaVersion", "service", "installationId", "instanceId", "lifecycle", "observedAtMs", "facts", "errorCode", "held"]);
   if (Object.keys(record).some((key) => !allowed.has(key))) return false;
   if (record.schemaVersion !== expected.schemaVersion || record.service !== expected.service) return false;
   // An owned service's record names its installation; a shared service's record names none.
@@ -110,7 +148,8 @@ function validRecord(value: unknown, expected: ReadinessExpectation): value is F
   if (typeof facts !== "object" || facts === null || Array.isArray(facts)) return false;
   const names = Object.keys(facts);
   return names.length === expected.factNames.length
-    && expected.factNames.every((name) => typeof (facts as Record<string, unknown>)[name] === "boolean");
+    && expected.factNames.every((name) => typeof (facts as Record<string, unknown>)[name] === "boolean")
+    && validHeld(record.held, facts as Record<string, unknown>, record.lifecycle, expected.heldFacts);
 }
 
 /** Publishes bounded readiness through the shared private atomic writer. */
@@ -130,6 +169,7 @@ export function createFactoryServiceReadinessWriter(
         observedAtMs: clock(),
         facts: { ...update.facts },
         ...(update.errorCode === undefined ? {} : { errorCode: update.errorCode }),
+        ...(update.held === undefined ? {} : { held: update.held.map(({ role, workPackage, reason }) => ({ role, workPackage, reason })) }),
       } as FactoryServiceReadinessRecord;
       if (!validRecord(record, expected)) throw new FactoryServiceReadinessError(expected.service);
       await writePrivateBoundedAtomic(expected.readinessFilePath, Buffer.from(JSON.stringify(record)), MAX_READINESS_BYTES);
@@ -158,18 +198,26 @@ export async function readFactoryServiceReadiness(
     } finally {
       await directory.close();
     }
-    const record: unknown = JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(bytes));
-    const now = clock();
-    if (!validRecord(record, expected) || record.lifecycle !== "ready"
-      || record.installationId !== expected.installationId || record.instanceId !== expected.instanceId
-      || !Number.isSafeInteger(now) || now < record.observedAtMs
-      || now - record.observedAtMs > expected.readinessHeartbeatMs * 3) {
-      throw new FactoryServiceReadinessError(expected.service);
-    }
-    return Object.freeze(record);
+    return verifyFactoryServiceReadiness(JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(bytes)), expected, clock());
   } catch {
     throw new FactoryServiceReadinessError(expected.service);
   }
+}
+
+/**
+ * Judges one record, read from the file or from the service's own readiness
+ * route (the hosted profile, W4H-35): only a fresh `ready` record for the
+ * exact identity passes, and every other case is the one error.
+ */
+export function verifyFactoryServiceReadiness(record: unknown, options: FactoryServiceReadinessExpectation, now: number): FactoryServiceReadinessRecord {
+  const expected = snapshotExpectation(options);
+  if (!validRecord(record, expected) || record.lifecycle !== "ready"
+    || record.installationId !== expected.installationId || record.instanceId !== expected.instanceId
+    || !Number.isSafeInteger(now) || now < record.observedAtMs
+    || now - record.observedAtMs > expected.readinessHeartbeatMs * 3) {
+    throw new FactoryServiceReadinessError(expected.service);
+  }
+  return Object.freeze(record);
 }
 
 export const FACTORY_SUPERVISOR_READINESS_SCHEMA = "factory.supervisor-readiness.v1";
@@ -186,22 +234,28 @@ export const FACTORY_SUPERVISOR_READINESS_SCHEMA = "factory.supervisor-readiness
  */
 export const FACTORY_SUPERVISOR_FACTS = Object.freeze(["hostKeyReady", "runnerReady", "hostServicesReady"] as const);
 
+export { FACTORY_CONTAINER_RUNTIME_ROLE };
+
 /**
  * The host supervisor serves every installation on its host (C12), so its
  * record names its own host id and no installation; each installation's
  * startup document names the hostId it relies on.
  */
+export function factorySupervisorReadinessExpectation(input: { readonly hostId: string; readonly readinessHeartbeatMs?: number }): FactoryServiceReadinessExpectation {
+  return {
+    schemaVersion: FACTORY_SUPERVISOR_READINESS_SCHEMA,
+    service: "host-supervisor",
+    instanceId: input.hostId,
+    ...(input.readinessHeartbeatMs === undefined ? {} : { readinessHeartbeatMs: input.readinessHeartbeatMs }),
+    factNames: [...FACTORY_SUPERVISOR_FACTS],
+    heldFacts: { runnerReady: FACTORY_CONTAINER_RUNTIME_ROLE },
+  };
+}
+
 export function factorySupervisorReadinessOptions(input: {
   readonly hostId: string;
   readonly readinessFilePath: string;
   readonly readinessHeartbeatMs?: number;
 }): FactoryServiceReadinessOptions {
-  return {
-    schemaVersion: FACTORY_SUPERVISOR_READINESS_SCHEMA,
-    service: "host-supervisor",
-    instanceId: input.hostId,
-    readinessFilePath: input.readinessFilePath,
-    ...(input.readinessHeartbeatMs === undefined ? {} : { readinessHeartbeatMs: input.readinessHeartbeatMs }),
-    factNames: [...FACTORY_SUPERVISOR_FACTS],
-  };
+  return { ...factorySupervisorReadinessExpectation(input), readinessFilePath: input.readinessFilePath };
 }

@@ -14,7 +14,7 @@ function context(overrides: Partial<Record<string, unknown>> = {}) {
   const record = (name: string) => async (...args: unknown[]) => { calls.push([name, ...args]); if (overrides[name] instanceof Error) throw overrides[name]; return overrides[name] ?? { phase: "invitation_issued", installationId: "i-1", steps: [{ step: "database", state: "complete", attempts: 1 }] }; };
   const fleet = {
     provisioner: {
-      provision: record("provision"), observeBootstrap: record("observe"), rotate: record("rotate"), purge: record("purge"), status: record("status"),
+      provision: record("provision"), observeBootstrap: record("observe"), rotate: record("rotate"), rotateMasterKey: record("rotate-master-key"), revokeMasterKey: record("revoke-master-key"), purge: record("purge"), status: record("status"),
       teardown: async (...args: unknown[]) => { calls.push(["teardown", ...args]); return { installation: { phase: "torn_down" }, residues: [] }; },
       ledger: { events: record("events"), directory: record("directory") },
     },
@@ -143,6 +143,17 @@ describe("fleet commands", () => {
     expect(await runFactoryFleetCommand("host", ["status"], value)).toEqual({ host: { poolId: "pool.w16", hostId: "host.w16", admitted: ["tenant-01", "tenant-02"] } });
     expect(await runFactoryFleetCommand("host", ["decommission"], value)).toEqual({ host: { decommissioned: "host.w16" } });
     expect(calls).toEqual([["decommission"]]);
+  });
+
+  test("the master key rotates as a rotation of step 4, and a superseded version is revoked by number (W4H-35)", async () => {
+    const { value, calls } = context();
+    expect(await runFactoryFleetCommand("rotate", ["tenant-01", "master-key"], value)).toEqual({ rotate: { tenantId: "tenant-01", step: "master-key", phase: "invitation_issued" } });
+    expect(await runFactoryFleetCommand("revoke-master-key", ["tenant-01", "1"], value)).toEqual({ revoke: { tenantId: "tenant-01", version: 1, phase: "invitation_issued" } });
+    expect(calls).toEqual([["rotate-master-key", "tenant-01", WHO], ["revoke-master-key", "tenant-01", 1, WHO]]);
+    for (const args of [[], ["tenant-01"], ["tenant-01", "one"], ["tenant-01", "0"], ["tenant-01", "1.5"], ["tenant-01", "-1"]]) {
+      expect(await usage(runFactoryFleetCommand("revoke-master-key", args, value))).toBe("cli_usage");
+    }
+    expect(calls).toHaveLength(2);
   });
 
   test("every malformed command is a usage error, never a partial action", async () => {
