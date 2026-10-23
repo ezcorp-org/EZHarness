@@ -212,3 +212,69 @@ test("feature route reports fresh readiness failure as a safe admission denial",
   expect(response.status).toBe(409);
   expect(await response.json()).toMatchObject({ code: "readiness_unavailable" });
 });
+
+function timedEvent(...args: Parameters<typeof event>) {
+  const value = event(...args);
+  const timeout = mock();
+  return { value: { ...value, platform: { request: value.request, server: { timeout,
+    upgrade: async () => { throw new Error("HTTP timeout fixture cannot upgrade WebSocket requests"); },
+  } } } as Parameters<typeof POST>[0], timeout };
+}
+
+test("denied feature requests leave the HTTP idle budget and provider untouched", async () => {
+  const create = { action: "create", projectId: "project-a", bindingId: "binding-a", idempotencyScope: "scope-a", idempotencyKey: "key-a" };
+  const denied = [
+    timedEvent({}, { action: "reconcile" }),
+    timedEvent({ ...admin, authMethod: "api-key" }, { action: "reconcile" }),
+    timedEvent({ user: { id: "member", role: "member" }, authMethod: "session" }, { action: "reconcile" }),
+    timedEvent(admin, { action: "reconcile" }, "https://other.example"),
+    timedEvent(admin, { action: "reconcile" }, null),
+    timedEvent(admin, { action: "reconcile" }, "http://localhost", "text/plain"),
+    timedEvent(admin, { ...create, idempotencyKey: undefined }),
+  ];
+  for (const current of denied) {
+    calls.length = 0;
+    expect((await POST(current.value)).status).toBeGreaterThanOrEqual(400);
+    expect(current.timeout).not.toHaveBeenCalled();
+    expect(calls).toEqual([]);
+  }
+  project.purpose = "incus-qualification";
+  try {
+    const current = timedEvent(admin, { action: "prepare", projectId: "project-a", installationId: "install-a", connectionId: "connection-a", presetId: "preset-a" });
+    calls.length = 0;
+    expect((await POST(current.value)).status).toBe(404);
+    expect(current.timeout).not.toHaveBeenCalled();
+    expect(calls).toEqual([]);
+  } finally { project.purpose = "user"; }
+  binding.projectId = "different-project";
+  try {
+    const current = timedEvent(admin, create);
+    calls.length = 0;
+    expect((await POST(current.value)).status).toBe(404);
+    expect(current.timeout).not.toHaveBeenCalled();
+    expect(calls).toEqual([]);
+  } finally { binding.projectId = "project-a"; }
+});
+
+test("only authorized bounded feature dispatches disable the original request idle timeout", async () => {
+  const mutation = { projectId: "project-a", bindingId: "binding-a", idempotencyScope: "scope-a", idempotencyKey: "key-a" };
+  const bodies = [
+    { action: "reconcile" },
+    { action: "prepareProject", name: "HTTP budget fixture", installationId: "install-a", connectionId: "connection-a", presetId: "preset-a", idempotencyKey: "key-a" },
+    { action: "prepare", projectId: "project-a", installationId: "install-a", connectionId: "connection-a", presetId: "preset-a" },
+    ...["create", "start", "stop", "destroy", "destroyRetired"].map(action => ({ action, ...mutation })),
+    { action: "recoverCleanup", projectId: "project-a", bindingId: "binding-a", failedDestroyOperationId: "failed-operation" },
+  ];
+  for (const body of bodies) {
+    calls.length = 0;
+    const current = timedEvent(admin, body);
+    await POST(current.value);
+    expect(current.timeout.mock.calls).toEqual([[current.value.request, 0]]);
+    expect(calls.length).toBeGreaterThan(0);
+  }
+  calls.length = 0;
+  const status = timedEvent(admin, { action: "status", projectId: "project-a", bindingId: "binding-a" });
+  expect((await POST(status.value)).status).toBe(200);
+  expect(status.timeout).not.toHaveBeenCalled();
+  expect(calls).toEqual([]);
+});

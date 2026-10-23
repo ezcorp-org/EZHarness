@@ -9537,3 +9537,14 @@ Review: real schema import consumed 382ms while behavior consumed 1.42ms. A priv
 Plan: optimize the measured Path.relative_to ancestry work only. No shared verifier/stager change, timeout change, live action or additional acceptance series. Root continues current A independently.
 
 Review: actual supervisor-namespace profile attributes 5.233 of 6.164 profiled seconds to 95,533 Path.relative_to calls. The real file-tree regression fails on the parent with 86 ancestry calls and passes with zero after this change. Both passes retain one fresh no-follow stat for every child. The original parent snapshot method and candidate produce equal full maps before and after a real file change. All 11 authority tests pass; syntax and diff checks pass. Independent source review and an independent eight-test run pass. Shared stager bytes and all authority source outside snapshot remain unchanged. Evidence is in .cache/snapshot-checks. These local results do not claim a deployed timing result.
+
+## Incus management HTTP idle budget
+- [x] Confirm actual adapter10s versus authority11s/client12s and normal per-request helper.
+- [x] Reproduce socket close through real Bun HTTP and actual management/readiness consumer before production edits.
+- [x] Reuse existing per-request helper after admin authorization; keep all authority bounds and fresh reads.
+- [x] Verify bounded successful readiness, structured deadline refusal and denied-auth timeout behavior.
+- [x] Audit exercised stage1/resume endpoints; finish targeted tests/lint/types and independent review.
+
+Plan: own only management route and its existing tests. Reuse the existing Bun per-request helper, not a global timeout or a new helper. Existing collection cap remains100.
+
+Review: The real Bun HTTP test reproduced ECONNRESET with the default idle limit of 10 seconds before the route changed. The existing helper now runs after authorization. All 13 management tests, 17 feature tests and 14 unchanged readiness tests pass. The HTTP test covers fresh success, a structured deadline refusal and unchanged timeout behavior for denied requests. Native TypeScript 7.0.2 and the canonical web check pass. Svelte reports zero errors and warnings. Biome passes for all four code files. Global timeouts, authority deadlines, freshness, services and controllers stay unchanged. Independent source and HTTP review pass, including the final fixture type stub.

@@ -5,6 +5,7 @@ import { PGlite } from "@electric-sql/pglite";
 import { drizzle } from "drizzle-orm/pglite";
 import { sql } from "drizzle-orm";
 import { createServer } from "node:net";
+import { get as httpGet } from "node:http";
 import { mkdtemp, rm } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
@@ -220,21 +221,33 @@ test("normalizes unknown readiness diagnostics and logs only allowed codes", asy
   expect(warnings).toEqual([]);
 });
 
-test("real socket and readiness service preserve finite reasons through management GET", async () => {
+interface ReadinessSocketFixture {
+  pin: typeof admissionPin;
+  proof: LiveSandboxPresetQualification;
+  respond: (value: string | ((selected: typeof admissionPin) => string), delayMs?: number) => void;
+  requestCount: () => number;
+  readStored: () => Promise<unknown[]>;
+}
+
+async function withReadinessSocket(verify: (fixture: ReadinessSocketFixture) => Promise<void>, presetIds = [preset.id]) {
   const root = await mkdtemp(join(tmpdir(), "incus-management-reason-"));
   const socketPath = join(root, "control.sock");
   const originalSocket = process.env.EZCORP_INCUS_SUPERVISOR_SOCKET;
   const pin = { ...admissionPin, scope: { ...admissionPin.scope, presetId: preset.id } };
-  let reply = JSON.stringify(admissionObservation(pin, Date.now()));
+  const pins = presetIds.map(presetId => ({ ...pin, scope: { ...pin.scope, presetId } }));
+  let reply: string | ((selected: typeof admissionPin) => string) = selected => JSON.stringify(admissionObservation(selected, Date.now()));
+  let replyDelayMs = 0;
   let requests = 0;
   const listener = createServer(socket => {
     let payload = "";
     socket.on("data", data => {
       payload += data.toString();
       if (!payload.includes("\n")) return;
-      expect(JSON.parse(payload)).toEqual({ version: 2, action: "admissionReadiness", expectedPin: pin });
+      const selected = JSON.parse(payload).expectedPin;
+      expect(pins).toContainEqual(selected);
+      expect(JSON.parse(payload)).toEqual({ version: 2, action: "admissionReadiness", expectedPin: selected });
       requests++;
-      socket.end(`${reply}\n`);
+      setTimeout(() => socket.end(`${typeof reply === "function" ? reply(selected) : reply}\n`), replyDelayMs);
     });
   });
   const client = new PGlite();
@@ -247,28 +260,18 @@ test("real socket and readiness service preserve finite reasons through manageme
     await addController(db); await addAdmission(db);
     const proof = { verifiedAt: new Date().toISOString(), validUntil: new Date(Date.now() + 60_000).toISOString(),
       backendVersion: "6.0.6" } as LiveSandboxPresetQualification;
-    const selected = admissionSelection(pin);
-    actualReadiness = new ReadinessService(db, { authorizeFixture: async () => selected,
+    actualReadiness = new ReadinessService(db, { authorizeFixture: async scope => admissionSelection(pins.find(selected => selected.scope.presetId === scope.presetId)!),
       loadBaselineProof: async () => proof }, { assertCurrentScope: async () => {} });
-    await actualReadiness.capture(pin.scope, "baseline-run");
-    await actualReadiness.recordBaseline(await actualReadiness.prepareBaseline(pin.scope, "baseline-run", proof));
-    qualification = proof;
-    for (const reason of ["deadline_exceeded", "authority_rejected", "unavailable", "SECRET raw server detail"] as const) {
-      reply = JSON.stringify({ error: `readiness_unavailable:${reason}` });
-      rows = [[connection], [], [], []]; warnings.length = 0;
-      const response = await request();
-      expect(response.status).toBe(200);
-      const body = await response.json();
-      expect(body.environments[0]).toMatchObject({ qualified: false, admissionReason: "readiness_unavailable",
-        fullQualificationValidUntil: proof.validUntil, baselineRunId: null });
-      expect(warnings).toEqual([{ message: "Incus admission readiness failed", fields: {
-        causeCode: "readiness_unavailable", readinessReason: reason.startsWith("SECRET") ? "unavailable" : reason,
-      } }]);
-      expect(JSON.stringify({ body, warnings })).not.toContain("SECRET");
-      const persisted = await db.execute(sql`SELECT failure, result FROM incus_admission_readiness`);
-      expect(persisted.rows).toEqual([{ failure: "readiness_unavailable", result: null }]);
+    for (const selected of pins) {
+      const runId = selected.scope.presetId === pin.scope.presetId ? "baseline-run" : `baseline-run-${selected.scope.presetId}`;
+      await actualReadiness.capture(selected.scope, runId);
+      await actualReadiness.recordBaseline(await actualReadiness.prepareBaseline(selected.scope, runId, proof));
     }
-    expect(requests).toBe(6);
+    qualification = proof;
+    await verify({ pin, proof,
+      respond: (value, delayMs = 0) => { reply = value; replyDelayMs = delayMs; },
+      requestCount: () => requests,
+      readStored: async () => (await db.execute(sql`SELECT failure, result FROM incus_admission_readiness`)).rows });
   } finally {
     actualReadiness = null;
     if (originalSocket === undefined) delete process.env.EZCORP_INCUS_SUPERVISOR_SOCKET;
@@ -277,4 +280,94 @@ test("real socket and readiness service preserve finite reasons through manageme
     await client.close();
     await rm(root, { recursive: true, force: true });
   }
+}
+
+test("real socket and readiness service preserve finite reasons through management GET", async () => {
+  await withReadinessSocket(async fixture => {
+    for (const reason of ["deadline_exceeded", "authority_rejected", "unavailable", "SECRET raw server detail"] as const) {
+      fixture.respond(JSON.stringify({ error: `readiness_unavailable:${reason}` }));
+      rows = [[connection], [], [], []]; warnings.length = 0;
+      const response = await request();
+      expect(response.status).toBe(200);
+      const body = await response.json();
+      expect(body.environments[0]).toMatchObject({ qualified: false, admissionReason: "readiness_unavailable",
+        fullQualificationValidUntil: fixture.proof.validUntil, baselineRunId: null });
+      expect(warnings).toEqual([{ message: "Incus admission readiness failed", fields: {
+        causeCode: "readiness_unavailable", readinessReason: reason.startsWith("SECRET") ? "unavailable" : reason,
+      } }]);
+      expect(JSON.stringify({ body, warnings })).not.toContain("SECRET");
+      expect(await fixture.readStored()).toEqual([{ failure: "readiness_unavailable", result: null }]);
+    }
+    expect(fixture.requestCount()).toBe(6);
+  });
 });
+
+test("real Bun HTTP keeps bounded readiness and deadline refusals observable after authorization", async () => {
+  (active.release as { manifest: { sandboxProviders: Array<{ presets: Array<typeof preset> }> } }).manifest.sandboxProviders[0]!.presets.push({ ...preset, id: "second" });
+  await withReadinessSocket(async fixture => {
+    let locals: unknown = {};
+    const timeoutCalls: Array<{ request: Request; seconds: number }> = [];
+    const server = Bun.serve({ hostname: "127.0.0.1", port: 0, idleTimeout: 10,
+      fetch(raw, live) {
+        return GET({ locals, platform: { request: raw, server: {
+          timeout(original: Request, seconds: number) {
+            timeoutCalls.push({ request: original, seconds });
+            live.timeout(original, seconds);
+          },
+        } } } as Parameters<typeof GET>[0]);
+      } });
+    const url = new URL("/api/infrastructure/incus/management", server.url);
+    // Bun.fetch may transparently retry an empty response. Use the same plain
+    // HTTP client boundary as Playwright so an idle-close is an actual error.
+    const get = () => new Promise<Response>((resolve, reject) => {
+      const outgoing = httpGet(url, { agent: false }, incoming => {
+        const chunks: Buffer[] = [];
+        incoming.on("data", chunk => chunks.push(Buffer.from(chunk)));
+        incoming.on("error", reject);
+        incoming.on("end", () => resolve(new Response(Buffer.concat(chunks), { status: incoming.statusCode })));
+      });
+      outgoing.setTimeout(30_000, () => outgoing.destroy(new Error("management HTTP client deadline")));
+      outgoing.on("error", reject);
+    });
+    try {
+      for (const denied of [{}, { user: { role: "user" }, authMethod: "session" }, { user: { role: "admin" }, authMethod: "api_key" }]) {
+        locals = denied;
+        const response = await get();
+        expect([401, 403]).toContain(response.status);
+        await response.arrayBuffer();
+      }
+      expect(timeoutCalls).toEqual([]);
+      locals = admin;
+      // Two sequential presets exceed the adapter's10s idle budget with ample
+      // sweep margin. Each10.5s observation is inside unchanged11s/12s bounds.
+      for (const outcome of ["qualified", "deadline_exceeded"] as const) {
+        fixture.respond(outcome === "qualified"
+          ? selected => JSON.stringify(admissionObservation(selected, Date.now()))
+          : JSON.stringify({ error: "readiness_unavailable:deadline_exceeded" }), 10_500);
+        rows = [[connection], [], [], []]; warnings.length = 0;
+        const response = await get();
+        expect(response.status).toBe(200);
+        const body = await response.json();
+        if (outcome === "qualified") {
+          expect(body.environments).toHaveLength(2);
+          expect(body.environments.map((environment: { baselineRunId: string }) => environment.baselineRunId)).toEqual(["baseline-run", "baseline-run-second"]);
+          for (const environment of body.environments) expect(environment).toMatchObject({ qualified: true, admissionReason: null });
+        } else {
+          expect(body.environments).toHaveLength(2);
+          for (const environment of body.environments) expect(environment).toMatchObject({ qualified: false, admissionReason: "readiness_unavailable",
+            fullQualificationValidUntil: fixture.proof.validUntil, baselineRunId: null });
+          expect(warnings).toHaveLength(2);
+          for (const warning of warnings) expect(warning).toEqual({ message: "Incus admission readiness failed", fields: {
+            causeCode: "readiness_unavailable", readinessReason: "deadline_exceeded",
+          } });
+        }
+        expect(timeoutCalls.at(-1)?.seconds).toBe(0);
+        expect(timeoutCalls.at(-1)?.request.url).toBe(url.href);
+      }
+      expect(timeoutCalls).toHaveLength(2);
+      expect(fixture.requestCount()).toBe(8);
+    } finally {
+      await server.stop(true);
+    }
+  }, [preset.id, "second"]);
+}, 60_000);

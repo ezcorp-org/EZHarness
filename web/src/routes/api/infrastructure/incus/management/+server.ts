@@ -4,6 +4,7 @@ import { json } from "@sveltejs/kit";
 import { ContractError } from "@ezcorp/extension-contract";
 import { sql } from "drizzle-orm";
 import { requireAdminSession } from "$server/auth/middleware";
+import { disableBunRequestIdleTimeout } from "$lib/server/bun-request-timeout";
 import { getDb } from "$server/db/connection";
 import { releaseRows } from "$server/db/queries/extension-releases";
 import { getExtensionLifecycle } from "$server/extensions/extension-lifecycle-service";
@@ -77,9 +78,10 @@ async function environmentStatus(db: ReturnType<typeof getDb>, qualifications: I
 }
 
 /** Read-only operator view. Actions recheck authority and qualification before admission. */
-export const GET: RequestHandler = async ({ locals }) => {
+export const GET: RequestHandler = async ({ locals, platform }) => {
   const admin = requireAdminSession(locals);
   if (admin instanceof Response) return admin;
+  disableBunRequestIdleTimeout(platform);
   try {
     await getExtensionLifecycle();
     const db = getDb();

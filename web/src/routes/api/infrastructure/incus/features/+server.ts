@@ -3,6 +3,7 @@ import { IncusAdmissionReadinessError } from "$server/infrastructure/incus-admis
 import { json } from "@sveltejs/kit";
 import { desc, eq } from "drizzle-orm";
 import { checkProjectRole, requireAdminSession } from "$server/auth/middleware";
+import { disableBunRequestIdleTimeout } from "$lib/server/bun-request-timeout";
 import { getDb } from "$server/db/connection";
 import { projects, sandboxBindings, sandboxOperations } from "$server/db/schema";
 import { IncusStopRequiredError, IncusCleanupRecoveryUnavailableError, validIncusProjectName } from "$server/infrastructure/incus-feature-service";
@@ -85,7 +86,7 @@ function safeFailure(error: unknown): Response {
   return json({ code: "feature_failed", message: "The Incus feature sandbox request could not complete. Inspect its saved status." }, { status: 409 });
 }
 
-export const POST: RequestHandler = async ({ locals, request }) => {
+export const POST: RequestHandler = async ({ locals, request, platform }) => {
   const admin = requireAdminSession(locals);
   if (admin instanceof Response) return admin;
   const origin = request.headers.get("origin");
@@ -97,8 +98,12 @@ export const POST: RequestHandler = async ({ locals, request }) => {
   if (!input) return invalid();
   const action = input.action as Action;
   try {
-    if (action === "reconcile") return json({ result: await configuredIncusFeatureService().reconcile(input.limit as number | undefined) });
+    if (action === "reconcile") {
+      disableBunRequestIdleTimeout(platform);
+      return json({ result: await configuredIncusFeatureService().reconcile(input.limit as number | undefined) });
+    }
     if (action === "prepareProject") {
+      disableBunRequestIdleTimeout(platform);
       const result = await configuredIncusFeatureService().prepareProject({ name: input.name as string,
         ownerUserId: admin.id, idempotencyKey: input.idempotencyKey as string,
         installationId: input.installationId as string, connectionId: input.connectionId as string,
@@ -109,6 +114,7 @@ export const POST: RequestHandler = async ({ locals, request }) => {
     const denied = await authorizeProject(locals, projectId);
     if (denied) return denied;
     if (action === "prepare") {
+      disableBunRequestIdleTimeout(platform);
       const binding = await configuredIncusFeatureService().prepare({ projectId, installationId: input.installationId as string,
         connectionId: input.connectionId as string, presetId: input.presetId as string });
       return json({ binding });
@@ -125,6 +131,7 @@ export const POST: RequestHandler = async ({ locals, request }) => {
         .orderBy(desc(sandboxOperations.createdAt)).limit(1);
       return json({ binding, operation: operation ?? null });
     }
+    disableBunRequestIdleTimeout(platform);
     if (action === "recoverCleanup") {
       const result = await configuredIncusFeatureService().recoverCleanup(bindingId, input.failedDestroyOperationId as string);
       return json({ recovery: { id: result.recovery.id, state: result.recovery.state,

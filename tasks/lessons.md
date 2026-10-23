@@ -3072,3 +3072,7 @@ smokes under the lock, detached-job wake-ups) are not repeated.
 ### Claimed qualification status
 - A restart handoff deadline does not bound the claimed continuation. Check the durable claim time and the continuation limit. Never remove expiry for a state that can remain after a crash.
 - Do not infer a failed run from an intermediate management label. Check its exact terminal record.
+
+- When adding the same side effect to existing action branches, keep each call in its authorized branch. Reuse the helper implementation; do not add a combined predicate that increases complexity or obscures authorization.
+
+- Resolve compiler aliases through the pinned package.json bin mapping before choosing an executable. The native TypeScript alias can expose tsc instead of tsgo; do not fall back to a different compiler or install new dependencies.
