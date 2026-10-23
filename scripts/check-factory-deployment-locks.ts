@@ -19,20 +19,29 @@ import { factoryImagePinned } from "../src/factory/provisioning/image-pin";
 
 const RENDERED = /^\$\{EZCORP_FACTORY_[A-Z_]+_IMAGE:\?\}$/;
 
-export interface FactoryImageReference { readonly file: string; readonly line: number; readonly reference: string; readonly kind?: "download" }
+export interface FactoryImageReference { readonly file: string; readonly line: number; readonly reference: string; readonly kind?: "download" | "checksum-flag" }
 
-/** A file the image build downloads. Pinned only by `ADD --checksum=sha256:<64 hex> <url>`; a RUN that fetches is never pinned. */
-export interface FactoryArtifactReference { readonly file: string; readonly line: number; readonly reference: string; readonly pinned: boolean }
+/**
+ * A file the image build downloads. Pinned only by `ADD <url> <destination>` whose next instruction is
+ * `RUN echo "<64 hex>  <destination>" | sha256sum -c -`, so the sum is checked before anything reads the file.
+ * A RUN that fetches is never pinned, and neither is `ADD --checksum`: the hosted builder (Podman 4.9.3,
+ * Buildah 1.33 on ubuntu-latest) refuses that flag (W4H-35, ci 39956956620).
+ */
+export interface FactoryArtifactReference { readonly file: string; readonly line: number; readonly reference: string; readonly pinned: boolean; readonly checksumFlag?: true }
 
-const CHECKSUM = /--checksum=sha256:[0-9a-f]{64}(?:\s|$)/;
+const SUM_CHECK = /^RUN\s+echo\s+"[0-9a-f]{64} {2}(\S+)"\s*\|\s*sha256sum\s+-c\s+-(?:\s|$)/;
 
 export function dockerfileArtifacts(file: string, text: string): FactoryArtifactReference[] {
   const found: FactoryArtifactReference[] = [];
-  text.split("\n").forEach((raw, index) => {
-    const line = raw.trim();
-    const url = /^ADD\s.*?(https?:\/\/\S+)/.exec(line);
-    if (url) found.push({ file, line: index + 1, reference: url[1]!, pinned: CHECKSUM.test(line) });
-    else if (/^RUN\s.*\b(?:curl|wget)\b/.test(line)) found.push({ file, line: index + 1, reference: line, pinned: false });
+  const lines = text.split("\n").map((raw) => raw.trim());
+  const nextInstruction = (index: number) => lines.slice(index + 1).find((line) => line !== "" && !line.startsWith("#")) ?? "";
+  lines.forEach((line, index) => {
+    const add = /^ADD\s+(.*?)(https?:\/\/\S+)(?:\s+(\S+))?/.exec(line);
+    if (add) {
+      const checksumFlag = add[1]!.includes("--checksum=");
+      const checked = SUM_CHECK.exec(nextInstruction(index))?.[1];
+      found.push({ file, line: index + 1, reference: add[2]!, pinned: !checksumFlag && add[3] !== undefined && checked === add[3], ...(checksumFlag ? { checksumFlag: true as const } : {}) });
+    } else if (/^RUN\s.*\b(?:curl|wget)\b/.test(line)) found.push({ file, line: index + 1, reference: line, pinned: false });
   });
   return found;
 }
@@ -74,7 +83,7 @@ export async function checkFactoryDeploymentLocks(root: string): Promise<{ reado
       references.push(...composeImages(`${directory}/${name}`, await readFile(join(root, directory, name), "utf8")));
     }
   }
-  const unpinnedDownloads = artifacts.filter((entry) => !entry.pinned).map(({ file, line, reference }): FactoryImageReference => ({ file, line, reference, kind: "download" }));
+  const unpinnedDownloads = artifacts.filter((entry) => !entry.pinned).map(({ file, line, reference, checksumFlag }): FactoryImageReference => ({ file, line, reference, kind: checksumFlag ? "checksum-flag" : "download" }));
   return { checked: references.length + artifacts.length, unpinned: [...unpinnedFactoryImages(references), ...unpinnedDownloads] };
 }
 
@@ -84,7 +93,8 @@ export const factoryLockCheckIo: FactoryLockCheckIo = { log: (line) => console.l
 export async function runFactoryDeploymentLockCheck(argv: readonly string[], moduleUrl: string, root = resolve(import.meta.dir, ".."), io: FactoryLockCheckIo = factoryLockCheckIo): Promise<void> {
   if (!argv[1] || resolve(argv[1]) !== fileURLToPath(moduleUrl)) return;
   const { checked, unpinned } = await checkFactoryDeploymentLocks(root);
-  for (const entry of unpinned) io.log(entry.kind === "download" ? `${entry.file}:${entry.line}: download ${entry.reference} is not pinned by sha256` : `${entry.file}:${entry.line}: image ${entry.reference} is not pinned by digest`);
+  const problem = { "download": "is not pinned by sha256", "checksum-flag": "uses ADD --checksum, which the hosted builder refuses; check its sha256 with sha256sum -c in the next RUN" } as const;
+  for (const entry of unpinned) io.log(entry.kind === undefined ? `${entry.file}:${entry.line}: image ${entry.reference} is not pinned by digest` : `${entry.file}:${entry.line}: download ${entry.reference} ${problem[entry.kind]}`);
   io.log(unpinned.length === 0 ? `Factory deployment locks OK: ${checked} image and download references, all pinned.` : `${unpinned.length} of ${checked} image and download references are not pinned.`);
   io.exit(unpinned.length === 0 ? 0 : 1);
 }

@@ -29,16 +29,34 @@ describe("image references", () => {
     expect(composeImages("t.yml", text).map((entry) => [entry.line, entry.reference])).toEqual([[3, `docker.io/x@${DIGEST}`], [5, `\${EZCORP_FACTORY_POOL_IMAGE:?}`], [8, "nginx:latest"]]);
   });
 
-  test("a downloaded artifact is pinned only by its sha256 on the same ADD; a RUN that fetches is never pinned (W4H-35)", () => {
+  test("a download is pinned only by a sha256sum check of its destination in the very next RUN; a RUN that fetches is never pinned (W4H-35)", () => {
     const url = "https://github.com/containers/podman/releases/download/v5.8.7/podman-remote-static-linux_amd64.tar.gz";
-    const text = [`ADD --checksum=sha256:${"b".repeat(64)} ${url} /tmp/podman-remote.tar.gz`, `ADD ${url} /tmp/x.tar.gz`, "ADD --checksum=sha256:short https://x/y /tmp/y", "ADD ./local /app", "RUN curl -fsSL https://x/z | sh", "RUN wget https://x/w", "RUN tar -xzf /tmp/x.tar.gz"].join("\n");
+    const sum = "b".repeat(64);
+    const text = [
+      `ADD ${url} /tmp/podman-remote.tar.gz`, `RUN echo "${sum}  /tmp/podman-remote.tar.gz" | sha256sum -c - \\`, "  && tar -xzf /tmp/podman-remote.tar.gz",
+      `ADD ${url} /tmp/x.tar.gz`,
+      `ADD ${url} /tmp/other.tar.gz`, `RUN echo "${sum}  /tmp/x.tar.gz" | sha256sum -c -`,
+      `ADD ${url} /tmp/short.tar.gz`, `RUN echo "${"b".repeat(63)}  /tmp/short.tar.gz" | sha256sum -c -`,
+      `ADD ${url} /tmp/late.tar.gz`, "RUN true", `RUN echo "${sum}  /tmp/late.tar.gz" | sha256sum -c -`,
+      `ADD ${url} /tmp/commented.tar.gz`, "# the check comes next", "", `RUN echo "${sum}  /tmp/commented.tar.gz" | sha256sum -c -`,
+      "ADD ./local /app", "RUN curl -fsSL https://x/z | sh", "RUN wget https://x/w",
+    ].join("\n");
     expect(dockerfileArtifacts("Dockerfile", text)).toEqual([
       { file: "Dockerfile", line: 1, reference: url, pinned: true },
-      { file: "Dockerfile", line: 2, reference: url, pinned: false },
-      { file: "Dockerfile", line: 3, reference: "https://x/y", pinned: false },
-      { file: "Dockerfile", line: 5, reference: "RUN curl -fsSL https://x/z | sh", pinned: false },
-      { file: "Dockerfile", line: 6, reference: "RUN wget https://x/w", pinned: false },
+      { file: "Dockerfile", line: 4, reference: url, pinned: false },
+      { file: "Dockerfile", line: 5, reference: url, pinned: false },
+      { file: "Dockerfile", line: 7, reference: url, pinned: false },
+      { file: "Dockerfile", line: 9, reference: url, pinned: false },
+      { file: "Dockerfile", line: 12, reference: url, pinned: true },
+      { file: "Dockerfile", line: 17, reference: "RUN curl -fsSL https://x/z | sh", pinned: false },
+      { file: "Dockerfile", line: 18, reference: "RUN wget https://x/w", pinned: false },
     ]);
+  });
+
+  test("ADD --checksum is refused even with a valid sum: the hosted builder (Podman 4.9.3, Buildah 1.33) rejects the flag (W4H-35 ci 39956956620)", () => {
+    const url = "https://github.com/containers/podman/releases/download/v5.8.7/podman-remote-static-linux_amd64.tar.gz";
+    const text = [`ADD --checksum=sha256:${"b".repeat(64)} ${url} /tmp/podman-remote.tar.gz`, `RUN echo "${"b".repeat(64)}  /tmp/podman-remote.tar.gz" | sha256sum -c -`].join("\n");
+    expect(dockerfileArtifacts("Dockerfile", text)).toEqual([{ file: "Dockerfile", line: 1, reference: url, pinned: false, checksumFlag: true }]);
   });
 
   test("only a digest pin or a provisioner-rendered installation image passes", () => {
@@ -81,6 +99,16 @@ describe("the check over a deployment tree", () => {
     const entry = resolve(import.meta.dir, "check-factory-deployment-locks.ts");
     await runFactoryDeploymentLockCheck(["bun", entry], pathToFileURL(entry).href, root, { log: (line) => lines.push(line), exit: (code) => { exit = code; } });
     expect(lines).toEqual(["deploy/factory/Dockerfile:3: download https://example.test/tool.tar.gz is not pinned by sha256", "1 of 4 image and download references are not pinned."]);
+    expect(exit).toBe(1);
+  });
+
+  test("the entry names an ADD --checksum as refused by the hosted builder (W4H-35 ci 39956956620)", async () => {
+    await tree(`docker.io/x@${DIGEST}`);
+    await writeFile(join(root, "deploy/factory/Dockerfile"), `ARG BUN_IMAGE=docker.io/oven/bun@${DIGEST}\nFROM \${BUN_IMAGE}\nADD --checksum=sha256:${"c".repeat(64)} https://example.test/tool.tar.gz /tmp/tool.tar.gz\n`);
+    const lines: string[] = []; let exit = -1;
+    const entry = resolve(import.meta.dir, "check-factory-deployment-locks.ts");
+    await runFactoryDeploymentLockCheck(["bun", entry], pathToFileURL(entry).href, root, { log: (line) => lines.push(line), exit: (code) => { exit = code; } });
+    expect(lines).toEqual(["deploy/factory/Dockerfile:3: download https://example.test/tool.tar.gz uses ADD --checksum, which the hosted builder refuses; check its sha256 with sha256sum -c in the next RUN", "1 of 4 image and download references are not pinned."]);
     expect(exit).toBe(1);
   });
 

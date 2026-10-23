@@ -134,7 +134,7 @@ independent archive failure domain (W15, W19).
 | Node for the orchestrator | `deploy/factory/Dockerfile` | `node:24.14.1-bookworm-slim` by digest |
 | Temporal, its database, gateway, JWKS, authorizer, ingress | `deploy/factory/compose/platform.yml` | Every image by digest |
 | Host supervisor | The host checkout at the image's revision | The fleet settings name the release directory and the Bun binary |
-| Hosted supervisor's podman-remote client | `deploy/factory/Dockerfile` (`ADD --checksum`) | The static client of Podman v5.8.7, the release artifact checked by sha256; match it to the nodes' Podman 5.x API |
+| Hosted supervisor's podman-remote client | `deploy/factory/Dockerfile` (`ADD`, then `sha256sum -c` in the next `RUN`) | The static client of Podman v5.8.7, the release artifact checked by sha256; match it to the nodes' Podman 5.x API |
 | Every image in the Dockerfile, the Compose templates, and the Kubernetes templates, and every download in the Dockerfile | `scripts/check-factory-deployment-locks.ts`, run in CI | Refuses any image not pinned by digest and any download not pinned by sha256 |
 | Kubernetes objects | `src/factory/provisioning/kubernetes-profile.ts` | The renderer refuses to return an object stream with an unpinned image |
 | Hosted ingress | the `ingress` service of `deploy/factory/compose/platform.yml` | The same nginx digest in both profiles |
