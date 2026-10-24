@@ -47,11 +47,13 @@ function trackedFiles(directory: string): string[] {
 describe("sealed first-party tests name only files the release keeps", () => {
   test("a sealed test naming a left-out suite (also by a template) is a finding; a kept target is not", () => {
     const sealed = new Map([
+      // biome-ignore lint/suspicious/noTemplateCurlyInString: literal source text of a sealed test, not a JS template string
       ["test/unit/drives.test.ts", "Bun.spawn([bun, 'test', `./test/e2e/${suite}.test.ts`])"],
       ["test/unit/helper.test.ts", "import { poll } from '../e2e/_poll'; const data = './fixtures/data.json';"],
       ["test/e2e/_poll.ts", "export const poll = 1;"],
     ]);
     expect(sealedReferencesToExcluded(sealed, ["test/e2e/bundled.test.ts", "fixtures/data.json"])).toEqual([
+      // biome-ignore lint/suspicious/noTemplateCurlyInString: the finding quotes the sealed test's literal source text
       "test/unit/drives.test.ts: names ./test/e2e/${suite}.test.ts, which the release snapshot leaves out",
       "test/unit/helper.test.ts: names ./fixtures/data.json, which the release snapshot leaves out",
     ]);
