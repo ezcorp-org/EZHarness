@@ -80,7 +80,7 @@ test("Ajv's patched URI parser treats percent-encoded host letters as equal", ()
 });
 
 test("jsdom's WebSocket constructor loads the patched undici", () => {
-  expect(jsdomRequire("undici/package.json").version).toBe("8.11.2");
+  expect(jsdomRequire("undici/package.json").version).toBe("8.12.3");
   const { JSDOM } = jsdomRequire("jsdom");
   const dom = new JSDOM("", { url: "https://example.test/" });
   try {
@@ -99,7 +99,7 @@ test("minimatch expands normal braces with the patched bounded expander", () => 
 });
 
 test("isomorphic-dompurify removes active markup with the patched sanitizer", () => {
-  expect(purifierRequire("dompurify/package.json").version).toBe("3.4.16");
+  expect(purifierRequire("dompurify/package.json").version).toBe("3.4.17");
   const purifier = require("isomorphic-dompurify");
   expect(purifier.sanitize('<img src="x" onerror="alert(1)"><b>safe</b>'))
     .toBe('<img src="x"><b>safe</b>');
