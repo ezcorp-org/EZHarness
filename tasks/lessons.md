@@ -3081,3 +3081,9 @@ smokes under the lock, detached-job wake-ups) are not repeated.
 
 - If a requested security reproduction is blocked, stop that step. Preserve its actual result and use the approved version, ordinary compatibility and audit checks. A prior successful old-version probe is not a reproduced failure.
 - Before a dependency security freeze, enumerate every tracked package-manager lock, including shipped example packages. Root/web audits do not cover their standalone lock snapshots.
+
+## 2026-10-24: Required factory build artifacts
+
+- Test setup can hide a cold build defect when it manually creates a required runtime artifact. Test the canonical package lifecycle and root frozen install with that artifact absent before any warm test producer runs.
+- Preserve compiler argument routing when adding a build producer. Verify both normal build and build --force through the real lifecycle.
+- Generic readiness refusal does not prove a transport failure. Capture only bounded process status and closed machine error fields before cleanup; keep raw credentials and child logs out of CI output.

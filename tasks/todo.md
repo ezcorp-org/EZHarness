@@ -9574,3 +9574,19 @@ Review: saved39b audit failed two high Zod findings. The actual ai-kit schema pr
 -49targeted tests, canonical types, frozenroot/web, Biome, normal source-lock check and canonical/3standalone high-floor audits pass. Examples preserve126other records each; SDK79b/S3inputs unchanged, no relock.
 - No crash was reproduced or claimed. Screening stopped further probes; ordinary real HTTP compatibility and patched-version/audit evidence are retained.
 - Normal commit and hook result are retained in .cache/body-parser-security-checks/commit.* and final source receipts; no push or live action.
+
+## 2026-10-24: Real factory stack readiness failure
+
+- [x] Pin actual E2E failure and build a narrow real-consumer red loop.
+- [x] Trace the failing boot/readiness boundary and test ranked causes.
+- [x] Add regression at the real failure seam, fix minimal source.
+- [x] Independent review before commit. Focused tests/types/lint pass.
+
+### Review — factory stack readiness repair
+
+- Canonical package build omitted the required workflow bundle. Cold Node process failed before connecting to Temporal; the readiness reader correctly refused the failed writer.
+- Added the existing workflow producer as the package postbuild hook. Both ordinary and forced build paths keep the original compiler argument contract.
+- Added bounded failure metadata, private artifact mode0600, and tests that exclude raw child logs, credentials and arbitrary readiness fields.
+- Actual cold root frozen install creates both bundle files; original digest loader and replay pass. The authorized local partial orchestrator test reaches real Temporal worker polling and cleans all owned processes/ports/files. Full factory browser E2E remains pending.
+- Focused Bun56 and Node22 tests, canonical root types, canonical web check and five-file Biome pass. Independent review PASS ab06f122 on all five source files. No deployment or live retry.
+- This changes shipped build output: the original e6 release lacks both workflow bundle files. Provider G10 is unchanged. Evidence: .cache/factory-readiness-fix/REVIEW.md.

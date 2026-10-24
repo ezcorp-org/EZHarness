@@ -6,8 +6,11 @@
  * directory when the stack stops.
  */
 import { spawn, type ChildProcess } from "node:child_process";
+import { writeFile } from "node:fs/promises";
 import { connect } from "node:net";
+import { join } from "node:path";
 import { setTimeout as sleep } from "node:timers/promises";
+import { readPrivateText } from "../../../src/factory/private-files";
 
 export interface StackChild {
 	readonly name: string;
@@ -32,6 +35,38 @@ export class StackProcesses {
 	stopAll(signal: NodeJS.Signals): void {
 		for (const { child } of this.children) stopGroup(child.pid, signal);
 	}
+}
+
+/** Closed, bounded failure facts: no command arguments, environment, or child output. */
+export function stackFailureDiagnostics(children: readonly StackChild[], readiness: Readonly<Record<string, unknown>>) {
+	const latest = new Map(children.map(entry => [entry.name.replace(/-\d+$/, ""), entry]));
+	const processes = [...latest.values()].slice(-16).map(({ name, child }) => ({
+		name: name.slice(0, 64), pid: child.pid ?? null, exitCode: child.exitCode, signalCode: child.signalCode,
+	}));
+	const statuses = Object.fromEntries(["pool", "supervisor", "orchestration"].map(name => {
+		const value = readiness[name];
+		if (!value || typeof value !== "object" || Array.isArray(value)) return [name, { available: false }];
+		const record = value as Record<string, unknown>;
+		const status: Record<string, string | boolean> = { available: true };
+		if (["starting", "ready", "draining", "stopped", "closed", "failed"].includes(String(record.lifecycle))) status.lifecycle = String(record.lifecycle);
+		if (typeof record.errorCode === "string" && /^factory_[a-z0-9_]{1,120}$/.test(record.errorCode)) status.errorCode = record.errorCode;
+		for (const key of ["workerPolling", "dispatcherLive"]) {
+			const state = record[key];
+			if (typeof state === "boolean") status[key] = state;
+		}
+		return [name, status];
+	}));
+	return { schemaVersion: "factory.services-failure.v1", processes, readiness: statuses };
+}
+
+/** Keep an actionable, secret-free failure record before private readiness files disappear. */
+export async function saveStackFailureDiagnostics(children: readonly StackChild[], readinessDirectory: string, logsDirectory: string): Promise<string> {
+	const records = Object.fromEntries(await Promise.all(["pool", "supervisor", "orchestration"].map(async name => [name,
+		await readPrivateText(join(readinessDirectory, `${name}.json`), 4_096).then(text => JSON.parse(text) as unknown).catch(() => null),
+	])));
+	const diagnostic = JSON.stringify(stackFailureDiagnostics(children, records));
+	await writeFile(join(logsDirectory, "failure.json"), diagnostic, { mode: 0o600 });
+	return diagnostic;
 }
 
 export function stopGroup(pid: number | undefined, signal: NodeJS.Signals): void {

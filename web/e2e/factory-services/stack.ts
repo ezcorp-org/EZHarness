@@ -44,7 +44,7 @@ import { fileURLToPath } from "node:url";
 import { setTimeout as sleep } from "node:timers/promises";
 import { SQL } from "bun";
 import { buildFactoryGuest } from "./guest";
-import { freePort, httpSession, reachable, StackProcesses, waitFor } from "./processes";
+import { freePort, httpSession, reachable, saveStackFailureDiagnostics, StackProcesses, waitFor } from "./processes";
 import { FACTORY_SERVICES_CURSOR_TTL_MS, FACTORY_SERVICES_FUTURE_DRAFT_REQUEST_PATH, FACTORY_SERVICES_RESTORE_REQUEST_PATH, FACTORY_SERVICES_STATE_PATH, type FactoryServicesState } from "./state";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
@@ -121,6 +121,12 @@ async function stop(reason: string): Promise<void> {
 async function fail(error: unknown): Promise<never> {
 	failed = true;
 	console.error("[factory-services] the stack failed:", error);
+	try {
+		const diagnostic = await saveStackFailureDiagnostics(processes.children, readiness, logs);
+		console.error("[factory-services] process readiness:", diagnostic);
+	} catch {
+		console.error("[factory-services] failure diagnostics unavailable");
+	}
 	await Promise.race([stop("failure"), sleep(20_000)]);
 	process.exit(1);
 }
@@ -371,7 +377,7 @@ if (!hostReady) await fail("the pool or the supervisor did not publish ready");
 
 // ── The built web server ──────────────────────────────────────────────
 const baseURL = `http://127.0.0.1:${WEB_PORT}`;
-const web = processes.start("web", BUN, ["build/index.js"], {
+processes.start("web", BUN, ["build/index.js"], {
 	cwd: WEB,
 	env: {
 		PORT: String(WEB_PORT), HOST: "127.0.0.1", ORIGIN: baseURL,
@@ -403,7 +409,7 @@ const ready = await waitFor(async () => {
 	const response = await fetch(`${baseURL}/api/ready`).catch(() => null);
 	return response?.status === 200 || null;
 }, 360, 1_000);
-if (!ready) await fail(`the application never reported ready:\n${web.log.join("").slice(-3_000)}`);
+if (!ready) await fail("the application never reported ready");
 
 // ── The administrator, two projects, and the guest's v4 installation ──
 const call = httpSession(baseURL);
