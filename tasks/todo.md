@@ -9656,3 +9656,12 @@ Own harness-client parser/client/tests only; no live service, active app or whol
 - Source and actual compiled four-file SDK pass 11 real HTTP/parser tests, including cursor persistence, id-only/reset, malformed and partial records, resume headers and abort. Existing client module passes99 tests/339 assertions; types, Biome and package build pass.
 - Initial test callback narrowing and later Bun Request lifetime errors are retained as fixture failures. Final test copies incoming headers while the request is live; final types and all HTTP cases pass. No product workaround or timeout change.
 - Actual canonical provided SDK79b400/toolchain6095 match current G10. Existing events.js/routes.js hashes remain unchanged; index.js/sse.js require a new protected client closure. No server/app deployment or live replay claim. Independent review and normal commit follow.
+
+## 2026-10-24: Undici security consumer pin
+
+- [x] Reproduce the existing web dependency-security failure with frozen 8.12.3 consumers: 7 pass/1 fail, expected8.11.2 vs actual8.12.3.
+- [x] Change only the stale expected version; constructor/window cleanup and all behavior assertions remain byte-identical.
+- [x] Run the complete existing file with the web Bun runner: 8 pass/97 assertions. Direct jsdom30.1.1 and production sanitizer jsdom30.0.1 both resolve8.12.3; all9locks unchanged.
+- [x] Independent review PASS on exact test04bec87e and source4a04b409/evidence2ea3b37c. Normal commit runs the unchanged hooks; no bypass.
+
+Review: one expected-version string changed. Proper web-runner RED7/1 then GREEN8/0/97 assertions; both actual consumer graphs8.12.3 and all9locks match ab1c. Constructor, invalid-URL assertion, and window cleanup remain unchanged. Active gate tree and live state were not changed.

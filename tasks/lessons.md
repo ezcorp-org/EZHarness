@@ -3109,3 +3109,8 @@ smokes under the lock, detached-job wake-ups) are not repeated.
 
 - Snapshot per-record metadata before yielding a payload; never read final chunk state for earlier records. Test the actual HTTP stream with both combined and split chunks.
 - Copy incoming request headers inside Bun's fetch callback. Do not retain the pooled Request object for checks after its response completes.
+
+## Dependency updates include existing exact-version consumer tests
+
+- Search security tests for the changed package and old resolved version before accepting a lock update. Run the complete affected consumer module, not only a snippet or feature check.
+- Keep patched-version assertions exact and preserve behavior checks; update a stale expected version to the already reviewed lock value. Do not weaken the test or change a running gate tree.
