@@ -9692,3 +9692,14 @@ Actual local cancel API → executor → permission wrapper → native editFile 
 All 13 affected modules pass (278 tests). Fresh wrapper/executor coverage measures all 64 wrapper lines covered; lint passes. The initial uncommitted canonical CRAP run measures zero changed files and is not a pass claim; rerun after normal commit. A full-repository CRAP report with only this focused coverage is also not a whole-gate result. Standalone types failed due borrowed workspace resolution and a forced 2GiB Node heap; those receipts remain. Parent explicitly defers global types to the one combined canonical gate in its fully prepared tree. No production DB, live API/SSH, model, installed source, push or whole gate was used.
 
 Parent integration note: committed source dbd6b952 passed canonical scoped CRAP after commit: one measured file, two functions, both 100% covered, scores 6 and 1. Global type legs remain pending in the combined canonical gate.
+
+## 2026-10-24: Native cancellation fixture session typing
+
+- [x] Reproduce the canonical backend-test type failure with owned frozen root, web and gate dependency installs.
+- [x] Preserve the exact session authentication literal with `as const`; production and test assertions stay unchanged.
+- [x] Pass canonical complete typecheck, focused executor regression and lint.
+- [ ] Complete independent review and normal hooks.
+
+Original `bun scripts/typecheck-tests.ts` fails TS2345 at executor fixture681: the object property widened to `string`. The same command uses normal Node24.21 with a 4288MiB heap; the prior forced2GiB failure and missing-workspace receipts remain separate. No active MAIN2 edit, whole gate or live effect.
+
+Review: owned frozen root/web/separate gate installs all exit0; exact canonical test type RED is TS2345 for widened session mode. Only `as const` is added to that property. The unchanged full `bun run typecheck` now exits0 (backend, web, backend tests, web E2E, packages and both locked Python projects); focused executor20tests/78assertions and Biome pass. Production source9df and all nine manager locks stay byte-identical to dbd6. No active gate tree, live API, installed app or provider changed.

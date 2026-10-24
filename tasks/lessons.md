@@ -3122,3 +3122,8 @@ smokes under the lock, detached-job wake-ups) are not repeated.
 - Prove old-run cleanup cannot remove a new same-conversation run. Use specific rejection assertions in race tests; an unrelated exception must not satisfy the test.
 
 - For a deferred Bun test barrier, capture the promise outcome before releasing the barrier, then assert its exact error. An eager rejects matcher can block the code that must release the promise.
+
+## 2026-10-24: Fixture authentication types
+
+- Keep authentication mode fields as their declared literal union in shared fixture objects. A runtime test can pass while TypeScript correctly rejects a widened `string`.
+- A deferred global type check is an open verification item. Use owned frozen workspace installs and the canonical command before claiming its result; do not substitute borrowed dependency links or a smaller heap.

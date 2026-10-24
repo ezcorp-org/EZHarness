@@ -676,7 +676,7 @@ async function permissionLifecycleFixture() {
     await new Promise(resolve => setTimeout(resolve, 0));
     return { ctx, host: fixture.deps.host, pending };
   }
-  const locals = { user: ADMIN_USER, authMethod: "session" };
+  const locals = { user: ADMIN_USER, authMethod: "session" as const };
   const event = () => ({ params: { id: "conv-1" }, locals, request: new Request("http://fixture/api/conversations/conv-1/active-run", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "cancel" }) }) });
   const answer = (id: string, approved: boolean) => handleToolPermission(new Request("http://fixture/permission", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ approved }) }), id, ADMIN_USER, locals);
   const hydrate = async () => (await api.GET(event() as never)).json() as Promise<{ runId: string; pendingPermissions: Array<{ toolCallId: string }> }>;
