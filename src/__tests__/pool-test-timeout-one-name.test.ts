@@ -20,6 +20,14 @@ function gitGrep(pattern: string): string[] {
   return proc.stdout.toString().split("\n").filter(Boolean);
 }
 
+// 30000 is a gate value: every pool, coverage and CI test timeout takes it, so raising it weakens the gate (AGENTS.md:
+// "Never weaken the gate"), and lowering it turns slow but healthy suites red. A change needs the maintainer-only
+// gate-change-approved label. The pin reads the file, not the environment, so an override cannot hide an edit.
+test("the one definition pins the pool budget to 30000 ms", async () => {
+  const watchdog = await Bun.file(join(REPO_ROOT, "scripts/lib/watchdog.sh")).text();
+  expect(watchdog.match(/^EZ_POOL_TEST_TIMEOUT_MS=(.*)$/gm)).toEqual(["EZ_POOL_TEST_TIMEOUT_MS=30000"]);
+});
+
 test("the pool budget is defined once, in scripts/lib/watchdog.sh", () => {
   const definitions = gitGrep("^[[:space:]]*(export[[:space:]]+)?EZ_POOL_TEST_TIMEOUT_MS=");
   expect(definitions.map((line) => line.split(":")[0])).toEqual(["scripts/lib/watchdog.sh"]);
