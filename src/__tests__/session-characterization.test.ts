@@ -12,7 +12,7 @@
  * `toContain`), against real PGlite with deterministic, fixed timestamps.
  * Nothing is timed — the only clock-dependent values are normalised away.
  *
- * RUN:  bun test src/__tests__/session-characterization.test.ts --timeout 30000
+ * RUN:  bun test src/__tests__/session-characterization.test.ts --timeout $EZ_POOL_TEST_TIMEOUT_MS
  *
  * Companion: `session-golden-baseline.test.ts` records the same surface as a
  * committed JSON snapshot for a whole-structure diff.

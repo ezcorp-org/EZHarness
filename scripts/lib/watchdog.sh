@@ -5,11 +5,11 @@
 # test processes to stop an active OOM — the box was at 100% of memory with
 # ZERO swap free and memory-pressure stall at 48% over five minutes; the
 # kernel had already OOM-killed a 14GB process on its own. The two processes
-# were children of `bash scripts/test.sh`, each a `bun test --timeout 30000
+# were children of `bash scripts/test.sh`, each a `bun test --timeout $EZ_POOL_TEST_TIMEOUT_MS
 # ./src/__tests__/<file>` worker, sitting in uninterruptible D state for 16+
 # MINUTES — ~33x their own declared 30s timeout. Sampled 5s apart, each
 # advanced only ~1s of CPU per 5s of wall clock while RSS shrank: they were
-# thrashing on swap, not computing. `--timeout 30000` bounds a test's hooks
+# thrashing on swap, not computing. bun's `--timeout` bounds a test's hooks
 # and assertions INSIDE a healthy process; it bounds nothing once the process
 # is stuck waiting on IO, and the pool kept fanning out fresh workers behind
 # the stuck ones — one wedged test became a dead machine instead of one
@@ -44,7 +44,7 @@
 #   EZ_TEST_WATCHDOG_STALL_SECS (default 60) — how long the CPU-tick counter
 #     must sit COMPLETELY UNCHANGED, wall-clock, before we call a worker
 #     wedged. 60s is ~9x the worst measured legitimate cold-start cost above
-#     (6.4s) and 2x bun's own --timeout 30000, so a healthy worker's own
+#     (6.4s) and 2x bun's own 30 s --timeout (EZ_POOL_TEST_TIMEOUT_MS), so a healthy worker's own
 #     per-test ceiling fires first if anything does; this watchdog only ever
 #     engages for stalls bun's per-test timer structurally cannot see — a
 #     module-load hang or a synchronous OS-level block, exactly the incident's
@@ -180,7 +180,7 @@ _ez_watchdog_loop() {
         echo "          duty cycle, an UNBROKEN run of samples with no movement at"
         echo "          all. Last observed process state: '$WD_STATE'${state_note}."
         echo ""
-        echo "This is NOT bun's --timeout 30000 firing: that mechanism bounds a"
+        echo "This is NOT bun's --timeout $EZ_POOL_TEST_TIMEOUT_MS firing: that mechanism bounds a"
         echo "healthy process's hooks/assertions from INSIDE a running event loop."
         echo "This process was not running a test slowly — it was not running at"
         echo "all. It was killed by the per-worker CPU-progress watchdog"
@@ -206,9 +206,10 @@ _ez_watchdog_loop() {
 }
 
 # bun's per-test budget for every file in the backend pool (see the `--timeout`
-# note in scripts/test.sh). A test that spawns its own `bun test` child reads
-# this value (src/__tests__/web-mock-pair-pollution.test.ts), so the child runs
-# under the pool's rule instead of bun's bare 5 s default.
+# note in scripts/test.sh). This is its one definition: shell runners and CI
+# steps source this file, and tests read it through
+# src/__tests__/helpers/pool-test-timeout.ts (src/__tests__/pool-test-timeout-one-name.test.ts
+# fails on a literal copy).
 EZ_POOL_TEST_TIMEOUT_MS=30000
 
 # Run one bun test file to completion under the watchdog above. This is the

@@ -51,11 +51,12 @@ fi
 
 mkdir -p "$out_dir"
 source "$repo_root/scripts/web-vitest-coverage-includes.sh"
+source "$repo_root/scripts/lib/watchdog.sh" # EZ_POOL_TEST_TIMEOUT_MS, the pool's per-test budget
 web_vitest_coverage_args
 cd "$repo_root/web"
 args=(
   vitest run
-  --testTimeout=30000
+  "--testTimeout=$EZ_POOL_TEST_TIMEOUT_MS"
   "--maxWorkers=$max_workers"
   --coverage
   --coverage.provider=v8

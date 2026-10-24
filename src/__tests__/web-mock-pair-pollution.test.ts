@@ -23,6 +23,7 @@ import { test, expect } from "bun:test";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { POOL_TEST_TIMEOUT_MS } from "./helpers/pool-test-timeout";
 
 const WEB_DIR = join(import.meta.dir, "../../web");
 const REPO_ROOT = join(import.meta.dir, "../..");
@@ -46,19 +47,10 @@ interface PairRunResult {
  *  its own, as every process in the real pool does: inheriting `:memory:` would leave it with no datadir at all. */
 const PRELOAD_OWNED_ENV = ["EZCORP_DB_PATH", "EZCORP_TEST_DB_TEMP_ROOT"];
 
-/** The pool's per-test budget, read from the file scripts/test.sh runs every pool file with. A child `bun test`
- *  given no --timeout gets bun's bare 5 s default, which no pool file has: a slow DB suite then failed only here,
- *  under load (W4G-14 pair). */
-function poolTestTimeoutMs(): string {
-  const proc = Bun.spawnSync(["bash", "-c", '. scripts/lib/watchdog.sh && printf %s "$EZ_POOL_TEST_TIMEOUT_MS"'], { cwd: REPO_ROOT });
-  const value = proc.stdout.toString();
-  if (proc.exitCode !== 0 || !/^[1-9][0-9]*$/.test(value)) throw new Error(`scripts/lib/watchdog.sh did not give EZ_POOL_TEST_TIMEOUT_MS: "${value}"`);
-  return value;
-}
-const POOL_TEST_TIMEOUT_MS = poolTestTimeoutMs();
 
 function runFilesInOneProcess(files: readonly string[], testNamePattern?: string, cwd: string = WEB_DIR): PairRunResult {
   const filter = testNamePattern ? ["--test-name-pattern", testNamePattern] : [];
+  // The pool's budget: a child given no --timeout gets bun's bare 5 s default, which no pool file has (W4G-14 pair).
   const args = ["--timeout", POOL_TEST_TIMEOUT_MS, ...files, ...filter];
   const env = Object.fromEntries(Object.entries(process.env).filter(([key]) => !PRELOAD_OWNED_ENV.includes(key)));
   const proc = Bun.spawnSync([process.execPath, "test", ...args], {

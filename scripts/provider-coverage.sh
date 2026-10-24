@@ -60,8 +60,9 @@ TEST_FILES=(
 )
 
 cd "$REPO_ROOT"
+source scripts/lib/watchdog.sh # EZ_POOL_TEST_TIMEOUT_MS, the pool's per-test budget (one definition)
 for i in "${!TEST_FILES[@]}"; do
-  bun test --timeout 30000 --coverage --coverage-reporter=lcov \
+  bun test --timeout "$EZ_POOL_TEST_TIMEOUT_MS" --coverage --coverage-reporter=lcov \
     --coverage-dir="$TMPDIR/cov_$i" "${TEST_FILES[$i]}"
 done
 bun scripts/merge-lcov.ts "$TMPDIR/cov_*/lcov.info" "$TMPDIR/merged.lcov"

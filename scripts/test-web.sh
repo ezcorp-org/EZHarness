@@ -83,9 +83,9 @@ for f in "${FILES[@]}"; do
     # exit-code capture below is defeated without this). set +e records the real
     # exit code so a failing file is ALWAYS counted. Mirrors security-coverage.sh.
     set +e
-    # --timeout 30000: contention-bound ceiling for the shared pool, mirroring
+    # --timeout "$EZ_POOL_TEST_TIMEOUT_MS" (via test-file-sets.sh): contention-bound ceiling for the shared pool, mirroring
     # test.sh — a genuine hang still fails at 30s.
-    OUTPUT=$(bun test --timeout 30000 "./$rel" 2>&1)
+    OUTPUT=$(bun test --timeout "$EZ_POOL_TEST_TIMEOUT_MS" "./$rel" 2>&1)
     # Record bun's per-shard exit code — the authoritative pass/fail signal.
     # Scraping the summary alone is unreliable: a file that errors at module
     # load prints "N fail" with no "(fail)" lines, and a file killed (SIGKILL/

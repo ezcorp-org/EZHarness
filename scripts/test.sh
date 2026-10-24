@@ -71,7 +71,7 @@ check_bun_version_skew
 # is its own bun + PGlite process and the pool exhausts memory and IO bandwidth
 # long before it exhausts cores. That is what default_parallel's cap is for; it
 # is not what is costing you the wall clock. Widening it only adds contention
-# for the DB-heavy suites noted at the `--timeout 30000` below.
+# for the DB-heavy suites noted at the `--timeout` (EZ_POOL_TEST_TIMEOUT_MS) below.
 PARALLEL=${PARALLEL:-$(default_parallel)}
 TOTAL_PASS=0
 TOTAL_FAIL=0
@@ -160,7 +160,7 @@ for f in "${FILES[@]}"; do
     # ALWAYS counted. Mirrors the identical guard in test-coverage.sh's
     # run_host_pool, which was fixed for exactly this reason.
     set +e
-    # --timeout 30000: DB-heavy suites share the host with PARALLEL-1 sibling
+    # --timeout "$EZ_POOL_TEST_TIMEOUT_MS" (30 s, scripts/lib/watchdog.sh): DB-heavy suites share the host with PARALLEL-1 sibling
     # PGlite processes; bun's 5s default per-test ceiling is contention-bound,
     # not correctness-bound, in this pool. A genuine hang still fails at 30s —
     # PROVIDED the process is healthy enough for that in-process timer to run

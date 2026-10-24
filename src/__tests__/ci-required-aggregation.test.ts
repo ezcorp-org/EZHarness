@@ -45,7 +45,7 @@ test("Apple Bash setup installs the root workspace before running the behavior s
   expect(job?.steps?.[1]?.uses).toBe("./.github/actions/setup");
   expect(job?.steps?.[2]).toMatchObject({
     name: "Run setup behavior under Apple Bash 3.2",
-    run: "bun test --timeout 30000 ./src/__tests__/setup-podman.test.ts",
+    run: 'source scripts/lib/watchdog.sh && bun test --timeout "$EZ_POOL_TEST_TIMEOUT_MS" ./src/__tests__/setup-podman.test.ts',
   });
   expect(job?.steps?.some((step) => step.uses?.startsWith("oven-sh/setup-bun@"))).toBe(false);
 

@@ -182,7 +182,7 @@ jobs:
       - name: Run factory storage and private services on Postgres and S3
         shell: bash
         run: >-
-          FACTORY_TEST_POSTGRES_URL="$DATABASE_URL" bun test --timeout 30000
+          source scripts/lib/watchdog.sh && FACTORY_TEST_POSTGRES_URL="$DATABASE_URL" bun test --timeout "$EZ_POOL_TEST_TIMEOUT_MS"
           --coverage --coverage-reporter=lcov --coverage-dir=coverage-factory-storage
           ./tests/postgres/factory-artifacts.test.ts
           ./tests/postgres/factory-storage-cleanup.test.ts
@@ -292,12 +292,12 @@ jobs:
           command: up
 
       - name: Prove factory assurance against real PostgreSQL
-        run: FACTORY_TEST_POSTGRES_URL="$DATABASE_URL" bun test --timeout 30000 ./tests/postgres/factory-assurance.test.ts
+        run: source scripts/lib/watchdog.sh && FACTORY_TEST_POSTGRES_URL="$DATABASE_URL" bun test --timeout "$EZ_POOL_TEST_TIMEOUT_MS" ./tests/postgres/factory-assurance.test.ts
 
       - name: Run the release, authority, and protected-material producers on real PostgreSQL and S3
         shell: bash
         run: >-
-          FACTORY_TEST_POSTGRES_URL="$DATABASE_URL" bun test --timeout 30000
+          source scripts/lib/watchdog.sh && FACTORY_TEST_POSTGRES_URL="$DATABASE_URL" bun test --timeout "$EZ_POOL_TEST_TIMEOUT_MS"
           --coverage --coverage-reporter=lcov --coverage-dir=coverage-factory-assurance-release
           ./tests/postgres/factory-releases.test.ts
           ./tests/postgres/factory-release-authority.test.ts

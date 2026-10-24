@@ -194,8 +194,10 @@ trap 'rm -rf "$TMPDIR"' EXIT
 # across all 178 under --coverage), so nothing balloons.
 # ONE number, two spellings — bun wants `--timeout N`, vitest wants
 # `--testTimeout=N`. Deriving both from TEST_TIMEOUT_MS is what stops the two
-# runners drifting apart again.
-TEST_TIMEOUT_MS=30000
+# runners drifting apart again. The number itself is the pool's
+# EZ_POOL_TEST_TIMEOUT_MS (scripts/lib/watchdog.sh, via test-file-sets.sh), so
+# this runner and scripts/test.sh cannot drift apart either.
+TEST_TIMEOUT_MS="$EZ_POOL_TEST_TIMEOUT_MS"
 TEST_TIMEOUT_FLAG="--timeout $TEST_TIMEOUT_MS"
 
 # ── host pool ───────────────────────────────────────────────────────────────

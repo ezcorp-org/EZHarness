@@ -13,10 +13,10 @@
  * `topologySyncedThroughMs` cursor value, the leaf pointer chain.
  *
  * RUN:
- *   bun test src/__tests__/session-golden-baseline.test.ts --timeout 30000
+ *   bun test src/__tests__/session-golden-baseline.test.ts --timeout $EZ_POOL_TEST_TIMEOUT_MS
  *
  * RE-RECORD (only when a behaviour change is INTENDED and reviewed):
- *   EZ_RECORD_SESSION_GOLDEN=1 bun test src/__tests__/session-golden-baseline.test.ts --timeout 30000
+ *   EZ_RECORD_SESSION_GOLDEN=1 bun test src/__tests__/session-golden-baseline.test.ts --timeout $EZ_POOL_TEST_TIMEOUT_MS
  * then `git diff` the fixture — that diff IS the behaviour change.
  */
 import { test, expect, describe, beforeAll, afterAll } from "bun:test";
