@@ -9617,3 +9617,20 @@ No active FIX changes, no whole gate, no source repair unless a real code defect
 - Original focused test passed locally. Controlled old consumer using its existing slowHostKey fixture failed with the same missing ready tuple as the parent fast log.
 - Reused existing stopOnPublished writer, slowHostKey and BACKSTOP_CADENCE_WAITS; all eight metrics assertions and production code/bounds remain unchanged.
 - Fixed focused test passes; full isolated supervisor module46pass/0fail/216assertions and Biome pass. Independent review PASS reported by parent before commit; active FIX untouched.
+
+## 2026-10-24: Web Undici advisory repair
+
+- [x] Verify official GHSA-xjj6-f33q-929c and both actual web dependency paths.
+- [x] Preserve frozen vulnerable install/audit evidence and run a bounded isolated HTTP consumer reproduction.
+- [x] Update only the compatible Undici resolver, preserve all unrelated locks and SDK/provider inputs.
+- [x] Verify both frozen installs, actual consumer regression, focused tests/types/audit and independent review before commit.
+
+No active FIX/frozen release/live/API/SSH/GitHub effects. No audit waiver, broad dependency update, push or commit before independent review.
+
+### Review — web Undici advisory repair
+
+- Official GHSA-xjj6-f33q-929c affects Undici8<8.12.2. Actual8.11.2 in both web consumer graphs crashes an isolated Node child after caughtfetch rejection when the owned loopback responder sends too many content encodings then closes early.
+- Corrected single-cleanup child reproduces the old crash again in clean locked8.11.2; the same child exits cleanly for both actual8.12.3 graphs. Initial fixture double-close failure is preserved separately and is not a green result.
+- Named Bun update changes one web lock tuple only. All manifests and eight other manager locks remain exact; no override, allowlist or declaration changes.
+- Both final frozen installs, canonical high audit, snippet5/markdown77 tests pass. Canonical SDK79b and toolchain6095 exactly match genuine current provider recipe; provider rebuild is not implied. Canonical web types pass with0errors0warnings; independent review PASS1f7458be on exact lockc877/evidence62.
+- No production source, active FIX, frozen release, guest, API/SSH/GitHub effect, push or commit. The web runtime dependency and future app artifact do change.

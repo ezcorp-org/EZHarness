@@ -3097,3 +3097,10 @@ smokes under the lock, detached-job wake-ups) are not repeated.
 
 - A fixture that asserts on a published observation must stop on that record, not a shared heartbeat count. Use the existing stopOnPublished writer and cadence backstop; inject the existing slowHostKey to prove a loaded host cannot recreate the race.
 - A passing isolated run does not disprove a scheduling failure under load. Keep the genuine gate log and use a controlled dependency delay at the actual consumer before changing the test. Do not raise production timeouts or add retries.
+
+## 2026-10-24: Transitive Undici security repair
+
+- A package can be shared by both a development JSDOM and a production sanitizer JSDOM. Resolve each actual installed graph, not only a manifest declaration.
+- Reproduce a process-crash advisory in a bounded child that owns its loopback responder. Catching fetch rejection is not proof that an orphaned stream cannot crash the process. Require the child to exit cleanly after exact owned cleanup.
+- Close the test client once. Keep fixture cleanup errors separate from product failures and rerun the corrected fixture against both old and new packages before claiming red/green.
+- Use the named transitive Bun update and inspect every lock tuple; revert unrelated formatter changes. Measure the canonical supplied SDK/toolchain before claiming a web-only dependency patch changes provider artifacts.
