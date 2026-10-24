@@ -20,6 +20,8 @@
  * in the full web pool depending on how files happen to get scheduled.
  */
 import { test, expect } from "bun:test";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 const WEB_DIR = join(import.meta.dir, "../../web");
@@ -44,8 +46,20 @@ interface PairRunResult {
  *  its own, as every process in the real pool does: inheriting `:memory:` would leave it with no datadir at all. */
 const PRELOAD_OWNED_ENV = ["EZCORP_DB_PATH", "EZCORP_TEST_DB_TEMP_ROOT"];
 
+/** The pool's per-test budget, read from the file scripts/test.sh runs every pool file with. A child `bun test`
+ *  given no --timeout gets bun's bare 5 s default, which no pool file has: a slow DB suite then failed only here,
+ *  under load (W4G-14 pair). */
+function poolTestTimeoutMs(): string {
+  const proc = Bun.spawnSync(["bash", "-c", '. scripts/lib/watchdog.sh && printf %s "$EZ_POOL_TEST_TIMEOUT_MS"'], { cwd: REPO_ROOT });
+  const value = proc.stdout.toString();
+  if (proc.exitCode !== 0 || !/^[1-9][0-9]*$/.test(value)) throw new Error(`scripts/lib/watchdog.sh did not give EZ_POOL_TEST_TIMEOUT_MS: "${value}"`);
+  return value;
+}
+const POOL_TEST_TIMEOUT_MS = poolTestTimeoutMs();
+
 function runFilesInOneProcess(files: readonly string[], testNamePattern?: string, cwd: string = WEB_DIR): PairRunResult {
-  const args = testNamePattern ? [...files, "--test-name-pattern", testNamePattern] : [...files];
+  const filter = testNamePattern ? ["--test-name-pattern", testNamePattern] : [];
+  const args = ["--timeout", POOL_TEST_TIMEOUT_MS, ...files, ...filter];
   const env = Object.fromEntries(Object.entries(process.env).filter(([key]) => !PRELOAD_OWNED_ENV.includes(key)));
   const proc = Bun.spawnSync([process.execPath, "test", ...args], {
     cwd,
@@ -151,3 +165,18 @@ test("OPEN-1: extensions-api (polluter) then extension-settings-api (victim), $l
   expect(result.pass).toBe(2);
   expect(result.exitCode).toBe(0);
 });
+
+// The child runs under the pool's budget, not bun's bare 5 s default: a test that takes 5.5 s is killed by the default
+// at every run and passes under the pool's 30 s at every run, so this holds whatever the load on the host (W4G-14).
+test("a child bun test runs under the pool's per-test budget", () => {
+  const dir = mkdtempSync(join(tmpdir(), "pair-child-budget-"));
+  try {
+    writeFileSync(join(dir, "slow.test.ts"), 'import { test } from "bun:test";\ntest("slower than bun\'s bare default", async () => { await Bun.sleep(5_500); });\n');
+    const result = runFilesInOneProcess(["./slow.test.ts"], undefined, dir);
+    expect(result.fail).toBe(0);
+    expect(result.pass).toBe(1);
+    expect(result.exitCode).toBe(0);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+}, Number(POOL_TEST_TIMEOUT_MS));
