@@ -88,11 +88,15 @@ export async function startTestWebhookReceiver(options: TestWebhookReceiverOptio
   const delivered = new Set<string>();
   let status = 200;
   let hook: ((request: ReceivedNotification) => Promise<void>) | null = null;
+  // A request counts only in the reset generation it arrived in: a hook that outlives its test must not add
+  // to the next test's counts (W4H-35, ci 39956956620 root 2: a late key made N7 see two logical deliveries).
+  let generation = 0;
   const server = Bun.serve({
     hostname: options.hostname ?? "127.0.0.1",
     port: options.port ?? 0,
     tls: { cert: tls.cert, key: tls.key },
     async fetch(request) {
+      const arrivedIn = generation;
       const body = await request.text();
       const header = (name: string) => request.headers.get(name);
       const received: ReceivedNotification = {
@@ -104,12 +108,12 @@ export async function startTestWebhookReceiver(options: TestWebhookReceiverOptio
         signatureValid: verify(options.secret, header("x-ezcorp-timestamp"), body, header("x-ezcorp-signature")),
         timestampValid: Math.abs((options.now ?? Date.now)() / 1000 - Number(header("x-ezcorp-timestamp"))) <= (options.toleranceS ?? FACTORY_NOTIFICATION_SIGNATURE_TOLERANCE_S),
       };
-      requests.push(received);
+      if (arrivedIn === generation) requests.push(received);
       if (hook) await hook(received);
       // A bad signature or a stale timestamp is refused before deduplication: a replay never counts.
       if (received.signatureValid === false || !received.timestampValid) return new Response(null, { status: 401 });
       // Without a key a receiver cannot deduplicate, so every such request is its own logical delivery.
-      if (status >= 200 && status < 300) delivered.add(received.idempotencyKey ?? `no-key-${requests.length}`);
+      if (status >= 200 && status < 300 && arrivedIn === generation) delivered.add(received.idempotencyKey ?? `no-key-${requests.length}`);
       return new Response(null, { status, ...(status >= 300 && status < 400 ? { headers: { location: "https://127.0.0.1:1/" } } : {}) });
     },
   });
@@ -120,7 +124,7 @@ export async function startTestWebhookReceiver(options: TestWebhookReceiverOptio
     logical: () => delivered,
     answer(next) { status = next; },
     onRequest(next) { hook = next; },
-    reset() { requests.length = 0; delivered.clear(); status = 200; hook = null; },
+    reset() { generation += 1; requests.length = 0; delivered.clear(); status = 200; hook = null; },
     async stop() { server.stop(true); },
   };
 }

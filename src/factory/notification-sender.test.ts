@@ -228,7 +228,7 @@ describe("loading the declared destinations (C11 N8, N9)", () => {
 
 describe("the receiver's replay bound (C11 N3)", () => {
   const secret = new TextEncoder().encode("r".repeat(32));
-  let clockS = 1_700_000_000;
+  const clockS = 1_700_000_000;
   let receiver: TestWebhookReceiver;
   beforeAll(async () => { receiver = await startTestWebhookReceiver({ secret, now: () => clockS * 1000 }); });
   afterAll(async () => { await receiver.stop(); });
@@ -253,5 +253,20 @@ describe("the receiver's replay bound (C11 N3)", () => {
     expect(await post(clockS - 300, "fn1-d")).toEqual({ status: 200 });
     expect([...receiver.logical()].sort()).toEqual(["fn1-a", "fn1-d"]);
     expect(receiver.requests.map((request) => request.timestampValid)).toEqual([true, true, false, false, true]);
+  });
+
+  test("a request whose hook outlives reset() counts in no later test (W4H-35, ci 39956956620 root 2)", async () => {
+    let arrived!: () => void;
+    let release!: () => void;
+    const inHook = new Promise<void>((resolve) => { arrived = resolve; });
+    receiver.onRequest(() => { arrived(); return new Promise<void>((resolve) => { release = resolve; }); });
+    const late = post(clockS, "fn1-late");
+    await inHook;
+    receiver.reset();
+    expect(await post(clockS, "fn1-next")).toEqual({ status: 200 });
+    release();
+    await late;
+    expect([...receiver.logical()]).toEqual(["fn1-next"]);
+    expect(receiver.requests.map((request) => request.idempotencyKey)).toEqual(["fn1-next"]);
   });
 });
