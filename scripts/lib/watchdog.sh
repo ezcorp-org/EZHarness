@@ -205,6 +205,12 @@ _ez_watchdog_loop() {
   done
 }
 
+# bun's per-test budget for every file in the backend pool (see the `--timeout`
+# note in scripts/test.sh). A test that spawns its own `bun test` child reads
+# this value (src/__tests__/web-mock-pair-pollution.test.ts), so the child runs
+# under the pool's rule instead of bun's bare 5 s default.
+EZ_POOL_TEST_TIMEOUT_MS=30000
+
 # Run one bun test file to completion under the watchdog above. This is the
 # EXACT function scripts/test.sh's pool loop calls per file — the
 # verification fixtures call it directly too, so what gets demonstrated is
@@ -232,7 +238,7 @@ ez_watchdog_run_file() {
     runner=(bun)
   fi
 
-  bash "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/test-file-context.sh" "$test_file" "${runner[@]}" test --timeout 30000 "${extra_args[@]}" "./$test_file" >"$outfile" 2>&1 &
+  bash "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/test-file-context.sh" "$test_file" "${runner[@]}" test --timeout "$EZ_POOL_TEST_TIMEOUT_MS" "${extra_args[@]}" "./$test_file" >"$outfile" 2>&1 &
   local bun_pid=$!
 
   ( _ez_watchdog_loop "$bun_pid" "$test_file" "$wdfile" ) &

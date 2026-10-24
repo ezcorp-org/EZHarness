@@ -134,7 +134,7 @@ await expectRejected(() => foreignArchiveClient.send(new DeleteObjectCommand({ B
 // always runs; only this leg touches the shared containers.
 if (args.restartStores) {
   const engine = resolveEngine({ EZCORP_CONTAINER_ENGINE: process.env.EZCORP_CONTAINER_ENGINE, CI: process.env.CI }, hasCommandOnPath);
-  const dockerHost = resolveComposeDockerHost(engine, { DOCKER_HOST: process.env.DOCKER_HOST }, process.getuid?.() ?? 0, isUnixSocket);
+  const dockerHost = resolveComposeDockerHost(engine, { DOCKER_HOST: process.env.DOCKER_HOST, EZCORP_PODMAN_RUNTIME_DIR: process.env.EZCORP_PODMAN_RUNTIME_DIR }, process.getuid?.() ?? 0, isUnixSocket);
   const projectName = `ezcorp-factory-storage-${process.getuid?.() ?? "local"}`;
   const [stopInvocation, upInvocation] = restartLegInvocations({ dockerHost, projectName, baseEnv: process.env });
   await runCompose(stopInvocation);

@@ -9665,3 +9665,12 @@ Own harness-client parser/client/tests only; no live service, active app or whol
 - [x] Independent review PASS on exact test04bec87e and source4a04b409/evidence2ea3b37c. Normal commit runs the unchanged hooks; no bypass.
 
 Review: one expected-version string changed. Proper web-runner RED7/1 then GREEN8/0/97 assertions; both actual consumer graphs8.12.3 and all9locks match ab1c. Constructor, invalid-URL assertion, and window cleanup remain unchanged. Active gate tree and live state were not changed.
+
+## 2026-10-24: Merge current main858 into final f1d source
+
+- [x] Merge exact main858 into isolated f1d worktree; preserve both intents.
+- [x] Inspect actual conflicts and run only focused checks for affected consumers.
+- [x] Complete normal merge commit and record exact parents/tree/status for independent review.
+- No push, live operations, or complete local gate in this task.
+
+Review: two conflicts resolved. Keep f1d receiver state replacement byte-identical and retain main's delayed-request regression. Keep test-file-context launch wrapper and use main's shared 30000 ms constant. Existing reset and context-wrapper focused modules pass; the normal merge commit also runs the six mapped staged-test modules. Main adds no dependency lock or package manifest changes. Final parent/tree and hook receipt are retained in `.cache/main858-merge-v1/`; no full-fast, hosted, or deployment result is claimed.
