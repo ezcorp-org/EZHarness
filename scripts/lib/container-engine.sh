@@ -72,6 +72,9 @@ export ENGINE
 # Under Podman the socket is the rootless systemd user socket on Linux, or
 # the per-machine socket that only `podman machine inspect` knows on macOS.
 # An already-exported DOCKER_HOST is honoured untouched.
+# EZCORP_PODMAN_RUNTIME_DIR replaces the /run/user/<uid> folder the Linux
+# socket is looked for in. Unset (the normal case) changes nothing; the tests
+# set it to an empty folder so the host's own rootless socket never answers.
 resolve_compose() {
   if command -v docker >/dev/null 2>&1 && docker compose version >/dev/null 2>&1; then
     COMPOSE=(docker compose)
@@ -85,7 +88,7 @@ resolve_compose() {
   fi
   if [ "$ENGINE" = podman ] && [ -z "${DOCKER_HOST:-}" ]; then
     local sock
-    sock="/run/user/$(id -u)/podman/podman.sock"
+    sock="${EZCORP_PODMAN_RUNTIME_DIR:-/run/user/$(id -u)}/podman/podman.sock"
     if [ ! -S "$sock" ]; then
       # Native Linux Podman has no machine and exits non-zero here. Under a
       # caller's errexit/pipefail that would end the script before the error

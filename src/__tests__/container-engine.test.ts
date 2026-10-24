@@ -1,5 +1,5 @@
 import { afterAll, describe, expect, test } from "bun:test";
-import { chmodSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -121,6 +121,11 @@ const ENGINE_ONLY = ["scripts/test-linux.sh"];
 // fully-qualified `docker.io/...` image references out of it.
 const BARE_DOCKER = /(?<![\w\-./`'"])docker (compose|rm|rmi|build|inspect|run|logs|exec|volume|restart|image|images|stop|start|container|info|ps|pull|tag|save|load)\b/;
 
+/** An empty runtime folder: the Linux socket probe looks here instead of
+ * /run/user/<uid>, so a developer host's own rootless Podman socket never
+ * answers for a case (the `id` stub prints 1000, a real uid on most hosts). */
+const NO_SOCKET_RUNTIME = mkdtempSync(join(SANDBOX, "runtime-"));
+
 function resolveCompose(path: string, env: Record<string, string> = {}, strict = false): { compose: string; dockerHost: string; exitCode: number; stderr: string } {
   // strict: the caller runs under `set -euo pipefail` and calls resolve_compose
   // as a plain statement, as verify-production-image-lifecycle.sh does.
@@ -129,7 +134,7 @@ function resolveCompose(path: string, env: Record<string, string> = {}, strict =
     : `source "${LIB}" && resolve_compose && printf '%s\\n%s' "\${COMPOSE[*]}" "\${DOCKER_HOST:-}"`;
   const proc = Bun.spawnSync({
     cmd: [BASH, "-c", script],
-    env: { PATH: path, ...env },
+    env: { PATH: path, EZCORP_PODMAN_RUNTIME_DIR: NO_SOCKET_RUNTIME, ...env },
     stdout: "pipe",
     stderr: "pipe",
   });
@@ -177,6 +182,33 @@ describe("container-engine.sh — resolve_compose", () => {
     } finally {
       server.stop(true);
     }
+  });
+
+  test("under podman with no DOCKER_HOST, uses the rootless socket in the runtime folder", () => {
+    const runtime = mkdtempSync(join(SANDBOX, "runtime-"));
+    mkdirSync(join(runtime, "podman"));
+    const sock = join(runtime, "podman", "podman.sock");
+    const server = Bun.listen({ unix: sock, socket: { data() {} } });
+    try {
+      const dir = pathWith("podman", "docker-compose");
+      writeFileSync(join(dir, "id"), `#!/bin/sh\necho called > "${dir}/id.called"\nprintf '1000\\n'\n`);
+      const r = resolveCompose(dir, { EZCORP_PODMAN_RUNTIME_DIR: runtime });
+      expect(r.exitCode).toBe(0);
+      expect(r.dockerHost).toBe(`unix://${sock}`);
+      // The override replaces the uid lookup; it does not run beside it.
+      expect(existsSync(join(dir, "id.called"))).toBe(false);
+    } finally {
+      server.stop(true);
+    }
+  });
+
+  test("without the runtime override, the socket is looked for under /run/user/<id -u>", () => {
+    const dir = pathWith("podman", "docker-compose");
+    writeFileSync(join(dir, "id"), `#!/bin/sh\n[ "$1" = -u ] && echo called > "${dir}/id.called"\nprintf '1000\\n'\n`);
+    // Empty is unset for `${VAR:-default}`; the outcome then depends on the
+    // host's real /run/user, so only the lookup itself is asserted.
+    resolveCompose(dir, { EZCORP_PODMAN_RUNTIME_DIR: "" });
+    expect(existsSync(join(dir, "id.called"))).toBe(true);
   });
 
   test("under podman with no socket anywhere: an error naming both fixes, not a Docker daemon", () => {
