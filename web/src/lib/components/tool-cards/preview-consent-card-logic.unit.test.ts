@@ -6,7 +6,6 @@ import { describe, test, expect } from "vitest";
 import {
 	parseConsentCardResult,
 	buildConsentRequest,
-	buildOpenUrl,
 } from "./preview-consent-card-logic.js";
 
 describe("parseConsentCardResult", () => {
@@ -69,18 +68,5 @@ describe("buildConsentRequest", () => {
 			port: 5173,
 			action: "always-expose",
 		});
-	});
-});
-
-describe("buildOpenUrl", () => {
-	test("composes <label>.preview.<host>/__open?c=<code>, stripping the app port", () => {
-		expect(buildOpenUrl("abc26", "code123", "localhost:5173", "http:")).toBe(
-			"http://abc26.preview.localhost/__open?c=code123",
-		);
-	});
-	test("url-encodes the code + honors protocol/host", () => {
-		expect(buildOpenUrl("xyz", "a/b+c", "app.example.com", "https:")).toBe(
-			"https://xyz.preview.app.example.com/__open?c=a%2Fb%2Bc",
-		);
 	});
 });

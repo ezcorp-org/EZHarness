@@ -2,7 +2,7 @@
   "name": "@ezcorp/extension-runner",
   "version": "4.0.0",
   "type": "module",
-  "exports": { ".": "./src/index.ts", "./service": "./src/service.ts" },
-  "dependencies": { "@ezcorp/extension-contract": "workspace:*" },
+  "exports": { ".": "./src/index.ts", "./service": "./src/service.ts", "./sensitive-host": "./src/sensitive-host.ts" },
+  "dependencies": { "@ezcorp/extension-contract": "workspace:*", "@types/bun": "1.4.2", "@types/node": "26.6.3", "typescript": "5.9.3" },
   "scripts": { "test": "bun test" }
 }

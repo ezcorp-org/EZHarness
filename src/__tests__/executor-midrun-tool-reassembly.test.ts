@@ -20,6 +20,7 @@
  */
 
 import { test, expect, describe, beforeAll, afterAll, beforeEach, mock } from "bun:test";
+import taskTrackingManifest from "../../docs/extensions/examples/task-tracking/ezcorp.config";
 import { restoreModuleMocks } from "./helpers/mock-cleanup";
 import { setupTestDb, closeTestDb, mockDbConnection } from "./helpers/test-pglite";
 
@@ -29,7 +30,7 @@ mockDbConnection();
 
 interface TurnUpdate { context: { tools?: Array<{ name: string }> } }
 
-let capturedAgentOpts: { initialState: { tools: Array<{ name: string }> } } | null = null;
+let capturedAgentOpts: { initialState: { tools: Array<{ name: string }>; systemPrompt: string } } | null = null;
 /** Runs at the simulated turn boundary — tests use it to "install". */
 let onTurnBoundary: (() => void) | null = null;
 /** Whatever the executor's hook returned at that boundary. */
@@ -42,7 +43,7 @@ mock.module("@earendil-works/pi-agent-core", () => ({
     state = { error: undefined };
     prepareNextTurnWithContext?: (c: unknown) => Promise<TurnUpdate | undefined>;
     private readonly tools: Array<{ name: string }>;
-    constructor(opts: { initialState: { tools: Array<{ name: string }> } }) {
+    constructor(opts: { initialState: { tools: Array<{ name: string }>; systemPrompt: string } }) {
       capturedAgentOpts = opts;
       this.tools = opts.initialState.tools;
     }
@@ -132,6 +133,7 @@ mock.module("../extensions/tool-executor", () => ({
     setSpawnQuota() {}
     setArgsResolver() {}
     setCurrentUserId() {}
+    setWorkspaceTarget() {}
     setCurrentModel() {}
     setCurrentProvider() {}
     setCurrentAgentConfigId() {}
@@ -235,6 +237,36 @@ function installMidRun(): void {
   convExtensionIds = [INSTALLED_EXT_ID];
   registryGeneration++;
 }
+
+describe("final model task-planning capabilities", () => {
+  const planningTools = taskTrackingManifest.tools.map(tool => TOOL_DEF(`task-tracking__${tool.name}`));
+  test("uses the exact installed namespaced planning catalog", async () => {
+    agentToolsMap.set(agentConfigId, planningTools);
+    await createExecutor().streamChat(convId, "plan, edit, and test", { projectId, agentConfigId });
+    expect(capturedAgentOpts?.initialState.systemPrompt).toContain("call `task-tracking__task_plan` FIRST");
+    expect(capturedAgentOpts?.initialState.systemPrompt).not.toContain("`task_plan`");
+    expect(capturedAgentOpts?.initialState.tools.map(t => t.name)).toContain("task-tracking__task_plan");
+  });
+  test("does not retain planning instructions when a mode filters the catalog", async () => {
+    agentToolsMap.set(agentConfigId, planningTools);
+    extensionToolsMap.set("planning-list-only", [TOOL_DEF("task-tracking__task_list")]);
+    const mode = await createMode({ name: "Planning list only", slug: "planning-list-only", systemPromptInstruction: "Only list existing tasks.", extensionIds: ["planning-list-only"] });
+    await createExecutor().streamChat(convId, "plan, edit, and test", { projectId, agentConfigId, modeId: mode.id });
+    expect(capturedAgentOpts?.initialState.tools.map(t => t.name)).toContain("task-tracking__task_list");
+    expect(capturedAgentOpts?.initialState.tools.map(t => t.name)).not.toContain("task-tracking__task_set_dependencies");
+    expect(capturedAgentOpts?.initialState.systemPrompt).not.toContain("## Task Tracking");
+  });
+
+  // Actual native UI turn: task_plan was requested by the system prompt,
+  // but the saved tool call failed before any requested workspace work.
+  test("does not instruct a model to call absent planning tools", async () => {
+    agentToolsMap.set(agentConfigId, [TOOL_DEF("shell")]);
+    await createExecutor().streamChat(convId, "read files, edit, and test", { projectId, agentConfigId });
+    expect(capturedAgentOpts?.initialState.tools.map(t => t.name)).toContain("shell");
+    expect(capturedAgentOpts?.initialState.systemPrompt).not.toContain("call `task_plan` FIRST");
+    expect(capturedAgentOpts?.initialState.systemPrompt).not.toContain("## Task Tracking");
+  });
+});
 
 describe("mid-run toolset re-assembly", () => {
   test("an extension installed during the turn becomes callable in that turn", async () => {

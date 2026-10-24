@@ -4,11 +4,12 @@ import { ExtensionPageCache } from "$server/extensions/page-cache";
 import type { Extension } from "$server/db/schema";
 
 vi.setConfig({ testTimeout: 30_000 });
+// These fixtures exercise private caches; bus wiring has its own focused suite.
+vi.mock("$lib/server/context", () => ({ getBus: () => ({ on: vi.fn() }) }));
 
 function fixture() {
   const extension = { id: crypto.randomUUID(), name: "private-page", grantedPermissions: { eventSubscriptions: [] } } as unknown as Extension;
   const callPage = vi.fn(async (_extension: Extension, _page: string, userId: string) => {
-    await new Promise(resolve => setTimeout(resolve, 10));
     return { jsonrpc: "2.0" as const, id: "render", result: { title: `Private data for ${userId}`, nodes: [] } };
   });
   const deps: Partial<RenderPullDeps> = { authorize: async () => "release-1:grants-1", findPage: async () => ({ extension, page: { id: "dashboard", title: "Private page" } }), callPage, cache: new ExtensionPageCache(), timeoutMs: 1000 };

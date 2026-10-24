@@ -84,6 +84,34 @@ test.describe("project sandbox panel", () => {
 		await captureEvidence(page, testInfo, "project-sandbox-mobile-error", { fullPage: true });
 	});
 
+	for (const viewport of [{ width: 1280, height: 720 }, { width: 390, height: 844 }]) {
+		test(`opens the rendered file picker after delayed project loading at ${viewport.width}px`, async ({ page, mockApi }) => {
+			await page.setViewportSize(viewport);
+			const project = makeProject({ id: "delayed-project", name: "Delayed project", path: "" });
+			await mockApi({ projects: [project] });
+			await mockSandboxApi(page);
+			let releaseProject!: () => void;
+			const projectReady = new Promise<void>((resolve) => { releaseProject = resolve; });
+			await page.route("**/api/projects", async (route) => {
+				await projectReady;
+				await route.fulfill({ json: [project] });
+			});
+			await page.goto(`/project/${project.id}/settings`);
+			expect(await page.getByTestId("open-file-picker").count()).toBe(0);
+			const input = openFilePickerInput(page, "/app/web/.ezcorp/projects/my-project");
+			// Model the response arriving after the helper has started, as in the hosted trace.
+			await page.waitForTimeout(200);
+			releaseProject();
+			await expect(await input).toBeVisible();
+			if (viewport.width < 1024) {
+				await expect(page.getByTestId("bottom-sheet")).toBeVisible();
+				await dismissPickerSheet(page);
+			} else {
+				await expect(page.getByTestId("bottom-sheet")).toHaveCount(0);
+			}
+		});
+	}
+
 	test("keeps ordinary path-empty project settings and sandbox creation available", async ({ page, mockApi }) => {
 		const project = makeProject({ id: "global-project", name: "Global project", path: "" });
 		await mockApi({ projects: [project] });

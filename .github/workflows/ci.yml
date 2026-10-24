@@ -200,8 +200,10 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: ./.github/actions/setup
-      - name: Provision the rootless container runtime
-        run: bash scripts/setup-extension-runner-ci.sh --install
+      # The dedicated NixOS runner is provisioned declaratively; keep the same
+      # namespace, pinned-image and kernel checks without the Ubuntu installer.
+      - name: Verify the provisioned rootless container runtime
+        run: bash scripts/setup-extension-runner-ci.sh --probe
       - name: Prove CPU attempts see no device and the GPU attempt sees exactly one
         run: bash scripts/verify-factory-local-gpu.sh
       # The file list is the lane manifest (FACTORY_LANES in
@@ -303,7 +305,11 @@ jobs:
       - name: Run the lane-bound reference-data journey
         run: bash scripts/run-factory-lane-tests.sh factory-deployment-operations
       - name: Prove a compatible upgrade preserves data
-        run: bash scripts/verify-docker-upgrade.sh
+        # Match the host account for owned bind-state cleanup and worker peer UID.
+        run: |
+          EZ_UPGRADE_APP_UID="$(id -u)" EZ_UPGRADE_APP_GID="$(id -g)" \
+            EZ_PRODUCTION_RUNNER_APP_UID="$(id -u)" \
+            bash scripts/verify-docker-upgrade.sh
       - name: Prove a rollback restores the previous release
         run: bash scripts/verify-docker-rollback.sh
       - name: Prove a backup restores to a consistent position
@@ -897,6 +903,8 @@ jobs:
             bash scripts/collect-browser-route-coverage-lane.sh fresh-setup
       - name: Run real-auth journeys with browser coverage
         shell: bash
+        env:
+          EZCORP_E2E_GITHUB_SOURCE_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           EZCORP_BROWSER_COVERAGE_EXPECTED_MANIFEST="$(bun scripts/browser-route-coverage-manifest.ts --print)"
           export EZCORP_BROWSER_COVERAGE_EXPECTED_MANIFEST

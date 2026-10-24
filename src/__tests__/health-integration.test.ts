@@ -306,7 +306,7 @@ describe("Executor — memory_unavailable emission", () => {
       getLatestLeaf: mock(() => Promise.resolve(null)),
       resolveSystemPrompt: mock(() => Promise.resolve("system")),
       createMessage: mock(() => Promise.resolve()),
-      getConversation: mock(() => Promise.resolve({ id: "conv-1", parentConversationId: null })),
+      getConversation: mock(() => Promise.resolve({ id: "conv-1", projectId: "proj-1", parentConversationId: null })),
     }));
     mock.module("../db/queries/active-runs", () => ({
       createActiveRun: mock(() => Promise.resolve()),
@@ -317,7 +317,7 @@ describe("Executor — memory_unavailable emission", () => {
       cleanupOrphanedRuns: mock(() => Promise.resolve()),
     }));
     mock.module("../db/queries/projects", () => ({
-      getProject: mock(() => Promise.resolve({ path: "/tmp", variables: {} })),
+      getProject: mock(() => Promise.resolve({ id: "proj-1", path: "/tmp", variables: {} })),
     }));
     mock.module("../db/queries/settings", () => ({
       getAllSettings: mock(() => Promise.resolve({})),

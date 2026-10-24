@@ -11,6 +11,7 @@ import { getConversationExtensionIds } from "$server/db/queries/conversation-ext
 import { listToolCallExtensionIdsForMessage } from "$server/db/queries/tool-calls";
 import { writeAttachment } from "$server/chat/attachments/storage";
 import type { AuthUser } from "$server/auth/types";
+import { resolveLocalProjectTarget } from "$server/runtime/workspaces/project-target";
 
 // ── /api/extensions/[name]/uploads — extension-authored binary uploads ──
 //
@@ -177,8 +178,15 @@ export const POST: RequestHandler = async ({ request, locals, params }) => {
     return errorJson(500, "Project path not resolvable for attachment storage");
   }
 
+  let workspaceTarget: Awaited<ReturnType<typeof resolveLocalProjectTarget>>;
+  try {
+    workspaceTarget = await resolveLocalProjectTarget(project, "attachment write");
+  } catch {
+    return errorJson(503, "Attachment storage is unavailable");
+  }
+
   const written = await writeAttachment({
-    projectRoot: project.path,
+    workspaceTarget,
     conversationId,
     messageId,
     filename: file.name || "audio",

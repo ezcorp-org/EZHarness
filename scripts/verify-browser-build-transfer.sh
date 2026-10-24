@@ -51,9 +51,10 @@ case "$mode" in
 		mkdir -p "$tmp_root/consumer/web"
 		# A consumer has checked-out source and installed dependencies, but none
 		# of the producer's generated output until the artifact is restored. Use
-		# tracked web files only: test results and local coverage receipts must
-		# never influence this checkout-shaped regression.
-		git -C "$repo_root" ls-files -z -- web | \
+		# all tracked source, as actions/checkout does: web configuration can
+		# import root scripts. Untracked test results and local coverage receipts
+		# must never influence this checkout-shaped regression.
+		git -C "$repo_root" ls-files -z | \
 			tar -C "$repo_root" --null --files-from=- -cf - | tar -C "$tmp_root/consumer" -xf -
 		# The built server imports root runtime dependencies (for example
 		# drizzle-orm). CI's setup action installs both workspace roots.

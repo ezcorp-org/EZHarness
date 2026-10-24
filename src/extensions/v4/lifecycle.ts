@@ -3,6 +3,7 @@ import { assertJson, ContractError, validateManifest, validateWire, type Workspa
 import { RunnerError } from "@ezcorp/extension-runner";
 import { extensionLogger } from "../../logger";
 import { digestObject, getFiles, putFiles, validatePath } from "./blobs";
+import { assertSandboxPresetReleaseQualification } from "./sandbox-preset-qualification";
 import { ApprovalContextError, assertApprovalUsable, canonicalApprovalContext, consumeApproval } from "./approval-context";
 import { idempotencyInputDigest, isBoundedIdempotencyKey } from "../../idempotency";
 import { LifecycleError, type InstallationRecord, type InstallationState, type LifecycleActor, type LifecycleApproval, type LifecycleDependencies, type LifecycleOperation, type LifecycleRelease, type WorkspaceRecord } from "./types";
@@ -285,6 +286,7 @@ export class ExtensionLifecycle {
       await this.transaction(actor, installationId, (state) => { const current = this.operation(state, operationId); this.assertLease(current, holder, fence); this.transition(current, "verifying"); });
       const verification = await this.dependencies.verifyCandidate(release, artifacts);
       if (verification) { release.verification = verification; release.releaseDigest = digestObject({ ...releaseInput, verification }); }
+      await assertSandboxPresetReleaseQualification(release, verification || undefined, this.now());
       await this.transaction(actor, installationId, (state) => {
         const current = this.operation(state, operationId);
         this.assertLease(current, holder, fence);
@@ -330,7 +332,7 @@ export class ExtensionLifecycle {
     return approval;
   }
 
-  private checkApproval(state: InstallationState, approval: LifecycleApproval, requireApproved: boolean): LifecycleRelease {
+  private async checkApproval(state: InstallationState, approval: LifecycleApproval, requireApproved: boolean): Promise<LifecycleRelease> {
     const release = this.release(state, approval.releaseId);
     try {
       assertApprovalUsable(approval.status, { subjectId: release.id, subjectDigest: approval.releaseDigest, principalId: approval.principalId, scope: approval.scope, grants: approval.grants, expectedGeneration: approval.expectedGeneration }, { subjectDigest: release.releaseDigest, principalId: state.installation.ownerId, scope: state.installation.scope, expectedGeneration: state.installation.generation }, this.now(), requireApproved);
@@ -339,6 +341,8 @@ export class ExtensionLifecycle {
       throw error;
     }
     if (release.policyDigest !== this.policyDigest() || approval.runnerProfile !== this.dependencies.runnerProfile || release.evidence.validatorVersion !== this.dependencies.validatorVersion || approval.expectedActiveReleaseId !== state.installation.activeReleaseId || state.installation.uninstalled) throw new LifecycleError("stale_approval", "Approval is missing, revoked, or no longer matches this activation.");
+    // Approval binds immutable build evidence. Activation verifies a fresh report before effects.
+    await assertSandboxPresetReleaseQualification(release, release.verification, this.now(), "integrity");
     return release;
   }
 
@@ -352,10 +356,10 @@ export class ExtensionLifecycle {
     // host is approving that its artifact runs with the app's full powers, so
     // the click must say so — a plain "approve" is refused, not upgraded.
     if (decision && this.dependencies.trustedLocal && options.acknowledgeUnsandboxed !== true) throw new LifecycleError("unsandboxed_acknowledgement_required", "This host runs extensions WITHOUT a sandbox. Acknowledge that for this exact release to approve it.");
-    const approval = await this.transaction(actor, installationId, (state) => {
+    const approval = await this.transaction(actor, installationId, async (state) => {
       const approval = this.approval(state, approvalId);
       if (approval.status !== "pending") throw new LifecycleError("approval_decided", "This approval already has a decision.");
-      this.checkApproval(state, approval, false);
+      await this.checkApproval(state, approval, false);
       approval.status = decision ? "approved" : "rejected";
       approval.approvedBy = actor.principalId;
       return approval;
@@ -373,11 +377,11 @@ export class ExtensionLifecycle {
   async activate(actor: LifecycleActor, input: { installationId: string; approvalId: string; idempotencyKey: string; rollback?: boolean }): Promise<LifecycleOperation> {
     const candidate = this.newOperation("activate", input.idempotencyKey, { approvalId: input.approvalId, rollback: input.rollback === true });
     candidate.rollback = input.rollback === true;
-    const operation = await this.transaction(actor, input.installationId, (state) => {
+    const operation = await this.transaction(actor, input.installationId, async (state) => {
       const previous = this.previousOperation(state, candidate);
       if (previous) return previous;
       const approval = this.approval(state, input.approvalId);
-      this.checkApproval(state, approval, true);
+      await this.checkApproval(state, approval, true);
       candidate.approvalId = approval.id;
       candidate.releaseId = approval.releaseId;
       state.operations[candidate.id] = candidate;
@@ -390,18 +394,19 @@ export class ExtensionLifecycle {
     try {
       const snapshot = await this.inspect(actor, input.installationId);
       const approval = this.approval(snapshot, input.approvalId);
-      const release = this.checkApproval(snapshot, approval, true);
+      const release = await this.checkApproval(snapshot, approval, true);
       await this.dependencies.authorize(actor, "activate", release, approval.grants);
       const artifacts = await getFiles(this.dependencies.blobs, release.artifactDigest, "artifact");
-      await this.dependencies.verifyCandidate(release, artifacts);
+      const verification = await this.dependencies.verifyCandidate(release, artifacts);
+      await assertSandboxPresetReleaseQualification(release, verification || undefined, this.now());
       await this.dependencies.authorize(actor, "activate", release, approval.grants);
       await this.dependencies.prepareActivation?.(snapshot.installation, snapshot.installation.activeReleaseId ? this.release(snapshot, snapshot.installation.activeReleaseId) : null, release, claimed.operation);
       await this.dependencies.authorize(actor, "activate", release, approval.grants);
-      await this.transaction(actor, input.installationId, (state) => {
+      await this.transaction(actor, input.installationId, async (state) => {
         const current = this.operation(state, operation.id);
         this.assertLease(current, holder, fence);
         const exactApproval = this.approval(state, input.approvalId);
-        this.checkApproval(state, exactApproval, true);
+        await this.checkApproval(state, exactApproval, true);
         exactApproval.status = consumeApproval(exactApproval.status);
         state.installation.activeReleaseId = release.id;
         state.installation.generation += 1;
@@ -422,8 +427,9 @@ export class ExtensionLifecycle {
   async reconcile(actor: LifecycleActor, installationId: string): Promise<void> {
     const state = await this.inspect(actor, installationId);
     const installation = state.installation;
-    if (installation.acknowledgedGeneration === installation.generation) return;
     const release = installation.enabled && installation.activeReleaseId ? this.release(state, installation.activeReleaseId) : null;
+    if (release) await assertSandboxPresetReleaseQualification(release, release.verification, this.now(), "integrity");
+    if (installation.acknowledgedGeneration === installation.generation) return;
     await this.dependencies.publish(installation, release);
     await this.transaction(actor, installationId, (current) => {
       if (current.installation.generation !== installation.generation) return;

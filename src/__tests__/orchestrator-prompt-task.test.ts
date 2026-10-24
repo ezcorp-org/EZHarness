@@ -1,4 +1,5 @@
 import { test, expect, describe } from "bun:test";
+import taskTrackingManifest from "../../docs/extensions/examples/task-tracking/ezcorp.config";
 import {
   buildTaskTrackingInstructions,
   buildOrchestratorPrompt,
@@ -17,6 +18,14 @@ const TASK_TOOL_NAMES = [
 ];
 
 describe("buildTaskTrackingInstructions", () => {
+  test("preserves instructions for an exposed bare catalog", () => {
+    expect(buildTaskTrackingInstructions(taskTrackingManifest.tools.map(tool => tool.name))).toBe(buildTaskTrackingInstructions());
+  });
+  test("does not advertise partial or absent planning capabilities", () => {
+    expect(buildTaskTrackingInstructions([])).toBe("");
+    expect(buildTaskTrackingInstructions(["task_plan", "task_complete"])).toBe("");
+  });
+
   test("returns a non-empty string", () => {
     const out = buildTaskTrackingInstructions();
     expect(typeof out).toBe("string");

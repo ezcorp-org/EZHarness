@@ -2,6 +2,11 @@
   "//": "Every gated test file and the lane that sets its variable, or the host capability it probes (W4H-33). Read by scripts/test-skip-inventory.ts; rules in its header. A static skip stays only as a tracked row whose issue the test file names.",
   "rows": [
     {
+      "file": "scripts/incus/inspect-identity.test.ts",
+      "kind": "capability",
+      "reason": "The real protected SSH child identity case requires root to set its service UID/GID and clear supplementary groups; unprivileged identity rejection and wrapper failure cases still run normally."
+    },
+    {
       "file": "packages/@ezcorp/ai-kit/test/e2e/bundled.test.ts",
       "kind": "env",
       "variables": [

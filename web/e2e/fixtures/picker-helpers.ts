@@ -44,6 +44,8 @@ export async function filePickerValue(page: Page): Promise<string> {
  * under the sheet's backdrop once it is up).
  */
 export async function openFilePickerInput(page: Page, placeholder: string) {
+	const picker = page.getByTestId("open-file-picker");
+	await picker.waitFor({ state: "visible", timeout: 3000 });
 	const inline = inlinePickerInput(page);
 	if (await inline.count()) return inline.first();
 

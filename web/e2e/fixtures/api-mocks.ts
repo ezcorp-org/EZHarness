@@ -603,6 +603,12 @@ export async function setupApiMocks(page: Page, overrides: MockOverrides = {}) {
 			const proj = projects.find((p) => p.id === id);
 			return route.fulfill(proj ? { json: proj } : { status: 404, json: { error: "Not found" } });
 		}
+		if (path.match(/^\/api\/projects\/[^/]+\/incus-feature$/) && method === "GET") {
+			const id = path.split("/")[3];
+			return route.fulfill(projects.some((project) => project.id === id)
+				? { json: { kind: "none" } }
+				: { status: 404, json: { error: "Not found" } });
+		}
 		if (path === "/api/projects" && method === "POST") {
 			const body = route.request().postDataJSON() ?? {};
 			const project = makeProject({

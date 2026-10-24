@@ -4,7 +4,9 @@ import { dirname, join } from "node:path";
 import { randomUUID, timingSafeEqual } from "node:crypto";
 import type { BuildRequest, Runner, RunnerExecution, StartRequest } from "@ezcorp/extension-contract";
 import { validateResourceLimits, validateInvocationContext } from "@ezcorp/extension-contract";
-import { identifier, MAXIMUM_ARTIFACT_BYTES, processSpawn, RunnerError, validateFiles, safeHostError } from "./core";
+import { identifier, MAXIMUM_ARTIFACT_BYTES, processSpawn, RunnerError, RunnerStartRefusedError, validateFiles, safeHostError } from "./core";
+
+import { MAX_SENSITIVE_RESULT_BYTES, requestSensitiveProviderResult, SENSITIVE_PROVIDER_METHOD, sensitiveChannelError } from "./protocol";
 
 type Event = { id?: string; method: string; params: unknown };
 /**
@@ -12,7 +14,7 @@ type Event = { id?: string; method: string; params: unknown };
  * static shape: every endpoint validates the exact fields it reads.
  */
 type RunnerRequestBody = ReturnType<typeof JSON.parse>;
-interface Session { execution: RunnerExecution; events: Event[]; pending: Map<string, { resolve(value: unknown): void; reject(error: Error): void; timer: ReturnType<typeof setTimeout> }>; timer: ReturnType<typeof setTimeout>; wake?: () => void; attached: boolean; startClaim?: boolean; delivered: Set<string>; lease?: ReturnType<typeof setTimeout>; leaseDeadline: number; inFlight: number }
+interface Session { sensitive: boolean; execution: RunnerExecution; events: Event[]; pending: Map<string, { resolve(value: unknown): void; reject(error: Error): void; timer: ReturnType<typeof setTimeout> }>; timer: ReturnType<typeof setTimeout>; wake?: () => void; attached: boolean; startClaim?: boolean; delivered: Set<string>; lease?: ReturnType<typeof setTimeout>; leaseDeadline: number; inFlight: number }
 export interface RunnerServiceOptions {
   socketPath: string; token: string; runner: Runner; allowedUid: number; python?: string; eventPollTimeoutMs?: number; attachmentLeaseMs?: number;
   /** Where an error that is not a RunnerError is reported; the client only ever sees the generic refusal. Default: one JSON line on stderr. */
@@ -186,6 +188,7 @@ export async function startRunnerService(options: RunnerServiceOptions): Promise
     starting++;
     const execution = await options.runner.start(data as StartRequest, (method, params) => new Promise((resolve, reject) => {
       const session = sessions.get(data.workerId);
+      if (session?.sensitive) { reject(sensitiveChannelError()); return; }
       if (!session || pending.size >= 32 || events.length >= 32) { reject(new RunnerError("host_unavailable", "Host reverse RPC unavailable")); return; }
       const id = randomUUID();
       const timer = setTimeout(() => { pending.delete(id); armAttachmentLease(session); reject(new RunnerError("host_timeout", "Host reverse RPC timed out")); }, Math.max(1, Math.min(60_000, data.context.deadline - Date.now())));
@@ -194,7 +197,7 @@ export async function startRunnerService(options: RunnerServiceOptions): Promise
       session.wake?.();
     })).finally(() => { starting--; });
     const timer = setTimeout(() => { void closeSession(data.workerId); }, Math.max(1, Math.min(data.limits.timeoutMs, data.context.deadline - Date.now())));
-    const session: Session = { execution, pending, events, timer, attached: false, delivered: new Set(), leaseDeadline: 0, inFlight: 0 };
+    const session: Session = { sensitive: false, execution, pending, events, timer, attached: false, delivered: new Set(), leaseDeadline: 0, inFlight: 0 };
     sessions.set(data.workerId, session);
     // The host that starts a worker owns it (W4H-9). A host from before the attach handshake (every app release before
     // 11b9f72b9) starts, polls and requests without ever calling /v4/attach, so start itself attaches. The attachment
@@ -203,6 +206,7 @@ export async function startRunnerService(options: RunnerServiceOptions): Promise
     attachHost(session);
     session.startClaim = true;
     execution.onNotification((method, params) => {
+      if (session.sensitive) return;
       if (events.length >= 32) { void closeSession(data.workerId); return; }
       events.push({ method, params });
       session.wake?.();
@@ -227,10 +231,29 @@ export async function startRunnerService(options: RunnerServiceOptions): Promise
     return respond(200, {});
   }
 
+  /** Keep classified credentials off the ordinary JSON/event channels. */
+  async function sensitiveRequest(data: RunnerRequestBody): Promise<Response> {
+    const session = sessions.get(identifier(data.workerId));
+    if (!session) throw new RunnerError("unknown_worker", "Worker is unavailable");
+    if (session.inFlight > 0 || session.pending.size > 0) throw new RunnerError("sensitive_busy", "Sensitive provider requests require idle ordinary channels");
+    session.sensitive = true;
+    session.events.length = 0;
+    session.wake?.();
+    try {
+      const value = await requestSensitiveProviderResult(session.execution, data.params);
+      if (value === null) return new Response(null, { status: 204 });
+      try {
+        if (value.byteLength === 0 || value.byteLength > MAX_SENSITIVE_RESULT_BYTES) throw new RunnerError("sensitive_limit", "Sensitive provider response exceeded policy");
+        return new Response(new Uint8Array(value), { headers: { "content-type": "application/octet-stream", "content-length": String(value.byteLength), "cache-control": "no-store" } });
+      } finally { value.fill(0); }
+    } catch { throw new RunnerError("sensitive_failed", "Sensitive provider request failed"); }
+  }
+
   /** Serve one event-stream poll, holding the attachment only while the host is still collecting it. */
   async function collectEvents(request: Request, data: RunnerRequestBody): Promise<Response> {
     const session = sessions.get(identifier(data.workerId));
     if (!session?.attached || session.wake) throw new RunnerError("unknown_worker", "Worker event stream is unavailable or already attached");
+    if (session.sensitive) return respond(200, { events: [] });
     session.startClaim = false;
     renewAttachment(session);
     // A reverse call reaches each attachment once (W4H-9): a holder may poll again while it is still answering one, as
@@ -243,6 +266,7 @@ export async function startRunnerService(options: RunnerServiceOptions): Promise
     // Reverse calls stay queued until their matching reply is accepted, and a
     // release forgets what was delivered, so a replacement client can resume
     // after a dropped poll.
+    if (session.sensitive) return respond(200, { events: [] });
     const fresh = undelivered();
     const events = fresh.filter(event => event.id !== undefined);
     const notifications = fresh.filter(event => event.id === undefined);
@@ -259,7 +283,15 @@ export async function startRunnerService(options: RunnerServiceOptions): Promise
         validateResourceLimits(data.limits);
         return respond(200, await options.runner.build(data as BuildRequest));
       }
-      case "/v4/start": return startSession(data);
+      case "/v4/start": {
+        try { return await startSession(data); }
+        catch (error) {
+          // Only the trusted start boundary may attest no worker was launched.
+          // Worker request errors use the ordinary diagnostic path below.
+          if (error instanceof RunnerStartRefusedError) return respond(400, { error: { ...error.diagnostic(), workerStarted: false } });
+          throw error;
+        }
+      }
       case "/v4/request": {
         const session = sessions.get(identifier(data.workerId));
         if (!session || typeof data.method !== "string" || data.method.length > 128) throw new RunnerError("unknown_worker", "Worker is unavailable");
@@ -268,11 +300,14 @@ export async function startRunnerService(options: RunnerServiceOptions): Promise
         // lease off for exactly as long as it runs, so a holder waiting inside
         // one is never evicted mid-call, and it cannot buy any silence beyond
         // that because the deadline is untouched.
+        if (data.method === SENSITIVE_PROVIDER_METHOD) throw new RunnerError("sensitive_method", "Sensitive provider methods require the credential broker");
+        if (session.sensitive) throw sensitiveChannelError();
         session.inFlight += 1;
         armAttachmentLease(session);
         try { return respond(200, { result: await session.execution.request(data.method, data.params) }); }
         finally { session.inFlight -= 1; armAttachmentLease(session); }
       }
+      case "/v4/sensitive-request": return sensitiveRequest(data);
       case "/v4/events": return collectEvents(request, data);
       case "/v4/attach": {
         const session = sessions.get(identifier(data.workerId));

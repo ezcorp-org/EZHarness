@@ -10,6 +10,7 @@
 
 import { ATTACHMENT_HANDLE_SCHEME, type StagedAttachment } from "./content-builder";
 import { readAttachmentBytes } from "./storage";
+import type { WorkspaceTarget } from "../../runtime/workspaces/target";
 
 interface ResolvableAttachment {
 	id: string;
@@ -17,7 +18,10 @@ interface ResolvableAttachment {
 	storagePath: string;
 }
 
-export function buildAttachmentHandleResolver(attachments: ResolvableAttachment[]) {
+export function buildAttachmentHandleResolver(
+	attachments: ResolvableAttachment[],
+	workspaceTarget: WorkspaceTarget,
+) {
 	if (attachments.length === 0) {
 		return async (input: Record<string, unknown>) => input;
 	}
@@ -29,7 +33,7 @@ export function buildAttachmentHandleResolver(attachments: ResolvableAttachment[
 	async function toDataUri(att: ResolvableAttachment): Promise<string> {
 		const hit = cache.get(att.id);
 		if (hit) return hit;
-		const bytes = await readAttachmentBytes(att.storagePath);
+		const bytes = await readAttachmentBytes(workspaceTarget, att.storagePath);
 		const b64 = Buffer.from(bytes).toString("base64");
 		const uri = `data:${att.mimeType};base64,${b64}`;
 		cache.set(att.id, uri);

@@ -7,7 +7,7 @@ import { requireScope } from "$lib/server/security/api-keys";
 // Import all Zod schemas from their source files
 import { loginSchema } from "../auth/login/schema";
 import { setupSchema } from "../auth/setup/schema";
-import { createInviteSchema } from "../auth/invite/schema";
+import { createInviteSchema, deleteInviteSchema } from "../auth/invite/schema";
 import { generateResetSchema, consumeResetSchema } from "../auth/reset-password/schema";
 import { createConversationSchema, updateConversationSchema } from "../conversations/schema";
 import { createMessageSchema } from "../conversations/[id]/messages/schema";
@@ -26,6 +26,7 @@ const schemaMap: Record<string, z.ZodType> = {
   loginSchema,
   setupSchema,
   createInviteSchema,
+  deleteInviteSchema,
   generateResetSchema,
   consumeResetSchema,
   createConversationSchema,

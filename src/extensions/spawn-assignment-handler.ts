@@ -62,6 +62,7 @@ import { rpcError, rpcResult } from "./json-rpc";
 import { intersectPermissions } from "./capability-types";
 import type { ExtensionRegistry } from "./registry";
 import type { PermissionEngine } from "./permission-engine";
+import type { WorkspaceTarget } from "../runtime/workspaces/target";
 
 const MAX_OPS_PER_SECOND = 50;
 const consumeTokens = createRateLimiter(MAX_OPS_PER_SECOND);
@@ -102,6 +103,8 @@ export interface SpawnAssignmentContext {
   parentProvider?: string;
   /** Current spawn depth — 0 for a top-level conversation. */
   spawnDepth: number;
+  /** Host-selected target captured by the per-turn ToolExecutor. */
+  workspaceTarget?: WorkspaceTarget;
   /**
    * Phase 4: registry handle so the handler can read each shared
    * extension's installed grants + manifest to compute the child's
@@ -158,220 +161,240 @@ export async function handleSpawnAssignmentRpc(
   const params = (req.params ?? {}) as Record<string, unknown>;
   const auditUser = ctx.userId && ctx.userId !== "unknown" ? ctx.userId : null;
 
-  // 1. Kill-switch.
-  if (capabilityToolsDisabled()) {
-    await auditReject(extensionId, auditUser, "permission-missing");
-    return rpcError(req.id, -32001, "spawnAgents permission not granted");
-  }
-
-  // 2. Permission check — Phase 6 PDP is the sole gate for the
-  // boolean "spawnAgents granted" decision; the structural quota
-  // (`maxPerHour > 0`) is a SEPARATE rate-limit concern that stays.
-  if (ctx.engine) {
-    const decision = await ctx.engine.authorize(
-      {
-        extensionId,
-        userId: auditUser,
-        conversationId:
-          ctx.conversationId && ctx.conversationId !== "unknown"
-            ? ctx.conversationId
-            : null,
-        toolName: "ezcorp/spawn-assignment",
-      },
-      [{ kind: "ezcorp:agent:spawn" }],
-    );
-    if (decision.decision === "deny") {
+  async function checkEligibility(): Promise<JsonRpcResponse | { granted: NonNullable<ExtensionPermissions["spawnAgents"]>; projectId: string }> {
+    const granted = ctx.grantedPermissions.spawnAgents;
+    // 1. Kill-switch.
+    if (capabilityToolsDisabled()) {
       await auditReject(extensionId, auditUser, "permission-missing");
       return rpcError(req.id, -32001, "spawnAgents permission not granted");
     }
-  }
-  // Quota validity (rate limit, NOT permission). Stays even with PDP.
-  // Phase 6 reviewer S1: this branch is dead-on-success for any
-  // extension whose grant carries a valid `maxPerHour`; it only fires
-  // when the grant blob is structurally invalid (the PDP would have
-  // already denied if the cap was missing). The audit reason is
-  // `quota-invalid` so analytics can distinguish "permission denied"
-  // (PERM_DENIED on the PDP path) from "permission granted but the
-  // installed grant is malformed" (this branch).
-  const granted = ctx.grantedPermissions.spawnAgents;
-  if (!granted || typeof granted.maxPerHour !== "number" || granted.maxPerHour <= 0) {
-    await auditReject(extensionId, auditUser, "quota-invalid");
-    return rpcError(req.id, -32001, "spawnAgents quota config invalid");
-  }
 
-  // 3. Parent conversation bound.
-  if (!ctx.conversationId || ctx.conversationId === "unknown") {
-    return rpcError(req.id, -32602, "Conversation scope unavailable in this context");
-  }
-  // 4. Parent project bound.
-  if (!ctx.projectId) {
-    return rpcError(req.id, -32602, "Project scope unavailable (parent has no projectId)");
-  }
-
-  // 5. Wiring gate — extension must be wired to the parent.
-  const wired = await getConversationExtensionIds(ctx.conversationId);
-  if (!wired.includes(extensionId)) {
-    await auditReject(extensionId, auditUser, "not-wired", { conversationId: ctx.conversationId });
-    return rpcError(req.id, -32001, "Extension not wired to this conversation");
-  }
-
-  // 6. Instantaneous rate limit.
-  if (!consumeTokens(extensionId, 1)) {
-    await auditReject(extensionId, auditUser, "rate-limited");
-    return rpcError(req.id, -32029, "Rate limited");
-  }
-
-  // 7. Spawn depth.
-  if (ctx.spawnDepth >= MAX_SPAWN_DEPTH) {
-    await auditReject(extensionId, auditUser, "depth-exceeded", { spawnDepth: ctx.spawnDepth });
-    return rpcError(req.id, -32000, "Spawn depth limit exceeded");
-  }
-
-  // 8. Payload version + required fields.
-  if (params.v !== 1) {
-    return rpcError(req.id, -32602, "Missing or invalid 'v' (expected 1)");
-  }
-  const taskBody = typeof params.task === "string" ? params.task : "";
-  if (!taskBody.trim()) {
-    return rpcError(req.id, -32602, "'task' must be a non-empty string");
-  }
-  const agentConfigId = typeof params.agentConfigId === "string" ? params.agentConfigId : undefined;
-  const agentName = typeof params.agentName === "string" ? params.agentName : undefined;
-  const idOrName = agentConfigId ?? agentName;
-  if (!idOrName) {
-    return rpcError(req.id, -32602, "One of 'agentConfigId' or 'agentName' is required");
-  }
-  const title = typeof params.title === "string" && params.title.trim() ? params.title.trim() : undefined;
-  const callerTaskId = typeof params.taskId === "string" && params.taskId.trim() ? params.taskId : undefined;
-  const callerAssignmentId = typeof params.assignmentId === "string" && params.assignmentId.trim() ? params.assignmentId : undefined;
-  const reuseSubConversationFor =
-    typeof params.reuseSubConversationFor === "string" && params.reuseSubConversationFor.trim()
-      ? params.reuseSubConversationFor
-      : undefined;
-  const callerParentMessageId =
-    typeof params.parentMessageId === "string" && params.parentMessageId.trim()
-      ? params.parentMessageId
-      : undefined;
-  const callerOverrides =
-    params.overrides && typeof params.overrides === "object" && !Array.isArray(params.overrides)
-      ? (params.overrides as TeamMemberOverrides)
-      : undefined;
-  const callerTeamToolScope =
-    params.teamToolScope && typeof params.teamToolScope === "object" && !Array.isArray(params.teamToolScope)
-      ? (params.teamToolScope as TeamToolScope)
-      : undefined;
-  // A spawn that arrives over reverse-RPC is BY DEFINITION a nested turn, so
-  // its depth can never legitimately be 0 — 0 means "top-level user chat
-  // turn", which a spawned sub-agent never is. Normalize to >= 1.
-  //
-  // `Number.isFinite` alone was the only validation, which left the depth
-  // caller-chosen. That is load-bearing now that depth gates tool wiring
-  // (`wireRunWorkflowIfEligible`, stream-chat/setup-tools.ts): a caller that
-  // sent `orchestrationDepth: 0` — or simply OMITTED the field, which reached
-  // `streamChat` as undefined and read back as 0 — got a spawned turn wired
-  // with `run_workflow`, defeating the recursion bound and the
-  // always-allow blast-radius argument behind it. Both holes close here:
-  // absent ⇒ 1, and any supplied value floors to 1.
-  //
-  // Deliberately NOT clamped from above: a larger depth only makes the
-  // downstream guards stricter, so an inflated value can cost the caller its
-  // own orchestration tools but can never grant anything.
-  const callerOrchestrationDepth =
-    typeof params.orchestrationDepth === "number" && Number.isFinite(params.orchestrationDepth)
-      ? Math.max(1, Math.trunc(params.orchestrationDepth))
-      : 1;
-  // Parent orchestrator run id — when present, startAssignment registers
-  // every run it starts under this parent so a parent cancel cascades.
-  const callerParentRunId =
-    typeof params.parentRunId === "string" && params.parentRunId.trim()
-      ? params.parentRunId
-      : undefined;
-  // Background-spawn opt-in: when the caller (the orchestration extension's
-  // `background: true` path) sets this, startAssignment emits `agent:complete`
-  // AND enqueues a completion-notify pending message for the parent
-  // conversation on the terminal transition. Only accepted as a strict `true`.
-  const callerNotifyParentOnTerminal = params.notifyParentOnTerminal === true;
-  // Detached (background) opt-in: the child legitimately OUTLIVES the parent
-  // run, so a later cycle-boundary registration that finds the parent already
-  // terminal must NOT force-fail the still-progressing child. Only accepted as
-  // a strict `true`. Threaded verbatim into startAssignment's dead-parent
-  // guard. Orthogonal to `notifyParentOnTerminal` even though the orchestration
-  // extension currently sets both for background spawns.
-  const callerDetached = params.detached === true;
-  const callerAutonomous = ((): { maxCycles?: number } | undefined => {
-    const ac = params.autonomousContinuation;
-    if (!ac || typeof ac !== "object" || Array.isArray(ac)) return undefined;
-    const mc = (ac as { maxCycles?: unknown }).maxCycles;
-    return typeof mc === "number" && Number.isFinite(mc) && mc > 0
-      ? { maxCycles: mc }
-      : {};
-  })();
-  // workingDir (containment pin, ez-code-factory drive-3): the absolute
-  // directory the child's built-in file/shell tools root at instead of the
-  // project path. Validated fail-closed — a sub-agent whose tools silently
-  // fell back to the shared project checkout is exactly the breach this
-  // field exists to prevent, so a bad value REJECTS rather than degrades.
-  // Trust envelope: spawnAgents-gated (same as steering/cancel); the shell
-  // tool imposes no path confinement of its own, so pinning the default cwd
-  // grants nothing the child could not already reach — it removes the
-  // wrong-tree default.
-  let callerWorkingDir: string | undefined;
-  if (params.workingDir !== undefined) {
-    const wd = params.workingDir;
-    if (
-      typeof wd !== "string" ||
-      !wd.trim() ||
-      !wd.startsWith("/") ||
-      wd.includes("\0")
-    ) {
-      return rpcError(req.id, -32602, "'workingDir' must be an absolute path");
-    }
-    let isDir = false;
-    try {
-      isDir = statSync(wd).isDirectory();
-    } catch {
-      isDir = false;
-    }
-    if (!isDir) {
-      return rpcError(req.id, -32602, `'workingDir' is not an accessible directory: ${wd}`);
-    }
-    callerWorkingDir = wd;
-  }
-
-  // outputSchema (structured-output opt-in). Must be a plain JSON object —
-  // arrays/primitives rejected — and the serialized form is size-capped.
-  // Threaded verbatim into startAssignment, which validates the child's
-  // final output against it and re-prompts on failure.
-  let callerOutputSchema: Record<string, unknown> | undefined;
-  if (params.outputSchema !== undefined) {
-    const os = params.outputSchema;
-    if (typeof os !== "object" || os === null || Array.isArray(os)) {
-      return rpcError(req.id, -32602, "'outputSchema' must be a JSON Schema object");
-    }
-    const serialized = JSON.stringify(os);
-    if (serialized.length > MAX_OUTPUT_SCHEMA_BYTES) {
-      return rpcError(
-        req.id,
-        -32602,
-        `'outputSchema' too large (${serialized.length} > ${MAX_OUTPUT_SCHEMA_BYTES} bytes)`,
+    // 2. Permission check — Phase 6 PDP is the sole gate for the
+    // boolean "spawnAgents granted" decision; the structural quota
+    // (`maxPerHour > 0`) is a SEPARATE rate-limit concern that stays.
+    if (ctx.engine) {
+      const decision = await ctx.engine.authorize(
+        {
+          extensionId,
+          userId: auditUser,
+          conversationId:
+            ctx.conversationId && ctx.conversationId !== "unknown"
+              ? ctx.conversationId
+              : null,
+          toolName: "ezcorp/spawn-assignment",
+        },
+        [{ kind: "ezcorp:agent:spawn" }],
       );
+      if (decision.decision === "deny") {
+        await auditReject(extensionId, auditUser, "permission-missing");
+        return rpcError(req.id, -32001, "spawnAgents permission not granted");
+      }
     }
-    callerOutputSchema = os as Record<string, unknown>;
-  }
+    // Quota validity (rate limit, NOT permission). Stays even with PDP.
+    // Phase 6 reviewer S1: this branch is dead-on-success for any
+    // extension whose grant carries a valid `maxPerHour`; it only fires
+    // when the grant blob is structurally invalid (the PDP would have
+    // already denied if the cap was missing). The audit reason is
+    // `quota-invalid` so analytics can distinguish "permission denied"
+    // (PERM_DENIED on the PDP path) from "permission granted but the
+    // installed grant is malformed" (this branch).
+    if (!granted || typeof granted.maxPerHour !== "number" || granted.maxPerHour <= 0) {
+      await auditReject(extensionId, auditUser, "quota-invalid");
+      return rpcError(req.id, -32001, "spawnAgents quota config invalid");
+    }
 
-  // Structured output is only sound on the SYNTHETIC-taskId path
-  // (invoke_agent, which lets the host mint the taskId). A schema failure
-  // keeps the assignment status "completed" (the child DID finish) — so if
-  // outputSchema rode a spawn bound to a REAL, caller-supplied taskId in
-  // task-tracking, that task's dependents would auto-start off a validation
-  // FAILURE. Reject the combination rather than silently mis-signal.
-  if (callerOutputSchema && callerTaskId) {
-    return rpcError(
-      req.id,
-      -32602,
-      "'outputSchema' cannot be combined with a caller-supplied 'taskId' — structured output is only supported on the synthetic-task (invoke_agent) path",
-    );
+    // 3. Parent conversation bound.
+    if (!ctx.conversationId || ctx.conversationId === "unknown") {
+      return rpcError(req.id, -32602, "Conversation scope unavailable in this context");
+    }
+    // 4. Parent project bound.
+    if (!ctx.projectId) {
+      return rpcError(req.id, -32602, "Project scope unavailable (parent has no projectId)");
+    }
+
+    // 5. Wiring gate — extension must be wired to the parent.
+    const wired = await getConversationExtensionIds(ctx.conversationId);
+    if (!wired.includes(extensionId)) {
+      await auditReject(extensionId, auditUser, "not-wired", { conversationId: ctx.conversationId });
+      return rpcError(req.id, -32001, "Extension not wired to this conversation");
+    }
+
+    // 6. Instantaneous rate limit.
+    if (!consumeTokens(extensionId, 1)) {
+      await auditReject(extensionId, auditUser, "rate-limited");
+      return rpcError(req.id, -32029, "Rate limited");
+    }
+
+    // 7. Spawn depth.
+    if (ctx.spawnDepth >= MAX_SPAWN_DEPTH) {
+      await auditReject(extensionId, auditUser, "depth-exceeded", { spawnDepth: ctx.spawnDepth });
+      return rpcError(req.id, -32000, "Spawn depth limit exceeded");
+    }
+
+    return { granted, projectId: ctx.projectId };
   }
+  const eligibility = await checkEligibility();
+  if ("jsonrpc" in eligibility) return eligibility;
+  const { granted, projectId } = eligibility;
+
+  function parseSpawnPayload() {
+    // 8. Payload version + required fields.
+    if (params.v !== 1) {
+      return rpcError(req.id, -32602, "Missing or invalid 'v' (expected 1)");
+    }
+    const taskBody = typeof params.task === "string" ? params.task : "";
+    if (!taskBody.trim()) {
+      return rpcError(req.id, -32602, "'task' must be a non-empty string");
+    }
+    const agentConfigId = typeof params.agentConfigId === "string" ? params.agentConfigId : undefined;
+    const agentName = typeof params.agentName === "string" ? params.agentName : undefined;
+    const idOrName = agentConfigId ?? agentName;
+    if (!idOrName) {
+      return rpcError(req.id, -32602, "One of 'agentConfigId' or 'agentName' is required");
+    }
+    const title = typeof params.title === "string" && params.title.trim() ? params.title.trim() : undefined;
+    const callerTaskId = typeof params.taskId === "string" && params.taskId.trim() ? params.taskId : undefined;
+    const callerAssignmentId = typeof params.assignmentId === "string" && params.assignmentId.trim() ? params.assignmentId : undefined;
+    const reuseSubConversationFor =
+      typeof params.reuseSubConversationFor === "string" && params.reuseSubConversationFor.trim()
+        ? params.reuseSubConversationFor
+        : undefined;
+    const callerParentMessageId =
+      typeof params.parentMessageId === "string" && params.parentMessageId.trim()
+        ? params.parentMessageId
+        : undefined;
+    const callerOverrides =
+      params.overrides && typeof params.overrides === "object" && !Array.isArray(params.overrides)
+        ? (params.overrides as TeamMemberOverrides)
+        : undefined;
+    const callerTeamToolScope =
+      params.teamToolScope && typeof params.teamToolScope === "object" && !Array.isArray(params.teamToolScope)
+        ? (params.teamToolScope as TeamToolScope)
+        : undefined;
+    // A spawn that arrives over reverse-RPC is BY DEFINITION a nested turn, so
+    // its depth can never legitimately be 0 — 0 means "top-level user chat
+    // turn", which a spawned sub-agent never is. Normalize to >= 1.
+    //
+    // `Number.isFinite` alone was the only validation, which left the depth
+    // caller-chosen. That is load-bearing now that depth gates tool wiring
+    // (`wireRunWorkflowIfEligible`, stream-chat/setup-tools.ts): a caller that
+    // sent `orchestrationDepth: 0` — or simply OMITTED the field, which reached
+    // `streamChat` as undefined and read back as 0 — got a spawned turn wired
+    // with `run_workflow`, defeating the recursion bound and the
+    // always-allow blast-radius argument behind it. Both holes close here:
+    // absent ⇒ 1, and any supplied value floors to 1.
+    //
+    // Deliberately NOT clamped from above: a larger depth only makes the
+    // downstream guards stricter, so an inflated value can cost the caller its
+    // own orchestration tools but can never grant anything.
+    const callerOrchestrationDepth =
+      typeof params.orchestrationDepth === "number" && Number.isFinite(params.orchestrationDepth)
+        ? Math.max(1, Math.trunc(params.orchestrationDepth))
+        : 1;
+    // Parent orchestrator run id — when present, startAssignment registers
+    // every run it starts under this parent so a parent cancel cascades.
+    const callerParentRunId =
+      typeof params.parentRunId === "string" && params.parentRunId.trim()
+        ? params.parentRunId
+        : undefined;
+    // Background-spawn opt-in: when the caller (the orchestration extension's
+    // `background: true` path) sets this, startAssignment emits `agent:complete`
+    // AND enqueues a completion-notify pending message for the parent
+    // conversation on the terminal transition. Only accepted as a strict `true`.
+    const callerNotifyParentOnTerminal = params.notifyParentOnTerminal === true;
+    // Detached (background) opt-in: the child legitimately OUTLIVES the parent
+    // run, so a later cycle-boundary registration that finds the parent already
+    // terminal must NOT force-fail the still-progressing child. Only accepted as
+    // a strict `true`. Threaded verbatim into startAssignment's dead-parent
+    // guard. Orthogonal to `notifyParentOnTerminal` even though the orchestration
+    // extension currently sets both for background spawns.
+    const callerDetached = params.detached === true;
+    const callerAutonomous = ((): { maxCycles?: number } | undefined => {
+      const ac = params.autonomousContinuation;
+      if (!ac || typeof ac !== "object" || Array.isArray(ac)) return undefined;
+      const mc = (ac as { maxCycles?: unknown }).maxCycles;
+      return typeof mc === "number" && Number.isFinite(mc) && mc > 0
+        ? { maxCycles: mc }
+        : {};
+    })();
+    function parseHostOptions() {
+      // workingDir (containment pin, ez-code-factory drive-3): the absolute
+      // directory the child's built-in file/shell tools root at instead of the
+      // project path. Validated fail-closed — a sub-agent whose tools silently
+      // fell back to the shared project checkout is exactly the breach this
+      // field exists to prevent, so a bad value REJECTS rather than degrades.
+      // Trust envelope: spawnAgents-gated (same as steering/cancel); the shell
+      // tool imposes no path confinement of its own, so pinning the default cwd
+      // grants nothing the child could not already reach — it removes the
+      // wrong-tree default.
+      let callerWorkingDir: string | undefined;
+      if (params.workingDir !== undefined) {
+        const wd = params.workingDir;
+        if (
+          typeof wd !== "string" ||
+          !wd.trim() ||
+          !wd.startsWith("/") ||
+          wd.includes("\0")
+        ) {
+          return rpcError(req.id, -32602, "'workingDir' must be an absolute path");
+        }
+        let isDir = false;
+        try {
+          isDir = statSync(wd).isDirectory();
+        } catch {
+          isDir = false;
+        }
+        if (!isDir) {
+          return rpcError(req.id, -32602, `'workingDir' is not an accessible directory: ${wd}`);
+        }
+        callerWorkingDir = wd;
+      }
+
+      // outputSchema (structured-output opt-in). Must be a plain JSON object —
+      // arrays/primitives rejected — and the serialized form is size-capped.
+      // Threaded verbatim into startAssignment, which validates the child's
+      // final output against it and re-prompts on failure.
+      let callerOutputSchema: Record<string, unknown> | undefined;
+      if (params.outputSchema !== undefined) {
+        const os = params.outputSchema;
+        if (typeof os !== "object" || os === null || Array.isArray(os)) {
+          return rpcError(req.id, -32602, "'outputSchema' must be a JSON Schema object");
+        }
+        const serialized = JSON.stringify(os);
+        if (serialized.length > MAX_OUTPUT_SCHEMA_BYTES) {
+          return rpcError(
+            req.id,
+            -32602,
+            `'outputSchema' too large (${serialized.length} > ${MAX_OUTPUT_SCHEMA_BYTES} bytes)`,
+          );
+        }
+        callerOutputSchema = os as Record<string, unknown>;
+      }
+
+      // Structured output is only sound on the SYNTHETIC-taskId path
+      // (invoke_agent, which lets the host mint the taskId). A schema failure
+      // keeps the assignment status "completed" (the child DID finish) — so if
+      // outputSchema rode a spawn bound to a REAL, caller-supplied taskId in
+      // task-tracking, that task's dependents would auto-start off a validation
+      // FAILURE. Reject the combination rather than silently mis-signal.
+      if (callerOutputSchema && callerTaskId) {
+        return rpcError(
+          req.id,
+          -32602,
+          "'outputSchema' cannot be combined with a caller-supplied 'taskId' — structured output is only supported on the synthetic-task (invoke_agent) path",
+        );
+      }
+
+        return { callerWorkingDir, callerOutputSchema };
+    }
+    const hostOptions = parseHostOptions();
+    if ("jsonrpc" in hostOptions) return hostOptions;
+    const { callerWorkingDir, callerOutputSchema } = hostOptions;
+      return { taskBody, idOrName, title, callerTaskId, callerAssignmentId, reuseSubConversationFor, callerParentMessageId, callerOverrides, callerTeamToolScope, callerOrchestrationDepth, callerParentRunId, callerNotifyParentOnTerminal, callerDetached, callerAutonomous, callerWorkingDir, callerOutputSchema };
+  }
+  const payload = parseSpawnPayload();
+  if ("jsonrpc" in payload) return payload;
+  const { taskBody, idOrName, title, callerTaskId, callerAssignmentId, reuseSubConversationFor, callerParentMessageId, callerOverrides, callerTeamToolScope, callerOrchestrationDepth, callerParentRunId, callerNotifyParentOnTerminal, callerDetached, callerAutonomous, callerWorkingDir, callerOutputSchema } = payload;
 
   // 9. Hourly + concurrent quota.
   const cfg = {
@@ -396,6 +419,7 @@ export async function handleSpawnAssignmentRpc(
   if (!agentConfig) {
     return rpcError(req.id, -32602, `Agent not found: ${idOrName}`);
   }
+  const resolvedAgentConfig = agentConfig;
 
   // 11. Build synthetic task + assignment shells. startAssignment mutates
   // `assignment` in place to set status/startedAt/subConvId/agentRunId;
@@ -405,18 +429,18 @@ export async function handleSpawnAssignmentRpc(
   // extension will pass the real snapshot).
   const taskId = callerTaskId ?? crypto.randomUUID();
   const assignmentId = callerAssignmentId ?? crypto.randomUUID();
-  const refsMembers = (agentConfig.references as { members?: unknown[] } | null)?.members;
+  const refsMembers = (resolvedAgentConfig.references as { members?: unknown[] } | null)?.members;
   const assignment: TaskAssignment = {
     id: assignmentId,
-    agentConfigId: agentConfig.id,
-    agentName: agentConfig.name,
+    agentConfigId: resolvedAgentConfig.id,
+    agentName: resolvedAgentConfig.name,
     isTeam: Array.isArray(refsMembers) && refsMembers.length > 0,
     status: "assigned",
     assignedAt: new Date().toISOString(),
   };
   const task: TrackedTask = {
     id: taskId,
-    title: title ?? agentConfig.name,
+    title: title ?? resolvedAgentConfig.name,
     description: taskBody,
     status: "active",
     assignments: [assignment],
@@ -440,11 +464,141 @@ export async function handleSpawnAssignmentRpc(
     if (match) preResolvedSubConversationId = match.id;
   }
 
-  // Reserve speculatively on assignmentId — we don't have agentRunId yet.
-  // Swap after startAssignment returns; release on failure.
-  ctx.quota.reserve(extensionId, assignmentId);
-  try {
-    const { subConversationId, agentRunId } = await startAssignment({
+  async function wireChildExtensions(subConversationId: string): Promise<boolean> {
+      // Phase 4 §6.4 — child cap inheritance.
+      //
+      // Before Phase 4 the host blanket-copied parent's wired extensions
+      // into the child via `copyConversationExtensions`. That meant a
+      // sub-conversation could call any tool the parent's extensions
+      // exposed, even if the parent was forbidden from doing so directly
+      // — sibling extensions wired into the parent were observable on
+      // the child without per-spawn opt-in.
+      //
+      // Phase 4 cap-intersects:
+      //   1. Effective extension list = parent's wired extensions ∩
+      //      child agent config's wired extensions. Extensions on only
+      //      one side are dropped — the parent can't promote a tool the
+      //      child agent didn't ask for; the child agent can't reach
+      //      tools the parent isn't itself wired to.
+      //   2. For each shared extension: child's effective grants =
+      //      intersect(parent's grants, child manifest's permissions),
+      //      flattened through `intersectPermissions`.
+      //   3. Escalation: when the SPAWNING extension's GRANT carries
+      //      `escalateChildCaps: true`, skip step 2 — child runs with
+      //      its own installed grants verbatim. This lets dedicated
+      //      orchestration extensions (whose entire purpose is
+      //      delegation) hand off to children with fuller caps than the
+      //      parent itself has, after explicit user consent at install.
+      //
+      // The check is `=== true` on the GRANT (spec lock-in: "runtime
+      // checks consult the grant").
+      const escalating = ctx.grantedPermissions.escalateChildCaps === true;
+      const parentExtIds = await getConversationExtensionIds(ctx.conversationId);
+
+      // Child agent config's wired extensions list. Drizzle stores it as
+      // `extensions` on the agent_configs row; `agentConfig` has the
+      // post-resolve shape.
+      const childExtAllow = new Set<string>(
+        Array.isArray((resolvedAgentConfig as unknown as { extensions?: string[] }).extensions)
+          ? (resolvedAgentConfig as unknown as { extensions: string[] }).extensions
+          : [],
+      );
+      const childRefExts =
+        (resolvedAgentConfig.references as { extensions?: string[] } | null | undefined)?.extensions ?? [];
+      for (const e of childRefExts) childExtAllow.add(e);
+
+      const sharedExts = parentExtIds.filter((extId) => childExtAllow.has(extId));
+
+      async function wireWithRegistry(registry: NonNullable<typeof ctx.registry>) {
+        // Compute per-extension effective grants and persist.
+        //
+        // Phase 4 §M7 — sub-spawn cap-widening fix. For each shared
+        // extension, the parent-side grant is the parent CONVERSATION's
+        // effective grants (override row if clipped by an upstream
+        // spawn, registry grants otherwise), NOT the registry's installed
+        // grants directly. This makes nested spawns A→child1→child2
+        // properly compose: child2's parent (child1) had its grants
+        // clipped, and child2 must inherit that clipping.
+        const entries: Array<{
+          extensionId: string;
+          effectiveGrantedPermissions: ExtensionPermissions;
+        }> = [];
+        for (const sharedExtId of sharedExts) {
+          const parentGrant = await getEffectiveGrantsForConversation(
+            ctx.conversationId,
+            sharedExtId,
+            registry.getGrantedPermissions(sharedExtId) ?? null,
+          );
+          if (escalating) {
+            // Orchestration opt-in: child runs with the extension's
+            // installed grants verbatim — no parent-clip. We deliberately
+            // ignore the parent's CONVERSATION-level clipping here too,
+            // because escalation is the explicit "skip the parent's
+            // envelope" signal. Read the registry directly.
+            const installed = registry.getGrantedPermissions(sharedExtId) ?? { grantedAt: {} };
+            entries.push({
+              extensionId: sharedExtId,
+              effectiveGrantedPermissions: installed,
+            });
+            continue;
+          }
+          const childManifest = registry.getManifest(sharedExtId);
+          const childManifestPerms =
+            (childManifest?.permissions ?? {}) as ExtensionPermissions;
+          // Mirror the manifest's ceiling-shape onto the
+          // `ExtensionPermissions` shape — `manifest.permissions` is
+          // structurally compatible (modulo the missing `grantedAt`).
+          const ceilingWithGrantedAt: ExtensionPermissions = {
+            ...childManifestPerms,
+            grantedAt: {},
+          };
+          const effective = intersectPermissions(parentGrant, ceilingWithGrantedAt);
+          entries.push({
+            extensionId: sharedExtId,
+            effectiveGrantedPermissions: effective,
+          });
+        }
+        if (entries.length > 0) {
+          await addConversationExtensions(subConversationId, entries);
+        }
+      }
+
+      async function wireWithoutRegistry() {
+        // Phase 4 §M4 — log a warning when this path fires so silent
+        // regressions (e.g. a new caller forgot to thread the registry)
+        // surface visibly in container logs. We deliberately do NOT
+        // write an audit row here: this success path runs once per
+        // spawn, and adding an INSERT was visibly slowing the existing
+        // rate-limit test. The console.warn is sufficient signal — a
+        // production audit pipeline can grep stderr if it needs the
+        // event in long-term storage.
+        console.warn(
+          `[spawn-assignment] registry not threaded — falling back to blanket extension copy (no cap intersection). ` +
+            `extensionId=${extensionId} conversationId=${ctx.conversationId} subConversationId=${subConversationId}. ` +
+            `This is a Phase 4 §M4 fallback path; production callers should thread ctx.registry.`,
+        );
+        if (sharedExts.length > 0) {
+          await addConversationExtensions(
+            subConversationId,
+            sharedExts.map((extId) => ({ extensionId: extId })),
+          );
+        } else if (parentExtIds.length > 0) {
+          // No agent-config filter possible — fall back to legacy blanket copy.
+          await addConversationExtensions(
+            subConversationId,
+            parentExtIds.map((extId) => ({ extensionId: extId })),
+          );
+        }
+      }
+
+      if (ctx.registry) await wireWithRegistry(ctx.registry);
+      else await wireWithoutRegistry();
+
+      return escalating;
+  }
+
+  function makeAssignmentOptions(): Parameters<typeof startAssignment>[0] {
+    return {
       executor: ctx.executor,
       bus: ctx.bus,
       conversationId: ctx.conversationId,
@@ -452,14 +606,15 @@ export async function handleSpawnAssignmentRpc(
       assignment,
       task,
       snapshot,
-      projectId: ctx.projectId,
+      projectId,
       ...(callerWorkingDir ? { workingDir: callerWorkingDir } : {}),
+      ...(ctx.workspaceTarget ? { workspaceTarget: ctx.workspaceTarget } : {}),
       agentConfig: {
-        id: agentConfig.id,
-        name: agentConfig.name,
-        prompt: agentConfig.prompt,
-        model: agentConfig.model,
-        provider: agentConfig.provider,
+        id: resolvedAgentConfig.id,
+        name: resolvedAgentConfig.name,
+        prompt: resolvedAgentConfig.prompt,
+        model: resolvedAgentConfig.model,
+        provider: resolvedAgentConfig.provider,
       },
       ...(ctx.parentModel !== undefined ? { parentModel: ctx.parentModel } : {}),
       ...(ctx.parentProvider !== undefined ? { parentProvider: ctx.parentProvider } : {}),
@@ -483,136 +638,20 @@ export async function handleSpawnAssignmentRpc(
       // vs. the old run's terminal bus-release (see spawn-quota.ts).
       onCycleRunIdChange: (oldRunId, newRunId) =>
         ctx.quota.swapReservation(extensionId, oldRunId, newRunId),
-    });
+    };
+  }
+
+  // Reserve speculatively on assignmentId — we don't have agentRunId yet.
+  // Swap after startAssignment returns; release on failure.
+  ctx.quota.reserve(extensionId, assignmentId);
+  try {
+    const { subConversationId, agentRunId } = await startAssignment(makeAssignmentOptions());
 
     // Re-key the reservation to the real agentRunId so the bus
     // subscription releases it on run termination.
     ctx.quota.swapReservation(extensionId, assignmentId, agentRunId);
 
-    // Phase 4 §6.4 — child cap inheritance.
-    //
-    // Before Phase 4 the host blanket-copied parent's wired extensions
-    // into the child via `copyConversationExtensions`. That meant a
-    // sub-conversation could call any tool the parent's extensions
-    // exposed, even if the parent was forbidden from doing so directly
-    // — sibling extensions wired into the parent were observable on
-    // the child without per-spawn opt-in.
-    //
-    // Phase 4 cap-intersects:
-    //   1. Effective extension list = parent's wired extensions ∩
-    //      child agent config's wired extensions. Extensions on only
-    //      one side are dropped — the parent can't promote a tool the
-    //      child agent didn't ask for; the child agent can't reach
-    //      tools the parent isn't itself wired to.
-    //   2. For each shared extension: child's effective grants =
-    //      intersect(parent's grants, child manifest's permissions),
-    //      flattened through `intersectPermissions`.
-    //   3. Escalation: when the SPAWNING extension's GRANT carries
-    //      `escalateChildCaps: true`, skip step 2 — child runs with
-    //      its own installed grants verbatim. This lets dedicated
-    //      orchestration extensions (whose entire purpose is
-    //      delegation) hand off to children with fuller caps than the
-    //      parent itself has, after explicit user consent at install.
-    //
-    // The check is `=== true` on the GRANT (spec lock-in: "runtime
-    // checks consult the grant").
-    const escalating = ctx.grantedPermissions.escalateChildCaps === true;
-    const parentExtIds = await getConversationExtensionIds(ctx.conversationId);
-
-    // Child agent config's wired extensions list. Drizzle stores it as
-    // `extensions` on the agent_configs row; `agentConfig` has the
-    // post-resolve shape.
-    const childExtAllow = new Set<string>(
-      Array.isArray((agentConfig as unknown as { extensions?: string[] }).extensions)
-        ? (agentConfig as unknown as { extensions: string[] }).extensions
-        : [],
-    );
-    const childRefExts =
-      (agentConfig.references as { extensions?: string[] } | null | undefined)?.extensions ?? [];
-    for (const e of childRefExts) childExtAllow.add(e);
-
-    const sharedExts = parentExtIds.filter((extId) => childExtAllow.has(extId));
-
-    if (ctx.registry) {
-      // Compute per-extension effective grants and persist.
-      //
-      // Phase 4 §M7 — sub-spawn cap-widening fix. For each shared
-      // extension, the parent-side grant is the parent CONVERSATION's
-      // effective grants (override row if clipped by an upstream
-      // spawn, registry grants otherwise), NOT the registry's installed
-      // grants directly. This makes nested spawns A→child1→child2
-      // properly compose: child2's parent (child1) had its grants
-      // clipped, and child2 must inherit that clipping.
-      const registry = ctx.registry;
-      const entries: Array<{
-        extensionId: string;
-        effectiveGrantedPermissions: ExtensionPermissions;
-      }> = [];
-      for (const sharedExtId of sharedExts) {
-        const parentGrant = await getEffectiveGrantsForConversation(
-          ctx.conversationId,
-          sharedExtId,
-          registry.getGrantedPermissions(sharedExtId) ?? null,
-        );
-        if (escalating) {
-          // Orchestration opt-in: child runs with the extension's
-          // installed grants verbatim — no parent-clip. We deliberately
-          // ignore the parent's CONVERSATION-level clipping here too,
-          // because escalation is the explicit "skip the parent's
-          // envelope" signal. Read the registry directly.
-          const installed = registry.getGrantedPermissions(sharedExtId) ?? { grantedAt: {} };
-          entries.push({
-            extensionId: sharedExtId,
-            effectiveGrantedPermissions: installed,
-          });
-          continue;
-        }
-        const childManifest = registry.getManifest(sharedExtId);
-        const childManifestPerms =
-          (childManifest?.permissions ?? {}) as ExtensionPermissions;
-        // Mirror the manifest's ceiling-shape onto the
-        // `ExtensionPermissions` shape — `manifest.permissions` is
-        // structurally compatible (modulo the missing `grantedAt`).
-        const ceilingWithGrantedAt: ExtensionPermissions = {
-          ...childManifestPerms,
-          grantedAt: {},
-        };
-        const effective = intersectPermissions(parentGrant, ceilingWithGrantedAt);
-        entries.push({
-          extensionId: sharedExtId,
-          effectiveGrantedPermissions: effective,
-        });
-      }
-      if (entries.length > 0) {
-        await addConversationExtensions(subConversationId, entries);
-      }
-    } else {
-      // Phase 4 §M4 — log a warning when this path fires so silent
-      // regressions (e.g. a new caller forgot to thread the registry)
-      // surface visibly in container logs. We deliberately do NOT
-      // write an audit row here: this success path runs once per
-      // spawn, and adding an INSERT was visibly slowing the existing
-      // rate-limit test. The console.warn is sufficient signal — a
-      // production audit pipeline can grep stderr if it needs the
-      // event in long-term storage.
-      console.warn(
-        `[spawn-assignment] registry not threaded — falling back to blanket extension copy (no cap intersection). ` +
-          `extensionId=${extensionId} conversationId=${ctx.conversationId} subConversationId=${subConversationId}. ` +
-          `This is a Phase 4 §M4 fallback path; production callers should thread ctx.registry.`,
-      );
-      if (sharedExts.length > 0) {
-        await addConversationExtensions(
-          subConversationId,
-          sharedExts.map((extId) => ({ extensionId: extId })),
-        );
-      } else if (parentExtIds.length > 0) {
-        // No agent-config filter possible — fall back to legacy blanket copy.
-        await addConversationExtensions(
-          subConversationId,
-          parentExtIds.map((extId) => ({ extensionId: extId })),
-        );
-      }
-    }
+    const escalating = await wireChildExtensions(subConversationId);
 
     // Persist spawn depth on the child for recursive-spawn enforcement.
     await setConversationSpawnDepth(subConversationId, ctx.spawnDepth + 1);

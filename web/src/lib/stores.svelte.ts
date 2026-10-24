@@ -15,7 +15,7 @@ import {
 } from "./api.js";
 import { createWSClient, type WSEvent } from "./ws.js";
 import { addToast } from "./toast.svelte.js";
-import { inlineToolStore } from "./inline-tool-store.svelte.js";
+import { inlineToolStore, receivePreviewToolStart } from "./inline-tool-store.svelte.js";
 import { unreadStore } from "./unread.js";
 import { ContentBlockBuilder, type ContentBlock } from "./content-blocks.js";
 import { appendStreamingToolCall } from "./chat/streaming-tool-calls.js";
@@ -958,6 +958,7 @@ export function initStores() {
 
 	const client = createWSClient();
 	_wsManualRetry = client.manualRetry;
+	const unsubPreview = client.subscribe(receivePreviewToolStart);
 
 	// One handler per runtime event, looked up by `event.type`. Each was a
 	// `case` of a single switch; `return` here is that case's `break`.
@@ -1626,6 +1627,7 @@ export function initStores() {
 	});
 
 	return () => {
+		unsubPreview();
 		unsub();
 		client.close();
 	};

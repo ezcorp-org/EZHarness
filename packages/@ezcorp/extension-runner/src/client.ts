@@ -1,7 +1,54 @@
 import { request } from "node:http";
 import type { BuildRequest, BuildResult, Runner, RunnerCapabilities, RunnerExecution, RunnerInspection, StartRequest, WorkspaceFiles } from "@ezcorp/extension-contract";
-import { RunnerError, safeHostError } from "./core";
-import type { ReverseRpc } from "./protocol";
+import { RunnerError, RunnerStartRefusedError, safeHostError } from "./core";
+import { MAX_SENSITIVE_RESULT_BYTES, SENSITIVE_PROVIDER_METHOD, SensitiveRunnerExecution, type ReverseRpc } from "./protocol";
+
+type RunnerCall = <Value>(method: string, data: unknown) => Promise<Value>;
+
+class RemoteRunnerExecution extends SensitiveRunnerExecution {
+  private closed = false;
+  private readonly listeners = new Set<(method: string, params: unknown) => void>();
+  constructor(readonly workerId: string, private readonly call: RunnerCall, private readonly sensitiveCall: (workerId: string, params: unknown) => Promise<Uint8Array | null>, private readonly reverseRpc: ReverseRpc) {
+    super();
+    void this.poll().catch(() => { this.closed = true; });
+  }
+  private async poll(): Promise<void> {
+    let recoveries = 0;
+    while (!this.closed) {
+      let events: { id?: string; method: string; params: unknown }[];
+      try {
+        ({ events } = await this.call<{ events: { id?: string; method: string; params: unknown }[] }>("events", { workerId: this.workerId }));
+        recoveries = 0;
+      } catch (error) {
+        if (this.closed || recoveries >= MAX_STREAM_RECOVERIES) throw error;
+        recoveries += 1;
+        await this.call("attach", { workerId: this.workerId });
+        continue;
+      }
+      for (const event of events) {
+        if (this.closed) break;
+        if (event.id) {
+          let reply: { result: unknown } | { error: string };
+          try { reply = { result: await this.reverseRpc(event.method, event.params) }; }
+          catch (error) { reply = { error: safeHostError(error).code }; }
+          // A stale reply does not cancel a worker whose attachment can resume.
+          await this.call("reply", { workerId: this.workerId, id: event.id, ...reply }).catch(() => {});
+        } else for (const listener of this.listeners) listener(event.method, event.params);
+      }
+    }
+  }
+  async request(method: string, params: unknown): Promise<unknown> {
+    if (this.closed) throw new RunnerError("worker_closed", "Worker session closed");
+    if (method === SENSITIVE_PROVIDER_METHOD) throw new RunnerError("sensitive_method", "Sensitive provider methods require the credential broker");
+    return (await this.call<{ result: unknown }>("request", { workerId: this.workerId, method, params })).result;
+  }
+  requestSensitiveProviderResult(params: unknown): Promise<Uint8Array | null> {
+    if (this.closed) return Promise.reject(new RunnerError("worker_closed", "Worker session closed"));
+    return this.sensitiveCall(this.workerId, params);
+  }
+  async close(): Promise<void> { this.closed = true; this.listeners.clear(); await this.call("cancel", { id: this.workerId }); }
+  onNotification(listener: (method: string, params: unknown) => void): () => void { this.listeners.add(listener); return () => this.listeners.delete(listener); }
+}
 
 /**
  * How many times in a row a host may take its own event stream back without a
@@ -29,13 +76,52 @@ export class RunnerClient implements Runner {
         incoming.on("end", () => {
           try {
             const result = JSON.parse(Buffer.concat(chunks).toString("utf8"));
-            if (incoming.statusCode !== 200 || result.error) reject(new RunnerError(result.error?.code ?? "runner_failed", result.error?.message ?? "Runner request failed", result.error?.stage, result.error?.retryable, typeof result.error?.errorClass === "string" ? { errorClass: result.error.errorClass, ...(typeof result.error.errorCode === "string" ? { errorCode: result.error.errorCode } : {}) } : undefined));
+            if (incoming.statusCode !== 200 || result.error) {
+              if (method === "start" && result.error?.code === "runtime_profile_changed" && result.error?.workerStarted === false) reject(new RunnerStartRefusedError());
+              else reject(new RunnerError(result.error?.code ?? "runner_failed", result.error?.message ?? "Runner request failed", result.error?.stage, result.error?.retryable, typeof result.error?.errorClass === "string" ? { errorClass: result.error.errorClass, ...(typeof result.error?.errorCode === "string" ? { errorCode: result.error.errorCode } : {}) } : undefined));
+            }
             else resolve(result);
           } catch { reject(new RunnerError("runner_protocol", "Runner returned invalid JSON")); }
         });
       });
       outgoing.on("error", reject);
       outgoing.on("timeout", () => outgoing.destroy(new RunnerError("runner_timeout", "Runner request timed out")));
+      outgoing.end(body);
+    });
+  }
+  private callSensitive(workerId: string, params: unknown): Promise<Uint8Array | null> {
+    return new Promise((resolve, reject) => {
+      const body = JSON.stringify({ workerId, params });
+      const chunks: Buffer[] = [];
+      let settled = false;
+      const clear = () => { for (const chunk of chunks) chunk.fill(0); chunks.length = 0; };
+      const fail = () => {
+        if (settled) return;
+        settled = true;
+        clear();
+        reject(new RunnerError("sensitive_failed", "Sensitive provider request failed"));
+      };
+      const outgoing = request({ socketPath: this.options.socketPath, path: "/v4/sensitive-request", method: "POST", headers: { authorization: `Bearer ${this.options.token}`, "content-type": "application/json", "content-length": Buffer.byteLength(body) }, timeout: 65_000 }, incoming => {
+        let bytes = 0;
+        incoming.on("data", (chunk: Buffer) => {
+          bytes += chunk.byteLength;
+          if (bytes > MAX_SENSITIVE_RESULT_BYTES) { chunk.fill(0); incoming.destroy(); fail(); }
+          else chunks.push(chunk);
+        });
+        incoming.on("error", fail);
+        incoming.on("aborted", fail);
+        incoming.on("end", () => {
+          if (settled) return;
+          if (incoming.statusCode === 204 && bytes === 0) { settled = true; resolve(null); return; }
+          if (incoming.statusCode !== 200 || incoming.headers["content-type"] !== "application/octet-stream" || bytes === 0) { fail(); return; }
+          const result = Buffer.concat(chunks);
+          settled = true;
+          clear();
+          resolve(result);
+        });
+      });
+      outgoing.on("error", fail);
+      outgoing.on("timeout", () => { outgoing.destroy(); fail(); });
       outgoing.end(body);
     });
   }
@@ -60,48 +146,6 @@ export class RunnerClient implements Runner {
   }
   async attach(input: StartRequest, reverseRpc: ReverseRpc): Promise<RunnerExecution> {
     await this.call("attach", { workerId: input.workerId });
-    let closed = false;
-    const listeners = new Set<(method: string, params: unknown) => void>();
-    let recoveries = 0;
-    const poll = async () => {
-      while (!closed) {
-        let events: { id?: string; method: string; params: unknown }[];
-        try {
-          ({ events } = await this.call<{ events: { id?: string; method: string; params: unknown }[] }>("events", { workerId: input.workerId }));
-          recoveries = 0;
-        } catch (error) {
-          // Losing the stream is not losing the worker. The worker keeps
-          // running and keeps its queue, so take the stream back and carry on
-          // rather than closing a session this host never asked to end. A
-          // worker that is really gone refuses the attach and ends the loop.
-          if (closed || recoveries >= MAX_STREAM_RECOVERIES) throw error;
-          recoveries += 1;
-          await this.call("attach", { workerId: input.workerId });
-          continue;
-        }
-        for (const event of events) {
-          if (closed) break;
-          if (event.id) {
-            let reply: { result: unknown } | { error: string };
-            try { reply = { result: await reverseRpc(event.method, event.params) }; }
-            catch (error) { reply = { error: safeHostError(error).code }; }
-            // One reply per call. A refused reply (the call already timed out,
-            // or its result broke policy) settles nothing the host can repair,
-            // and the worker answers the caller on its own timeout, so it must
-            // not close a session the worker still runs.
-            await this.call("reply", { workerId: input.workerId, id: event.id, ...reply }).catch(() => {});
-          } else for (const listener of listeners) listener(event.method, event.params);
-        }
-      }
-    };
-    // Losing a host connection does not cancel a real worker. A fresh client
-    // can attach and resume its queued reverse calls.
-    void poll().catch(() => { closed = true; });
-    return {
-      workerId: input.workerId,
-      request: async (method, params) => { if (closed) throw new RunnerError("worker_closed", "Worker session closed"); return (await this.call<{ result: unknown }>("request", { workerId: input.workerId, method, params })).result; },
-      close: async () => { closed = true; listeners.clear(); await this.cancel(input.workerId); },
-      onNotification: listener => { listeners.add(listener); return () => listeners.delete(listener); },
-    };
+    return new RemoteRunnerExecution(input.workerId, this.call.bind(this), this.callSensitive.bind(this), reverseRpc);
   }
 }

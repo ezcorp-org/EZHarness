@@ -38,6 +38,8 @@ import {
   releaseCallProvenance,
 } from "../call-provenance";
 
+import { denyUnsupportedSandboxHostAccess, type WorkspaceTarget } from "../../runtime/workspaces/target";
+
 // ── extracted sibling modules ──────────────────────────────────────────
 import {
   MAX_TOOL_CALLS_PER_TURN,
@@ -263,6 +265,7 @@ export class ToolExecutor {
   private currentAgentConfigId?: string;
   private executor?: AgentExecutor;
   private spawnQuota?: SpawnQuota;
+  private workspaceTarget?: WorkspaceTarget;
   private argsResolver?: ArgsResolver;
   // Watchdog visibility for the extension sensitive-cap PDP-prompt gate.
   // Built-in tool gates register in the executor's `pendingPermissions`
@@ -342,6 +345,9 @@ export class ToolExecutor {
   setSpawnQuota(quota: SpawnQuota): void {
     this.spawnQuota = quota;
   }
+
+  /** Bind the exact host-selected target for this per-turn executor. */
+  setWorkspaceTarget(target: WorkspaceTarget | undefined): void { this.workspaceTarget = target; }
 
   /** Register a pre-call transformer for tool args. Used to substitute
    *  symbolic references (e.g. `ez-attachment://<id>` handles) with their
@@ -974,6 +980,9 @@ export class ToolExecutor {
     // subprocess or MCP client.
     const resolvedInput = resolveSharedVariables(call.registered.inputSchema, call.input);
     const manifest = this.registry.getManifest(call.extensionId);
+    if (manifest?.kind === "mcp") {
+      denyUnsupportedSandboxHostAccess(this.workspaceTarget, "project MCP");
+    }
     // Phase 3 SDK-served branch — entity CRUD tools dispatch directly
     // to the SDK's auto-generated handler (bypassing the subprocess
     // and the MCP client entirely). The registry tagged these with
@@ -1135,6 +1144,7 @@ export class ToolExecutor {
       actorExtensionId: call.extensionId,
       kind: "tool",
       ownerless: !this.currentUserId && !serviceInvocation,
+      ...(this.workspaceTarget ? { workspaceTarget: this.workspaceTarget } : {}),
       ...(serviceInvocation ? serviceProvenance(serviceInvocation, call.invocationGuard) : {}),
     });
   }
@@ -1264,6 +1274,7 @@ export class ToolExecutor {
       currentProvider: this.currentProvider,
       currentUserId: this.currentUserId,
       currentConversationId: this.currentConversationId,
+      workspaceTarget: this.workspaceTarget,
       resolveExtensionScopeGrant: (name, scope, obo, conv) =>
         this.resolveExtensionScopeGrant(name, scope, obo, conv),
     };

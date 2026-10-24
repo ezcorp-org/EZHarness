@@ -3,6 +3,7 @@ import { constants } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { gitHeadRef, isValidGitBranchName } from "./project-git-refs";
+import { readProjectSourcePaths } from "./project-source-files";
 
 export interface ProjectPullRequestInput {
   projectRoot: string;
@@ -104,14 +105,14 @@ export async function openProjectPullRequest(input: ProjectPullRequestInput, opt
     const baseResult = await run(["git", "symbolic-ref", "refs/remotes/origin/HEAD"], projectRoot);
     const base = baseResult.exitCode === 0 ? baseResult.stdout.trim().replace(/^refs\/remotes\/origin\//, "") : "main";
     if (!isValidGitBranchName(base)) throw new Error("Invalid default branch");
-    const tracked = (await checked(["git", "ls-files", "-z"])).split("\0").filter(Boolean);
+    const tracked = await readProjectSourcePaths(run, projectRoot, "tracked");
     if (tracked.some((path) => path.split("/").includes(".ezcorp"))) throw new Error("Platform data must not be tracked in the project");
     temporaryRoot = await mkdtemp(join(tmpdir(), "ezcorp-pr-"));
     worktree = join(temporaryRoot, "worktree");
     await checked(["git", "worktree", "add", "--detach", worktree, "HEAD"]);
     const patch = await checked(["git", "diff", "--no-ext-diff", "--no-textconv", "HEAD", "--binary"]);
     if (patch) await checked(["git", "apply", "--index", "--whitespace=nowarn", "-"], worktree, patch);
-    const untracked = (await checked(["git", "ls-files", "--others", "--exclude-standard", "-z"])).split("\0").filter(Boolean);
+    const untracked = await readProjectSourcePaths(run, projectRoot, "untracked");
     for (const path of untracked) {
       if (isAbsolute(path) || path.split(/[\\/]/).some((part) => part === ".." || part === ".git" || part === ".ezcorp")) throw new Error("Unsafe untracked file path");
       const source = await realpath(join(projectRoot, path));

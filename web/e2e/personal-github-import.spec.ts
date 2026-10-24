@@ -1,6 +1,53 @@
 import { test, expect, captureEvidence } from "./fixtures/test-base.js";
 import { makeProject } from "./fixtures/data.js";
 
+test("creates a new Incus source workspace and preserves uncertain import recovery @evidence", async ({ page, mockApi }, testInfo) => {
+	const source = makeProject({ id: "source-project", name: "Source project" });
+	await mockApi({ projects: [source] });
+	await page.route("**/api/github/connection", (route) => route.fulfill({ json: { status: "connected", configured: true } }));
+	await page.route("**/api/github/repositories", (route) => route.fulfill({ json: { repositories: [{ id: 42, fullName: "owner/private", defaultBranch: "main", private: true, accessStatus: "ready" }] } }));
+	await page.route("**/api/sandboxes/providers", (route) => route.fulfill({ json: { providers: [] } }));
+	await page.route("**/api/infrastructure/incus/management", (route) => route.fulfill({ json: { environments: [
+		{ installationId: "incus", connectionId: "local", presetId: "small", label: "Private Incus", qualified: true },
+		{ installationId: "incus", connectionId: "local", presetId: "blocked", label: "Unqualified Incus", qualified: false },
+	], truncated: false } }));
+	const requests: { body: unknown; key: string | undefined }[] = [];
+	await page.route("**/api/github/sandboxes", (route) => {
+		requests.push({ body: route.request().postDataJSON(), key: route.request().headers()["idempotency-key"] });
+		return route.fulfill({ status: 202, json: { project: { id: "new-incus-project" }, import: { state: "working", importState: "unknown", repository: { id: 42, fullName: "owner/private", baseRef: "main", baseSha: "a".repeat(40) } } } });
+	});
+	await page.goto(`/project/${source.id}/settings`);
+	await page.getByRole("button", { name: "Import a GitHub repository into a private sandbox" }).click();
+	const importer = page.getByTestId("github-sandbox-import");
+	await importer.getByLabel("Repository", { exact: true }).selectOption("42");
+	await importer.getByLabel("Sandbox provider").selectOption("incus:incus:local:small");
+	await expect(importer.getByRole("option", { name: "Unqualified Incus" })).toHaveCount(0);
+	await expect(importer.getByText(/starts a new private Incus workspace/)).toBeVisible();
+	await page.setViewportSize({ width: 390, height: 844 });
+	await importer.evaluate((element) => element.scrollIntoView({ block: "center" }));
+	await captureEvidence(page, testInfo, "personal-github-incus-source-mobile", { fullPage: true });
+	await importer.getByRole("button", { name: "Create private sandbox & import" }).click();
+	await expect(importer.getByRole("link", { name: "Inspect saved operation in Incus management" })).toHaveAttribute("href", "/extensions/incus-management");
+	await expect(importer.getByLabel("Repository", { exact: true })).toBeDisabled();
+	await captureEvidence(page, testInfo, "personal-github-incus-unknown-mobile", { fullPage: true });
+	// This check owns only the link handoff; management backend behavior has its own lane.
+	await page.context().route("**/extensions/incus-management", (route) => route.fulfill({ contentType: "text/html", body: "<!doctype html><title>Incus management fixture</title>" }));
+	const [managementPage] = await Promise.all([
+		page.waitForEvent("popup", { timeout: 5_000 }),
+		importer.getByRole("link", { name: "Inspect saved operation in Incus management" }).click(),
+	]);
+	await expect(managementPage).toHaveURL(/\/extensions\/incus-management$/);
+	await managementPage.close();
+	await expect(page).toHaveURL(/\/project\/source-project\/settings/);
+	await expect(importer.getByLabel("Repository", { exact: true })).toBeDisabled();
+	await importer.getByRole("button", { name: "Retry saved import" }).click();
+	await expect.poll(() => requests.length).toBe(2);
+	expect(requests[1]).toEqual(requests[0]);
+	expect(requests[0]?.body).toEqual({ kind: "incus", name: "Sandbox for owner/private", installationId: "incus", connectionId: "local", presetId: "small", repositoryId: 42, baseRef: "main" });
+	expect(requests[0]?.key).toMatch(/^[0-9a-f-]{36}$/);
+	await expect(page).toHaveURL(/\/project\/source-project\/settings/);
+});
+
 test("imports a selected repository into a private sandbox before opening chat @evidence", async ({ page, mockApi }, testInfo) => {
 	const source = makeProject({ id: "source-project", name: "Source project" });
 	const target = makeProject({ id: "private-project", name: "Private repository", path: "" });

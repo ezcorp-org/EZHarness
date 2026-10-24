@@ -89,12 +89,12 @@ async function construct(host: TrustedLocalHooks): Promise<TrustedLocalRunner> {
   // profile — never APPLIED by this runner, but digested into every
   // artifact's recipe — does not exist there, and the toolchain walk finds
   // `web/node_modules` (a different `typescript` major, no `@types/bun`)
-  // before the pinned root closure. The SDK entry keeps the same env
+  // before the runner package's production dependency closure. The SDK entry keeps the same env
   // override the runner's own tests use. Caught by the trusted-local
   // Playwright lane, which runs the production build; the source-mode
   // integration test cannot see any of it.
   const packages = join(projectRoot, "packages", "@ezcorp");
-  const toolchain = await provisionToolchain({ sdkEntrypoint: process.env.EZ_EXTENSION_RUNNER_SDK_ENTRY ?? join(packages, "sdk", "src", "v4", "index.ts"), toolchainRoot: projectRoot });
+  const toolchain = await provisionToolchain({ sdkEntrypoint: process.env.EZ_EXTENSION_RUNNER_SDK_ENTRY ?? join(packages, "sdk", "src", "v4", "index.ts"), toolchainRoot: join(packages, "extension-runner") });
   const instance = new TrustedLocalRunner({
     root: trustedLocalRoot(projectRoot),
     seccompPath: join(packages, "extension-runner", "seccomp.json"),

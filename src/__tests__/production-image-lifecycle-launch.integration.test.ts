@@ -1,6 +1,6 @@
 import { afterEach, expect, test } from "bun:test";
 import { existsSync, watch } from "node:fs";
-import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, readdir, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { DEFAULT_IMAGE } from "@ezcorp/extension-runner";
@@ -205,7 +205,10 @@ test("launcher readiness fails when its producer exits without a file", async ()
 
 type ProcessIdentity = {
   processGroup: number;
+  state: string;
   startTime: string;
+  commandLine?: string;
+  uid?: number;
 };
 
 async function settlesWithin<T>(promise: Promise<T>, timeoutMs: number): Promise<T | undefined> {
@@ -217,9 +220,10 @@ async function processIdentity(pid: number): Promise<ProcessIdentity | undefined
   try {
     const stat = await readFile(`/proc/${pid}/stat`, "utf8");
     const fields = stat.slice(stat.lastIndexOf(")") + 2).trim().split(/\s+/);
+    const state = fields[0];
     const processGroup = Number(fields[2]);
     const startTime = fields[19];
-    return Number.isSafeInteger(processGroup) && processGroup > 1 && startTime ? { processGroup, startTime } : undefined;
+    return Number.isSafeInteger(processGroup) && processGroup > 1 && state && startTime ? { processGroup, state, startTime } : undefined;
   } catch {
     return undefined;
   }
@@ -227,7 +231,45 @@ async function processIdentity(pid: number): Promise<ProcessIdentity | undefined
 
 async function hasIdentity(pid: number, expected: ProcessIdentity): Promise<boolean> {
   const current = await processIdentity(pid);
-  return current?.processGroup === expected.processGroup && current.startTime === expected.startTime;
+  if (current?.processGroup !== expected.processGroup || current.startTime !== expected.startTime) return false;
+  if (expected.commandLine !== undefined) {
+    try {
+      return (await stat(`/proc/${pid}`)).uid === expected.uid
+        && await readFile(`/proc/${pid}/cmdline`, "utf8") === expected.commandLine;
+    } catch {
+      return false;
+    }
+  }
+  return true;
+}
+
+async function ownedPeerGateway(runnerPid: number, socketPath: string): Promise<{ pid: number; identity: ProcessIdentity }> {
+  const matches: Array<{ pid: number; identity: ProcessIdentity }> = [];
+  for (const entry of await readdir("/proc")) {
+    if (!/^\d+$/.test(entry)) continue;
+    const pid = Number(entry);
+    try {
+      const fields = (await readFile(`/proc/${pid}/stat`, "utf8")).split(") ").at(-1)!.split(/\s+/);
+      if (Number(fields[1]) !== runnerPid) continue;
+      const commandLine = await readFile(`/proc/${pid}/cmdline`, "utf8");
+      const argv = commandLine.split("\0").filter(Boolean);
+      const uid = (await stat(`/proc/${pid}`)).uid;
+      if (argv.length !== 5 || argv[1] !== join(root, "packages/@ezcorp/extension-runner/src/peer-gateway.py")
+        || argv[2] !== socketPath || argv[4] !== String(process.getuid!()) || uid !== process.getuid!()) continue;
+      const identity = await processIdentity(pid);
+      if (identity) matches.push({ pid, identity: { ...identity, commandLine, uid } });
+    } catch {
+      // An unrelated process can exit while /proc is scanned.
+    }
+  }
+  expect(matches).toHaveLength(1);
+  return matches[0]!;
+}
+
+async function hasActiveIdentity(pid: number, expected: ProcessIdentity): Promise<boolean> {
+  const current = await processIdentity(pid);
+  return current?.processGroup === expected.processGroup && current.startTime === expected.startTime
+    && current.state !== "Z" && current.state !== "X";
 }
 
 async function stopOwnedProcessGroup(processGroup: number, owned: Array<{ pid: number; identity: ProcessIdentity }>): Promise<void> {
@@ -259,6 +301,40 @@ async function finishOwnedLauncher(
     for (const processGroup of groups) await stopOwnedProcessGroup(processGroup, owned);
   }
 }
+
+test("owned launcher cleanup refuses a changed helper UID, command or start time", async () => {
+  const child = Bun.spawn([process.execPath, "-e", 'console.log("ready");setInterval(()=>{},1_000);'], {
+    detached: true,
+    stdout: "pipe",
+    stderr: "ignore",
+  });
+  let identity: ProcessIdentity | undefined;
+  try {
+    const reader = child.stdout.getReader();
+    expect(new TextDecoder().decode((await reader.read()).value)).toBe("ready\n");
+    await reader.cancel();
+    const observed = await processIdentity(child.pid);
+    expect(observed).toBeDefined();
+    identity = {
+      ...observed!,
+      uid: process.getuid!(),
+      commandLine: await readFile(`/proc/${child.pid}/cmdline`, "utf8"),
+    };
+    for (const changed of [
+      { ...identity, uid: identity.uid! + 1 },
+      { ...identity, commandLine: `${identity.commandLine}changed` },
+      { ...identity, startTime: `${identity.startTime}0` },
+    ]) {
+      await stopOwnedProcessGroup(identity.processGroup, [{ pid: child.pid, identity: changed }]);
+      expect(await hasActiveIdentity(child.pid, identity)).toBe(true);
+    }
+  } finally {
+    if (identity) await stopOwnedProcessGroup(identity.processGroup, [{ pid: child.pid, identity }]);
+    else child.kill("SIGKILL");
+    await child.exited;
+  }
+  expect(await hasActiveIdentity(child.pid, identity!)).toBe(false);
+});
 
 type OwnedLaunchFixture = { fixture: LaunchFixture; child?: ReturnType<typeof Bun.spawn>; owned: Array<{ pid: number; identity: ProcessIdentity }> };
 const activeLaunchFixtures = new Set<OwnedLaunchFixture>();
@@ -364,7 +440,7 @@ exec '${realPodman}' "$@"
   }
 }, 30_000);
 
-test("launcher cancellation reaps its verifier and runner before streams drain", async () => {
+async function assertLauncherCancellation(suspendRunner: boolean): Promise<void> {
   const fixture = await makeFixture();
   const verifierReady = join(fixture.directory, "verifier-ready");
   const verifierPidFile = join(fixture.directory, "verifier.pid");
@@ -373,6 +449,7 @@ test("launcher cancellation reaps its verifier and runner before streams drain",
   let child: ReturnType<typeof Bun.spawn> | undefined;
   const owned: Array<{ pid: number; identity: ProcessIdentity }> = [];
   const active: OwnedLaunchFixture = { fixture, owned };
+  let gateway: Awaited<ReturnType<typeof ownedPeerGateway>> | undefined;
   activeLaunchFixtures.add(active);
   try {
     await writeFile(fixture.setsidRelease, "release");
@@ -424,6 +501,13 @@ test("launcher cancellation reaps its verifier and runner before streams drain",
     expect(await hasIdentity(verifierDescendantPid, verifierDescendantIdentity!)).toBe(true);
     expect(await hasIdentity(runnerPid, runnerIdentity!)).toBe(true);
 
+    gateway = await ownedPeerGateway(runnerPid, join(runnerRoot!, "runner.sock"));
+    expect(gateway.identity.processGroup).toBe(launcherIdentity!.processGroup);
+    // SIGKILL prevents the deliberately suspended runner from closing its helper.
+    // Retain that child's identity so fixture cleanup can stop the owned group.
+    owned.push(gateway);
+
+    if (suspendRunner) process.kill(runnerPid, "SIGSTOP");
     child.kill("SIGTERM");
     const [launcherExit, stdoutResult, stderrResult] = await Promise.all([
       child.exited,
@@ -433,6 +517,7 @@ test("launcher cancellation reaps its verifier and runner before streams drain",
     const stdoutDrained = stdoutResult !== undefined;
     const stderrDrained = stderrResult !== undefined;
     const dockerLog = await readFile(fixture.dockerLog, "utf8");
+    const commandLog = await readFile(join(fixture.receipt, "command.log"), "utf8");
     const result = {
       composeDown: dockerLog.includes("down --volumes --remove-orphans"),
       launcherExit,
@@ -440,7 +525,8 @@ test("launcher cancellation reaps its verifier and runner before streams drain",
       stderrDrained,
       stdoutDrained,
       verifierAlive: await hasIdentity(observedVerifierPid, verifierIdentity!),
-      verifierDescendantAlive: await hasIdentity(verifierDescendantPid, verifierDescendantIdentity!),
+      verifierCleanupSucceeded: commandLog.includes("verifier_cleanup_exit=0"),
+      verifierDescendantAlive: await hasActiveIdentity(verifierDescendantPid, verifierDescendantIdentity!),
     };
     const diagnostics = await launcherDiagnostics(fixture.receipt);
     expect(result, `${diagnostics}\n${dockerLog}`).toEqual({
@@ -450,12 +536,60 @@ test("launcher cancellation reaps its verifier and runner before streams drain",
       stderrDrained: true,
       stdoutDrained: true,
       verifierAlive: false,
+      verifierCleanupSucceeded: true,
       verifierDescendantAlive: false,
     });
   } finally {
     await cleanupOwnedLaunchFixture(active);
+    if (gateway) expect(await hasActiveIdentity(gateway.pid, gateway.identity)).toBe(false);
   }
-}, 25_000);
+}
+
+test("launcher cancellation reaps its verifier and runner before streams drain", () => assertLauncherCancellation(false), 40_000);
+test("launcher cancellation force kills an unresponsive runner before streams drain", () => assertLauncherCancellation(true), 40_000);
+
+test("verifier group liveness excludes defunct children held by another parent", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "production-verifier-zombie-"));
+  const groupFile = join(directory, "verification-group.pid");
+  const holder = Bun.spawn(["python3", "-c", [
+    "import subprocess,sys,time",
+    "child=subprocess.Popen(['sleep','30'],start_new_session=True)",
+    "with open(sys.argv[1],'w') as f: f.write(str(child.pid))",
+    "time.sleep(30)",
+  ].join("\n"), groupFile], { stdout: "ignore", stderr: "pipe" });
+  let groupPid: number | undefined;
+  try {
+    groupPid = Number(await readReadyFile(groupFile, holder));
+    const identity = await processIdentity(groupPid);
+    expect(identity?.processGroup).toBe(groupPid);
+    const script = await readFile(join(root, "scripts/verify-production-image-lifecycle.sh"), "utf8");
+    const shellFunction = (name: string) => {
+      const declaration = script.match(new RegExp(`^${name}\\(\\) \\{[\\s\\S]*?^\\}`, "m"))?.[0];
+      if (!declaration) throw new Error(`Missing launcher function ${name}`);
+      return declaration;
+    };
+    const probe = async () => {
+      const child = Bun.spawn(["bash", "-c", `${shellFunction("verification_group_pid")}\n${shellFunction("read_process_stat")}\n${shellFunction("verification_running")}\nverification_group_file="$1"; verification_running`, "probe", groupFile], { stdout: "pipe", stderr: "pipe" });
+      const [exit, stderr] = await Promise.all([child.exited, new Response(child.stderr).text()]);
+      expect(stderr).toBe("");
+      return exit;
+    };
+    expect(await probe()).toBe(0);
+    process.kill(-groupPid, "SIGKILL");
+    const deadline = Date.now() + 2_000;
+    while ((await processIdentity(groupPid))?.state !== "Z" && Date.now() < deadline) await sleep(10);
+    expect((await processIdentity(groupPid))?.state).toBe("Z");
+    expect(() => process.kill(-groupPid!, 0)).not.toThrow();
+    expect(await probe()).toBe(1);
+  } finally {
+    if (groupPid && (await processIdentity(groupPid))?.state !== "Z") {
+      try { process.kill(-groupPid, "SIGKILL"); } catch { /* The group already exited. */ }
+    }
+    holder.kill("SIGTERM");
+    await holder.exited;
+    await rm(directory, { recursive: true, force: true });
+  }
+}, 10_000);
 
 test("launcher cancellation before verifier group readiness reaps its owned starter", async () => {
   const fixture = await makeFixture();

@@ -18,13 +18,15 @@
  * OFF leaves the legacy path untouched).
  */
 import { test, expect, describe, beforeEach, afterAll, beforeAll, afterEach } from "bun:test";
-import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from "node:fs";
+import { mkdtempSync, mkdirSync, writeFileSync, rmSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { eq } from "drizzle-orm";
 import { setupTestDb, closeTestDb, getTestDb, mockDbConnection } from "./helpers/test-pglite";
 import { restoreModuleMocks } from "./helpers/mock-cleanup";
-import { agentSessionEntries, agentSessions, messages } from "../db/schema";
+import { agentSessionEntries, agentSessions, messages, sandboxBindings } from "../db/schema";
+import { sandboxBindingRow } from "./helpers/sandbox-binding-row";
+import { localWorkspaceTarget } from "../runtime/workspaces/target";
 
 mockDbConnection();
 
@@ -224,6 +226,28 @@ describe("session history producer — LIVE loadHistory parity", () => {
     const withImage = cand.find((m: any) => Array.isArray(m.content) && m.content.some((p: any) => p.type === "image"));
     expect(withImage, "an image part was injected into the attached user turn").toBeDefined();
     expect((withImage as any).content.find((p: any) => p.type === "image").data).toBe(PNG_B64);
+  });
+
+  test("direct history load denies AMD attachment bytes after a sandbox binding appears", async () => {
+    const project = await createProject({ name: "Sandbox history", path: tmpRoot });
+    const conv = await createConversation(project.id, { title: "sandbox" });
+    const user = await createMessage(conv.id, { role: "user", content: "image" });
+    const canaryPath = writeAttachmentFile("amd-canary.png", PNG_BYTES);
+    await insertAttachment({
+      messageId: user.id, conversationId: conv.id,
+      filename: "amd-canary.png", mimeType: "image/png",
+      sizeBytes: PNG_BYTES.length, storagePath: canaryPath, kind: "image",
+    });
+    await getTestDb().insert(sandboxBindings).values(sandboxBindingRow(project.id));
+
+    await expect(loadHistory(mkCtx(), conv.id, {
+      parentMessageId: user.id, provider: "anthropic", model: "claude-sonnet-4-5",
+    })).rejects.toThrow("Local workspace fallback was denied");
+    await expect(loadHistory(mkCtx(), conv.id, {
+      parentMessageId: user.id, provider: "anthropic", model: "claude-sonnet-4-5",
+      workspaceTarget: localWorkspaceTarget(tmpRoot),
+    })).rejects.toThrow("Local workspace fallback was denied");
+    expect(new Uint8Array(readFileSync(canaryPath))).toEqual(PNG_BYTES);
   });
 
   test("tool-generated image injection parity", async () => {

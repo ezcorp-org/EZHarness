@@ -9,7 +9,9 @@
  * stop." A stop step therefore runs only when its job's start step ran.
  */
 import { describe, expect, test } from "bun:test";
-import { readdirSync, readFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { spawnSync } from "node:child_process";
 import { join, resolve } from "node:path";
 
 const REPO_ROOT = resolve(import.meta.dir, "..");
@@ -90,5 +92,93 @@ describe("factory object storage in CI (W4H-5)", () => {
     expect(storageStepFindings("j", [{ ...up, id: undefined }, down])).toEqual([`j: the start step's id is undefined, expected ${START_ID}`]);
     expect(storageStepFindings("j", [down, up])).toEqual(['j: storage commands ["down","up"], expected up then down']);
     expect(storageStepFindings("j", [up])).toEqual(['j: storage commands ["up"], expected up then down']);
+  });
+});
+
+/** Execute the real composite shell; only its engine-backed storage helper is a fixture. */
+function storageActionFixture(userRuntime: string | undefined) {
+  const root = mkdtempSync(join(tmpdir(), "factory-storage-action-"));
+  const runnerTemp = join(root, "runner temp");
+  const githubEnv = join(root, "github-env");
+  const log = join(root, "calls");
+  mkdirSync(join(root, "scripts"));
+  mkdirSync(runnerTemp, { mode: 0o700 });
+  writeFileSync(githubEnv, "");
+  writeFileSync(join(root, SCRIPT), `#!/usr/bin/env bash
+set -euo pipefail
+[[ -d "$XDG_RUNTIME_DIR" && $(stat -c '%a:%u' "$XDG_RUNTIME_DIR") == "700:$UID" ]]
+printf '%s\\t%s\\n' "$1" "$XDG_RUNTIME_DIR" >> "$FIXTURE_LOG"
+[[ "$FAIL_COMMAND" != "$1" ]] || exit 42
+case "$1" in
+  up)
+    actual=$(mktemp -d "$XDG_RUNTIME_DIR/ezcorp-factory-storage.XXXXXXXX")
+    printf 'owned\\n' > "$actual/owner"
+    printf 'Factory local storage is ready. Credentials are in %s below mode-0700 XDG_RUNTIME_DIR.\\n' "$actual"
+    ;;
+  down)
+    [[ $(dirname -- "$EZCORP_FACTORY_STORAGE_SECRETS_DIR") == "$XDG_RUNTIME_DIR" ]]
+    [[ $(cat "$EZCORP_FACTORY_STORAGE_SECRETS_DIR/owner") == owned ]]
+    rm -- "$EZCORP_FACTORY_STORAGE_SECRETS_DIR/owner"
+    rmdir -- "$EZCORP_FACTORY_STORAGE_SECRETS_DIR"
+    ;;
+esac
+`, { mode: 0o755 });
+  const parsed = Bun.YAML.parse(read(".github/actions/factory-storage/action.yml")) as { runs: { steps: Step[] } };
+  const body = parsed.runs.steps[0].run;
+  if (!body) throw new Error("Storage action shell is missing");
+  const env = { ...process.env, RUNNER_TEMP: runnerTemp, GITHUB_ENV: githubEnv, FIXTURE_LOG: log, FAIL_COMMAND: "", DBUS_SESSION_BUS_ADDRESS: "unix:path=/run/user/test/bus", XDG_RUNTIME_DIR: userRuntime };
+  const run = (mode: string, extra: Record<string, string> = {}) => spawnSync("bash", ["--noprofile", "--norc", "-c", body], { cwd: root, env: { ...env, FACTORY_STORAGE_COMMAND: mode, ...extra }, encoding: "utf8" });
+  const exported = () => Object.fromEntries(readFileSync(githubEnv, "utf8").trim().split("\n").filter(Boolean).map(line => {
+    const equals = line.indexOf("=");
+    return [line.slice(0, equals), line.slice(equals + 1)];
+  }));
+  return { root, runnerTemp, githubEnv, log, env, run, exported, close: () => rmSync(root, { recursive: true, force: true }) };
+}
+
+describe("factory storage action runtime boundaries", () => {
+  test.each(["/run/user/1001", undefined])("up/down preserve the job runtime (%s) while sharing owned storage", (runtime) => {
+    const fixture = storageActionFixture(runtime);
+    try {
+      const up = fixture.run("up");
+      expect(up.status).toBe(0);
+      expect(up.stderr).toBe("");
+      const exports = fixture.exported();
+      expect(Object.keys(exports)).toEqual(["EZCORP_FACTORY_STORAGE_SECRETS_DIR"]);
+      const jobEnv = { ...fixture.env, ...exports };
+      expect(jobEnv.XDG_RUNTIME_DIR).toBe(runtime);
+      expect(jobEnv.DBUS_SESSION_BUS_ADDRESS).toBe("unix:path=/run/user/test/bus");
+      const secrets = exports.EZCORP_FACTORY_STORAGE_SECRETS_DIR;
+      expect(existsSync(join(secrets, "owner"))).toBe(true);
+      const down = fixture.run("down", exports);
+      expect(down.status).toBe(0);
+      expect(down.stderr).toBe("");
+      expect(existsSync(secrets)).toBe(false);
+      const storageRuntime = join(fixture.runnerTemp, "factory-storage-runtime");
+      expect(readFileSync(fixture.log, "utf8")).toBe(`up\t${storageRuntime}\ndown\t${storageRuntime}\n`);
+    } finally {
+      fixture.close();
+    }
+  });
+
+  test("a failed start exports no partial storage state", () => {
+    const fixture = storageActionFixture("/run/user/1001");
+    try {
+      expect(fixture.run("up", { FAIL_COMMAND: "up" }).status).toBe(42);
+      expect(fixture.exported()).toEqual({});
+    } finally {
+      fixture.close();
+    }
+  });
+
+  test("a failed stop preserves owned state and reports its failure", () => {
+    const fixture = storageActionFixture("/run/user/1001");
+    try {
+      expect(fixture.run("up").status).toBe(0);
+      const exports = fixture.exported();
+      expect(fixture.run("down", { ...exports, FAIL_COMMAND: "down" }).status).toBe(42);
+      expect(existsSync(join(exports.EZCORP_FACTORY_STORAGE_SECRETS_DIR, "owner"))).toBe(true);
+    } finally {
+      fixture.close();
+    }
   });
 });

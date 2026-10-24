@@ -218,3 +218,81 @@ test("a failed build, a verified build without its release and a vanished operat
   await expect(waitForBuildVerified(once(awaited("verified", 0, null)), "user-installation", "user", options)).rejects.toThrow("Build user verified without a release");
   await expect(waitForBuildVerified(once({ operations: {}, releases: {} }), "user-installation", "user", options)).rejects.toThrow("Build user disappeared from installation user-installation");
 });
+
+test("waits for a progressing full bundled bootstrap beyond six minutes", async () => {
+  const names = resolveBundledExtensions().map(({ name }) => name);
+  let now = 0;
+  let polls = 0;
+  const clock = spyOn(Date, "now").mockImplementation(() => now);
+  const sleep = spyOn(Bun, "sleep").mockImplementation(async () => { now += 15_000; });
+  const client = {
+    async listExtensions() { polls += 1; return names.map(name => ({ id: name, name })); },
+    async extensionControl(_action: string, input: { installationId: string }) {
+      const completed = Math.max(0, polls - 1);
+      return state(names.indexOf(input.installationId) < completed ? "verified" : "queued");
+    },
+  } as unknown as HarnessClient;
+  try {
+    const result = await waitForBundledBootstrap(client);
+    expect(now).toBeGreaterThan(360_000);
+    expect(result.terminalOperationStates).toEqual({ verified: names.length });
+    requireBundledBootstrapVerified(result, "after queued runner work drained");
+  } finally {
+    sleep.mockRestore();
+    clock.mockRestore();
+  }
+});
+
+test("bounds a progressing bootstrap at its explicit twelve-minute safety net when builds never finish", async () => {
+  const names = resolveBundledExtensions().map(({ name }) => name);
+  let now = 0;
+  let polls = 0;
+  const clock = spyOn(Date, "now").mockImplementation(() => now);
+  const sleep = spyOn(Bun, "sleep").mockImplementation(async () => { now += 30_000; });
+  const client = {
+    async listExtensions() { polls += 1; return names.map(name => ({ id: name, name })); },
+    async extensionControl(_action: string, input: { installationId: string }) {
+      const completed = Math.min(names.length - 1, Math.max(0, polls - 1));
+      return state(names.indexOf(input.installationId) < completed ? "verified" : "queued");
+    },
+  } as unknown as HarnessClient;
+  try {
+    await expect(waitForBundledBootstrap(client, {
+      policy: { maxObservedStepMs: 600_000 / names.length, buildLeaseMs: 0, stallMs: 120_000 },
+    })).rejects.toMatchObject({
+      name: "BundledBootstrapTimeoutError",
+      observer: { safetyNetMs: 720_000 },
+      verdict: { reason: "safety_net", elapsedMs: 720_000, lastProgressAt: expect.any(String) },
+      snapshot: { terminalOperationStates: { verified: 24, queued: names.length - 24 } },
+    });
+    expect(now).toBe(720_000);
+  } finally {
+    sleep.mockRestore();
+    clock.mockRestore();
+  }
+});
+
+test("fails a queued bootstrap after verified builds stop progressing", async () => {
+  const names = resolveBundledExtensions().map(({ name }) => name);
+  let now = 0;
+  let polls = 0;
+  const clock = spyOn(Date, "now").mockImplementation(() => now);
+  const sleep = spyOn(Bun, "sleep").mockImplementation(async () => { now += 15_000; });
+  const client = {
+    async listExtensions() { polls += 1; return names.map(name => ({ id: name, name })); },
+    async extensionControl(_action: string, input: { installationId: string }) {
+      return state(polls > 1 && input.installationId === names[0] ? "verified" : "queued");
+    },
+  } as unknown as HarnessClient;
+  try {
+    await expect(waitForBundledBootstrap(client, { policy: { ...BUNDLED_BOOTSTRAP_POLICY, stallMs: 60_000 } })).rejects.toMatchObject({
+      name: "BundledBootstrapTimeoutError",
+      verdict: { reason: "stalled", elapsedMs: 75_000, stallClockMs: 60_000, lastProgressAt: "1970-01-01T00:00:15.000Z" },
+      snapshot: { terminalOperationStates: { verified: 1, queued: names.length - 1 } },
+    });
+    expect(now).toBe(75_000);
+  } finally {
+    sleep.mockRestore();
+    clock.mockRestore();
+  }
+});

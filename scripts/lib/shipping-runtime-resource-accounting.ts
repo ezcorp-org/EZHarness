@@ -69,31 +69,34 @@ export function openDescriptorIdentity(descriptor: OpenDescriptor): string {
 
 /** 150 polls 100 ms apart: at most about 15 s per cycle, the same bound as the app's post-cycle connection settle. */
 export const RUNNER_FD_SETTLE_POLLS = 150;
-export type RunnerFdSettle = { baseline: number; remaining: number; polls: number; maxPolls: number };
+export type RunnerFdSettle = { baseline: number; remaining: number; polls: number; maxPolls: number; descriptors: OpenDescriptor[] };
 
 /**
- * Re-read the runner's descriptor count until it EQUALS the baseline, at most `maxPolls` reads.
- * The bound is a wait, never an allowance: a count above or below the baseline is returned as read,
- * and the caller's strict check then fails. A bound of 0 is one read with no wait (the strict check alone).
+ * Wait for descriptors opened since the baseline to close. Baseline sockets
+ * may close too; their departure cannot offset a newly retained descriptor.
+ * Non-socket baseline handles must remain: anonymous kernel handles can share
+ * the same readlink/stat identity, so their loss cannot safely be discounted.
+ * Keep the exact observed snapshot for the verdict and its receipt. A bound
+ * of 0 is one read with no wait; the bound never forgives a retained handle.
  */
-export async function settleRunnerFds(read: () => Promise<number>, baseline: number, { maxPolls = RUNNER_FD_SETTLE_POLLS, pause = () => Bun.sleep(100) }: { maxPolls?: number; pause?: () => Promise<void> } = {}): Promise<RunnerFdSettle> {
+export async function settleRunnerFds(read: () => Promise<OpenDescriptor[]>, baseline: OpenDescriptor[], { maxPolls = RUNNER_FD_SETTLE_POLLS, pause = () => Bun.sleep(100) }: { maxPolls?: number; pause?: () => Promise<void> } = {}): Promise<RunnerFdSettle> {
   if (!Number.isInteger(maxPolls) || maxPolls < 0) throw new Error(`Runner FD settle needs a whole number of polls, not ${maxPolls}.`);
   const reads = Math.max(1, maxPolls);
-  let polls = 0;
-  let remaining = baseline;
-  while (polls < reads) {
-    polls++;
-    remaining = await read();
-    if (remaining === baseline) break;
-    if (polls < reads) await pause();
+  let result = { baseline: baseline.length, remaining: baseline.length, polls: 0, maxPolls, descriptors: baseline };
+  while (result.polls < reads) {
+    const descriptors = await read();
+    result = { ...result, remaining: descriptors.length, polls: result.polls + 1, descriptors };
+    const evidence = runnerFdFailureEvidence(result, baseline);
+    if (evidence.extraDescriptors.length === 0 && evidence.missingRequiredDescriptors.length === 0) break;
+    if (result.polls < reads) await pause();
   }
-  return { baseline, remaining, polls, maxPolls };
+  return result;
 }
 
 /** Failure receipt for the runner FD check: every runner descriptor absent from the baseline snapshot, with its kind. */
-export function runnerFdFailureEvidence(settle: RunnerFdSettle, baseline: OpenDescriptor[], observed: OpenDescriptor[]): { settle: RunnerFdSettle; extraDescriptors: OpenDescriptor[]; extraDescriptorKinds: FdClasses; missingDescriptors: OpenDescriptor[] } {
-  const delta = multisetDelta(baseline, observed, openDescriptorIdentity);
+export function runnerFdFailureEvidence(settle: RunnerFdSettle, baseline: OpenDescriptor[]): { settle: RunnerFdSettle; extraDescriptors: OpenDescriptor[]; extraDescriptorKinds: FdClasses; missingDescriptors: OpenDescriptor[]; missingRequiredDescriptors: OpenDescriptor[] } {
+  const delta = multisetDelta(baseline, settle.descriptors, openDescriptorIdentity);
   const extraDescriptorKinds: FdClasses = { socket: 0, pipe: 0, anon: 0, path: 0, other: 0 };
   for (const descriptor of delta.added) extraDescriptorKinds[descriptor.class]++;
-  return { settle, extraDescriptors: delta.added, extraDescriptorKinds, missingDescriptors: delta.removed };
+  return { settle, extraDescriptors: delta.added, extraDescriptorKinds, missingDescriptors: delta.removed, missingRequiredDescriptors: delta.removed.filter(descriptor => descriptor.class !== "socket") };
 }

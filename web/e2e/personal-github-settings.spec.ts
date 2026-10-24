@@ -2,9 +2,9 @@ import { test, expect, captureEvidence } from "./fixtures/test-base.js";
 
 const member = { user: { id: "owner-a", email: "owner@test.local", name: "Owner", role: "member" } };
 const deviceReviewId = "00000000-0000-4000-8000-000000000002";
-const deviceAttempt = (attemptId = "00000000-0000-4000-8000-000000000001", userCode = "ABCD-EFGH") => ({
+const deviceAttempt = (attemptId = "00000000-0000-4000-8000-000000000001", userCode = "ABCD-EFGH", now = Date.now()) => ({
 	attemptId, userCode, verificationUri: "https://github.com/login/device",
-	expiresAt: new Date(Date.now() + 600_000).toISOString(), intervalSeconds: 1,
+	expiresAt: new Date(now + 600_000).toISOString(), intervalSeconds: 1,
 });
 
 test("personal GitHub connection is available to a member @evidence", async ({ page, mockApi }, testInfo) => {
@@ -206,12 +206,13 @@ test("an unverified code expires even when the connection check fails", async ({
 });
 
 test("failed account lookup retires its one-use code and starts a fresh request", async ({ page, mockApi }) => {
-	await page.clock.install({ time: new Date("2026-09-23T12:00:00.000Z") });
+	const now = new Date("2026-09-23T12:00:00.000Z");
+	await page.clock.install({ time: now });
 	let starts = 0;
 	await mockApi({ routes: {
 		"/api/auth/me": () => member,
 		"/api/github/connection": () => ({ status: "disconnected", configured: true, authMode: "device" }),
-		"/api/github/device/start": () => deviceAttempt(starts++ === 0 ? "00000000-0000-4000-8000-000000000001" : "00000000-0000-4000-8000-000000000003", starts === 1 ? "ABCD-EFGH" : "WXYZ-1234"),
+		"/api/github/device/start": () => deviceAttempt(starts++ === 0 ? "00000000-0000-4000-8000-000000000001" : "00000000-0000-4000-8000-000000000003", starts === 1 ? "ABCD-EFGH" : "WXYZ-1234", now.getTime()),
 	} });
 	await page.route("**/api/github/device/poll", (route) => route.fulfill({
 		status: 409, json: { code: "DEVICE_RESTART_REQUIRED", error: "GitHub account lookup failed. Start a new connection." },

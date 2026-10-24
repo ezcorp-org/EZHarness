@@ -232,7 +232,7 @@ ez_watchdog_run_file() {
     runner=(bun)
   fi
 
-  "${runner[@]}" test --timeout 30000 "${extra_args[@]}" "./$test_file" >"$outfile" 2>&1 &
+  bash "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/test-file-context.sh" "$test_file" "${runner[@]}" test --timeout 30000 "${extra_args[@]}" "./$test_file" >"$outfile" 2>&1 &
   local bun_pid=$!
 
   ( _ez_watchdog_loop "$bun_pid" "$test_file" "$wdfile" ) &

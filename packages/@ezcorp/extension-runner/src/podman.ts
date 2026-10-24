@@ -7,8 +7,8 @@ import { randomUUID } from "node:crypto";
 import type { ChildProcessWithoutNullStreams } from "node:child_process";
 import type { BuildResult, InvocationContext, ProcessSpawnPolicy, ResourceLimits, Runner, RunnerCapabilities, RunnerInspection, StartRequest, WorkspaceFiles } from "@ezcorp/extension-contract";
 import { canonicalJson, processSpawnPolicy, validateInvocationContext, validateManifest, workspaceFileBytes, workspaceText } from "@ezcorp/extension-contract";
-import { buildLimits, capture, command, digest, executionLimits, MAXIMUM_ARTIFACT_BYTES, filesDigest, identifier, limitsWithin, processSpawn, relativePath, RunnerCommandError, RunnerError, sha256, validateFiles } from "./core";
-import { FramedExecution, type FramedTransport, type ReverseRpc } from "./protocol";
+import { buildLimits, capture, command, digest, executionLimits, MAXIMUM_ARTIFACT_BYTES, filesDigest, identifier, limitsWithin, processSpawn, relativePath, RunnerCommandError, RunnerError, RunnerStartRefusedError, sha256, validateFiles } from "./core";
+import { bindSensitiveRequestContext, FramedExecution, type FramedTransport, type ReverseRpc } from "./protocol";
 import { fetchLockedDependencies, toolchainBesideDependencies } from "./dependencies";
 import { browserBuild, browserBuilderProgram } from "./browser";
 import { BUN_SHIM_UNDUMPABLE, BUN_SPAWN_GUARD, BUN_SPAWN_GUARD_PATH, bunWorkerArgs } from "./spawn-guard";
@@ -732,23 +732,28 @@ export class PodmanRunner implements Runner {
     void execution.exited.finally(() => { this.executions.delete(input.workerId); }).catch(() => undefined);
     return execution;
   }
+  private requireExecutionAdmission(workerId: string): void {
+    if (this.operations.has(workerId)) throw new RunnerError("duplicate_worker", "Worker ID is already used");
+    if (this.activeExecutions >= (this.options.maxExecutions ?? 4)) throw new RunnerError("runner_busy", "Execution concurrency limit reached", "queue", true);
+  }
   protected async startExecution(input: StartRequest, reverseRpc: ReverseRpc, discovery: boolean): Promise<FramedExecution> {
     identifier(input.workerId);
     const limits = limitsWithin(input.limits, this.options.executionCeiling ?? executionLimits);
     if (input.context.workerId !== input.workerId || !Number.isSafeInteger(input.context.deadline) || input.context.deadline <= Date.now()) throw new RunnerError("invalid_context", "Worker context or deadline is invalid");
     await this.prepare(false);
     if (!discovery) await this.authorize("execute", input.artifactDigest);
-    if (this.operations.has(input.workerId)) throw new RunnerError("duplicate_worker", "Worker ID is already used");
-    if (this.activeExecutions >= (this.options.maxExecutions ?? 4)) throw new RunnerError("runner_busy", "Execution concurrency limit reached", "queue", true);
+    this.requireExecutionAdmission(input.workerId);
     // Read before the worker is registered: a start refused for a missing artifact leaves no trace, so the host can
     // restore the artifact and send the same start again (W4H-32).
     const artifacts = await this.collectArtifacts(input.artifactDigest);
+    // The read can yield to another start; recheck and reserve without another await.
+    this.requireExecutionAdmission(input.workerId);
     this.activeExecutions++;
     this.operations.set(input.workerId, { id: input.workerId, state: "running", diagnostics: [] });
     let staged: string | undefined;
     try {
       const recipe = JSON.parse(workspaceText(artifacts[".runner/recipe.json"] ?? "{}", ".runner/recipe.json"));
-      if (recipe.image !== this.image || recipe.seccompDigest !== sha256(await readFile(this.seccompPath))) throw new RunnerError("runtime_profile_changed", "Runtime image or isolation policy differs from the built release");
+      if (recipe.image !== this.image || recipe.seccompDigest !== sha256(await readFile(this.seccompPath))) throw new RunnerStartRefusedError();
       staged = await this.stage(artifacts);
       const dependencies = JSON.parse(workspaceText(artifacts[".runner/dependencies.json"] ?? "{}", ".runner/dependencies.json"));
       const executable = JSON.parse(workspaceText(artifacts[".runner/executables.json"] ?? "[]", ".runner/executables.json"));
@@ -779,7 +784,7 @@ export class PodmanRunner implements Runner {
         if (["workerId", "releaseId", "principalId", "scopeId"].some(key => context[key as keyof InvocationContext] !== input.context[key as keyof InvocationContext]) || context.deadline <= Date.now() || context.deadline > Date.now() + limits.timeoutMs || contexts.has(context.invocationId)) throw new RunnerError("invalid_context", "Invocation identity, deadline or active ID is invalid");
         contexts.set(context.invocationId, context);
         return () => { contexts.delete(context.invocationId); };
-      });
+      }, bindSensitiveRequestContext(input.context, limits.timeoutMs));
       this.executions.set(input.workerId, execution);
       const cleanupFailed = () => {
         const current = this.operations.get(input.workerId);
@@ -798,7 +803,15 @@ export class PodmanRunner implements Runner {
         if (!this.containers.has(input.workerId)) await rm(stage, { recursive: true, force: true });
       }).catch(cleanupFailed);
       return execution;
-    } catch (error) { this.activeExecutions--; this.operations.set(input.workerId, { id: input.workerId, state: "failed", diagnostics: [new RunnerError("worker_start_failed", "Worker could not start").diagnostic()] }); if (staged) await rm(staged, { recursive: true, force: true }); throw error; }
+    } catch (error) {
+      this.activeExecutions--;
+      const diagnostic = error instanceof RunnerError && error.code === "artifact_missing"
+        ? error.diagnostic()
+        : new RunnerError("worker_start_failed", "Worker could not start").diagnostic();
+      this.operations.set(input.workerId, { id: input.workerId, state: "failed", diagnostics: [diagnostic] });
+      if (staged) await rm(staged, { recursive: true, force: true });
+      throw error;
+    }
   }
   /**
    * Signals the sandbox's init process so the guest can clean up. It never

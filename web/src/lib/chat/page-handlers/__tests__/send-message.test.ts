@@ -334,6 +334,10 @@ const fetchMock = vi.fn(async (_input: RequestInfo | URL, _init?: RequestInit) =
 // ── Now safe to import the SUT. ────────────────────────────────────────
 
 const { makeSendMessage } = await import("../send-message.js");
+// Prepare the real contract modules before timing handler behavior. Cold Vite
+// transforms must not consume this test's execution deadline.
+const { subConversationBody } = await vi.importActual<typeof import("$lib/api.js")>("$lib/api.js");
+const { createConversationSchema } = await import("../../../../routes/api/conversations/schema");
 type SendMessageHost = import("../send-message.js").SendMessageHost;
 
 // ── Helpers ──────────────────────────────────────────────────────────────
@@ -1480,8 +1484,6 @@ describe("sub-conversation handlers", () => {
 		// The contract: what startSubConvo hands createSubConversation, serialised by the real body builder,
 		// must pass the real POST /api/conversations schema. Before W4H-33 the page sent agentConfigId "" and the
 		// server answered 400 "Invalid UUID"; a mocked createSubConversation could not see it.
-		const { subConversationBody } = await vi.importActual<typeof import("$lib/api.js")>("$lib/api.js");
-		const { createConversationSchema } = await import("../../../../routes/api/conversations/schema");
 		subConversationStoreState.active = null;
 		const { host } = makeHost({ convId: "c0000000-0000-4000-8000-00000000000c", projectId: "global" });
 		await makeSendMessage(host).startSubConvo({ name: "researcher" }, "e0000000-0000-4000-8000-00000000000e");

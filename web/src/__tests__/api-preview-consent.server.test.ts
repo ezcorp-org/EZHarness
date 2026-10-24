@@ -15,7 +15,7 @@
  * The consent service is mocked so the route's validation + requester
  * scoping is tested without a DB.
  */
-import { test, expect, describe, vi, beforeEach } from "vitest";
+import { test, expect, describe, vi, beforeEach, afterEach } from "vitest";
 import { makeRequestEvent } from "./helpers/server-route-test-utils";
 
 const mockExpose = vi.fn();
@@ -58,7 +58,11 @@ beforeEach(() => {
   mockSetAlways.mockReset();
   mockClearAlways.mockReset();
   mockExpose.mockResolvedValue({ previewId: "pid26", code: "code123", subdomainLabel: "pid26" });
+  vi.stubEnv("EZCORP_PREVIEW_APP_HOST", "localhost");
+  vi.stubEnv("FORCE_SECURE_COOKIES", "");
 });
+
+afterEach(() => vi.unstubAllEnvs());
 
 describe("POST /api/preview/consent", () => {
   test("401 when unauthenticated", async () => {
@@ -108,9 +112,32 @@ describe("POST /api/preview/consent", () => {
       makeEvent({ body: { conversationId: "c1", port: 5173, action: "expose", userId: "attacker" } }),
     );
     expect(res.status).toBe(200);
-    expect(await res.json()).toMatchObject({ ok: true, previewId: "pid26", code: "code123" });
+    expect(await res.json()).toMatchObject({ ok: true, previewId: "pid26", code: "code123", openUrl: "http://pid26.preview.localhost/__open?c=code123" });
     expect(mockExpose).toHaveBeenCalledWith({ userId: "session-user", conversationId: "c1", port: 5173 });
     expect(mockSetAlways).not.toHaveBeenCalled();
+  });
+
+  test("uses the configured preview host and high port, not the request host", async () => {
+    vi.stubEnv("EZCORP_PREVIEW_APP_HOST", "localhost:4301");
+    const res = await run(makeEvent({ body: { conversationId: "c1", port: 5173, action: "expose" } }));
+    expect(res.status).toBe(200);
+    expect((await res.json()).openUrl).toBe("http://pid26.preview.localhost:4301/__open?c=code123");
+  });
+
+  test("keeps an explicit split preview host and secure scheme", async () => {
+    vi.stubEnv("EZCORP_PREVIEW_APP_HOST", "previews.example.test:8443");
+    vi.stubEnv("FORCE_SECURE_COOKIES", "true");
+    const res = await run(makeEvent({ body: { conversationId: "c1", port: 5173, action: "expose" } }));
+    expect(res.status).toBe(200);
+    expect((await res.json()).openUrl).toBe("https://pid26.preview.previews.example.test:8443/__open?c=code123");
+  });
+
+  test("refuses exposure before any mutation when the preview host is disabled", async () => {
+    vi.stubEnv("EZCORP_PREVIEW_APP_HOST", "");
+    const res = await run(makeEvent({ body: { conversationId: "c1", port: 5173, action: "always-expose" } }));
+    expect(res.status).toBe(503);
+    expect(mockSetAlways).not.toHaveBeenCalled();
+    expect(mockExpose).not.toHaveBeenCalled();
   });
 
   test("always-expose sets the pref THEN exposes", async () => {
