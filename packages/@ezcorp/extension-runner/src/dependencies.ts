@@ -16,7 +16,9 @@ const maximumClosure = 100 * 1024 ** 2;
 async function registryBytes(url: string, maximumBytes: number, signal?: AbortSignal): Promise<Uint8Array> {
   const parsed = new URL(url);
   if (parsed.origin !== new URL(registry).origin || parsed.username || parsed.password) throw new RunnerError("registry_denied", "Dependencies must come from the approved npm registry", "dependencies");
-  const response = await fetch(parsed, { redirect: "error", signal: signal ? AbortSignal.any([signal, AbortSignal.timeout(30_000)]) : AbortSignal.timeout(30_000) });
+  // No pool, as in RunnerClient (W4H-30): Bun keeps an idle registry connection for 300 s, so the runner's descriptor
+  // count would depend on how long ago its last dependency fetch was, and the R4 resources proof failed on it.
+  const response = await fetch(parsed, { redirect: "error", keepalive: false, signal: signal ? AbortSignal.any([signal, AbortSignal.timeout(30_000)]) : AbortSignal.timeout(30_000) });
   if (!response.ok || !response.body) throw new RunnerError("dependency_unavailable", `Registry returned ${response.status}`, "dependencies", true);
   const reader = response.body.getReader();
   const chunks: Uint8Array[] = [];
