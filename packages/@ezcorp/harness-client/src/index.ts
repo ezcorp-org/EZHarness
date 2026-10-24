@@ -921,9 +921,10 @@ export class HarnessClient {
       while (!opts.signal?.aborted) {
         const { done, value } = await reader.read();
         if (done) break;
-        for (const payload of buf.push(decoder.decode(value, { stream: true }))) {
-          if (buf.lastEventId) opts.onEventId?.(buf.lastEventId);
-          const evt = safeJson(payload);
+        for (const record of buf.pushRecords(decoder.decode(value, { stream: true }))) {
+          if (record.lastEventId || record.hasEventId) opts.onEventId?.(record.lastEventId);
+          if (record.data === null) continue;
+          const evt = safeJson(record.data);
           if (evt && typeof evt === "object") yield evt as RuntimeEvent;
         }
       }

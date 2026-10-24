@@ -9640,3 +9640,19 @@ No active FIX/frozen release/live/API/SSH/GitHub effects. No audit waiver, broad
 - [x] Merge main6453ce15 into reviewed b6af source.
 - [x] Resolve only the deterministic device-code clock test overlap. Kept the exact main pageClockStart/expiry solution and all assertions.
 - [x] Verify narrow diff and TypeScript parsing; normal hooks run at merge commit. The resolved test is byte-identical to main6453ce15. No runtime, lock, SDK, workflow or policy change from main. No browser/whole-gate rerun.
+
+## 2026-10-24: Per-frame SSE cursor association
+
+- [x] Reproduce wrong cursor association through real coalesced/fragmented HTTP SSE.
+- [x] Add a single shared record parser preserving public push(string):string[].
+- [x] Verify IDs, id-only/reset/malformed/partial frames, existing abort behavior and full client tests.
+- [x] Build exact four SDK runtime files; measure provided extension SDK impact; independent review before commit.
+
+Own harness-client parser/client/tests only; no live service, active app or whole gate.
+
+### Review — per-frame SSE cursor association
+
+- Actual loopback HTTP old consumer associates both coalesced payloads with cursor2; fragmented control passes. The shared record parser now preserves each cursor before its payload. Public push(string):string[] remains unchanged.
+- Source and actual compiled four-file SDK pass 11 real HTTP/parser tests, including cursor persistence, id-only/reset, malformed and partial records, resume headers and abort. Existing client module passes99 tests/339 assertions; types, Biome and package build pass.
+- Initial test callback narrowing and later Bun Request lifetime errors are retained as fixture failures. Final test copies incoming headers while the request is live; final types and all HTTP cases pass. No product workaround or timeout change.
+- Actual canonical provided SDK79b400/toolchain6095 match current G10. Existing events.js/routes.js hashes remain unchanged; index.js/sse.js require a new protected client closure. No server/app deployment or live replay claim. Independent review and normal commit follow.

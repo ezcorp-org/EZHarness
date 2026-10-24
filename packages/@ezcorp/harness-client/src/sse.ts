@@ -5,6 +5,12 @@
  * record separator (`\n\n`), and returns the joined `data:` payload of each
  * record (skipping `:`-prefixed comments / heartbeats and field-only records).
  */
+export interface SseRecord {
+  data: string | null;
+  lastEventId: string;
+  hasEventId: boolean;
+}
+
 export class SseDataBuffer {
   private buf = "";
   private _lastEventId = "";
@@ -16,9 +22,9 @@ export class SseDataBuffer {
    * from the server's resume ring. This used to be dropped on the floor
    * (`push` filtered for `data:` and discarded every other field), which made
    * reconnection unconditionally lossy. Per the SSE spec the id PERSISTS
-   * across records until the server sends a new one, so it is tracked as
-   * buffer state rather than returned per record — and a record that carries
-   * no `id:` deliberately leaves it unchanged.
+   * across records until the server sends a new one. A record with no `id:`
+   * leaves it unchanged. Use pushRecords() to associate each payload with its
+   * cursor; this getter describes the final state of the whole buffered chunk.
    *
    * Best-effort by nature: the server ring is 500 GLOBAL entries including
    * every `run:token`, so a busy instance can turn it over in seconds. A
@@ -30,20 +36,33 @@ export class SseDataBuffer {
   }
 
   push(chunk: string): string[] {
+    return this.pushRecords(chunk).flatMap(record => record.data === null ? [] : [record.data]);
+  }
+
+  /** Complete records with their own cursor snapshots, including id-only resets. */
+  pushRecords(chunk: string): SseRecord[] {
     this.buf += chunk;
-    const out: string[] = [];
+    const out: SseRecord[] = [];
     let idx: number;
     while ((idx = this.buf.indexOf("\n\n")) !== -1) {
       const record = this.buf.slice(0, idx);
       this.buf = this.buf.slice(idx + 2);
       const lines = record.split("\n");
+      let hasEventId = false;
       for (const line of lines) {
-        if (line.startsWith("id:")) this._lastEventId = line.slice("id:".length).replace(/^ /, "");
+        if (line.startsWith("id:")) {
+          this._lastEventId = line.slice("id:".length).replace(/^ /, "");
+          hasEventId = true;
+        }
       }
       const dataLines = lines
         .filter((l) => l.startsWith("data:"))
         .map((l) => l.slice("data:".length).replace(/^ /, ""));
-      if (dataLines.length > 0) out.push(dataLines.join("\n"));
+      if (dataLines.length > 0 || hasEventId) out.push({
+        data: dataLines.length > 0 ? dataLines.join("\n") : null,
+        lastEventId: this._lastEventId,
+        hasEventId,
+      });
     }
     return out;
   }
