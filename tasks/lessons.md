@@ -3087,3 +3087,13 @@ smokes under the lock, detached-job wake-ups) are not repeated.
 - Test setup can hide a cold build defect when it manually creates a required runtime artifact. Test the canonical package lifecycle and root frozen install with that artifact absent before any warm test producer runs.
 - Preserve compiler argument routing when adding a build producer. Verify both normal build and build --force through the real lifecycle.
 - Generic readiness refusal does not prove a transport failure. Capture only bounded process status and closed machine error fields before cleanup; keep raw credentials and child logs out of CI output.
+
+## 2026-10-24: Isolated gate parser dependency
+
+- Root and web frozen installs do not install the separate .github/gate-integrity-deps lock. Before a local backend gate that runs scratch gate fixtures, use its existing composite-action install: bun install --cwd .github/gate-integrity-deps --frozen-lockfile --ignore-scripts.
+- Use an explicit ./ prefix when a Bun test lives outside configured test roots. A filter with no matched files is not a reproduced test failure. Preserve that refusal separately.
+
+## 2026-10-24: Metrics fixture stop condition
+
+- A fixture that asserts on a published observation must stop on that record, not a shared heartbeat count. Use the existing stopOnPublished writer and cadence backstop; inject the existing slowHostKey to prove a loaded host cannot recreate the race.
+- A passing isolated run does not disprove a scheduling failure under load. Keep the genuine gate log and use a controlled dependency delay at the actual consumer before changing the test. Do not raise production timeouts or add retries.

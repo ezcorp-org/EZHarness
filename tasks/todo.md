@@ -9590,3 +9590,30 @@ Review: saved39b audit failed two high Zod findings. The actual ai-kit schema pr
 - Actual cold root frozen install creates both bundle files; original digest loader and replay pass. The authorized local partial orchestrator test reaches real Temporal worker polling and cleans all owned processes/ports/files. Full factory browser E2E remains pending.
 - Focused Bun56 and Node22 tests, canonical root types, canonical web check and five-file Biome pass. Independent review PASS ab06f122 on all five source files. No deployment or live retry.
 - This changes shipped build output: the original e6 release lacks both workflow bundle files. Provider G10 is unchanged. Evidence: .cache/factory-readiness-fix/REVIEW.md.
+
+## 2026-10-24: Locked local gate parser prerequisite
+
+- [x] Reproduce the exact Rule11 fixture failure with no isolated parser install.
+- [x] Trace the standard locked dependency setup; install only that owned dependency directory.
+- [x] Repeat the real consumer and report environment versus code cause.
+
+No active FIX changes, no whole gate, no source repair unless a real code defect is proved. Root dependencies are linked for reads only; no install through that link.
+
+### Review — locked gate parser prerequisite
+
+- Actual explicit-path Rule11: exit1/10pass2fail before isolated parser install; both real fixture subprocesses refuse with TypeScript AST parser unavailable.
+- Canonical composite-action install, frozen lock and ignored scripts, installed only TypeScript5.9.3 in .github/gate-integrity-deps. Lock unchanged. Same test then exit0/12pass0fail.
+- Environment prerequisite; no source repair, no commit, no active FIX changes. Parent owns installation after current gate terminal and one required fast rerun.
+
+## 2026-10-24: Supervisor metrics fixture race
+
+- [x] Run the exact metrics fixture with the current6d29 dependencies.
+- [x] Reproduce the failure at the actual metrics consumer with controlled slow key I/O.
+- [x] Separate test scheduling from runtime readiness behavior, then make the smallest proven repair.
+- [x] Verify original assertions and bounds; report source/effect scope before commit.
+
+### Review — supervisor metrics fixture race
+
+- Original focused test passed locally. Controlled old consumer using its existing slowHostKey fixture failed with the same missing ready tuple as the parent fast log.
+- Reused existing stopOnPublished writer, slowHostKey and BACKSTOP_CADENCE_WAITS; all eight metrics assertions and production code/bounds remain unchanged.
+- Fixed focused test passes; full isolated supervisor module46pass/0fail/216assertions and Biome pass. Independent review PASS reported by parent before commit; active FIX untouched.

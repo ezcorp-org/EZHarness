@@ -295,13 +295,18 @@ describe("runConfiguredFactorySupervisor", () => {
     let ready: () => boolean = () => false;
     let stopped = false;
     await runConfiguredFactorySupervisor(path, abortController.signal, dependencies({
+      loadHostKey: slowHostKey,
       metrics: async (endpoint, isReady) => {
         expect(endpoint).toEqual(metrics);
         ready = isReady;
         return { url: "http://127.0.0.1:9468", stop: async () => { stopped = true; } };
       },
-      createReadiness: () => ({ write: async (update) => { readings.push([update.lifecycle, ready()]); return { ...update } as never; } }),
-    }));
+      createReadiness: (config) => {
+        // Stop on the record under test, not before the observer's key I/O completes.
+        const writer = stopOnPublished([], (records) => records.includes("ready:"))(config);
+        return { write: async (update) => { readings.push([update.lifecycle, ready()]); return writer.write(update); } };
+      },
+    }, BACKSTOP_CADENCE_WAITS));
     // The gauge is the record's own verdict: ready exactly when a ready record is written, not while starting.
     expect(readings).toContainEqual(["ready", true]);
     expect(readings).toContainEqual(["starting", false]);
