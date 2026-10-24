@@ -3114,3 +3114,11 @@ smokes under the lock, detached-job wake-ups) are not repeated.
 
 - Search security tests for the changed package and old resolved version before accepting a lock update. Run the complete affected consumer module, not only a snippet or feature check.
 - Keep patched-version assertions exact and preserve behavior checks; update a stale expected version to the already reviewed lock value. Do not weaken the test or change a running gate tree.
+
+## 2026-10-24: Cancellation must revoke native permission authority
+
+- Cancelling a run must settle its pending permission promise and both registries. Filtering old cards from hydration does not revoke their authority.
+- Compose run, tool, caller and configured signals. Check after asynchronous permission-mode resolution and again after approval before invoking a tool that can ignore its signal.
+- Prove old-run cleanup cannot remove a new same-conversation run. Use specific rejection assertions in race tests; an unrelated exception must not satisfy the test.
+
+- For a deferred Bun test barrier, capture the promise outcome before releasing the barrier, then assert its exact error. An eager rejects matcher can block the code that must release the promise.

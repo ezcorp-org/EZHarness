@@ -100,8 +100,8 @@ export interface PermissionWrapDeps {
   watchdog: WatchdogManager;
   /**
    * Bounds applied to every gate this wrapper opens. Omitted for the
-   * built-in families, which keep the historical unbounded "wait for the
-   * human" gate; a family whose answerer is a program rather than a person
+   * built-in families, which wait for the human without a timer but still
+   * follow run and tool cancellation; a family whose answerer is a program rather than a person
    * passes `{timeoutMs, signal, nonInteractiveGuard}`.
    */
   gateOptions?: PermissionGateOptions;
@@ -173,11 +173,14 @@ export function withPermissionGate(
       const { ctx, host, conversationId } = deps;
       const toolController = new AbortController();
       ctx.toolAbortControllers.set(toolCallId, toolController);
-      const combinedSignal = signal
-        ? AbortSignal.any([signal, toolController.signal])
-        : toolController.signal;
+      const signals = [ctx.controller.signal, toolController.signal];
+      if (signal) signals.push(signal);
+      if (deps.gateOptions?.signal) signals.push(deps.gateOptions.signal);
+      const combinedSignal = AbortSignal.any(signals);
       try {
-        if (await opensGate(def, deps)) {
+        const approvalRequired = await opensGate(def, deps);
+        combinedSignal.throwIfAborted();
+        if (approvalRequired) {
           const permInfo: PendingPermissionInfo = {
             conversationId, toolCallId, toolName: def.name,
             input: params, cardType: def.cardType, category: def.category,
@@ -193,7 +196,7 @@ export function withPermissionGate(
             ...(deps.userId !== null ? { userId: deps.userId } : {}),
           });
           try {
-            await createPermissionGate(toolCallId, conversationId, deps.gateOptions);
+            await createPermissionGate(toolCallId, conversationId, { ...deps.gateOptions, signal: combinedSignal });
           } catch (err) {
             return {
               content: [{ type: "text" as const, text: refusalText(def.name, err) }],
@@ -208,6 +211,9 @@ export function withPermissionGate(
           // execution budget and get the run killed on first contact.
           deps.watchdog.refreshToolStart(deps.runId, toolCallId);
         }
+        // Approval and cancellation can settle in the same turn of the event loop.
+        // A native tool may ignore its signal, so refuse before handing it control.
+        combinedSignal.throwIfAborted();
         return await def.execute(toolCallId, params, combinedSignal, onUpdate);
       } finally {
         ctx.toolAbortControllers.delete(toolCallId);

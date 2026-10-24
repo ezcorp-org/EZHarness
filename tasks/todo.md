@@ -9674,3 +9674,21 @@ Review: one expected-version string changed. Proper web-runner RED7/1 then GREEN
 - No push, live operations, or complete local gate in this task.
 
 Review: two conflicts resolved. Keep f1d receiver state replacement byte-identical and retain main's delayed-request regression. Keep test-file-context launch wrapper and use main's shared 30000 ms constant. Existing reset and context-wrapper focused modules pass; the normal merge commit also runs the six mapped staged-test modules. Main adds no dependency lock or package manifest changes. Final parent/tree and hook receipt are retained in `.cache/main858-merge-v1/`; no full-fast, hosted, or deployment result is claimed.
+
+## 2026-10-24: Cancelled native permission authority
+
+- [x] Reproduce actual cancel/permission/active-run API composition with real executor maps and native file tool in a private local fixture.
+- [x] Prove false-only old-gate cleanup cannot clear the new run; preserve original-source RED for stale hydration and two late-approval write races.
+- [x] Bind existing abort-aware permission gates to run/tool/caller/configured signals and check cancellation before card registration and immediately before effect.
+- [x] Complete 13 focused modules (278 tests), lint, fresh source coverage and independent source/consumer review.
+- [ ] Run canonical changed-function CRAP after normal commit, then parent combined gate for all global type legs.
+
+No live API, SSH, production DB, current model turn, frozen-source modification or whole gate. Ten-cycle preparation paused.
+
+### Review — cancelled native permission authority
+
+Actual local cancel API → executor → permission wrapper → native editFile → active-run hydration reproduces the installed failure. Original source leaves the old card and permits a late approval to write; both late-approval races now refuse, and false-only old cleanup preserves the new run. Run, tool, caller and configured signals compose through the existing abort-aware gate. Cancellation is checked after mode lookup and immediately before execution. No conversation-wide cleanup or hydration filter was added.
+
+All 13 affected modules pass (278 tests). Fresh wrapper/executor coverage measures all 64 wrapper lines covered; lint passes. The initial uncommitted canonical CRAP run measures zero changed files and is not a pass claim; rerun after normal commit. A full-repository CRAP report with only this focused coverage is also not a whole-gate result. Standalone types failed due borrowed workspace resolution and a forced 2GiB Node heap; those receipts remain. Parent explicitly defers global types to the one combined canonical gate in its fully prepared tree. No production DB, live API/SSH, model, installed source, push or whole gate was used.
+
+Parent integration note: committed source dbd6b952 passed canonical scoped CRAP after commit: one measured file, two functions, both 100% covered, scores 6 and 1. Global type legs remain pending in the combined canonical gate.

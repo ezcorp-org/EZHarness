@@ -38,6 +38,7 @@ mock.module("../db/queries/active-runs", () => ({
 
 mock.module("../db/queries/runs", () => ({
   insertRun: async () => { await insertRunGate; insertRunCompleted = true; },
+  finalizeRunRow: async () => 1,
   updateRun: async () => {},
   insertLog: async () => {},
   listRuns: async () => [],
@@ -120,6 +121,7 @@ beforeEach(() => {
   mock.module("../db/queries/active-runs", () => ({
     createActiveRun: async () => {},
     deleteActiveRun: async () => {},
+    getActiveRun: async () => null,
     getActiveRuns: async () => [],
     cleanupOrphanedRuns: async () => {},
     updateHeartbeat: async () => {},
@@ -635,4 +637,110 @@ describe("AgentExecutor.streamChat", () => {
     // Restore
     setupPiAiMocks({ textChunks: ["Hello", " world"] });
   });
+});
+
+// API/runtime composition. Model admission stops at the real registration hook;
+// the actual native permission wrapper then uses the executor's real maps/controller.
+type RuntimeView = { controllers: Map<string, AbortController>; pendingPermissions: Map<string, import("../runtime/stream-chat/host").PendingPermissionInfo>;
+  runs: Map<string, import("../types").AgentRun>; activeAgents: Map<string, unknown>; runConversations: Map<string, string>; watchdog: unknown };
+async function permissionLifecycleFixture() {
+  const { mockServerAlias, ADMIN_USER } = await import("./helpers/mock-request");
+  const { contextModule } = await import("./helpers/mock-cleanup");
+  const { createStreamChatContext } = await import("../runtime/stream-chat/context");
+  const { makeTestPermissionDeps } = await import("./helpers/permission-wrap-deps");
+  const { withPermissionGate } = await import("../runtime/tools/permission-wrap");
+  const { createEditFileTool } = await import("../runtime/tools/edit-file");
+  const { mkdtemp, rm } = await import("node:fs/promises");
+  const { join } = await import("node:path");
+  const { tmpdir } = await import("node:os");
+  const bus = new EventBus<AgentEvents>(); const executor = new AgentExecutor(new Map(), bus, { persist: true });
+  const view = executor as unknown as RuntimeView;
+  mockServerAlias();
+  mock.module("$lib/server/context", () => contextModule({ getExecutor: () => executor, getBus: () => bus }));
+  mock.module("$lib/server/conversation-ownership", () => ({ resolveRootConversationForOwnership: async () => ({ conv: { id: "conv-1", userId: ADMIN_USER.id } }) }));
+  const api = await import("../../web/src/routes/api/conversations/[id]/active-run/+server");
+  const { handleToolPermission } = await import("../routes/tool-permission");
+  const root = await mkdtemp(join(tmpdir(), "ezh-cancel-native-"));
+  const contexts: import("../runtime/stream-chat/context").StreamChatContext[] = [];
+  async function start(id: string, callId: string) {
+    const stop = new Error("fixture stops before model at registered run");
+    await expect(executor.streamChat("conv-1", "fixture", { runId: id, onRunRegistered() { throw stop; } })).rejects.toBe(stop);
+    const ctx = createStreamChatContext(view.runs.get(id)!, view.controllers.get(id)!, undefined); contexts.push(ctx);
+    const fixture = makeTestPermissionDeps({ runId: id, conversationId: "conv-1", requestedMode: "ask", userId: ADMIN_USER.id });
+    fixture.deps.ctx = ctx;
+    Object.assign(fixture.deps.host, { bus, persist: true, pendingPermissions: view.pendingPermissions, controllers: view.controllers,
+      activeAgents: view.activeAgents, runConversations: view.runConversations, runs: view.runs, watchdog: view.watchdog });
+    fixture.deps.watchdog = fixture.deps.host.watchdog;
+    const tool = withPermissionGate(createEditFileTool(root), fixture.deps);
+    const pending = tool.execute(callId, { path: id + ".txt", new_string: id }, undefined);
+    await new Promise(resolve => setTimeout(resolve, 0));
+    return { ctx, host: fixture.deps.host, pending };
+  }
+  const locals = { user: ADMIN_USER, authMethod: "session" };
+  const event = () => ({ params: { id: "conv-1" }, locals, request: new Request("http://fixture/api/conversations/conv-1/active-run", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "cancel" }) }) });
+  const answer = (id: string, approved: boolean) => handleToolPermission(new Request("http://fixture/permission", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ approved }) }), id, ADMIN_USER, locals);
+  const hydrate = async () => (await api.GET(event() as never)).json() as Promise<{ runId: string; pendingPermissions: Array<{ toolCallId: string }> }>;
+  const cleanup = async () => {
+    const { abortPendingApprovalsForScope } = await import("../runtime/tools/permissions"); abortPendingApprovalsForScope("conv-1");
+    executor.destroy(); await rm(root, { recursive: true, force: true });
+  };
+  return { executor, api, start, event, answer, hydrate, root, cleanup };
+}
+
+test("DENY of cancelled old gate cannot clear the new run or its gate", async () => {
+  const fixture = await permissionLifecycleFixture();
+  try {
+    const old = await fixture.start("old-deny", "old-deny-call");
+    const response = await fixture.api.POST(fixture.event() as never); expect((await response.json()).cancelled).toBe(true);
+    const current = await fixture.start("new-deny", "new-deny-call");
+    expect((await fixture.answer("old-deny-call", false)).status).toBe(200); await old.pending;
+    const { finalizeCleanup } = await import("../runtime/stream-chat/finalize"); await finalizeCleanup(old.ctx, old.host);
+    const active = await fixture.hydrate(); expect(active.runId).toBe("new-deny");
+    expect(active.pendingPermissions.map(p => p.toolCallId)).toEqual(["new-deny-call"]);
+    expect((await fixture.executor.getRun("old-deny"))?.status).toBe("cancelled");
+    expect((await fixture.executor.getRun("new-deny"))?.status).toBe("running");
+    expect(await Bun.file(fixture.root + "/old-deny.txt").exists()).toBe(false);
+    await fixture.answer("new-deny-call", false); await current.pending;
+  } finally { await fixture.cleanup(); }
+});
+
+test("cancel API revokes an old native gate before a new run and late approval", async () => {
+  const fixture = await permissionLifecycleFixture();
+  try {
+    const old = await fixture.start("old-cancel", "old-cancel-call");
+    await fixture.api.POST(fixture.event() as never);
+    const { getPendingApproval } = await import("../runtime/tools/permissions");
+    expect(getPendingApproval("old-cancel-call")).toBe(false);
+    const current = await fixture.start("new-cancel", "new-cancel-call");
+    expect(getPendingApproval("new-cancel-call")).toBe(true);
+    const active = await fixture.hydrate(); expect(active.runId).toBe("new-cancel");
+    expect(active.pendingPermissions.map(p => p.toolCallId)).toEqual(["new-cancel-call"]);
+    await fixture.answer("old-cancel-call", true); await old.pending;
+    expect(await Bun.file(fixture.root + "/old-cancel.txt").exists()).toBe(false);
+    await fixture.answer("new-cancel-call", false); await current.pending;
+  } finally { await fixture.cleanup(); }
+});
+
+test("late approval after cancel cannot execute the old native file write", async () => {
+  const fixture = await permissionLifecycleFixture();
+  try {
+    const old = await fixture.start("old-late", "old-late-call");
+    await fixture.api.POST(fixture.event() as never);
+    const current = await fixture.start("new-late", "new-late-call");
+    expect((await fixture.answer("old-late-call", true)).status).toBe(200); await old.pending;
+    expect(await Bun.file(fixture.root + "/old-late.txt").exists()).toBe(false);
+    expect((await fixture.hydrate()).runId).toBe("new-late");
+    await fixture.answer("new-late-call", false); await current.pending;
+  } finally { await fixture.cleanup(); }
+});
+
+test("approval immediately followed by cancellation cannot race into a native write", async () => {
+  const fixture = await permissionLifecycleFixture();
+  try {
+    const old = await fixture.start("old-race", "old-race-call");
+    const { resolvePermission } = await import("../runtime/tools/permissions");
+    resolvePermission("old-race-call", true); fixture.executor.cancelRun("old-race");
+    await expect(old.pending).rejects.toMatchObject({ name: "AbortError" });
+    expect(await Bun.file(fixture.root + "/old-race.txt").exists()).toBe(false);
+  } finally { await fixture.cleanup(); }
 });

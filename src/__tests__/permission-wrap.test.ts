@@ -475,10 +475,11 @@ describe("withPermissionGate — abort controller bookkeeping", () => {
     expect(seen.aborted).toBe(true);
   });
 
-  test("with NO caller signal the tool gets the per-call controller's own signal", async () => {
+  test("with NO caller signal the tool still combines run and per-call cancellation", async () => {
     const h = makeTestPermissionDeps({ storedMode: "yolo" });
     const { seen, controller } = await captureSignal(h, "call-nosig");
-    expect(seen).toBe(controller.signal);
+    expect(seen).not.toBe(controller.signal);
+    expect(seen.aborted).toBe(false);
     controller.abort();
     expect(seen.aborted).toBe(true);
   });
@@ -491,5 +492,39 @@ describe("withPermissionGate — abort controller bookkeeping", () => {
     };
     await expect(withPermissionGate(def, h.deps).execute("call-throw", {})).rejects.toThrow("boom");
     expect(h.toolAbortControllers.size).toBe(0);
+  });
+});
+
+
+describe("withPermissionGate — cancellation owns both gate registries", () => {
+  for (const source of ["run", "tool", "caller"] as const) {
+    test(`${source} cancellation clears pending authority without executing`, async () => {
+      const fixture = makeTestPermissionDeps({ requestedMode: "ask", conversationId: `cancel-${source}` });
+      const caller = new AbortController(); const calls: ToolCall[] = [];
+      const tool = withPermissionGate(makeDef({}, calls), fixture.deps);
+      const id = `cancel-${source}-call`; const pending = tool.execute(id, {}, caller.signal);
+      await new Promise(resolve => setTimeout(resolve, 0));
+      expect(getPendingApproval(id)).toBe(true);
+      if (source === "run") fixture.deps.ctx.controller.abort();
+      else if (source === "tool") fixture.toolAbortControllers.get(id)!.abort();
+      else caller.abort();
+      const result = await pending; expect(result.details).toMatchObject({ isError: true });
+      expect(getPendingApproval(id)).toBe(false); expect(fixture.pendingPermissions.size).toBe(0);
+      expect(fixture.toolAbortControllers.size).toBe(0); expect(calls).toHaveLength(0);
+      resolvePermission(id, true); expect(calls).toHaveLength(0);
+    });
+  }
+  test("cancel during mode lookup cannot emit a permission card after cancellation", async () => {
+    const fixture = makeTestPermissionDeps({ conversationId: "cancel-mode-lookup" });
+    const entered = Promise.withResolvers<void>(); const mode = Promise.withResolvers<PermissionMode>();
+    fixture.deps.getPermissionMode = async () => { entered.resolve(); return mode.promise; };
+    const calls: ToolCall[] = []; const cards: unknown[] = [];
+    fixture.bus.on("tool:permission_request", event => cards.push(event));
+    const pending = withPermissionGate(makeDef({}, calls), fixture.deps).execute("mode-race", {});
+    const outcome = pending.then(value => ({ value }), error => ({ error }));
+    await entered.promise; fixture.deps.ctx.controller.abort(); mode.resolve("ask");
+    expect(await outcome).toMatchObject({ error: { name: "AbortError" } });
+    expect(cards).toHaveLength(0); expect(calls).toHaveLength(0);
+    expect(getPendingApproval("mode-race")).toBe(false); expect(fixture.pendingPermissions.size).toBe(0); expect(fixture.toolAbortControllers.size).toBe(0);
   });
 });
