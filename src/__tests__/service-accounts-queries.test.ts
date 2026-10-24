@@ -21,7 +21,7 @@
  *     must match, so adding a third principal kind to one and not the other
  *     fails loudly instead of resolving to `undefined` at runtime.
  *
- * DB-backed: run with `--timeout 30000` (a `beforeEach` that restores the
+ * DB-backed: run with `--timeout $EZ_POOL_TEST_TIMEOUT_MS` (a `beforeEach` that restores the
  * migrated snapshot exceeds bun's 5s default and reports a bare 0 pass/1 fail).
  */
 import { test, expect, describe, beforeEach, afterAll } from "bun:test";

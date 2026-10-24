@@ -115,7 +115,7 @@ if [ -r "$ROOT/scripts/lib/hook-lib.sh" ]; then
   echo "── Tests (staged) ─────────────────────────────────"
   if ! run_staged_tests "${STAGED[@]}"; then
     fail "a unit test covering your staged changes failed, or too many map to this commit" \
-      "bun test --timeout 30000 <file>   (or: EZ_SKIP_HOOK_TESTS=1 git commit …)"
+      "bun test --timeout $EZ_POOL_TEST_TIMEOUT_MS <file>   (or: EZ_SKIP_HOOK_TESTS=1 git commit …)"
   fi
 fi
 

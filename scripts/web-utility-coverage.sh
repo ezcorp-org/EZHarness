@@ -57,7 +57,7 @@ for i in "${!FILES[@]}"; do
   rel="${f#web/}"
   (
     set +e
-    (cd "$REPO_ROOT/web" && bun test --timeout 30000 --coverage --coverage-reporter=lcov --coverage-dir="$covdir" "./$rel") >"$TMPDIR/out_$i" 2>&1
+    (cd "$REPO_ROOT/web" && bun test --timeout "$EZ_POOL_TEST_TIMEOUT_MS" --coverage --coverage-reporter=lcov --coverage-dir="$covdir" "./$rel") >"$TMPDIR/out_$i" 2>&1
     echo "$?" >"$TMPDIR/code_$i"
   ) &
   running=$((running + 1))

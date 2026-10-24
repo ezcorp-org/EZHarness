@@ -49,6 +49,7 @@ import { tmpdir } from "node:os";
 import { basename, join, resolve } from "node:path";
 import { parseBunVersion } from "../../scripts/check-bun-version.ts";
 import { withoutGitContext } from "./helpers/scratch-git.ts";
+import { POOL_TEST_TIMEOUT_MS } from "./helpers/pool-test-timeout.ts";
 
 const REPO_ROOT = resolve(import.meta.dir, "..", "..");
 const PRE_COMMIT = join(REPO_ROOT, ".githooks/pre-commit");
@@ -513,7 +514,7 @@ describe("hook-lib > run_staged_tests", () => {
         env: { ...baseEnv, PATH: `${bin}:${baseEnv.PATH}`, GIT_DIR: gitDir, GIT_INDEX_FILE: join(gitDir, "index"), GIT_PREFIX: "" },
       });
       expect(res.exitCode).toBe(0);
-      expect(res.out).toContain(`ran: test --timeout 30000 ./${staged}`);
+      expect(res.out).toContain(`ran: test --timeout ${POOL_TEST_TIMEOUT_MS} ./${staged}`);
       expect(res.out).not.toContain("seen: GIT_");
     } finally {
       rmSync(bin, { recursive: true, force: true });
@@ -535,7 +536,7 @@ describe("hook-lib > run_staged_tests", () => {
         env: { ...baseEnv, PATH: `${bin}:${baseEnv.PATH}` },
       });
       expect(res.exitCode).toBe(0);
-      expect(res.out).toContain(`ran: test --timeout 30000 ./${first}`);
+      expect(res.out).toContain(`ran: test --timeout ${POOL_TEST_TIMEOUT_MS} ./${first}`);
       expect(res.out).not.toContain("Broken pipe");
     } finally {
       rmSync(bin, { recursive: true, force: true });
@@ -636,8 +637,8 @@ describe("hook-lib > run_staged_tests > factory-orchestrator", () => {
     );
     expect(res.exitCode).toBe(0);
     expect(res.out.split(`ran: run test in ${join(REPO_ROOT, ORCHESTRATOR)}`)).toHaveLength(2);
-    expect(res.out).not.toContain(`ran: test --timeout 30000 ./${ORCHESTRATOR}`);
-    expect(res.out).toContain("ran: test --timeout 30000 ./src/__tests__/git-hooks.test.ts");
+    expect(res.out).not.toContain(`ran: test --timeout ${POOL_TEST_TIMEOUT_MS} ./${ORCHESTRATOR}`);
+    expect(res.out).toContain(`ran: test --timeout ${POOL_TEST_TIMEOUT_MS} ./src/__tests__/git-hooks.test.ts`);
   });
 
   test("a staged orchestrator source file alone still runs the package script", () => {

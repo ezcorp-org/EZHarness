@@ -4,6 +4,10 @@
 # in ONE place (DRY) instead of being copy-pasted. Source this file; don't
 # execute it. Run from the repo root (callers cd there first).
 
+# The pool's per-test budget, EZ_POOL_TEST_TIMEOUT_MS (one definition, shared with scripts/test.sh).
+# shellcheck source=scripts/lib/watchdog.sh
+. "${BASH_SOURCE[0]%/*}/watchdog.sh"
+
 # hook_step NAME CMD [ARGS...]
 # Print a header, run CMD, print elapsed seconds, and return CMD's exit status.
 # Standalone twin of ci-local.sh's run_step so the hooks can time their steps.
@@ -126,7 +130,7 @@ staged_test_targets() {
 # test-file-sets.sh functions test.sh and test-coverage.sh use, so a file that
 # was deliberately moved between the bun and vitest legs (see the explicit
 # include list in web/vitest.config.ts) can never be run by the wrong one here.
-# Backend files run ONE PER PROCESS with --timeout 30000 — bare `bun test` over
+# Backend files run ONE PER PROCESS with the pool's --timeout — bare `bun test` over
 # several backend files deadlocks on cross-file mock.module() contamination,
 # and the 5s default hook budget is too short for a PGlite restore.
 # Run a command without the git context a hook exports. Git sets GIT_DIR,
@@ -244,7 +248,7 @@ EOF
     # that tree resolves to zero files — which bun exits non-zero for. That read
     # as "your test failed" on a file whose tests are fine. scripts/test.sh
     # prefixes for the same reason.
-    without_git_context bun test --timeout 30000 "./$t" || rc=1
+    without_git_context bun test --timeout "$EZ_POOL_TEST_TIMEOUT_MS" "./$t" || rc=1
   done
   if [ "${#vitest_targets[@]}" -gt 0 ]; then
     echo "  vitest: ${vitest_targets[*]}"

@@ -73,7 +73,7 @@ for f in "${FILES[@]}"; do
   rel="${f#web/}"
   (
     set +e
-    ( cd "$REPO_ROOT/web" && bun test --timeout 30000 --coverage --coverage-reporter=lcov --coverage-dir="$covdir" "./$rel" ) > "$TMPDIR/full_$IDX" 2>&1
+    ( cd "$REPO_ROOT/web" && bun test --timeout "$EZ_POOL_TEST_TIMEOUT_MS" --coverage --coverage-reporter=lcov --coverage-dir="$covdir" "./$rel" ) > "$TMPDIR/full_$IDX" 2>&1
     echo "$?" > "$TMPDIR/code_$IDX"
     tail -3 "$TMPDIR/full_$IDX" > "$TMPDIR/out_$IDX"
   ) &
