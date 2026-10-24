@@ -1,0 +1,11 @@
+bun test v1.4.2 (744846f84)
+
+src/factory/service-probes.test.ts:
+[factory-pool-readiness] the record at /tmp/w09-probes-cSd2YP/pool.json names pool pool-01; this installation names pool-02
+[factory-pool-readiness] the record at /tmp/w09-probes-zI1D25/pool.json names pool pool.host-a; this installation names pool.host-b
+[factory-pool-readiness] the record at the pool's readiness route names pool pool.host-b; this installation names pool.host-a
+
+ 25 pass
+ 0 fail
+ 66 expect() calls
+Ran 25 tests across 1 file. [754.00ms]

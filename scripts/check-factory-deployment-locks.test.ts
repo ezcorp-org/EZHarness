@@ -1,9 +1,9 @@
 import { afterEach, beforeEach, describe, expect, spyOn, test } from "bun:test";
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
-import { checkFactoryDeploymentLocks, composeImages, dockerfileImages, factoryLockCheckIo, runFactoryDeploymentLockCheck, unpinnedFactoryImages } from "./check-factory-deployment-locks";
+import { checkFactoryDeploymentLocks, composeImages, dockerfileArtifacts, dockerfileImages, factoryLockCheckIo, runFactoryDeploymentLockCheck, unpinnedFactoryImages } from "./check-factory-deployment-locks";
 
 const DIGEST = `sha256:${"a".repeat(64)}`;
 let root: string;
@@ -11,6 +11,7 @@ let root: string;
 beforeEach(async () => {
   root = await mkdtemp(join(tmpdir(), "factory-locks-"));
   await mkdir(join(root, "deploy/factory/compose"), { recursive: true });
+  await mkdir(join(root, "deploy/factory/kubernetes"), { recursive: true });
 });
 afterEach(async () => { await rm(root, { recursive: true, force: true }); });
 
@@ -28,6 +29,18 @@ describe("image references", () => {
     expect(composeImages("t.yml", text).map((entry) => [entry.line, entry.reference])).toEqual([[3, `docker.io/x@${DIGEST}`], [5, `\${EZCORP_FACTORY_POOL_IMAGE:?}`], [8, "nginx:latest"]]);
   });
 
+  test("a downloaded artifact is pinned only by its sha256 on the same ADD; a RUN that fetches is never pinned (W4H-35)", () => {
+    const url = "https://github.com/containers/podman/releases/download/v5.8.7/podman-remote-static-linux_amd64.tar.gz";
+    const text = [`ADD --checksum=sha256:${"b".repeat(64)} ${url} /tmp/podman-remote.tar.gz`, `ADD ${url} /tmp/x.tar.gz`, "ADD --checksum=sha256:short https://x/y /tmp/y", "ADD ./local /app", "RUN curl -fsSL https://x/z | sh", "RUN wget https://x/w", "RUN tar -xzf /tmp/x.tar.gz"].join("\n");
+    expect(dockerfileArtifacts("Dockerfile", text)).toEqual([
+      { file: "Dockerfile", line: 1, reference: url, pinned: true },
+      { file: "Dockerfile", line: 2, reference: url, pinned: false },
+      { file: "Dockerfile", line: 3, reference: "https://x/y", pinned: false },
+      { file: "Dockerfile", line: 5, reference: "RUN curl -fsSL https://x/z | sh", pinned: false },
+      { file: "Dockerfile", line: 6, reference: "RUN wget https://x/w", pinned: false },
+    ]);
+  });
+
   test("only a digest pin or a provisioner-rendered installation image passes", () => {
     const refs = ["docker.io/x@" + DIGEST, `\${EZCORP_FACTORY_POOL_IMAGE:?}`, "nginx:latest", "docker.io/x@sha256:short", `\${OTHER_IMAGE}`].map((reference, line) => ({ file: "f", line, reference }));
     expect(unpinnedFactoryImages(refs).map((entry) => entry.reference)).toEqual(["nginx:latest", "docker.io/x@sha256:short", `\${OTHER_IMAGE}`]);
@@ -35,15 +48,21 @@ describe("image references", () => {
 });
 
 describe("the check over a deployment tree", () => {
-  async function tree(composeImage: string): Promise<void> {
+  async function tree(composeImage: string, kubernetesImage = `docker.io/kindest/node:v1@${DIGEST}`): Promise<void> {
     await writeFile(join(root, "deploy/factory/Dockerfile"), `ARG BUN_IMAGE=docker.io/oven/bun@${DIGEST}\nFROM \${BUN_IMAGE}\n`);
     await writeFile(join(root, "deploy/factory/compose/platform.yml"), `services:\n  a:\n    image: ${composeImage}\n`);
     await writeFile(join(root, "deploy/factory/compose/README.md"), "image: not-a-template\n");
+    await writeFile(join(root, "deploy/factory/kubernetes/kind-proof.yml"), `kind: Cluster\nnodes:\n  - role: control-plane\n    image: ${kubernetesImage}\n`);
   }
 
   test("a pinned tree passes and counts every reference", async () => {
     await tree(`docker.io/x@${DIGEST}`);
-    expect(await checkFactoryDeploymentLocks(root)).toEqual({ checked: 2, unpinned: [] });
+    expect(await checkFactoryDeploymentLocks(root)).toEqual({ checked: 3, unpinned: [] });
+  });
+
+  test("a Kubernetes template's image is checked like a Compose one (one lock mechanism for both profiles)", async () => {
+    await tree(`docker.io/x@${DIGEST}`, "docker.io/kindest/node:v1.36.1");
+    expect((await checkFactoryDeploymentLocks(root)).unpinned).toEqual([{ file: "deploy/factory/kubernetes/kind-proof.yml", line: 4, reference: "docker.io/kindest/node:v1.36.1" }]);
   });
 
   test("the entry prints each unpinned image with its place and exits 1", async () => {
@@ -51,7 +70,17 @@ describe("the check over a deployment tree", () => {
     const lines: string[] = []; let exit = -1;
     const entry = resolve(import.meta.dir, "check-factory-deployment-locks.ts");
     await runFactoryDeploymentLockCheck(["bun", entry], pathToFileURL(entry).href, root, { log: (line) => lines.push(line), exit: (code) => { exit = code; } });
-    expect(lines).toEqual(["deploy/factory/compose/platform.yml:3: image nginx:latest is not pinned by digest", "1 of 2 image references are not pinned."]);
+    expect(lines).toEqual(["deploy/factory/compose/platform.yml:3: image nginx:latest is not pinned by digest", "1 of 3 image and download references are not pinned."]);
+    expect(exit).toBe(1);
+  });
+
+  test("the entry names a download that has no sha256 (W4H-35)", async () => {
+    await tree(`docker.io/x@${DIGEST}`);
+    await writeFile(join(root, "deploy/factory/Dockerfile"), `ARG BUN_IMAGE=docker.io/oven/bun@${DIGEST}\nFROM \${BUN_IMAGE}\nADD https://example.test/tool.tar.gz /tmp/tool.tar.gz\n`);
+    const lines: string[] = []; let exit = -1;
+    const entry = resolve(import.meta.dir, "check-factory-deployment-locks.ts");
+    await runFactoryDeploymentLockCheck(["bun", entry], pathToFileURL(entry).href, root, { log: (line) => lines.push(line), exit: (code) => { exit = code; } });
+    expect(lines).toEqual(["deploy/factory/Dockerfile:3: download https://example.test/tool.tar.gz is not pinned by sha256", "1 of 4 image and download references are not pinned."]);
     expect(exit).toBe(1);
   });
 
@@ -61,7 +90,7 @@ describe("the check over a deployment tree", () => {
     const entry = resolve(import.meta.dir, "check-factory-deployment-locks.ts");
     const io = { log: (line: string) => lines.push(line), exit: (code: number) => { exit = code; } };
     await runFactoryDeploymentLockCheck(["bun", entry], pathToFileURL(entry).href, root, io);
-    expect([lines, exit]).toEqual([["Factory deployment locks OK: 2 image references, all pinned."], 0]);
+    expect([lines, exit]).toEqual([["Factory deployment locks OK: 3 image and download references, all pinned."], 0]);
     await runFactoryDeploymentLockCheck(["bun", "/elsewhere.ts"], pathToFileURL(entry).href, root, io);
     await runFactoryDeploymentLockCheck(["bun"], pathToFileURL(entry).href, root, io);
     expect(lines).toHaveLength(1);
@@ -71,6 +100,10 @@ describe("the check over a deployment tree", () => {
     const result = await checkFactoryDeploymentLocks(resolve(import.meta.dir, ".."));
     expect(result.unpinned).toEqual([]);
     expect(result.checked).toBeGreaterThan(5);
+    expect((await readFile(resolve(import.meta.dir, "../deploy/factory/kubernetes/kind-proof.yml"), "utf8"))).toMatch(/image: docker\.io\/kindest\/node:v[0-9.]+@sha256:[0-9a-f]{64}\n/);
+    // The supervisor's podman-remote client: a Podman 5.x release artifact, pinned by sha256 (C12 row "Supervisor container runtime").
+    const artifacts = dockerfileArtifacts("deploy/factory/Dockerfile", await readFile(resolve(import.meta.dir, "../deploy/factory/Dockerfile"), "utf8"));
+    expect(artifacts.map((entry) => [entry.reference.replace(/\/v5\.[0-9]+\.[0-9]+\//, "/v5.x/"), entry.pinned])).toEqual([["https://github.com/containers/podman/releases/download/v5.x/podman-remote-static-linux_amd64.tar.gz", true]]);
   });
 });
 
@@ -89,7 +122,7 @@ test("the default root is the repository", async () => {
   const lines: string[] = [];
   const entry = resolve(import.meta.dir, "check-factory-deployment-locks.ts");
   await runFactoryDeploymentLockCheck(["bun", entry], pathToFileURL(entry).href, undefined, { log: (line) => lines.push(line), exit: () => undefined });
-  expect(lines.at(-1)).toMatch(/^Factory deployment locks OK: \d+ image references, all pinned\.$/);
+  expect(lines.at(-1)).toMatch(/^Factory deployment locks OK: \d+ image and download references, all pinned\.$/);
 });
 
 describe("the deployment files keep the fixes the live runs needed", () => {

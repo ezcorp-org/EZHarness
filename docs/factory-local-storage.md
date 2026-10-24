@@ -20,6 +20,15 @@ a generated credential directory with a matching ownership record. Set the gener
 `scripts/setup-factory-storage.sh down` to remove containers, volumes, and
 generated credentials.
 
+A second, private pair (for example a proof's own) takes its own Compose project
+and tenant ids: `EZCORP_FACTORY_STORAGE_PROJECT=w4h35-stores
+EZCORP_FACTORY_STORAGE_TENANTS="01 35" scripts/setup-factory-storage.sh up`. Its
+credential directory is named after its project, and `down` with the same
+project removes only that pair. Without the two variables the script seeds
+`tenant-01` to `tenant-10` under the shared project, as before. Give the pair
+its own ports with the `EZCORP_FACTORY_STORAGE_*_PORT` variables of
+`compose.factory-storage.local.yml`.
+
 Each tenant credential is limited to one `tenant-XX` bucket and one prefix:
 `ordinary/` or `archive/`. Ordinary credentials are absent from the archive
 service and cannot read, overwrite, or delete archive objects. The two services

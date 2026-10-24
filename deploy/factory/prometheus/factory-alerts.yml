@@ -92,3 +92,12 @@ groups:
           summary: A factory service's /metrics cannot be scraped, or the service reports itself not ready
           action: Restore the service or its metrics endpoint; until then every alert above is blind for that service
           runbook: docs/factory-deployment.md#c11-alerts-and-operator-actions
+      - alert: FactoryServiceRoleHeld
+        expr: factory_service_role_held == 1
+        for: 1m
+        labels:
+          severity: page
+        annotations:
+          summary: A shared service holds a product role; a dispatch that needs the role is refused by name
+          action: Restore the container runtime on that node (its socket, group and service); the supervisor resumes by itself
+          runbook: docs/factory-deployment.md#c11-alerts-and-operator-actions

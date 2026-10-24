@@ -1,0 +1,20 @@
+bun test v1.4.2 (744846f84)
+
+src/__tests__/preview-uid-keystone.docker.test.ts:
+(pass) uid keystone — LIVE (production image) > setuid helper present + 4755 root-owned in the image [7.99ms]
+{"ts":"2026-10-23T06:10:44.965Z","level":"info","msg":"preview data-dir locked down to 0700, app-uid-owned (keystone)","subsystem":"preview.uid-pool","path":"/app/.ezcorp/data"}
+(pass) uid keystone — LIVE (production image) > preview uid CANNOT read .ezcorp/data (chmod 0700) — keystone [12.83ms]
+(pass) uid keystone — LIVE (production image) > helper refuses an out-of-range uid even invoked directly [0.58ms]
+(pass) uid keystone — LIVE (production image) > ProcPortSource attributes a live listener by its preview uid [2215.70ms]
+
+src/__tests__/preview-dynamic-e2e.docker.test.ts:
+(pass) dynamic preview — LIVE e2e (production image) > spawn as preview uid → ProcPortSource detects → loopback fetch 200 [2207.60ms]
+{"ts":"2026-10-23T06:10:49.405Z","level":"info","msg":"preview dev server launched as preview uid","subsystem":"preview.spawn-orchestration","conversationId":"conv-reap-live","uid":90000,"command":"bun"}
+{"ts":"2026-10-23T06:10:51.709Z","level":"info","msg":"preview conversation reaped","subsystem":"preview.reaper","conversationId":"conv-reap-live","processesKilled":1,"processesUnconfirmed":0,"previewsRevoked":0,"uidReleased":true,"uidQuarantined":false}
+(pass) dynamic preview — LIVE e2e (production image) > reapPreviewConversation: REAL helper --kill actually reaps the tree + confirms [2307.57ms]
+(pass) dynamic preview — LIVE e2e (production image) > WS upstream (ws://127.0.0.1:<port>) connects + echoes a frame [4505.95ms]
+
+ 7 pass
+ 0 fail
+ 21 expect() calls
+Ran 7 tests across 2 files. [11.28s]

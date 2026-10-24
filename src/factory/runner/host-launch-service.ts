@@ -119,6 +119,8 @@ export const FACTORY_HOST_PREPARATION_REPLY_BYTES = 64 * 1024 * 1024;
 export const FACTORY_HOST_LAUNCH_PATH = "/v1/host/launches";
 export const FACTORY_HOST_ATTACH_PATH = "/v1/host/attachments";
 export const FACTORY_HOST_RESULT_PATH = "/v1/host/results";
+/** The supervisor's own readiness record, for installations that cannot mount the file it writes (the hosted profile, W4H-35). */
+export const FACTORY_HOST_READINESS_PATH = "/v1/host/readiness";
 
 class HostLaunchRouteError extends Error {
   constructor(readonly status: number, readonly code: string) { super(code); this.name = "HostLaunchRouteError"; }

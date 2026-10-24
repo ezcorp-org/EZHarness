@@ -142,16 +142,12 @@ Coordinator ruling 2026-09-22: approved for W16; the owner's package inherits it
 | `same-host-not-independent` | The archive store shares this host's failure domain |
 | `seeded-store-claim-cluster-scope` | A store claim is visible only to fleets whose databases share one PostgreSQL cluster |
 | `temporal-archival-local` | The local Temporal archives to a file store inside its own container, which does not survive the container |
-| `hosted-supervisor-readiness` | The product reads the shared pool's and supervisor's readiness from files a restricted tenant namespace cannot mount |
-| `hosted-supervisor-address` | The startup document names the host services at 127.0.0.1; the hosted pool and DaemonSet are at cluster and node addresses |
-| `hosted-ingress-snippet` | ingress-nginx 1.9+ disables the `configuration-snippet` annotation that sets the installation header |
 | `hosted-host-identity-shared` | The Kubernetes supervisor DaemonSet holds one fleet-wide host identity (as the Compose fleet host now does too) |
-| `gpu-profile-lease-consumer` | Disclosed structural gap, owner W02; W02d builds it after W16 lands (coordinator ruling). The pool validates GPU declarations but does not yet authorize devices from them: `factoryHeldAllocationDevices` in `runner/attempt-wire.ts` has no production caller |
 | `restore-lifecycle-step` | Named follow-up, owner W16 (coordinator ruling 2026-09-24): the restore-to-checkpoint lifecycle step, a W16 package after this round (from W14's restore proof against W15). An in-place restore blocks on `database_position_mismatch`, because nothing restores the installation's database to the checkpoint first: the provisioner has no restore lifecycle step (point-in-time recovery to the checkpoint, then the pool restore import) |
 | `orchestrator-build-id-versioning` | The orchestrator does not implement Temporal worker build-ID versioning; builds are retained at the image and release level |
 | Production GPU, eight rows | `FACTORY_PRODUCTION_GPU_CRITERIA`, all unmet with the verdicts in `docs/factory-local-gpu.md` |
 
-Closed since: `W01i` landed at c3da32784; W16 renders `services.peerTenants` (4785687be), and r5d proves the cross-tenant refusals live. `W16d-shutdown-runtime-stop` and `W16d-shutdown-pool-close` closed when W16d landed at 6c8d45f25 (bounded worker stops and a bounded pool close that names what is stuck).
+Closed since: `hosted-supervisor-readiness`, `hosted-supervisor-address` and `hosted-ingress-snippet` closed in code by W4H-35 (9527bfebb and 494545e7f: the pool and supervisor serve their records on authenticated routes and a hosted startup document reads them over the network; the C2 commit: service addresses verified as the host certificate's name, and the Compose platform's nginx as the in-cluster trusted ingress); the live proof is W4H-35 G8. `gpu-profile-lease-consumer` closed when W02d landed at 381449a85 (`attempt-preflight.ts` authorizes a held GPU lease's devices through `factoryHeldAllocationDevices` from the pool's recorded profile); W4H-35 lets a fleet select the GPU resource profile. `W01i` landed at c3da32784; W16 renders `services.peerTenants` (4785687be), and r5d proves the cross-tenant refusals live. `W16d-shutdown-runtime-stop` and `W16d-shutdown-pool-close` closed when W16d landed at 6c8d45f25 (bounded worker stops and a bounded pool close that names what is stuck).
 
 ## Boot stall: root cause (lifecycle holds f6, f7, r1)
 

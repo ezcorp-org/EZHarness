@@ -2594,3 +2594,198 @@ smokes under the lock, detached-job wake-ups) are not repeated.
   pastes from that output; a hash is never typed or remembered. Trigger: a w4h-36 report entry written in the same tool
   round as its hash step carried two placeholder hashes, corrected by an appended entry; W4H-35 reported two wrong
   16-hex prefixes (w4h-35 pending-lesson.md at 2b7481a2f6a42da6, lesson 17).
+
+#### The W4H-34 and W4H-35 rounds (fast stage, hold inputs, proof layers, waits and words; 2026-10-17 to 2026-10-23)
+- Owner: on any stop, the driver records the failing step's state before cleanup (for Kubernetes: describe, logs with
+  --all-containers and --previous, and the namespace events for every pod not Running or Completed); that capture turns
+  a second failure into a diagnosis without a re-run. Trigger: W4H-35 run 9 kept only a pod list and needed a re-run;
+  run 10's pods/ records named both causes by file and line (coordinator log lines 6029, 6073, 6077).
+- Owner: part 8's rule that a stop class carries its own exit value also covers a proof's own exit: the proof exits with
+  the stop class, never with the pass-through exit of the failing tool. Trigger: W4H-35 run 9 exited 1 from the
+  provisioner (coordinator log line 6029).
+- Coordinator: check a silent teammate with ListAgents before an escalation: "running" means inside a long call, and its
+  messages queue; "idle" with no answer is the escalation case. Trigger: run 9's waits (coordinator log line 6029).
+- Coordinator: commands use absolute paths and never cd, because a cd inside a compound command moves the tool's working
+  directory for the whole session. Trigger: a cd moved the session's directory (coordinator log line 6029).
+- Coordinator: a prep's base is the integration head; the identity step derives the fork point. Trigger: the coordinator
+  wrote the fork point as the base for the W4H-34 prep, and the integrator corrected it (coordinator log line 6031).
+- Coordinator: a hypothesis about a failing step is checked against the records before a run. Trigger: the owner showed
+  from hosted-spec.json and kubernetes-profile.ts lines 241 and 279 that the init containers use no network, so the
+  endpoint hypothesis was dropped without a run (coordinator log lines 6030, 6031, 6032).
+- Owner: a lane-bound test never sits in a unit list: it runs as an explicit leg with its evidence folder, and an image
+  it needs is pre-pulled by digest outside the lock, with a record. Trigger: the alert-evaluator test in the W4H-34 unit
+  list would have pulled from quay.io silently inside the hold (coordinator log lines 6031, 6032).
+- Validator and coordinator: an ACCEPT requires the repository hook's full fast stage green at the exact frozen head
+  (registration, typecheck, lint, boundaries, every guard suite, schema drift, the focused boundaries test, web-check);
+  this widens part 8's "typecheck and lint at the exact head". FAST DONE status=1 is accepted only when gate integrity
+  is the only non-zero step and its findings equal the ruled set, judged by the shared judge. Trigger: the W4H-34 merge
+  commit was refused at 08:07:00Z on 2026-10-17 by two registration guards that were red at the accepted head
+  (w00/fast-judge.py 3594517cc96c8add; coordinator log line 6038).
+- Owner: a freeze runs the hook's full fast stage at the frozen head and records it. Trigger: the same W4H-34 refusal;
+  the owner's freeze had run lint and typecheck only (w4h-34/report.txt at fce1886ffc212209).
+- Integrator: a hook input that the mapped list determines (PG_HOOK) is derived from the list, never set by hand, and a
+  mismatch refuses. Trigger: the W4H-34 prep had PG_HOOK=0 with six PostgreSQL suites in its list, caught at the
+  pre-launch check (integrator-5 pending-lesson.md at 00f4e01d057ebf02; coordinator log lines 6031, 6033).
+- Owner: a locked commit is a lock launch: while a merge chain is pending, every owner lock launch waits for the
+  coordinator's word. The one guard is w00/coord-word.sh; there is one launcher per lock job with its own guarded
+  branch, and a launcher references shared tools under w00/ only, never another owner's folder. Trigger: W4H-35's commit
+  job at 08:00Z to 08:02Z made the integrator's lock reads busy; W4H-35 had two launchers for one job; W4H-34's launcher
+  pinned W4H-35's lock-read helper (w00/coord-word.sh 34d9989d558e3b61; coordinator log lines 6045, 6046, 6067, 6069).
+- Coordinator: count entries on whole lines, never from a test's diff header. Trigger: "Received +6" and "+3" were read
+  as six suites and three imports; the whole-line entries were four and one, because the bracket lines count in the
+  header (coordinator log line 6040).
+- Coordinator: one change per proof run: a second product change is not added to a run whose purpose is to prove the
+  first. Trigger: W4H-35 run 10 proved the fsGroup fix, and the supervisor socket-access change waited for run 11
+  (coordinator log line 6040).
+- Coordinator: a word id is sent as text in the message body or in a follow-up, never as "the id of this message",
+  because teammates do not see message ids; a word names the complete launch form, GATED_FLOCK_BUN_REPO included, or the
+  launch reads the Bun pin from the wrong tree. Trigger: validator-8 could not launch its fast-stage re-run until the id
+  was sent again as text (coordinator log line 6052).
+- Owner: a bun test call with paths that lack "./" treats them as name filters, runs nothing, and exits 1 with 0 tests;
+  a loop over mapped tests asserts that the test count is above zero. Trigger: W4H-34's first mapped-test loop at
+  f9684edf3 (w4h-34/report.txt at fce1886ffc212209; coordinator log line 6064).
+- Owner: the first real run past an init container finds the next layer's defects: a render-level test proves the shape,
+  and only the run proves the layer. Trigger: W4H-35 run 10 passed the init containers that run 9 failed and found the
+  main-container defect (coordinator log lines 6073, 6077).
+- Coordinator: a stack frame names the function, and the path comes from the argument: read the argument before you name
+  a path. Trigger: private-files.ts line 72 was mapped to the hostPath runner root without a read of configPath; the
+  owner read it and found the delivered emptyDir (coordinator log line 6077).
+- Owner: one catch that swallows two causes masks the first; a refusal names read against parse. Trigger: the pool's
+  "factory pool config is unavailable" hid a read refusal behind a catch that also takes parse errors (coordinator log
+  line 6077).
+- Coordinator: a record watch has a heartbeat that reports every twenty minutes of no change, and each order names the
+  next actor and its expected time, so that a stopped chain is noticed within one heartbeat. Trigger: the chain stalled
+  from 09:49Z to 12:53Z on 2026-10-17 with the lock free (coordinator log lines 6095, 6098).
+- Every teammate: a wait on another agent's event has two paths, a message from that agent when the event happens and a
+  watch. A wait on an approved step is reported at five minutes, whether or not a watch runs; a watch that ends, with or
+  without its event, is reported at once; after a long wait, the watch output files are read directly. Trigger: both
+  watches fired on time at 09:48Z, but their completion notices arrived about three hours late (coordinator log lines
+  6098, 6105).
+- Integrator and validator: a known tool gap that a mapped suite can hit is fixed before the next commit that maps it,
+  not after the merge. Trigger: the shared commit tool's DATABASE_URL gap refused the W4H-34 merge commit at 13:00:31Z
+  (coordinator log lines 6100, 6101).
+- Owner: a defect class is fixed for every instance that the code enumerates, not only for the instance a run found.
+  Trigger: W4H-35 run 10 found the delivered secrets and run 11 found the readiness write, both under the same
+  owned-directory rule (coordinator log lines 6112, 6122).
+- Owner and integrator: the full output of an image removal is kept in a file, never three lines of it. Trigger: the
+  day's image removals (coordinator log line 6131).
+- Owner and integrator: an image is removed only when the lock read shows lock=free and no gated job, or inside your own
+  lock hold, because a concurrent build may share cached layers. Trigger: the day's image removals (coordinator log line
+  6131).
+- Integrator and validator: a hold leg that classifies or runs files mirrors each CI form by reading CI's own files; a
+  table or env written by hand misses the next new kind of file. The hold-inputs OK compares each listed suite's env
+  with its CI step. Trigger: the W4H-34 hold's pg-pool-one leg missed CI's own-step DB_POOL_MAX=1, and its lane table
+  missed nine classifications (validator-8 pending-lesson.md at a4826849ed5ebb09; coordinator log lines 6120, 6126).
+- Coordinator: a ruling that turns on a fact names how the fact is shown; a runner label is not the need. Trigger: two
+  rulings on the lane-bound row read as a conflict until validator-8 showed that the lane uses no secrets and no
+  runner-only resource (coordinator log lines 6127, 6129, 6131).
+- Coordinator: do not re-rule a set that the validator has OK'd and the integrator has installed in order; a refinement
+  that adds no gate goes to the queue. Trigger: the v7c ruling crossed the v7a install and cost one staging cycle
+  (coordinator log lines 6132, 6133).
+- Every teammate: no teammate holds a turn longer than five minutes: every wait is a background watch with two paths,
+  and the turn ends so that the inbox is read; a periodic report comes from a woken turn, not from inside a sleep loop.
+  The rule bounds a turn, not the work: a teammate is idle only on a real wait, and the coordinator's heartbeat pings a
+  quiet owner. Trigger: from 15:07Z the integrator held 30-minute turns and received no message for four hours
+  (coordinator log line 6140; team-lead, 2026-10-18).
+- Owner and integrator: a readiness check needs consecutive successes and the real listener; a single pass can be the
+  init-phase server. Trigger: the W4H-34 hold's second run stopped at setup on w00/own-pg.sh's single pg_isready pass
+  (fixed: 915a85ccefdb066a; coordinator log line 6146).
+- Coordinator and validator: before you announce or plan a pending merge, check in git that the head is not already in
+  integ (git merge-base --is-ancestor <head> <integ>, in that direction), and run a trial merge when in doubt; an empty
+  trial merge means there is nothing to merge. Trigger: a W4H-33b re-prep of ef5e29a25 onto 063b3d16e was announced and
+  given a check list, but ef5e29a25 had entered integ with the merge 7f8317656, and the trial merge was empty; the
+  validator's check had the reverse direction (coordinator log line 6166; validator-8 plan-gate.md, the withdrawal of
+  2026-10-18).
+- Integrator: before a red-first run of a tool that runs real commands, verify that the INSTALLED file honours the
+  test's stubs; if it does not, the red case is a static refusal by name, never a run. Trigger: the first draft of the
+  merge-fast-checks test ran the installed script for real, lock-free, in the integ worktree for about two minutes
+  (registration, lint, gate integrity and guard suites; tc-gate refused the typecheck), because the installed script has
+  no stub seam; the integrator stopped its own processes by pid, the tree stayed clean, and the test now refuses
+  statically (integrator-5 pending-lesson.md at 00f4e01d057ebf02; coordinator log line 6179).
+- Coordinator: never quote an exit code from a file listing: find -printf '%s' prints the size in bytes. Read the file
+  content first. Trigger: a 05:48Z report of "exit 3" was the 3-byte size of a file that held "91" (W4H-35 run 12); a
+  heartbeat listing later showed the same trap, caught that time (team-lead, 2026-10-18; the coordinator handoff
+  w00/coordinator-handoff-2026-10-18.md at 86bdf4e6f49916c5).
+- Validator: a "queue for the lock" line with no in-lock line after it means WAITING; check the holder pid and the job's
+  processes before you say that a job runs. Trigger: W4H-35 run 12 waited 14400 s for the lock and never ran (proof.exit
+  91; team-lead, 2026-10-18).
+- Owner (W4H-35): a list-driven test run refuses a missing, empty or blank list in the same command; the shared guard
+  lives in w00. Trigger: the W4H-35 owner's lesson 32 of 2026-10-18 (w4h-35 pending-lesson.md at 74f43fa92a6b1903); the
+  shared list guard is item 10 of the next staging round.
+- Every teammate: a merge set is not frozen without one green typecheck at the merge tree, lock-free or in the session;
+  a named deviation such as "one call updated" is not a type check. The prep's test runs do not type-check: the green
+  typecheck at the final tree comes before the word, and the in-session typecheck is the backstop, not the first sight.
+  Trigger: the W4H-35 merge13 session 1 (word d6901aec) stopped at the merge commit on a typecheck exit 1 at the one
+  remaining port-shape site, kubernetes-profile.test.ts lines 281 and 283; session 3 (word 11d383bc) landed the merge
+  and the rows, but its code commit failed the in-lock typecheck on six test-file errors (team-lead, 2026-10-18).
+- Owner (W4H-35): a sent hash freezes its file; the summary manifest is written whole and last, one line per path, and
+  checked. Trigger: the W4H-35 owner's lesson 33 of 2026-10-18 (w4h-35 pending-lesson.md at 74f43fa92a6b1903).
+- Coordinator: in zsh a plain variable does not word-split: a list loop uses literal words or an array, never a
+  space-separated string in one variable. Trigger: the first removal pass of the 2026-10-18 cleanup round removed
+  nothing, and its own guard caught it (team-lead, 2026-10-18; the coordinator handoff at 86bdf4e6f49916c5).
+- Owner and validator: an alert's scope is a field on the rule, and the host-scoped list is derived from it; a guard
+  checks that host-scoped rules read only host-service families, with positive assertions both ways. A tenant label on a
+  fixture target that production never labels is masking, refused. Trigger: FactoryMetricsTargetDown pages a host target
+  without a tenant, while its rule is scoped to the installation; the live test missed it because its fixture stops only
+  the gateway (ledger 1c; found by w4h-35 in session 4; team-lead's ruling, 2026-10-18).
+- Coordinator: part 8's rule that a report line is written only after its check has returned binds the coordinator too:
+  a result line is written only after the check output is read. Trigger: a coordinator result line was written before
+  its check output was read (the coordinator handoff w00/coordinator-handoff-2026-10-18.md at 86bdf4e6f49916c5).
+- Coordinator: the permission classifier refuses some batch deletions and merges: split the action into single objects,
+  or hand the exact command to the user; never re-route it through another agent. Trigger: the 2026-10-18 cleanup round,
+  where the batch forms were refused and the user ran the vetted list (the coordinator handoff at 86bdf4e6f49916c5).
+- Coordinator: a time or a date in a message or in a record name is read from date -u when you write it: never
+  estimated, never the local date. Trigger: the restart brief restart-2026-10-19.md (a1de755892b78532) carries the local
+  date, while the UTC date was 2026-10-20 (found by integrator-5); seven time labels in the coordinator's messages of
+  2026-10-20 were not read from the clock, and teammate records copied them (coordinator log lines 6347, 6367).
+- Coordinator: a host-wide search (find, bfs) runs with a time bound, and never while a job waits for memory. Trigger: a
+  disk search ran 34 minutes and held about 3.4 GiB while run 13 waited for 15 GiB (coordinator log line 6414).
+- Coordinator: the rule of one ruling per artifact per turn also covers a reversal: when messages cross, wait until they
+  settle before you reverse a ruling. Trigger: validator-8 withdrew its session-8 v1 OK on a v2 order before it read the
+  coordinator's "v1 chosen" message (coordinator log line 6421).
+- Coordinator: the coordinator never integrates: the integrator launches the hold, the publish and every later integ
+  step; the coordinator starts one only if the integrator's session refuses the exact line AND the user says so. Every
+  wait loop has a time bound, and the running watches are checked before a new one is armed. Trigger: the coordinator's
+  inline retry loop launched the W4H-35 merge commit with a lock wait that had no bound, and a duplicate heartbeat copy
+  ran beside the first (coordinator log lines 6486, 6487).
+- Integrator: a watch's bound end is reported before the bound, and the re-arm is tied to an outside wake (the
+  coordinator's heartbeat) or to a bound long enough for the round, never to the watch's own timer; after every waiter
+  exit, re-arm in the same turn. Trigger: three watch-bound gaps in the W4H-35 round (2 h 46 min on 2026-10-20, a timer
+  that died with its waiter on 2026-10-21, a 24 h bound on 2026-10-23) (integrator-5 pending-lesson.md at
+  00f4e01d057ebf02; coordinator log line 6451).
+- Integrator: a job's end time comes from the job's own exit record, never from an mtime under the evidence tree,
+  because the touch loop rewrites it. For a job longer than five minutes, tell the coordinator its expected end time, so
+  that the heartbeat wakes you. Trigger: a prep end time was read from a reprep.exit mtime that the touch loop had
+  written (integrator-5 pending-lesson.md at 00f4e01d057ebf02).
+- Integrator: never hide a command from a user hook inside a script: every git worktree, push or config command runs as
+  a plain visible command, and a worktree lives only under <repo>/.worktrees/. Trigger: a push worktree was made under
+  /tmp by git worktree add inside a script, so the user's hook never saw it (the user's ruling, coordinator log line
+  6460; integrator-5 pending-lesson.md at 00f4e01d057ebf02).
+- Integrator and validator: a merge folder copies the LAST HELD folder's full input set, extra-legs.sh included; the
+  validator compares a folder's file list with the last held folder, not only with the folder's own earlier version. A
+  draft form is never the form, and the hold refuses a folder without extra-legs.sh or extra-legs.none. Trigger: the
+  first W4H-35 hold ran without extra-legs.sh, because the folder came from a draft form, and so missed the mandatory
+  W4H-34 legs; the hold sourced the file only if present (validator-8 verdict 140d80ad6e954716; validator-8
+  pending-lesson.md at a4826849ed5ebb09; coordinator log lines 6495, 6497, 6499).
+- Integrator: the rule above that a lane-bound test never sits in a unit list is enforced by the builder: the unit list
+  is the targeted list minus the lane manifest's --bound-tests output, and a pg-needing suite is classed as pg. A lane
+  table anchors each CI form by its text in the workflow, never by a line number, with a planted-drift test red first.
+  Trigger: the first W4H-35 hold was red on the lane-bound alert-evaluator test in the unit list and on five lane-form
+  legs pinned to ci.yml line numbers that commit 06 had moved (coordinator log lines 6493, 6494, 6498).
+- Owner: a test's cleanup tolerates a setup that failed: afterAll guards each resource that beforeAll may not have made,
+  so that a setup failure shows one failure with its real cause. Trigger: alert-evaluator.integration.test.ts called
+  rm(undefined) in afterAll after a failed beforeAll, and the second TypeError hid the cause (test-fix-01; coordinator
+  log line 6496).
+- Validator and owner: a proof's judge allows the proof's designed failures by name, read from the proof's own register,
+  never from a value written into the judge; a judge that counts a designed failure as a defect gives a false red.
+  Trigger: the run-13 pull judge counted the stopped-wave canary's designed failed pulls as a foreign pull; the run was
+  accepted from its records under the amended rule (coordinator log lines 6475, 6476, 6477).
+- Owner and validator: a module in a Node-run import graph uses only erasable TypeScript syntax and explicit .ts
+  specifiers; Bun runs do not show this, so a guard loads every Node-run entry under the pinned Node. Trigger: run 13 at
+  a26b85011: the orchestrator crashed on a TypeScript parameter property in service-readiness.ts under Node strip-only,
+  after W4H-35 added an import edge to that older file; no gate saw it because every suite runs under Bun (coordinator
+  log lines 6434, 6435, 6439).
+- Docs owner: a cited hash is checked by hashing the candidate files, never by a text search for the hash; a label such
+  as (a)/(b) is read against the ruling that defined it, not against the nearest list with the same labels. Trigger:
+  w4h-36 did not find a moves file by a text search for its hash, and read "leftovers (a)/(b)" against the wrong item;
+  team-lead corrected both (2026-10-22 and 2026-10-23).

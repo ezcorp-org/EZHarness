@@ -9,7 +9,7 @@ import { factoryAttemptLaunchIntentToWire, type FactoryAttemptLaunchIntent } fro
 import { factoryHostLaunchIntent } from "../../__tests__/helpers/factory-host-launch-intent";
 import { certificates } from "../../__tests__/helpers/factory-certificates";
 import { factoryLaunchCompletedResult } from "../../__tests__/helpers/factory-attempt-launch-fixture";
-import { FACTORY_HOST_LAUNCH_PATH, FACTORY_HOST_ATTACH_PATH, FACTORY_HOST_RESULT_PATH } from "./host-launch-service";
+import { FACTORY_HOST_LAUNCH_PATH, FACTORY_HOST_ATTACH_PATH, FACTORY_HOST_PREPARATION_PATH, FACTORY_HOST_READINESS_PATH, FACTORY_HOST_RESULT_PATH } from "./host-launch-service";
 import { FACTORY_HOST_STOP_PATH } from "./host-stop-service";
 import { FACTORY_HOST_TOMBSTONES_FILE, FactoryHostTombstones } from "./host-tombstones";
 import {
@@ -213,6 +213,48 @@ describe("createFactoryHostServiceRouter", () => {
       expect(response.status).toBe(400);
       expect(body(response)).toEqual({ error: "invalid_intent" });
     }
+  });
+
+  test("the readiness path answers this host's own latest record to an admitted peer only (W4H-35)", async () => {
+    const record = { schemaVersion: "factory.supervisor-readiness.v1", service: "host-supervisor", instanceId: hostId, lifecycle: "ready", observedAtMs: 1, facts: { hostKeyReady: true, runnerReady: true, hostServicesReady: true } };
+    let current: unknown;
+    const handle = createFactoryHostServiceRouter({ hostId, peerTenants: { [peer]: peer }, runner: fakeRunner(new Map()), signingKey: await keyMaterial(), readiness: () => current });
+    const get = (overrides: Partial<FactoryPrivateRequest> = {}) => handle(request({ method: "GET", path: FACTORY_HOST_READINESS_PATH, body: Buffer.alloc(0), headers: { "x-ezcorp-factory-version": "1" }, ...overrides }));
+    expect([(await get()).status, body(await get())]).toEqual([503, { error: "unavailable" }]);
+    current = record;
+    expect([(await get()).status, body(await get())]).toEqual([200, record]);
+    expect([(await get({ peerIdentity: "tenant-b" })).status, body(await get({ peerIdentity: "tenant-b" }))]).toEqual([401, { error: "unauthorized" }]);
+    expect((await get({ headers: {} })).status).toBe(400);
+    expect((await get({ body: Buffer.from("{}") })).status).toBe(400);
+    expect((await get({ method: "POST" })).status).toBe(404);
+    const without = await router();
+    expect((await without(request({ method: "GET", path: FACTORY_HOST_READINESS_PATH, body: Buffer.alloc(0) }))).status).toBe(503);
+  });
+
+  // C12 row "Container runtime readiness (hosted)" (W4H-35 run 12): the listener serves before the runner is ready. The readiness
+  // route answers at once; every runner-backed route answers an admitted peer 503 with the held role's code, an unknown peer 401;
+  // once the runner is ready the routes are built from it, once.
+  test("before the runner is ready, readiness serves and every runner-backed route answers 503 with the held code (W4H-35 run 12)", async () => {
+    const record = { lifecycle: "ready" };
+    let runner: ReturnType<typeof fakeRunner> | undefined;
+    let held: string | undefined = "container_runtime_unreachable";
+    let asked = 0;
+    const handle = createFactoryHostServiceRouter({ hostId, peerTenants: { [peer]: peer }, runner: () => { asked += 1; return runner; }, runtimeHeld: () => held, signingKey: await keyMaterial(), readiness: () => record });
+    const get = await handle(request({ method: "GET", path: FACTORY_HOST_READINESS_PATH, body: Buffer.alloc(0), headers: { "x-ezcorp-factory-version": "1" } }));
+    expect([get.status, body(get)]).toEqual([200, record]);
+    for (const path of [FACTORY_HOST_LAUNCH_PATH, FACTORY_HOST_ATTACH_PATH, FACTORY_HOST_RESULT_PATH, FACTORY_HOST_PREPARATION_PATH, FACTORY_HOST_STOP_PATH, "/v1/host/unknown"]) {
+      const response = await handle(request({ path }));
+      expect([path, response.status, body(response)]).toEqual([path, 503, { error: "container_runtime_unreachable" }]);
+    }
+    expect((await handle(request({ peerIdentity: "tenant-b" }))).status).toBe(401);
+    expect(asked).toBe(0);
+    held = undefined; // the probe answered, but the instance is not there yet: still held, by the default code
+    expect(body(await handle(request()))).toEqual({ error: "container_runtime_unreachable" });
+    runner = fakeRunner(new Map());
+    const ready = await handle(request({ body: Buffer.from("{}") }));
+    expect([ready.status, body(ready)]).toEqual([400, { error: "invalid_intent" }]);
+    await handle(request({ body: Buffer.from("{}") }));
+    expect(asked).toBe(3);
   });
 
   test("an unknown path answers 404 to an authorized peer", async () => {

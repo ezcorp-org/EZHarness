@@ -62,7 +62,8 @@ beforeAll(async () => {
   await service.request(tenant, { reservationId: `reservation-${crypto.randomUUID()}`, grantRevision: 1, grantScope: "tenant-01:grant-a", resources: { cpu: 1 }, admissionDeadline: new Date(Date.now() + 60_000).toISOString() });
   listeners.set("pool", await serveFactoryMetrics(endpoint, "pool", () => collectFactoryPoolMetrics(pool.client, ["tenant-01", "tenant-02"]), { tenant: ["tenant-01", "tenant-02"] }));
 
-  for (const each of ["gateway", "orchestrator", "supervisor"] as const) listeners.set(each, await serveFactoryReadyMetrics(endpoint, each, () => true));
+  for (const each of ["gateway", "orchestrator"] as const) listeners.set(each, await serveFactoryReadyMetrics(endpoint, each, () => true));
+  listeners.set("supervisor", await serveFactoryReadyMetrics(endpoint, "supervisor", () => true, undefined, () => []));
 }, 120_000);
 
 afterAll(async () => {

@@ -1,0 +1,191 @@
+$ bash -O nullglob -c 'biome check --no-errors-on-unmatched src web packages scripts extensions worker services docs tests .github index.ts drizzle.config.ts .*.json *.json "$@"' --
+src/__tests__/first-party-sealed-test-references.test.ts:50:73 lint/suspicious/noTemplateCurlyInString ━━━━━━━━━━
+
+  ! Unexpected template string placeholder.
+  
+    48 │   test("a sealed test naming a left-out suite (also by a template) is a finding; a kept target is not", () => {
+    49 │     const sealed = new Map([
+  > 50 │       ["test/unit/drives.test.ts", "Bun.spawn([bun, 'test', `./test/e2e/${suite}.test.ts`])"],
+       │                                                                         ^^^^^^^^
+    51 │       ["test/unit/helper.test.ts", "import { poll } from '../e2e/_poll'; const data = './fixtures/data.json';"],
+    52 │       ["test/e2e/_poll.ts", "export const poll = 1;"],
+  
+  i Turn the string into a template string.
+  
+
+src/__tests__/first-party-sealed-test-references.test.ts:55:51 lint/suspicious/noTemplateCurlyInString ━━━━━━━━━━
+
+  ! Unexpected template string placeholder.
+  
+    53 │     ]);
+    54 │     expect(sealedReferencesToExcluded(sealed, ["test/e2e/bundled.test.ts", "fixtures/data.json"])).toEqual([
+  > 55 │       "test/unit/drives.test.ts: names ./test/e2e/${suite}.test.ts, which the release snapshot leaves out",
+       │                                                   ^^^^^^^^
+    56 │       "test/unit/helper.test.ts: names ./fixtures/data.json, which the release snapshot leaves out",
+    57 │     ]);
+  
+  i Turn the string into a template string.
+  
+
+src/factory/notification-sender.test.ts:231:3 lint/style/useConst  FIXABLE  ━━━━━━━━━━━━━━━━━━━━━━━━
+
+  ! This let declares a variable that is only assigned once.
+  
+    229 │ describe("the receiver's replay bound (C11 N3)", () => {
+    230 │   const secret = new TextEncoder().encode("r".repeat(32));
+  > 231 │   let clockS = 1_700_000_000;
+        │   ^^^
+    232 │   let receiver: TestWebhookReceiver;
+    233 │   beforeAll(async () => { receiver = await startTestWebhookReceiver({ secret, now: () => clockS * 1000 }); });
+  
+  i 'clockS' is never reassigned.
+  
+    229 │ describe("the receiver's replay bound (C11 N3)", () => {
+    230 │   const secret = new TextEncoder().encode("r".repeat(32));
+  > 231 │   let clockS = 1_700_000_000;
+        │       ^^^^^^
+    232 │   let receiver: TestWebhookReceiver;
+    233 │   beforeAll(async () => { receiver = await startTestWebhookReceiver({ secret, now: () => clockS * 1000 }); });
+  
+  i Safe fix: Use const instead.
+  
+    229 229 │   describe("the receiver's replay bound (C11 N3)", () => {
+    230 230 │     const secret = new TextEncoder().encode("r".repeat(32));
+    231     │ - ··let·clockS·=·1_700_000_000;
+        231 │ + ··const·clockS·=·1_700_000_000;
+    232 232 │     let receiver: TestWebhookReceiver;
+    233 233 │     beforeAll(async () => { receiver = await startTestWebhookReceiver({ secret, now: () => clockS * 1000 }); });
+  
+
+src/factory/runner/supervisor-process.ts:48:8 lint/correctness/noUnusedImports  FIXABLE  ━━━━━━━━━━━
+
+  ! This import is unused.
+  
+    46 │  * record degrades.
+    47 │  */
+  > 48 │ import { stat } from "node:fs/promises";
+       │        ^^^^^^^^
+    49 │ import { connect, isIP } from "node:net";
+    50 │ import { FACTORY_NODE_ADDRESS } from "../provisioning/kubernetes-paths";
+  
+  i Unused imports might be the result of an incomplete refactoring.
+  
+  i Unsafe fix: Remove the unused imports.
+  
+      1     │ - /**
+      2     │ - ·*·The·host·supervisor·process·entry,·and·the·readiness·it·publishes.
+      3     │ - ·*
+      4     │ - ·*·C09·lists·the·host·supervisor·among·the·services·that·must·be·live·before
+      5     │ - ·*·product·admission·opens,·and·nothing·published·that·fact:·the·orchestration
+      6     │ - ·*·and·pool·processes·each·write·a·readiness·record·and·the·supervisor·wrote
+      7     │ - ·*·none,·so·the·seventh·probe·had·no·producer·and·a·flag-on·installation·could
+      8     │ - ·*·never·reach·`ready`.
+      9     │ - ·*
+     10     │ - ·*·What·this·process·holds·is·exactly·what·C01·allows·it·to·hold:·its·own·host
+     11     │ - ·*·identity·and·its·own·signing·key.·No·tenant·identity,·no·product·database,·no
+     12     │ - ·*·object-store·credential.·It·observes·two·facts·about·itself·and·publishes
+     13     │ - ·*·them·—·the·host·key·loads,·and·the·container·runner·answers·—·and·it
+     14     │ - ·*·republishes·on·a·heartbeat·so·a·stopped·supervisor·stops·reading·as·ready
+     15     │ - ·*·within·three·windows.
+     16     │ - ·*
+     17     │ - ·*·It·is·shaped·like·the·other·two·host·process·entries·(`pool/process.ts`,
+     18     │ - ·*·`orchestration-process.ts`):·a·strict·config·parser,·an·abort-aware·loop,·and
+     19     │ - ·*·a·`finally`·that·records·why·it·stopped.
+     20     │ - ·*
+     21     │ - ·*·##·The·cadence·contract,·and·why·there·are·two·loops
+     22     │ - ·*
+     23     │ - ·*·The·heartbeat·write·and·the·runner·observation·run·on·SEPARATE·loops,·and
+     24     │ - ·*·that·separation·is·the·whole·design.·The·first·version·awaited·the·Podman
+     25     │ - ·*·probe·between·writes,·so·the·interval·between·two·records·was
+     26     │ - ·*·`probeLatency·+·heartbeatMs`·while·the·reader·accepts·a·record·only·within
+     27     │ - ·*·`heartbeatMs·*·3`.·The·probe·creates·a·container,·so·on·a·loaded·host·it
+     28     │ - ·*·could·exceed·the·window·on·its·own·and·every·record·arrived·already·stale·—
+     29     │ - ·*·a·live·supervisor·that·reads·as·dead,·intermittently,·depending·on·how·busy
+     30     │ - ·*·the·box·is.
+     31     │ - ·*
+     32     │ - ·*·All·four·numbers·are·multiples·of·one·configured·heartbeat,·so·the·margins
+     33     │ - ·*·are·stateable·rather·than·coincidental:
+     34     │ - ·*
+     35     │ - ·*·|·Interval·|·Value·|·Why·|
+     36     │ - ·*·|·---·|·---·|·---·|
+     37     │ - ·*·|·Heartbeat·write·|·`heartbeatMs`·|·never·waits·for·a·probe·|
+     38     │ - ·*·|·Reader·freshness·window·|·`heartbeatMs·*·3`·|·tolerates·two·missed·writes·|
+     39     │ - ·*·|·Probe·bound·|·`heartbeatMs·*·4`·|·a·probe·may·legitimately·outlast·a·write·|
+     40     │ - ·*·|·Facts·go·stale·|·`heartbeatMs·*·5`·|·the·bound·plus·one·full·cycle·|
+     41     │ - ·*
+     42     │ - ·*·The·record·therefore·always·says·what·was·last·actually·OBSERVED:·a·probe
+     43     │ - ·*·that·hangs·does·not·delay·the·heartbeat,·and·it·does·not·let·the·heartbeat
+     44     │ - ·*·keep·asserting·a·fact·nobody·is·still·checking·either·—·once·the·last
+     45     │ - ·*·successful·observation·is·older·than·the·staleness·bound,·the·published
+     46     │ - ·*·record·degrades.
+     47     │ - ·*/
+     48     │ - import·{·stat·}·from·"node:fs/promises";
+          1 │ + 
+     49   2 │   import { connect, isIP } from "node:net";
+     50   3 │   import { FACTORY_NODE_ADDRESS } from "../provisioning/kubernetes-paths";
+  
+
+src/factory/service-probes.ts:35:39 lint/suspicious/noConfusingVoidType  FIXABLE  ━━━━━━━━━━━━━━━━━━
+
+  ! void is confusing inside a union type.
+  
+    33 │   readonly service: FactoryService;
+    34 │   /** Resolves when the service is genuinely live, with the roles it holds (if any). Throws or rejects otherwise. */
+  > 35 │   probe(signal: AbortSignal): Promise<void | readonly FactoryHeldRoleEntry[]>;
+       │                                       ^^^^
+    36 │ }
+    37 │ 
+  
+  i Unsafe fix: Use undefined instead.
+  
+     33  33 │     readonly service: FactoryService;
+     34  34 │     /** Resolves when the service is genuinely live, with the roles it holds (if any). Throws or rejects otherwise. */
+     35     │ - ··probe(signal:·AbortSignal):·Promise<void·|·readonly·FactoryHeldRoleEntry[]>;
+         35 │ + ··probe(signal:·AbortSignal):·Promise<undefined·|·readonly·FactoryHeldRoleEntry[]>;
+     36  36 │   }
+     37  37 │   
+  
+
+src/factory/service-probes.ts:87:106 lint/suspicious/noConfusingVoidType  FIXABLE  ━━━━━━━━━━━━━━━━━
+
+  ! void is confusing inside a union type.
+  
+    86 │ /** Run one probe under its own deadline, abandoning it (and aborting its signal) when the deadline passes. */
+  > 87 │ async function probeWithin(probe: FactoryServiceProbe, signal: AbortSignal, deadlineMs: number): Promise<void | readonly FactoryHeldRoleEntry[]> {
+       │                                                                                                          ^^^^
+    88 │   const deadline = new AbortController();
+    89 │   const timeout = new FactoryServiceProbeError(`${probe.service.replaceAll("-", "_")}_probe_timeout`);
+  
+  i Unsafe fix: Use undefined instead.
+  
+     85  85 │   
+     86  86 │   /** Run one probe under its own deadline, abandoning it (and aborting its signal) when the deadline passes. */
+     87     │ - async·function·probeWithin(probe:·FactoryServiceProbe,·signal:·AbortSignal,·deadlineMs:·number):·Promise<void·|·readonly·FactoryHeldRoleEntry[]>·{
+         87 │ + async·function·probeWithin(probe:·FactoryServiceProbe,·signal:·AbortSignal,·deadlineMs:·number):·Promise<undefined·|·readonly·FactoryHeldRoleEntry[]>·{
+     88  88 │     const deadline = new AbortController();
+     89  89 │     const timeout = new FactoryServiceProbeError(`${probe.service.replaceAll("-", "_")}_probe_timeout`);
+  
+
+src/factory/service-probes.ts:187:81 lint/suspicious/noConfusingVoidType  FIXABLE  ━━━━━━━━━━━━━━━━━
+
+  ! void is confusing inside a union type.
+  
+    185 │ }
+    186 │ 
+  > 187 │ function probeOf(service: FactoryService, run: (signal: AbortSignal) => Promise<void | readonly FactoryHeldRoleEntry[]>): FactoryServiceProbe {
+        │                                                                                 ^^^^
+    188 │   return Object.freeze({ service, probe: run });
+    189 │ }
+  
+  i Unsafe fix: Use undefined instead.
+  
+    185 185 │   }
+    186 186 │   
+    187     │ - function·probeOf(service:·FactoryService,·run:·(signal:·AbortSignal)·=>·Promise<void·|·readonly·FactoryHeldRoleEntry[]>):·FactoryServiceProbe·{
+        187 │ + function·probeOf(service:·FactoryService,·run:·(signal:·AbortSignal)·=>·Promise<undefined·|·readonly·FactoryHeldRoleEntry[]>):·FactoryServiceProbe·{
+    188 188 │     return Object.freeze({ service, probe: run });
+    189 189 │   }
+  
+
+Checked 6371 files in 1386ms. No fixes applied.
+Found 7 warnings.

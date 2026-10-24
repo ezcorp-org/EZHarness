@@ -1,3 +1,4 @@
+import { resolve } from "node:path";
 import { expect, test } from "bun:test";
 import { pathToFileURL } from "node:url";
 import { referenceCodeModelPin, referenceCodeV1, referenceImageV1, referenceS3ReleaseAdapter } from "@ezcorp/factory-sdk";
@@ -12,6 +13,10 @@ test("options come from flags and the environment, with the pinned local runner"
   const options = factoryFleetInitOptions(["bun", "x", "--fleet", "w16", "--root", "/home/u/fleet", "--image", "img@sha256:x", "--revision", "r"], env, "/bin/bun");
   expect(options).toMatchObject({ fleetId: "w16", root: "/home/u/fleet", image: "img@sha256:x", revision: "r", portBase: 31000, adminUrl: env.FACTORY_TEST_POSTGRES_URL, storageSecretsDirectory: env.EZCORP_FACTORY_STORAGE_SECRETS_DIR, bun: "/bin/bun", runnerProfiles: LOCAL_RUNNER_PROFILES, modelProvider: LOCAL_MODEL_PROVIDER });
   expect(options.release).toEqual(LOCAL_RELEASE.release);
+  expect(options.resources).toEqual({ profile: "cpu-only", cpuCapacity: 2 });
+  const gpu = factoryFleetInitOptions(["--fleet", "w", "--root", "/r", "--image", "i", "--revision", "r", "--gpu-profiles", "/home/u/gpu-host-profiles.json"], env, "/bin/bun");
+  expect(gpu.resources).toEqual({ profile: "gpu", cpuCapacity: 2, gpuProfilesPath: "/home/u/gpu-host-profiles.json" });
+  expect(factoryFleetInitOptions(["--fleet", "w", "--root", "/r", "--image", "i", "--revision", "r", "--gpu-profiles", "gpu.json"], env, "/bin/bun").resources).toEqual({ profile: "gpu", cpuCapacity: 2, gpuProfilesPath: resolve("gpu.json") });
   expect(factoryFleetInitOptions(["--fleet", "w", "--root", "/r", "--image", "i", "--revision", "r", "--port-base", "40000"], env, "/bin/bun").portBase).toBe(40000);
   expect(() => factoryFleetInitOptions(["--root", "/r"], env, "/bin/bun")).toThrow("--fleet is required");
   expect(() => factoryFleetInitOptions(["--fleet", "w", "--root", "/r", "--image", "i", "--revision", "r"], {}, "/bin/bun")).toThrow("FACTORY_TEST_POSTGRES_URL");

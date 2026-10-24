@@ -1,0 +1,4 @@
+Running 29 direct web utility suites under Bun coverage (3 parallel)...
+merged 29 source files → /tmp/tmp.W7kywR0hMb/merged.lcov
+kept 26 requested LCOV source records → /home/dev/work/EZCorp/EZHarness-worktrees/composable-factory-platform/.worktrees/w00-integration/coverage/w4h-35-w16-k8s-profiles-3698c8e84-on-802d46288/bun-web-utility/lcov.info
+wrote 26 web utility source records → /home/dev/work/EZCorp/EZHarness-worktrees/composable-factory-platform/.worktrees/w00-integration/coverage/w4h-35-w16-k8s-profiles-3698c8e84-on-802d46288/bun-web-utility/lcov.info

@@ -9,7 +9,7 @@ import { S3FactoryReleaseArchive } from "./release-adapters";
 import { loadFactoryStorageCredentials } from "./release-composition";
 import { readPrivatePath } from "./private-files";
 import { FactoryRetention, S3FactoryRetentionBlobEraser } from "./retention";
-import type { FactoryStartupConfig } from "./startup-config";
+import { factoryStartupPoolTransport, type FactoryStartupConfig } from "./startup-config";
 import { FactoryTemporalHttpPositions } from "./temporal-retention";
 
 /**
@@ -171,10 +171,7 @@ export async function composeFactoryRecoveryRoles(input: FactoryRecoveryComposit
   // Not declared is not a failure to compose: the barrier holds with its own reason.
   if (undeclared.length > 0) return roles;
   try {
-    const client = await (input.poolClient ?? (() => createPoolCheckpointClient({
-      tenantId: config.tenantId, baseUrl: config.pool.baseUrl,
-      tls: { caPath: config.pool.tls.caPath, certificatePath: config.pool.tls.certificatePath, privateKeyPath: config.pool.tls.privateKeyPath, serviceTokenPath: config.pool.serviceTokenPath },
-    })))();
+    const client = await (input.poolClient ?? (() => createPoolCheckpointClient({ tenantId: config.tenantId, ...factoryStartupPoolTransport(config.pool) })))();
     const temporal = await factoryTemporalPositionsFromConfig(config);
     const coordinator = new FactoryCheckpointCoordinator({ database, tenantId: config.tenantId, installationId: config.installationId, archive, pool: factoryPoolCheckpointClientSource(client), slots: factoryPoolCheckpointClientSlots(client), temporal, keyService: config.keyManagement?.kind ?? "operator-master-key" });
     roles.checkpoint = factoryCheckpointStep(coordinator, report);

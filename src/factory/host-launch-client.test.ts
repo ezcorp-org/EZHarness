@@ -24,6 +24,8 @@ test("a host refusal carries the host's own code and detail, and stays a gateway
   const exited = reply(JSON.stringify({ error: "guest_exited", detail: "exited with code 137" }));
   expect(exited).toBeInstanceOf(GatewayStatusError);
   expect({ name: exited.name, message: exited.message, code: exited.code, detail: exited.detail }).toEqual({ name: "FactoryHostLaunchRefusal", message: "factory gateway returned HTTP 502", code: "guest_exited", detail: "exited with code 137" });
+  // A held runtime role (C12 row "Container runtime readiness (hosted)"): the dispatch is refused by the name roles.held carries.
+  expect(reply(JSON.stringify({ error: "container_runtime_unreachable" }), 503).code).toBe("container_runtime_unreachable");
   // A body the host did not write as a refusal names nothing the caller could act on.
   for (const body of ["not json", "null", JSON.stringify({ error: 7, detail: ["x"] })]) {
     expect({ code: reply(body).code, detail: reply(body).detail }).toEqual({ code: "unknown", detail: "" });

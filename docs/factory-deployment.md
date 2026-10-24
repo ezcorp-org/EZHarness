@@ -13,20 +13,75 @@ prints a credential.
 | Profile | What it is | Proven here |
 | --- | --- | --- |
 | Self-hosted Compose | `deploy/factory/compose/installation.yml`, `host.yml`, and `platform.yml` on rootless Podman, and the shared supervisor as a host systemd unit | See the gate file's G7 evidence for the live ten-installation run |
-| Hosted Kubernetes | `src/factory/provisioning/kubernetes-profile.ts` renders the manifests | Manifests validated, and admitted by a local kind cluster only. Not a hosted pass |
+| Hosted Kubernetes | `src/factory/provisioning/kubernetes-profile.ts` renders the objects, `kubernetes-target.ts` applies them; fleet settings `profile: "kubernetes"` with a `kubernetes` block | See `tasks/factory/w4h-35-GATES.md` for the local kind proof. A local proof is not a hosted pass |
 
-The hosted profile has four named gaps. The product reads the shared pool's
-and supervisor's readiness from files, and a `restricted` tenant namespace
-cannot mount a file the system namespace writes (`hosted-supervisor-readiness`).
-The startup document names the shared services at `127.0.0.1`, and the hosted
-pool and DaemonSet are at cluster and node addresses (`hosted-supervisor-address`).
-Both need a change to the product's readiness and startup surfaces. The
-ingress sets the installation and proof headers through the
-`configuration-snippet` annotation, which ingress-nginx 1.9 and later disables
-by default; with it disabled, every request is refused 421
-(`hosted-ingress-snippet`). The supervisor DaemonSet and the Compose fleet
-host both hold one fleet-wide host identity (`hosted-host-identity-shared`). The gate file `tasks/factory/w16-GATES.md`
-tracks all four.
+The hosted profile runs the same seven steps through the same provisioner.
+Only step 5's target, the fleet host's services, the addresses a pod uses, and
+the ingress differ (`src/factory/provisioning/fleet-profile.ts`):
+
+- Step 5 applies the installation's objects in one server-side apply. Each
+  service's Secret is filled from its private delivery directory and sent to
+  kubectl on standard input only.
+- The fleet host runs the shared pool as a Deployment and the supervisor as a
+  DaemonSet in the fleet's system namespace. Only the DaemonSet is privileged and
+  holds the container runtime socket and the host identity. It holds no tenant
+  secret.
+- A tenant pod cannot mount the files the pool and supervisor write. The
+  startup document says `hostReadiness: network`, and the harness reads both
+  records from their own authenticated routes. Each pod reaches the supervisor
+  of its own node through a node-local Service.
+- The trusted ingress is the Compose platform's nginx, with the same rendered
+  routes, in the system namespace. It sets the installation and proof headers.
+  The harness checks host, installation header, and proof in both profiles.
+  Only the ingress pods may reach a harness.
+- The factory image runs as an unprivileged user with no home directory. The
+  pool and the supervisor get `HOME` on their own bounded, writable `/tmp`, from
+  one map (`FACTORY_HOST_SERVICE_BASE_ENVIRONMENT` in
+  `src/factory/provisioning/deployment.ts`). The Compose host's pool reads the
+  same map. Without it, the supervisor's podman-remote client cannot start.
+
+A hosted fleet's settings carry `profile: "kubernetes"` and a `kubernetes`
+block: `kubectl` and `kubeconfigPath` (absolute paths; the kubeconfig is never
+read by the provisioner), `systemNamespace`, `runAsUser`, `runtimeSocketPath`,
+`runnerRoot` (the supervisor's runner root, mounted at the same path on the
+node, because the node's Podman resolves a guest's bind mounts by the node's
+paths), `nodeCidrs` (the nodes' addresses: the supervisor runs on the host
+network, so the tenant network policy admits them on the guest-broker route and
+toward the supervisor port), `nodeSelector` (required to be non-empty under the `gpu` resource profile: the
+supervisor runs only there), `ingress` (`listenPort`, `nodePort` 30000-32767),
+`egressCidrs` and `egressPorts` for the tenant network policy, and `services`:
+how a pod reaches the database, both object stores and Temporal. The fleet
+host's pool uses the same addresses. A pod does not see the provisioner's own
+addresses.
+Every `nodeCidrs` and `egressCidrs` entry is one IPv4 CIDR. An IPv6 or dual-stack
+hosted cluster is outside this profile. A malformed entry is refused by its
+field, index, and entry (for example `kubernetes.nodeCidrs[0] "10.89.1.0"`).
+`runAsUser` is the user and the group of every factory container, the
+supervisor and every init container included, and the `fsGroup` of every pod.
+Kubernetes owns a Secret volume's files by root. With `fsGroup`, the kubelet
+shows them as root and that group, mode 0440, so only the pod's own containers
+read them (C12 row "Scoped secret delivery (hosted)").
+Every private directory a factory container uses (its delivered secrets and
+its readiness record) is an owned 0700 directory that the pod's init
+container prepares on an in-memory volume; the container mounts only that
+directory (C12 row "Private paths of a hosted container (hosted)").
+The runner root is not created for you. Prepare it on every runner node before
+the install: a directory at `runnerRoot`, owned by the user and group
+`runAsUser`, mode 0700. The supervisor mounts it as a directory that must
+exist; a missing one stops the install by name (`runner_root_unprepared`).
+The supervisor keeps its durable state (worker tombstones and preparation
+records) in `supervisor-state` under the runner root. Its init container makes
+that folder, owned by `runAsUser`, mode 0700. It survives a pod restart. Do not
+delete it on a drain or an upgrade (C12 row "Supervisor durable state
+(hosted)").
+`runtimeGroups` (optional, up to 8 group ids) names the node's
+container-runtime socket group. Only the supervisor pod gets it, as
+supplementary groups. A rootful socket owned by root and that group with mode
+0660 is the expected form. The supervisor never runs as root (C12 row
+"Supervisor runner root and runtime socket (hosted prerequisites)").
+
+One named gap stays open: the supervisor DaemonSet and the Compose fleet host
+both hold one fleet-wide host identity (`hosted-host-identity-shared`).
 
 ## Prerequisites
 
@@ -42,6 +97,26 @@ The installation checklist. The provisioner verifies every item it can observe.
 | Operator key material | Created by `ensureFactoryPlatformMaterial` under the operator root | Every step reads it through the private reader |
 | GPU (optional) | See "CPU-only availability" and `docs/factory-local-gpu.md` | Named readiness rows, all unmet on this host |
 | Runner availability | Runner profiles declared in the fleet settings | The startup parser admits them before any install |
+| Hosted cluster (hosted profile only) | Kubernetes with NetworkPolicy enforcement and Pod Security admission; kubectl; a private kubeconfig file named by path in the fleet settings | Step 5's apply and readiness wait |
+| Local kind proof (this host only) | kind v0.32.0 and kubectl v1.37.1, each pinned by its published sha256 under `/tmp/factory-tools/` with a `PIN.txt` record; the node image `kindest/node:v1.36.1` present by digest; a kernel modules directory (see below) | The proof's preflight, outside the heavy lock; it fails by name |
+| Podman API socket on every runner node (hosted profile only) | Podman 5.x with its API socket at `kubernetes.runtimeSocketPath`; the supervisor DaemonSet mounts it and drives guests through the image's pinned podman-remote client | The supervisor degrades by name (`container_runtime_socket_missing`) when the socket is absent |
+
+kind mounts the host's `/lib/modules` into its node, always and read-only
+(kind v0.32.0, `pkg/cluster/internal/providers/podman/provision.go`). A NixOS
+host has no `/lib/modules`. The running kernel's modules are under
+`/run/booted-system/kernel-modules/lib/modules`. Do not use
+`/run/current-system`: after a rebuild without a reboot it names the next
+kernel, not the running one. The local proof does not change the host. Its
+`kind create cluster` call runs through a podman shim that rewrites exactly that
+one mount to the running kernel's directory, still read-only, and passes every
+other argument through. An operator who prefers a host path can add
+`systemd.tmpfiles.rules = [ "L+ /lib/modules - - - - /run/booted-system/kernel-modules/lib/modules" ];`
+to the NixOS configuration instead.
+
+The proof's own PostgreSQL starts on the proof's bridge network. Rootless
+Podman cannot attach a bridge network to a running container in its default
+(`pasta`) network mode, so the network exists first and the container starts on
+it.
 
 Storage on this host: the installations use the two shared local stores
 read-only (`docs/factory-local-storage.md`). The provisioner reads the stores'
@@ -59,7 +134,12 @@ independent archive failure domain (W15, W19).
 | Node for the orchestrator | `deploy/factory/Dockerfile` | `node:24.14.1-bookworm-slim` by digest |
 | Temporal, its database, gateway, JWKS, authorizer, ingress | `deploy/factory/compose/platform.yml` | Every image by digest |
 | Host supervisor | The host checkout at the image's revision | The fleet settings name the release directory and the Bun binary |
-| Every image in the Dockerfile and the Compose templates | `scripts/check-factory-deployment-locks.ts`, run in CI | Refuses any image not pinned by digest |
+| Hosted supervisor's podman-remote client | `deploy/factory/Dockerfile` (`ADD --checksum`) | The static client of Podman v5.8.7, the release artifact checked by sha256; match it to the nodes' Podman 5.x API |
+| Every image in the Dockerfile, the Compose templates, and the Kubernetes templates, and every download in the Dockerfile | `scripts/check-factory-deployment-locks.ts`, run in CI | Refuses any image not pinned by digest and any download not pinned by sha256 |
+| Kubernetes objects | `src/factory/provisioning/kubernetes-profile.ts` | The renderer refuses to return an object stream with an unpinned image |
+| Hosted ingress | the `ingress` service of `deploy/factory/compose/platform.yml` | The same nginx digest in both profiles |
+| Local kind proof cluster | `deploy/factory/kubernetes/kind-proof.yml` | `kindest/node:v1.36.1` by digest, the default of kind v0.32.0. The kind project publishes its node images only on Docker Hub (`docker.io`), so this is a Docker Hub dependency. Pull it once by digest; without a team mirror, do not pull it again |
+| Local kind proof tools | `/tmp/factory-tools/kind-0.32.0/`, `/tmp/factory-tools/kubectl-1.37.1/` | Each binary pinned by the sha256 its project publishes, recorded in `PIN.txt`; the proof's preflight checks the hash before use and never looks on `PATH` |
 | Toolchain | `.bun-version`, `.node-version` | Bun 1.4.2, Node 24.14.1 |
 
 Build the image from a clean checkout and pin its digest in the fleet settings:
@@ -247,6 +327,36 @@ Two credentials expire and must be rotated before their deadline:
 | Service tokens and mesh leaf certificates | 30 days | `rotate <tenant> deployment` | `meshTokensExpireAtMs` on step 5 in `status <tenant>` |
 | Temporal namespace token | 30 days | `rotate <tenant> temporal` | the token's `exp`; rotate with the mesh. The same step replaces the certificate and the read token and revokes the old ones |
 
+### The operator master key
+
+The master key wraps the installation's data key. It never encrypts data
+itself, so a rotation changes no stored object.
+
+```sh
+bun scripts/factory-fleet.ts <fleet.json> rotate tenant-01 master-key
+bun scripts/factory-fleet.ts <fleet.json> revoke-master-key tenant-01 1
+```
+
+| File | Where | Format |
+| --- | --- | --- |
+| `master.key` (version 1), `master-v<n>.key` (version n) | the installation's operator directory, mode 0700, outside every grantable root | exactly 32 random bytes, mode 0600, owned by the provisioning user |
+| `wraps.json` | the installation's secret directory | `factory.key-wraps.v1`: installation ID, wrap version, master key ID, and the base64 wrapped data key, all under ONE master key |
+| `retained-wraps-v<n>.json` | the operator directory, beside `master-v<n>.key` | the wraps under a superseded key, kept until that key is revoked |
+
+The wrap file decides which key is current. `rotate <tenant> master-key`
+writes the next key once, refuses it if it is printable text or an application
+secret, keeps the current wraps beside the current key, wraps the same data key
+under the next key, and replaces the wrap file in one atomic step. Then it
+re-delivers the new key and wrap file to the orchestrator only and restarts it.
+A rotation interrupted by a crash is completed by the next run. It never makes
+a second new version.
+
+`revoke-master-key <tenant> <version>` removes an older key and the wraps kept
+under it. It refuses the current version (`master_key_revocation_current`).
+After revocation, a wrap under the removed key does not open
+(`factory_key_missing`). Run it again and nothing changes. Revoke a version
+only after every backup that needs it has a newer wrap.
+
 Only a complete step rotates. A rotation that fails is recorded as
 `step.rotation_failed` and leaves the previous credential in force. A database
 or Temporal rotation interrupted by a crash is finished by the next run.
@@ -333,8 +443,25 @@ containers with `restart: unless-stopped` start again.
 
 ## CPU-only resource availability
 
+The resource profile is a fleet setting, `resources`, because the pool is
+shared by the fleet. Every installation of the fleet inherits it.
+
+| Profile | Settings | What the pool offers |
+| --- | --- | --- |
+| `cpu-only` | `{ "profile": "cpu-only", "cpuCapacity": 2 }` | CPU slots only. A runner profile that asks for `gpu-host` is refused when the settings are read. No attempt receives a device. |
+| `gpu` | `{ "profile": "gpu", "cpuCapacity": 2, "gpuProfilesPath": "/abs/gpu-host-profiles.json" }` | CPU slots, and the fleet host as its one GPU host. The private profile file must declare exactly that host (`host.<fleet>`); the host refuses any other file before the pool starts (`host_gpu_profiles_invalid`) and delivers it to the pool only. |
+
+The W19a graph proof runs on the `cpu-only` profile (`GRAPH_PROOF_RESOURCES`
+in `scripts/factory-graph-proof/stack-documents.ts`, CPU capacity 4). With the
+test provider it runs the reference pack end to end: one model operation, by
+the test provider, at cost 0, and no device.
+
+`factory-fleet-init-local.ts --gpu-profiles <file>` writes a `gpu` fleet;
+without it, the fleet is `cpu-only`. A fleet cannot move from `gpu` to
+`cpu-only`: the pool's durable state refuses it. Make a new fleet instead.
+
 This host has no production GPU. Every installation runs CPU journeys. The
-fleet's shared pool offers `cpuCapacity` CPU slots (2 by default) to all its
+fleet's shared pool offers `cpuCapacity` CPU slots to all its
 installations, in one capacity ledger. The GPU host
 profile registry (`src/factory/pool/gpu-host-profiles.ts`) refuses a production
 profile without evidence for each of the eight C05 criteria. The local AMD
@@ -414,13 +541,16 @@ is the one list of families and their label sets.
 | Profile | Evaluator | Rules |
 | --- | --- | --- |
 | Self-hosted Compose | The `prometheus` service in `deploy/factory/compose/host.yml`, on host loopback. The host rewrites its target lists on each admission and release. | `deploy/factory/prometheus/factory-alerts.yml` |
-| Hosted Kubernetes | The platform's Prometheus operator. Each tenant namespace gets a `PodMonitor` and the `factory-metrics-scrape` Secret; the system namespace gets the `PrometheusRule` and the pool's `PodMonitor`. Set `monitoringNamespace` to the operator's namespace. | `PrometheusRule` `factory-c11-alerts` |
+| Hosted Kubernetes | The platform's Prometheus operator. Each tenant namespace gets a `PodMonitor` and the `factory-metrics-scrape` Secret; the system namespace gets the `PrometheusRule` and the `PodMonitor` of the pool and the supervisor. Set `kubernetes.monitoring.namespace` in the fleet settings to the operator's namespace. Without `kubernetes.monitoring`, none of these objects is rendered, no rule is evaluated, and the supervisor opens no metrics port. | `PrometheusRule` `factory-c11-alerts` |
 
 `src/factory/observability/alert-rules.ts` renders both rule sets, so the two
-profiles have the same thresholds. A test pins the shipped file to it. Known
-gap: on the hosted profile the supervisor binds `/metrics` on host loopback
-(`hosted-supervisor-metrics-address`), so `FactoryMetricsTargetDown` names it
-until that gap closes.
+profiles have the same thresholds. A test pins the shipped file to it. On the
+hosted profile the supervisor runs on the host network. It binds `/metrics` to
+the node's own address, which the DaemonSet passes from `status.hostIP`, and it
+reads the scrape token from its delivered private copy. It never binds
+`0.0.0.0`. An empty or malformed address stops its start with
+`factory_node_address_unavailable`. A held container-runtime role keeps the
+supervisor ready; `FactoryServiceRoleHeld` pages on it after 1 minute.
 
 Each rule is verified by forcing its condition in a real evaluator:
 `src/factory/observability/alert-evaluator.integration.test.ts`, in the
@@ -440,6 +570,7 @@ Each rule is verified by forcing its condition in a real evaluator:
 | `FactorySecurityDenial` | Any denied cross-tenant broker attempt or detected sandbox escape | Revoke affected attempt/host credentials, fence the host, investigate and recertify before reuse |
 | `FactoryNotificationSendStuck` | A send entered dead letter or an unknown outcome in the last 15 minutes, or a queued send is older than 5 minutes | Inspect the destination and its receiver; never re-drive a destination that does not deduplicate on the idempotency key |
 | `FactoryMetricsTargetDown` | A factory service's /metrics cannot be scraped, or the service reports itself not ready | Restore the service or its metrics endpoint; until then every alert above is blind for that service |
+| `FactoryServiceRoleHeld` | A shared service holds a product role; a dispatch that needs the role is refused by name | Restore the container runtime on that node (its socket, group and service); the supervisor resumes by itself |
 
 For an uncertain release, the inbox lists it at
 `GET /api/factories/projects/:projectId/release/notifications`, and the

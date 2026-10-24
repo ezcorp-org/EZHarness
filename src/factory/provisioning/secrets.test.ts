@@ -6,7 +6,7 @@ import { factoryRejection, makeFactoryPrivateRoot, makeFactoryTestInstallation, 
 import { loadFactoryTemporalPayloadCodec } from "../file-key-wraps";
 import type { FactoryInstallationContext, FactoryStepResources } from "./installation";
 import { FactoryProvisioningError } from "./steps";
-import { FACTORY_APPLICATION_SECRET_FILES, FACTORY_ESCROW_WRAPS, FACTORY_KEY_FILES, FactorySecretsStep, assertFactoryMasterKeyIsRaw, escrowFactoryArchiveKey, factoryMasterKeyId, type FactorySecretDigestRegistry } from "./secrets";
+import { FACTORY_APPLICATION_SECRET_FILES, FACTORY_ESCROW_WRAPS, FACTORY_KEY_FILES, FactorySecretsStep, assertFactoryMasterKeyIsRaw, escrowFactoryArchiveKey, factoryMasterKeyFile, factoryMasterKeyId, factoryRetainedWrapsFile, readFactoryCurrentMasterKey, type FactorySecretDigestRegistry } from "./secrets";
 
 let root: string;
 let installation: FactoryInstallationContext;
@@ -379,5 +379,144 @@ describe("escrowFactoryArchiveKey", () => {
     await chmod(secretPath(FACTORY_KEY_FILES.wraps), 0o644);
     expect((await factoryRejection(escrowFactoryArchiveKey(installation))).message).toBe("Private file must be owned, private, regular, and bounded.");
     expect(await Bun.file(join(installation.operatorDirectory, "escrow-wraps.json")).exists()).toBe(false);
+  });
+});
+
+describe("master-key rotation and revocation (W4H-35 G3)", () => {
+  const operatorPath = (name: string) => join(installation.operatorDirectory, name);
+  const codecUnder = (version: number, wrappedKeyFilePath = secretPath(FACTORY_KEY_FILES.wraps)) => loadFactoryTemporalPayloadCodec({
+    installationId: installation.installationId, tenantId: installation.tenantId, wrappedKeyFilePath,
+    masterKeyFilePath: operatorPath(factoryMasterKeyFile(version)), masterKeyId: factoryMasterKeyId(installation, version), grantableRoots: [join(root, "workspaces")],
+  });
+  async function encodeHello(version: number) {
+    const [encoded] = await (await codecUnder(version)).encode([{ metadata: {}, data: Buffer.from("hello") }], WORKFLOW);
+    return encoded!;
+  }
+  const decodes = async (version: number, encoded: Awaited<ReturnType<typeof encodeHello>>, path?: string) => Buffer.from((await (await codecUnder(version, path)).decode([encoded], WORKFLOW))[0]!.data!).toString();
+
+  test("the master key file is named by its version; version 1 keeps its original name", () => {
+    expect(factoryMasterKeyFile(1)).toBe(FACTORY_KEY_FILES.master);
+    expect(factoryMasterKeyFile(2)).toBe("master-v2.key");
+    expect(factoryRetainedWrapsFile(1)).toBe("retained-wraps-v1.json");
+  });
+
+  test("before any wrap exists, and after ensure, the current master key is version 1", async () => {
+    expect(await readFactoryCurrentMasterKey(installation)).toEqual({ version: 1, id: factoryMasterKeyId(installation), path: masterPath() });
+    const { step } = makeStep();
+    await step.ensure(installation);
+    expect(await readFactoryCurrentMasterKey(installation)).toEqual({ version: 1, id: factoryMasterKeyId(installation), path: masterPath() });
+  });
+
+  test("rotation writes the next raw master key, rewraps the same data key under it, keeps the old key and wraps, and verifies", async () => {
+    const { step } = makeStep();
+    const before = await step.ensure(installation);
+    const encoded = await encodeHello(1);
+    const oldWraps = await readFile(secretPath(FACTORY_KEY_FILES.wraps));
+    const after = await step.rotateMasterKey(installation, before);
+    const next = await readFile(operatorPath("master-v2.key"));
+    expect(next.byteLength).toBe(32);
+    expect(next.equals(await readFile(masterPath()))).toBe(false);
+    for (const path of [operatorPath("master-v2.key"), operatorPath("retained-wraps-v1.json"), secretPath(FACTORY_KEY_FILES.wraps)]) {
+      const status = await stat(path);
+      expect(status.mode & 0o777).toBe(0o600);
+      expect(status.uid).toBe(process.getuid!());
+    }
+    expect((await stat(installation.operatorDirectory)).mode & 0o777).toBe(0o700);
+    expect(after).toEqual({ ...before, masterKeyFilePath: operatorPath("master-v2.key"), masterKeyId: factoryMasterKeyId(installation, 2), masterKeyDigest: sha(next) });
+    const wraps = JSON.parse(await readFile(secretPath(FACTORY_KEY_FILES.wraps), "utf8"));
+    expect(wraps.wraps).toHaveLength(1);
+    expect(wraps.wraps[0]).toMatchObject({ installationId: installation.installationId, wrapVersion: 2, masterKeyId: factoryMasterKeyId(installation, 2) });
+    expect(await readFile(operatorPath("retained-wraps-v1.json"))).toEqual(oldWraps);
+    expect(await decodes(2, encoded)).toBe("hello");
+    expect(await decodes(1, encoded, operatorPath("retained-wraps-v1.json"))).toBe("hello");
+    expect(await readFactoryCurrentMasterKey(installation)).toEqual({ version: 2, id: factoryMasterKeyId(installation, 2), path: operatorPath("master-v2.key") });
+    expect(await step.verify(installation, after)).toBeUndefined();
+    expect((await factoryRejection(step.verify(installation, before))).code).toBe("secrets_resource_mismatch");
+  });
+
+  test("a rerun with the resources recorded before an interrupted rotation completes it and makes no further version", async () => {
+    const { step } = makeStep();
+    const before = await step.ensure(installation);
+    const after = await step.rotateMasterKey(installation, before);
+    const wraps = await readFile(secretPath(FACTORY_KEY_FILES.wraps));
+    expect(await step.rotateMasterKey(installation, before)).toEqual(after);
+    expect(await readFile(secretPath(FACTORY_KEY_FILES.wraps))).toEqual(wraps);
+    expect(await Bun.file(operatorPath("master-v3.key")).exists()).toBe(false);
+  });
+
+  test("an interruption after the next key was written reuses that key: the key file is write-once", async () => {
+    const { step } = makeStep();
+    const before = await step.ensure(installation);
+    const planted = randomBytes(32);
+    await writeModeFile(operatorPath("master-v2.key"), planted);
+    const after = await step.rotateMasterKey(installation, before);
+    expect(after.masterKeyDigest).toBe(sha(planted));
+    expect(await readFile(operatorPath("master-v2.key"))).toEqual(planted);
+  });
+
+  test("a next key that is printable text is refused and the wraps are not touched", async () => {
+    const { step } = makeStep();
+    const before = await step.ensure(installation);
+    const wraps = await readFile(secretPath(FACTORY_KEY_FILES.wraps));
+    await writeModeFile(operatorPath("master-v2.key"), "a".repeat(32));
+    expect((await factoryRejection(step.rotateMasterKey(installation, before))).code).toBe("master_key_is_text");
+    expect(await readFile(secretPath(FACTORY_KEY_FILES.wraps))).toEqual(wraps);
+    expect(await readFactoryCurrentMasterKey(installation)).toMatchObject({ version: 1 });
+  });
+
+  test("a rotation requested with the current resources is a new rotation", async () => {
+    const { step } = makeStep();
+    const second = await step.rotateMasterKey(installation, await step.ensure(installation));
+    const third = await step.rotateMasterKey(installation, second);
+    expect(third.masterKeyId).toBe(factoryMasterKeyId(installation, 3));
+    expect(await Bun.file(operatorPath("retained-wraps-v2.json")).exists()).toBe(true);
+  });
+
+  test("revocation removes an old master key and its retained wraps; a wrap under it then does not open; a rerun changes nothing", async () => {
+    const { step } = makeStep();
+    const before = await step.ensure(installation);
+    const encoded = await encodeHello(1);
+    const oldWraps = await readFile(secretPath(FACTORY_KEY_FILES.wraps));
+    expect((await factoryRejection(step.revokeMasterKey(installation, before, 1))).code).toBe("master_key_revocation_current");
+    const after = await step.rotateMasterKey(installation, before);
+    expect((await factoryRejection(step.revokeMasterKey(installation, after, 2))).code).toBe("master_key_revocation_current");
+    expect((await factoryRejection(step.revokeMasterKey(installation, after, 0))).code).toBe("master_key_revocation_invalid");
+    await step.revokeMasterKey(installation, after, 1);
+    expect(await Bun.file(masterPath()).exists()).toBe(false);
+    expect(await Bun.file(operatorPath("retained-wraps-v1.json")).exists()).toBe(false);
+    await writeModeFile(secretPath("old-wraps.json"), oldWraps);
+    expect((await factoryRejection(codecUnder(1, secretPath("old-wraps.json")))).code).toBe("factory_key_missing");
+    expect(await decodes(2, encoded)).toBe("hello");
+    await step.revokeMasterKey(installation, after, 1);
+    expect(await step.verify(installation, after)).toBeUndefined();
+  });
+
+  test("ensure after rotation and revocation keeps the current key and never re-creates a revoked one", async () => {
+    const { step } = makeStep();
+    const after = await step.rotateMasterKey(installation, await step.ensure(installation));
+    await step.revokeMasterKey(installation, after, 1);
+    expect(await step.ensure(installation)).toEqual(after);
+    expect(await Bun.file(masterPath()).exists()).toBe(false);
+  });
+
+  test("teardown and purge after rotation keep the current master key and escrow the current wraps", async () => {
+    const { step } = makeStep();
+    const after = await step.rotateMasterKey(installation, await step.ensure(installation));
+    const encoded = await encodeHello(2);
+    await step.revokeMasterKey(installation, after, 1);
+    await step.teardown(installation);
+    await escrowFactoryArchiveKey(installation);
+    expect(await decodes(2, encoded, join(installation.operatorDirectory, FACTORY_ESCROW_WRAPS))).toBe("hello");
+  });
+
+  test("a wrap file under a master key id of another installation is refused as the current key, and nothing is created", async () => {
+    const { step } = makeStep();
+    await step.ensure(installation);
+    const wraps = JSON.parse(await readFile(secretPath(FACTORY_KEY_FILES.wraps), "utf8"));
+    wraps.wraps[0].masterKeyId = "master-inst-other-v1";
+    await writeModeFile(secretPath(FACTORY_KEY_FILES.wraps), JSON.stringify(wraps));
+    expect((await factoryRejection(readFactoryCurrentMasterKey(installation))).code).toBe("factory_key_invalid");
+    expect((await factoryRejection(step.ensure(installation))).code).toBe("factory_key_invalid");
+    expect(await Bun.file(join(installation.operatorDirectory, "master-v2.key")).exists()).toBe(false);
   });
 });

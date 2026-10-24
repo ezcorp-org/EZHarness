@@ -53,8 +53,17 @@ export interface FactoryStartupConfig {
   readonly poolId: string;
   readonly temporalNamespace: string;
   readonly orchestrationReadinessFilePath: string;
-  readonly poolReadinessFilePath: string;
-  readonly supervisorReadinessFilePath: string;
+  /** The shared pool's record as a file. Absent exactly when `hostReadiness` is `network`. */
+  readonly poolReadinessFilePath?: string;
+  /** The shared supervisor's record as a file. Absent exactly when `hostReadiness` is `network`. */
+  readonly supervisorReadinessFilePath?: string;
+  /**
+   * `network`: the hosted profile, whose installations cannot mount the files
+   * the shared pool and supervisor write (W4H-35). Their records are read from
+   * their own readiness routes: the pool's over `pool`, the supervisor's over
+   * `hostLaunch`. Absent: both are files.
+   */
+  readonly hostReadiness?: "network";
   readonly hostId: string;
   /**
    * How often the host maintenance daemon sweeps orphaned legacy runs.
@@ -105,7 +114,12 @@ export interface FactoryStartupConfig {
      */
     readonly tokens?: { readonly issuer: string; readonly audience: string; readonly publicKeyPaths: Readonly<Record<string, string>> };
   };
-  readonly pool: { readonly baseUrl: string; readonly serviceTokenPath: string; readonly tls: FactoryStartupTlsMaterial };
+  /**
+   * `serverName`: the name the pool's certificate is verified as, when the
+   * pool is dialled by another name (the hosted profile dials its service name
+   * and verifies the host certificate's `localhost`, as `hostLaunch` does).
+   */
+  readonly pool: { readonly baseUrl: string; readonly serverName?: string; readonly serviceTokenPath: string; readonly tls: FactoryStartupTlsMaterial };
   readonly storage: { readonly ordinary: FactoryStartupStorage; readonly archive: FactoryStartupStorage };
   readonly keys: { readonly masterKeyFilePath: string; readonly masterKeyId: string; readonly wrappedKeyFilePath: string; readonly grantableRoots: readonly string[] };
   /**
@@ -442,8 +456,9 @@ export const FACTORY_STARTUP_FIELDS: readonly FieldSpec[] = Object.freeze([
   { field: "poolId", kind: "identity" },
   { field: "temporalNamespace", kind: "identity" },
   { field: "orchestrationReadinessFilePath", kind: "path" },
-  { field: "poolReadinessFilePath", kind: "path" },
-  { field: "supervisorReadinessFilePath", kind: "path" },
+  { field: "poolReadinessFilePath", kind: "path", optional: true },
+  { field: "supervisorReadinessFilePath", kind: "path", optional: true },
+  { field: "hostReadiness", kind: "identity", optional: true },
   { field: "hostId", kind: "identity" },
   { field: "orphanSweepIntervalMs", kind: "interval" },
   { field: "readinessHeartbeatMs", kind: "interval", optional: true },
@@ -462,6 +477,7 @@ export const FACTORY_STARTUP_FIELDS: readonly FieldSpec[] = Object.freeze([
   { field: "privateService.tokens.issuer", kind: "statement", optional: true },
   { field: "privateService.tokens.audience", kind: "statement", optional: true },
   { field: "pool.baseUrl", kind: "url" },
+  { field: "pool.serverName", kind: "identity", optional: true },
   { field: "pool.serviceTokenPath", kind: "path" },
   ...tls("pool"),
   ...storage("storage.ordinary"),
@@ -723,6 +739,9 @@ function leaves(value: unknown, prefix = ""): string[] {
   return found;
 }
 
+/** The shared host records' files: required unless `hostReadiness` names another source. */
+const HOST_READINESS_FILES: readonly string[] = ["poolReadinessFilePath", "supervisorReadinessFilePath"];
+
 /** Every problem found so far, in the order the checks below find them. */
 interface StartupProblems {
   readonly missing: string[];
@@ -733,10 +752,11 @@ type StartupCheck = (value: Record<string, unknown>, problems: StartupProblems) 
 /** The schema version, every declared field, and no field this document does not declare. */
 const checkDeclaredFields: StartupCheck = (value, { missing, invalid }) => {
   if (value.schemaVersion !== FACTORY_STARTUP_CONFIG_SCHEMA) invalid.push("schemaVersion");
+  const filesRequired = !read(value, "hostReadiness").present;
   for (const spec of FACTORY_STARTUP_FIELDS) {
     const { present, value: field } = read(value, spec.field);
     if (!present) {
-      if (!spec.optional) missing.push(spec.field);
+      if (!spec.optional || (filesRequired && HOST_READINESS_FILES.includes(spec.field))) missing.push(spec.field);
       continue;
     }
     if (!wellFormed(spec.kind, field)) invalid.push(spec.field);
@@ -766,6 +786,17 @@ const checkHostLaunch: StartupCheck = (value, { missing }) => {
   if (supplied.length > 0 && supplied.length < transport.length) {
     for (const spec of transport) if (!supplied.includes(spec)) missing.push(spec.field);
   }
+};
+
+// Each shared host record has exactly one source: a file (both paths required,
+// above), or (hosted) the service's own readiness route, the supervisor's over
+// the host launch transport.
+const checkHostReadiness: StartupCheck = (value, { missing, invalid }) => {
+  const source = read(value, "hostReadiness");
+  if (!source.present) return;
+  if (source.value !== "network") invalid.push("hostReadiness");
+  for (const field of HOST_READINESS_FILES) if (read(value, field).present) invalid.push(field);
+  if (!read(value, "hostLaunch.baseUrl").present) missing.push("hostLaunch.baseUrl");
 };
 
 // The guest-broker route is every part or none, and it verifies attempt
@@ -975,7 +1006,7 @@ const checkRepositories: StartupCheck = (value, { missing, invalid }) => {
 
 // Run in this order; the error lists keep the order the problems are found in.
 const STARTUP_CHECKS: readonly StartupCheck[] = [
-  checkDeclaredFields, checkModelPin, checkHostLaunch, checkGuestBroker, checkHostStopKeys, checkReadinessRetry, checkRecoverySections,
+  checkDeclaredFields, checkHostReadiness, checkModelPin, checkHostLaunch, checkGuestBroker, checkHostStopKeys, checkReadinessRetry, checkRecoverySections,
   checkPrivateServiceTokens, checkRunnerProfiles, checkRelease, checkValidatorRuntimes, checkRepositories, checkNotifications, checkMetrics,
 ];
 
@@ -1042,4 +1073,13 @@ export async function loadFactoryStartupConfig(path: string): Promise<FactorySta
     throw new FactoryStartupConfigError([], ["schemaVersion"]);
   }
   return parseFactoryStartupConfig(parsed);
+}
+
+/** The one transport every pool client of an installation uses: admission, checkpoints, restore, readiness. */
+export function factoryStartupPoolTransport(pool: FactoryStartupConfig["pool"]) {
+  return {
+    baseUrl: pool.baseUrl,
+    ...(pool.serverName === undefined ? {} : { serverName: pool.serverName }),
+    tls: { caPath: pool.tls.caPath, certificatePath: pool.tls.certificatePath, privateKeyPath: pool.tls.privateKeyPath, serviceTokenPath: pool.serviceTokenPath },
+  };
 }

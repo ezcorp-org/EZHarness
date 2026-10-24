@@ -1,0 +1,56 @@
+bun test v1.4.2 (744846f84)
+
+ 31 pass
+ 0 fail
+ 146 expect() calls
+Ran 31 tests across 1 file. [2.08s]
+bun test v1.4.2 (744846f84)
+
+ 31 pass
+ 0 fail
+ 146 expect() calls
+Ran 31 tests across 1 file. [3.87s]
+bun test v1.4.2 (744846f84)
+
+ 5 pass
+ 0 fail
+ 21 expect() calls
+Ran 5 tests across 1 file. [750.00ms]
+bun test v1.4.2 (744846f84)
+
+ 3 pass
+ 0 fail
+ 14 expect() calls
+Ran 3 tests across 1 file. [499.00ms]
+bun test v1.4.2 (744846f84)
+
+ 15 pass
+ 0 fail
+ 102 expect() calls
+Ran 15 tests across 2 files. [704.00ms]
+bun test v1.4.2 (744846f84)
+
+ 4 pass
+ 0 fail
+ 36 expect() calls
+Ran 4 tests across 1 file. [1142.00ms]
+bun test v1.4.2 (744846f84)
+
+ 20 pass
+ 0 fail
+ 126 expect() calls
+Ran 20 tests across 2 files. [1.87s]
+bun test v1.4.2 (744846f84)
+
+ 3 pass
+ 0 fail
+ 25 expect() calls
+Ran 3 tests across 1 file. [2.31s]
+bun test v1.4.2 (744846f84)
+
+ 1 pass
+ 0 fail
+ 12 expect() calls
+Ran 1 test across 1 file. [725.00ms]
+merged 632 source files → /tmp/factory-pool-coverage.REDYtq/merged.lcov
+kept 10 requested LCOV source records → /home/dev/work/EZCorp/EZHarness-worktrees/composable-factory-platform/.worktrees/w00-integration/coverage/w4h-35-w16-k8s-profiles-3698c8e84-on-802d46288/pool-producer/lcov.info

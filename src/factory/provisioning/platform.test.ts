@@ -11,6 +11,7 @@ import {
   factoryPlatformEnvironment,
   factoryPlatformPaths,
   factoryPlatformProject,
+  factoryPlatformServices,
   factoryPodmanIngressReloader,
   startFactoryPlatform,
   stopFactoryPlatform,
@@ -250,6 +251,18 @@ describe("startFactoryPlatform", () => {
     for (const path of [envPath, join(paths.ingress.root, "nginx.conf"), join(paths.ingress.root, "conf", "ezcorp-factory.conf")]) expect(await mode(path)).toBe(0o600);
   });
 
+  test("a hosted fleet starts every platform service but the Compose ingress, whose role the in-cluster ingress takes (W4H-35)", async () => {
+    const paths = factoryPlatformPaths(operatorRoot);
+    const repositoryRoot = join(import.meta.dir, "..", "..", "..");
+    const { execute, executed } = fakeExecutor([]);
+    await startFactoryPlatform({ ...settings, repositoryRoot, ingressAddress: "0.0.0.0", ingressPort: 8443, hostedIngress: true }, paths, compose, execute);
+    const { names } = await factoryPlatformServices(repositoryRoot);
+    expect(names).toContain("ingress");
+    expect(executed[0]!.command.slice(-names.length + 1)).toEqual(names.filter((name) => name !== "ingress"));
+    expect(executed[0]!.command).not.toContain("ingress");
+    expect(await text(join(paths.ingress.root, "conf", "ezcorp-factory.conf"))).toContain("listen 0.0.0.0:8443 ssl default_server;");
+  });
+
   test("a rerun is idempotent and keeps the default server written first", async () => {
     const paths = factoryPlatformPaths(operatorRoot);
     const { execute, executed } = fakeExecutor([]);
@@ -369,5 +382,22 @@ describe("waitForFactoryPlatform", () => {
     expect(asked).toBe(2);
     const refused = await factoryRejection(startFactoryPlatform(settings, paths, { argv: ["docker", "compose"], env: {} }, execute, async () => false, { attempts: 2, sleep: async () => undefined }));
     expect((refused as FactoryProvisioningError).code).toBe("platform_not_ready");
+  });
+});
+
+describe("factoryPlatformServices", () => {
+  test("names the platform template's services and its ingress image, the one nginx pin both profiles run", async () => {
+    const { names, ingressImage } = await factoryPlatformServices(join(import.meta.dir, "..", "..", ".."));
+    expect(names).toEqual(expect.arrayContaining(["factory-temporal", "factory-temporal-gateway", "ingress"]));
+    expect(ingressImage).toMatch(/^docker\.io\/library\/nginx@sha256:[0-9a-f]{64}$/);
+  });
+
+  test("a template without an ingress image is refused by name", async () => {
+    const root = await makeFactoryPrivateRoot();
+    try {
+      await mkdir(join(root, "deploy", "factory", "compose"), { recursive: true });
+      await Bun.write(join(root, "deploy", "factory", "compose", "platform.yml"), "services:\n  factory-temporal:\n    image: x\n");
+      expect((await factoryRejection(factoryPlatformServices(root))).code).toBe("platform_template_invalid");
+    } finally { await removeFactoryPrivateRoot(root); }
   });
 });

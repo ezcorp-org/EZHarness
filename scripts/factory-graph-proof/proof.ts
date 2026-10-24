@@ -29,6 +29,7 @@ import { GRAPH_TOPIC, graphDefinition, graphModelPin, graphReferences, graphRunn
 import { buildGraphGuest, installGraphGuest, type GraphGuestBuild } from "./guest-package";
 import { checkSharedStores, startStack, TENANT, type Stack } from "./stack";
 import { backgroundRefusals, canonicallyEqual, describeFailedChecks } from "./diagnostics";
+import { GRAPH_PROOF_RESOURCES } from "./stack-documents";
 
 const REPO = process.env.W19A_REPO!;
 const OUT = process.env.W19A_OUT!;
@@ -92,6 +93,8 @@ const pin: FactoryModelPin | undefined = CONTROL === "no-pin" ? undefined
 // The installation's provider: the mode's, or the missing model's.
 const installationPin = CONTROL === "missing-model" ? { provider: "ollama", model: OLLAMA_MISSING_MODEL } : { provider: modePin(MODE).provider, model: modePin(MODE).model };
 record.pin = pin ?? null;
+// The resource profile the pool runs (W4H-35 G10): read by the verdict from this record, not from a log line.
+record.resourceProfile = GRAPH_PROOF_RESOURCES;
 record.installationModelProvider = installationPin;
 
 const stores = await checkSharedStores();

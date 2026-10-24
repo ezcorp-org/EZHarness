@@ -1127,6 +1127,10 @@ jobs:
       - uses: ./.github/actions/setup-python-toolchain
       # The backend suites test the ripgrep backend of the grep tool (W4H-33).
       - uses: ./.github/actions/ripgrep
+      # The node-entries registration guard loads each entry the profiles run with `node` under the pinned Node (.node-version).
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version-file: .node-version
       - name: Run shard (tests + coverage)
         env:
           SHARD_INDEX: ${{ matrix.shard }}
