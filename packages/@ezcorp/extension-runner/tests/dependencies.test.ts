@@ -99,6 +99,23 @@ test("resolver applies exact global overrides through siblings and grandchildren
   }
 });
 
+test("every registry request closes its connection, so an idle runner holds no registry socket", async () => {
+  const originalFetch = globalThis.fetch;
+  const requests: RequestInit[] = [];
+  globalThis.fetch = (async (_input: string | URL | Request, init?: RequestInit) => {
+    requests.push(init ?? {});
+    return new Response(JSON.stringify({ versions: { "1.0.0": { dist: { integrity: `sha512-${"A".repeat(86)}==`, tarball: "https://registry.npmjs.org/fixture-leaf/-/fixture-leaf-1.0.0.tgz" } } } }));
+  }) as typeof fetch;
+  try {
+    const frozen = await resolveDependencies({ "package.json": JSON.stringify({ dependencies: { "fixture-leaf": "1.0.0" } }) });
+    await expect(fetchLockedDependencies(frozen)).rejects.toThrow("integrity mismatch");
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+  expect(requests).toHaveLength(2);
+  for (const init of requests) expect(init).toMatchObject({ keepalive: false });
+});
+
 test("resolver rejects unsupported, unpinned, and direct-conflicting override forms", async () => {
   const dependencies = { "fixture-parent": "1.0.0" };
   for (const overrides of [
