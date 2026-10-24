@@ -102,6 +102,8 @@ export function resolveEngine(env: EngineEnv, hasCommand: (name: string) => bool
 
 export interface DockerHostEnv {
   readonly DOCKER_HOST?: string | undefined;
+  /** Replaces the /run/user/<uid> socket folder, as in the shell lib. */
+  readonly EZCORP_PODMAN_RUNTIME_DIR?: string | undefined;
 }
 
 /**
@@ -109,7 +111,8 @@ export interface DockerHostEnv {
  * Docker needs none — Compose already talks to the Docker daemon directly, so
  * this returns whatever (if anything) the caller already exported. Under
  * Podman: an already-exported DOCKER_HOST is honoured untouched; otherwise
- * the rootless user socket at /run/user/<uid>/podman/podman.sock. When that
+ * the rootless user socket at /run/user/<uid>/podman/podman.sock (the folder
+ * is EZCORP_PODMAN_RUNTIME_DIR when that is set, as in the shell lib). When that
  * socket does not exist this throws PodmanSocketNotFoundError instead of
  * guessing another location. `socketExists` is injected so tests never touch
  * the real filesystem.
@@ -122,7 +125,7 @@ export function resolveComposeDockerHost(
 ): string | undefined {
   if (env.DOCKER_HOST !== undefined && env.DOCKER_HOST !== "") return env.DOCKER_HOST;
   if (engine === "docker") return undefined;
-  const socketPath = `/run/user/${uid}/podman/podman.sock`;
+  const socketPath = `${env.EZCORP_PODMAN_RUNTIME_DIR || `/run/user/${uid}`}/podman/podman.sock`;
   if (!socketExists(socketPath)) throw new PodmanSocketNotFoundError(socketPath);
   return `unix://${socketPath}`;
 }

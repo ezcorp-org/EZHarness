@@ -1,5 +1,5 @@
 import { afterAll, describe, expect, test } from "bun:test";
-import { chmodSync, existsSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
@@ -152,6 +152,48 @@ describe("resolveComposeDockerHost", () => {
 
   test("podman: an empty-string DOCKER_HOST is treated as unset", () => {
     expect(resolveComposeDockerHost("podman", { DOCKER_HOST: "" }, 1001, () => true)).toBe("unix:///run/user/1001/podman/podman.sock");
+  });
+
+  test("podman: EZCORP_PODMAN_RUNTIME_DIR replaces /run/user/<uid> as the socket folder", () => {
+    let probed: string | undefined;
+    const socketExists = (path: string) => { probed = path; return true; };
+    expect(resolveComposeDockerHost("podman", { EZCORP_PODMAN_RUNTIME_DIR: "/tmp/rt" }, 1001, socketExists)).toBe("unix:///tmp/rt/podman/podman.sock");
+    expect(probed).toBe("/tmp/rt/podman/podman.sock");
+  });
+
+  test("podman: an empty-string EZCORP_PODMAN_RUNTIME_DIR is treated as unset, like the shell's :- default", () => {
+    expect(resolveComposeDockerHost("podman", { EZCORP_PODMAN_RUNTIME_DIR: "" }, 1001, () => true)).toBe("unix:///run/user/1001/podman/podman.sock");
+  });
+});
+
+describe("resolveComposeDockerHost — agrees with the shell's resolve_compose on the runtime folder", () => {
+  function shellDockerHost(runtimeDir: string): { dockerHost: string; exitCode: number } {
+    const proc = Bun.spawnSync({
+      cmd: [BASH, "-c", `source "${SHELL_LIB}" && resolve_compose && printf '%s' "$DOCKER_HOST"`],
+      env: { PATH: pathWith("podman", "docker-compose"), EZCORP_CONTAINER_ENGINE: "podman", EZCORP_PODMAN_RUNTIME_DIR: runtimeDir },
+      stdout: "pipe",
+      stderr: "pipe",
+    });
+    return { dockerHost: proc.stdout.toString(), exitCode: proc.exitCode };
+  }
+
+  test("a socket in the override folder: both point Compose at it", () => {
+    const runtime = mkdtempSync(join(SANDBOX, "runtime-"));
+    mkdirSync(join(runtime, "podman"));
+    const server = Bun.listen({ unix: join(runtime, "podman", "podman.sock"), socket: { data() {} } });
+    try {
+      const shell = shellDockerHost(runtime);
+      expect(shell.exitCode).toBe(0);
+      expect(resolveComposeDockerHost("podman", { EZCORP_PODMAN_RUNTIME_DIR: runtime }, 1000, isUnixSocket)).toBe(shell.dockerHost);
+    } finally {
+      server.stop(true);
+    }
+  });
+
+  test("an empty override folder: both refuse rather than reach the host's own socket", () => {
+    const runtime = mkdtempSync(join(SANDBOX, "runtime-"));
+    expect(shellDockerHost(runtime).exitCode).toBe(2);
+    expect(() => resolveComposeDockerHost("podman", { EZCORP_PODMAN_RUNTIME_DIR: runtime }, 1000, isUnixSocket)).toThrow(PodmanSocketNotFoundError);
   });
 });
 
