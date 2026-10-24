@@ -227,7 +227,7 @@ if (args.restartStores) {
 
   const reachable = async (): Promise<boolean> => { try { await ordinaryStore.get(productDigest); return true; } catch { return false; } };
   const engine = resolveEngine({ EZCORP_CONTAINER_ENGINE: process.env.EZCORP_CONTAINER_ENGINE, CI: process.env.CI }, hasCommandOnPath);
-  const dockerHost = resolveComposeDockerHost(engine, { DOCKER_HOST: process.env.DOCKER_HOST }, process.getuid?.() ?? 0, isUnixSocket);
+  const dockerHost = resolveComposeDockerHost(engine, { DOCKER_HOST: process.env.DOCKER_HOST, EZCORP_PODMAN_RUNTIME_DIR: process.env.EZCORP_PODMAN_RUNTIME_DIR }, process.getuid?.() ?? 0, isUnixSocket);
   const projectName = `ezcorp-factory-storage-${process.getuid?.() ?? "local"}`;
   const [stopInvocation, upInvocation] = outageLegInvocations({ dockerHost, projectName, baseEnv: process.env });
   await runCompose(stopInvocation);

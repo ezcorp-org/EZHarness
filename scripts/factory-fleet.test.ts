@@ -7,6 +7,7 @@ test("the Compose client is resolved by the repository's engine rule", () => {
   expect(factoryFleetComposeCommand({ DOCKER_HOST: "unix:///custom.sock" }, 1001, () => true, () => false)).toEqual({ argv: ["docker", "compose"], env: { DOCKER_HOST: "unix:///custom.sock" } });
   expect(factoryFleetComposeCommand({ EZCORP_CONTAINER_ENGINE: "docker" }, 1001, () => true, () => false)).toEqual({ argv: ["docker", "compose"], env: {} });
   expect(() => factoryFleetComposeCommand({}, 1001, (name) => name === "podman", () => false)).toThrow();
+  expect(factoryFleetComposeCommand({ EZCORP_PODMAN_RUNTIME_DIR: "/tmp/rt" }, 1001, (name) => name === "podman", () => true)).toEqual({ argv: ["docker", "compose"], env: { DOCKER_HOST: "unix:///tmp/rt/podman/podman.sock" } });
 });
 
 test("the entry runs only as the process entry, and hands the arguments after the script to the commands", async () => {
