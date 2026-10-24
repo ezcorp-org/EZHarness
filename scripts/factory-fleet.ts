@@ -24,7 +24,7 @@ import type { FactoryComposeCommand } from "../src/factory/provisioning/compose-
 
 export function factoryFleetComposeCommand(env: Readonly<Record<string, string | undefined>>, uid: number, hasCommand: (name: string) => boolean = hasCommandOnPath, socketExists: (path: string) => boolean = isUnixSocket): FactoryComposeCommand {
   const engine = resolveEngine({ EZCORP_CONTAINER_ENGINE: env.EZCORP_CONTAINER_ENGINE, CI: env.CI }, hasCommand);
-  const dockerHost = resolveComposeDockerHost(engine, { DOCKER_HOST: env.DOCKER_HOST }, uid, socketExists);
+  const dockerHost = resolveComposeDockerHost(engine, { DOCKER_HOST: env.DOCKER_HOST, EZCORP_PODMAN_RUNTIME_DIR: env.EZCORP_PODMAN_RUNTIME_DIR }, uid, socketExists);
   return { argv: ["docker", "compose"], env: dockerHost ? { DOCKER_HOST: dockerHost } : {} };
 }
 
