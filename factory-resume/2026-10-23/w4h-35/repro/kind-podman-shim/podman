@@ -1,0 +1,12 @@
+#!/usr/bin/env bash
+# kind-podman-shim/podman: used ONLY for the driver's `kind create cluster` call (first on PATH for that one command).
+# kind's podman provider always mounts the host's /lib/modules into the node (`--volume /lib/modules:/lib/modules:ro`); this
+# NixOS host keeps the running kernel's modules at /run/booted-system/kernel-modules/lib/modules and has no /lib/modules.
+# The shim rewrites exactly that one argument to the host's real modules directory, still read-only at the same node path, and
+# passes every other argument unchanged to the real podman (REAL_PODMAN, an absolute path the driver sets). Nothing else changes.
+set -euo pipefail
+real=${REAL_PODMAN:?REAL_PODMAN unset}; [ -x "$real" ] && [ "$real" != "$0" ] || { echo "kind-podman-shim: bad REAL_PODMAN $real" >&2; exit 2; }
+modules=/lib/modules; [ -d "$modules" ] || modules=/run/booted-system/kernel-modules/lib/modules
+[ -d "$modules" ] || { echo "kind-podman-shim: no kernel modules directory" >&2; exit 2; }
+args=(); for a in "$@"; do [ "$a" = "/lib/modules:/lib/modules:ro" ] && a="$modules:/lib/modules:ro"; args+=("$a"); done
+exec "$real" "${args[@]}"

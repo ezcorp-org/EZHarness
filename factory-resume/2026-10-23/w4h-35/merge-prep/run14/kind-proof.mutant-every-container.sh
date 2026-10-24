@@ -1,0 +1,508 @@
+#!/usr/bin/env bash
+# kind-proof.sh <step>: the W4H-35 local proof of the hosted profile (C12 row "Local proof of the hosted profile").
+# A LOCAL proof on one kind node in rootless Podman, not a hosted pass. Steps, in order (each is safe to rerun):
+#   image     build localhost/w4h35-factory:<rev12> from a clean `git archive` of HEAD; run W4H-27's shipped-isolation check
+#   pg        the proof's own pg15 through w00/own-pg.sh itself (Q9 ruling), then joined to the bridge network w4h35-proof
+#   cluster   one kind node: the pinned node image, the ingress node port on 127.0.0.1, this host's rootless Podman socket and
+#             the runner root mounted at the same paths (only this node); the proof image loaded; kubeconfig 0600
+#   fleet     a local fleet (init), its platform without the Compose ingress, this node joined to the stores', the platform's
+#             and the proof database's networks (by name), and the hosted settings with the pods' own service addresses
+#   install   G8: provision tenant-35 from clean state through step 7; readiness through the in-cluster ingress
+#   wave      G9: an upgrade wave whose canary cannot start stops, walks back, and the installation serves again
+#   cleanup   teardown; node off every shared network; cluster, platform, database, network, image (by name), roots removed
+# `all` runs every step in one process: own-pg.sh's EXIT trap removes the database, so the cleanup step is chained to it.
+# Heavy: run only through w00/gated-flock.sh. Credentials only through env files and kubectl stdin, never argv or a manifest.
+set -euo pipefail
+W=/home/<USER>/work/EZCorp/EZHarness/.worktrees/w4h-35
+E=evidence/w4h-35; R=$E/repro; P=$E/proof; mkdir -p "$P"; chmod 700 "$P"
+# The team's pin (w00/bun-pin.sh): bun and bunx from .bun-version, and the SQL auto-pipelining flag that pin needs.
+. evidence/w00/bun-pin.sh; bun_pin "$W" > /dev/null
+# Pinned by the published sha256 (records: /tmp/factory-tools/kind-0.32.0/PIN.txt, /tmp/factory-tools/kubectl-1.37.1/PIN.txt);
+# the preflight checks each hash before any step uses it. No PATH lookup.
+KIND=/tmp/factory-tools/kind-0.32.0/kind; KIND_SHA256=50030de23cf40a18505f20426f6a8506bedf13c6e509244bd1fa9463721b0f54
+KUBECTL=/tmp/factory-tools/kubectl-1.37.1/kubectl; KUBECTL_SHA256=65691ff77eb6fa44c908b77a1082c9f092c3b9733b5cefabec0d1104890e21a8
+export KIND_EXPERIMENTAL_PROVIDER=podman
+# The real podman, for kind-podman-shim (only `kind create cluster` runs through the shim; see step_cluster).
+PODMAN_BIN=$(command -v podman)
+CLUSTER=w4h35; NODE=$CLUSTER-control-plane; FLEET=w4h35; TENANT=tenant-35
+ROOT=$HOME/.w4h35-fleet; RUNNER_ROOT=$HOME/.w4h35-runner; RUN_AS_USER=10001; PORTBASE=38000; INGRESS_PORT=$((PORTBASE + 1005)); NODEPORT=30443
+PGNET=w4h35-proof; PG=w4h35-proof-pg
+# The proof's OWN object stores (team-lead ruling, run 6): the repo's compose.factory-storage.local.yml under its own project,
+# a fixture tenant-35 identity, never the shared pair. Their identity directory and every secret-bearing scratch file live
+# outside the evidence tree, under the user's private runtime directory, and are removed at cleanup.
+STORES_PROJECT=w4h35-stores; STORAGE_NET=${STORES_PROJECT}_default; STORES_TENANTS="01 35"   # tenant-01: the storage step's denial target
+STORE_ORDINARY=${STORES_PROJECT}-factory-storage-ordinary-1; STORE_ARCHIVE=${STORES_PROJECT}-factory-storage-archive-1
+STORE_PORTS=(37333 37334 37343 37344)  # ordinary S3, archive S3, ordinary admin, archive admin: loopback, below the fleet's 38000-39010
+SCRATCH=   # one mktemp root outside the evidence tree, made by `all`: the build context and the kubeconfig
+PLATFORM_NET=ezcorp-factory-$FLEET-platform_default
+SOCKET=/run/user/$(id -u)/podman/podman.sock
+REV=$(git -C "$W" rev-parse HEAD); IMAGE=localhost/w4h35-factory:${REV:0:12}
+KUBECONFIG_FILE=   # $SCRATCH/kubeconfig, set with SCRATCH: a client key, never in the evidence tree
+# The disk floor (100 GB, unchanged) must hold through each large write: need <GB> releases the lock (75) otherwise.
+need() { local free; free=$(df --output=avail -BG /home | tail -1 | tr -dc 0-9); [ "$free" -ge $((100 + $1)) ] || { log "release: disk ${free}G < 100+$1 G before ${2:-a step}"; RELEASED=1; exit 75; }; }
+
+# own_stage_images <build-log>: the image ids this build CREATED, newest first: every "--> <id>" step result that is neither the
+# result of a FROM step (a pinned base image) nor taken from the cache ("--> Using cache <id>"). A cleanup that removes the tag
+# leaves each stage's image behind (lesson 28).
+own_stage_images() {
+  [ -f "$1" ] || return 0
+  awk '/^\[[0-9]+\/[0-9]+\] STEP / { from = ($0 ~ /: FROM /) }
+       /^--> Using cache [0-9a-f]{64}$/ { cached[substr($4, 1, 12)] = 1; next }
+       /^--> [0-9a-f]{12}$/ { if (!from && !cached[$2]) ids[++n] = $2 }
+       END { for (i = n; i > 0; i--) if (!seen[ids[i]]++) print ids[i] }' "$1"
+}
+
+# remove_own_stage_images: after the proof image's tag is gone, each image this build created that is still dangling, by id, newest
+# first; one line per id in stage-images.txt (removed, kept with the reason, or not dangling). Never a prune, never a cached id.
+remove_own_stage_images() {
+  local id dangling; dangling=$(podman images -a -q --filter dangling=true 2> /dev/null)
+  : > "$P/stage-images.txt"
+  for id in $(own_stage_images "$P/image-build.log"); do
+    if ! printf '%s\n' "$dangling" | grep -qx "$id"; then echo "not dangling $id" >> "$P/stage-images.txt"
+    elif podman rmi "$id" > /dev/null 2>&1; then echo "removed $id" >> "$P/stage-images.txt"
+    else echo "kept $id (in use or has children)" >> "$P/stage-images.txt"; fi
+  done
+  log "cleanup: own stage images: $(grep -c '^removed' "$P/stage-images.txt") removed, $(grep -c '^kept' "$P/stage-images.txt") kept (stage-images.txt)"
+}
+
+# archive_released_try: a try released by need() (exit 75) moves its whole proof/ into a try-scoped folder, after a hash list of every
+# file, so a re-queued try never overwrites a refusal record (lesson 29). The next try's driver makes proof/ again.
+archive_released_try() {
+  local dest; dest="$E/proof-try-$(date -u +%Y%m%dT%H%M%SZ)-75"
+  (cd "$P" && find . -type f -print0 | sort -z | xargs -0 -r sha256sum) > "$E/logs/${dest##*/}-premove-shas.txt"
+  mv "$P" "$dest" && echo "released try archived: ${dest##*/} ($(grep -c . "$E/logs/${dest##*/}-premove-shas.txt") files)" >> "$E/logs/released-tries.txt"
+}
+log() { echo "[$(date -u +%FT%TZ)] $*" | tee -a "$P/proof.log"; }
+# Measurement (team-lead ruling): a timestamp and MemAvailable at every step boundary; a 5 s sampler keeps the lowest value.
+mem() { awk '/^MemAvailable:/ {printf "%.1f", $2/1048576}' /proc/meminfo; }
+low() { local m; m=$(mem); if [ ! -s "$P/mem-lowest" ] || awk -v m="$m" -v o="$(cat "$P/mem-lowest")" 'BEGIN{exit !(m<o)}'; then echo "$m" > "$P/mem-lowest"; fi; }
+mark() { low; log "step $1 $2 mem=$(mem)GiB"; }
+sampler() { while :; do low; sleep 5; done; }
+# Each C12 step's state change, read from the read-only status command every 5 s while provision runs.
+c12_poll() { local last=""; while :; do local now; now=$(fleetcmd status "$TENANT" 2>/dev/null | bun -e "const s=JSON.parse(await Bun.stdin.text()).status; console.log((s?.steps??[]).map(e=>e.step+\":\"+e.state).join(\" \"))" 2>/dev/null || true); [ -n "$now" ] && [ "$now" != "$last" ] && { log "c12 $now mem=$(mem)GiB"; last=$now; }; low; sleep 5; done; }
+digest_ref() { echo "localhost/w4h35-factory@$(podman image inspect "$IMAGE" --format '{{.Digest}}')"; }
+# The digest the cluster resolves (team-lead ruling, run 8, form (a) with six conditions; the node probe of 07:23Z confirmed it):
+# `ctr images import` names its digest record import-<date>@sha256:..., so no image-named reference exists in the node.
+# node_image_pin reads the INDEX digest the node's store holds for $IMAGE (never Podman's), adds the NAME
+# <repo>@<that digest> for the same content with `ctr images tag` (no pull, no manifest change), and requires that
+# `crictl inspecti` resolves it with the same image id as the tag. The raw crictl JSON and `ctr images ls` are recorded
+# before and after, every run. Refusals: 72 (no index digest, tag refused, not resolved), 73 (a different image id).
+# A PROOF measure: a deployment that pulls from a registry has the image-named digest already.
+image_id() { podman exec "$NODE" crictl inspecti -o json "$1" 2> /dev/null | python3 -I -c 'import json,sys; print(json.load(sys.stdin)["status"]["id"])' 2> /dev/null || echo none; }
+node_image_pin() {
+  local idx ref tagid refid
+  podman exec "$NODE" crictl images --digests -o json > "$P/node-images-before.json" 2>&1
+  podman exec "$NODE" ctr -n k8s.io images ls > "$P/node-ctr-images-before.txt" 2>&1
+  idx=$(awk -v t="$IMAGE" '$1 == t { print $3 }' "$P/node-ctr-images-before.txt")
+  [[ "$idx" =~ ^sha256:[a-f0-9]{64}$ ]] || { log "resolver: refused: no single index digest for $IMAGE in the node's store (node-ctr-images-before.txt)"; return 72; }
+  ref="${IMAGE%:*}@$idx"; tagid=$(image_id "$IMAGE")
+  podman exec "$NODE" ctr -n k8s.io images tag "$IMAGE" "$ref" > "$P/node-ctr-tag.log" 2>&1 || { log "resolver: refused: ctr images tag $IMAGE $ref failed (node-ctr-tag.log)"; return 72; }
+  podman exec "$NODE" crictl images --digests -o json > "$P/node-images-after.json" 2>&1
+  podman exec "$NODE" ctr -n k8s.io images ls > "$P/node-ctr-images-after.txt" 2>&1
+  refid=$(image_id "$ref")
+  [ "$refid" != none ] || { log "resolver: refused: $ref does not resolve in the node after the tag"; return 72; }
+  [ "$refid" = "$tagid" ] || { log "resolver: refused: image id differs: the tag $tagid, $ref $refid"; return 73; }
+  printf '%s\n' "$ref" > "$P/node-image.ref"
+  log "cluster: the node resolves $ref (image id $refid; Podman's digest: $(cat "$P/image.ref")); a proof-only name for content the node holds, no pull"
+}
+ip_on() { podman inspect "$1" --format "{{(index .NetworkSettings.Networks \"$2\").IPAddress}}"; }
+# A network's IPv4 subnets, one per line. A dual-stack network (kind's, by Podman's default) also has an IPv6 subnet; the
+# product's CIDR rule is IPv4 (fleet.ts) and kind's cluster is IPv4, so only IPv4 is read. No IPv4 subnet: fail by name.
+subnets() {
+  local out; out=$(podman network inspect "$1" --format '{{range .Subnets}}{{.Subnet}}{{"\n"}}{{end}}' | grep -E '^([0-9]{1,3}\.){3}[0-9]{1,3}/[0-9]{1,2}$')
+  [ -n "$out" ] || { echo "network $1 has no IPv4 subnet" >&2; return 1; }
+  printf '%s\n' "$out"
+}
+# A JSON array with one entry per CIDR: each argument is a literal IPv4 CIDR or a network name (its IPv4 subnets).
+cidrs_json() {
+  local arg c list=()
+  for arg in "$@"; do
+    if [[ "$arg" =~ ^([0-9]{1,3}\.){3}[0-9]{1,3}/[0-9]{1,2}$ ]]; then list+=("$arg")
+    else c=$(subnets "$arg") || return 1; mapfile -t -O "${#list[@]}" list <<< "$c"; fi
+  done
+  [ "${#list[@]}" -gt 0 ] || return 1
+  printf '[%s]' "$(printf '"%s"\n' "${list[@]}" | paste -sd, -)"
+}
+pg_env() { set -a; . "$PG_ENV_FILE"; set +a; port=$(podman port "$PG" 5432 | head -1 | sed 's/.*://'); export FACTORY_TEST_POSTGRES_URL="postgres://$POSTGRES_USER:$POSTGRES_PASSWORD@127.0.0.1:$port/$POSTGRES_DB"; unset POSTGRES_PASSWORD; }
+# The repo's scripts/setup-factory-storage.sh under this proof's project, tenant ids and loopback ports (one tool for every pair).
+stores_setup() {
+  EZCORP_FACTORY_STORAGE_PROJECT=$STORES_PROJECT EZCORP_FACTORY_STORAGE_TENANTS=$STORES_TENANTS \
+  EZCORP_FACTORY_STORAGE_ORDINARY_S3_PORT=${STORE_PORTS[0]} EZCORP_FACTORY_STORAGE_ARCHIVE_S3_PORT=${STORE_PORTS[1]} \
+  EZCORP_FACTORY_STORAGE_ORDINARY_ADMIN_PORT=${STORE_PORTS[2]} EZCORP_FACTORY_STORAGE_ARCHIVE_ADMIN_PORT=${STORE_PORTS[3]} \
+    bash "$W/scripts/setup-factory-storage.sh" "$@"
+}
+# The proof pair's credential directory, which setup-factory-storage.sh names after the project (exactly one, or none).
+stores_dir() { local d; d=$(ls -d "${XDG_RUNTIME_DIR:-/run/user/$(id -u)}/$STORES_PROJECT".* 2> /dev/null); [ "$(printf '%s\n' "$d" | grep -c .)" = 1 ] && printf '%s\n' "$d"; }
+fleetcmd() { (cd "$W" && bun scripts/factory-fleet.ts "$ROOT/fleet.json" "$@"); }
+
+# Every image the proof runs, by digest, read from its own source (never restated here): the factory Dockerfile's base images,
+# the kind node image, the Compose platform's ingress image, and own-pg.sh's pgvector lock entry.
+proof_images() {
+  { grep -ohE '[a-z0-9./_-]+(:[A-Za-z0-9._-]+)?@sha256:[a-f0-9]{64}' "$W/deploy/factory/Dockerfile" "$W/deploy/factory/kubernetes/kind-proof.yml"
+    grep -ohE 'docker\.io/library/nginx@sha256:[a-f0-9]{64}' "$W/deploy/factory/compose/platform.yml"
+    grep -ohE 'docker\.io/chrislusf/seaweedfs@sha256:[a-f0-9]{64}' "$W/compose.factory-storage.local.yml"
+    python3 -I -c 'import json,sys; print(json.load(open(sys.argv[1]))["pgvector"])' "${OWN_PG_LOCK:-evidence/w00/test-images.lock.json}"
+  } | sort -u
+}
+
+# preflight (team-lead ruling R2-2): every binary, image, and path the proof needs, checked before the start gate and again at
+# the start of `all`; anything missing fails by name (exit 66) and nothing is started.
+step_preflight() {
+  local miss=() f b i pair c
+  for pair in "$KIND=$KIND_SHA256" "$KUBECTL=$KUBECTL_SHA256"; do f=${pair%%=*}
+    [ -x "$f" ] && [ "$(sha256sum "$f" | cut -d" " -f1)" = "${pair##*=}" ] || miss+=("binary $f (sha256 ${pair##*=})"); done
+  for b in podman bun git tar awk python3 sha256sum; do command -v "$b" > /dev/null || miss+=("binary $b"); done
+  for i in $(proof_images); do podman image exists "$i" || miss+=("image $i"); done
+  [ "$(proof_images | wc -l)" -ge 7 ] || miss+=("image list: fewer than 7 digests read from the sources")
+  for f in evidence/w00/own-pg.sh evidence/w00/bun-pin.sh "$R/hosted-settings.ts" \
+    "$W/deploy/factory/Dockerfile" "$W/deploy/factory/kubernetes/kind-proof.yml" "$W/deploy/factory/compose/platform.yml" \
+    "$W/scripts/factory-fleet.ts" "$W/scripts/factory-fleet-init-local.ts" "$W/scripts/check-factory-image-shipped-config.ts" "$W/compose.factory-storage.local.yml" "$W/scripts/lib/container-engine.sh" "$R/known-unresolvable.txt" "$R/hosted-images.ts" "$SOCKET"; do
+    [ -e "$f" ] || miss+=("path $f"); done
+  # The defined function body (no comments): own_pg_start must pass --network "$OWN_PG_NETWORK" to podman run.
+  ( . evidence/w00/own-pg.sh && declare -f own_pg_start ) 2> /dev/null | grep -qF -- '--network "$OWN_PG_NETWORK"' \
+    || miss+=("helper evidence/w00/own-pg.sh: own_pg_start does not pass --network \"\$OWN_PG_NETWORK\" (ruling (A))")
+  ( . "$W/scripts/lib/container-engine.sh" && resolve_compose > /dev/null ) 2> /dev/null || miss+=("compose client (scripts/lib/container-engine.sh resolve_compose)")
+  command -v openssl > /dev/null || miss+=("binary openssl")
+  [ -x "$R/kind-podman-shim/podman" ] || miss+=("path $R/kind-podman-shim/podman")
+  [ -d /lib/modules ] || [ -d /run/booted-system/kernel-modules/lib/modules ] || miss+=("path /lib/modules or /run/booted-system/kernel-modules/lib/modules")
+  if [ "${#miss[@]}" -gt 0 ]; then printf 'preflight FAIL: %s\n' "${miss[@]}" | tee -a "$P/proof.log"; return 66; fi
+  log "preflight: ok (kind and kubectl by sha256, $(proof_images | wc -l) images by digest, paths, compose client, openssl; the shared stores are not used)"
+}
+
+step_image() {
+  mark image-build start; need 12 "the image build"
+  CTX=$(mktemp -d "${SCRATCH:-/tmp}/w4h35-ctx.XXXX"); local ctx=$CTX   # outside the evidence tree; step_cleanup removes it on any exit
+  git -C "$W" archive "$REV" | tar -x -C "$ctx"
+  log "image: building $IMAGE from git archive $REV ($(find "$ctx" -type f | wc -l) files)"
+  podman build -f "$ctx/deploy/factory/Dockerfile" --build-arg "REVISION=$REV" -t "$IMAGE" "$ctx" > "$P/image-build.log" 2>&1
+  rm -rf "$ctx"; CTX=
+  log "image: $(digest_ref)"; digest_ref > "$P/image.ref"
+  (cd "$W" && bun scripts/check-factory-image-shipped-config.ts "$(digest_ref)") > "$P/shipped-config.log" 2>&1
+  log "image: shipped-isolation check $(head -1 "$P/shipped-config.log" | cut -c1-40)"
+  # The client as the hosted supervisor runs it: the image's user, with the supervisor's base environment (HOME) and a /tmp.
+  local base; base=$(cd "$W" && bun -e 'import { FACTORY_HOST_SERVICE_BASE_ENVIRONMENT as e } from "./src/factory/provisioning/deployment"; for (const [k, v] of Object.entries(e.supervisor)) console.log(`--env=${k}=${v}`)')
+  podman run --rm --tmpfs /tmp:rw,size=64m $base --entrypoint /usr/local/bin/podman "$(digest_ref)" --version > "$P/podman-remote-version.txt" 2>&1
+  log "image: $(cat "$P/podman-remote-version.txt")"; mark image-build end
+}
+
+step_pg() {
+  mark pg start
+  . evidence/w00/own-pg.sh
+  # Not in a pipeline: a subshell would fire own-pg.sh's EXIT trap (removing the database) and lose its exports.
+  pg_failed() { { podman ps -a --filter "name=^$PG\$" --format '{{.Names}} {{.Status}}'; podman logs "$PG"; } > "$P/pg-container.log" 2>&1 || true; log "pg: $1; container state and log in pg-container.log"; return 1; }
+  # Rootless Podman cannot attach a bridge to a running container in its default (pasta) mode, so the database starts on the
+  # proof network (team-lead ruling (A): own-pg.sh OWN_PG_NETWORK); the network exists first and step_cleanup removes it by name.
+  podman network exists "$PGNET" || podman network create "$PGNET" > /dev/null
+  export OWN_PG_NETWORK=$PGNET
+  local started=0; own_pg_start "$PG" > "$P/own-pg.log" 2>&1 || started=$?
+  # own-pg.sh replaced the EXIT trap with own_pg_stop; the proof's cleanup takes it back at once (it calls own_pg_stop itself),
+  # so a failed pg step still removes the image and the network.
+  trap 'step_cleanup' EXIT
+  [ "$started" = 0 ] || { pg_failed "own-pg failed: $(tail -1 "$P/own-pg.log")"; return 1; }
+  log "$(cat "$P/own-pg.log")"
+  log "pg: $PG started on $PGNET at $(ip_on "$PG" "$PGNET")"; mark pg end
+}
+
+# stores: the proof's own ordinary and archive store, seeded with a fixture tenant-35 identity and its buckets.
+step_stores() {
+  mark stores start
+  : > "$P/stores-created-by-proof"
+  stores_setup up > "$P/stores-up.log" 2>&1 || { log "stores: setup-factory-storage.sh up failed (stores-up.log)"; return 1; }
+  local sdir; sdir=$(stores_dir) || { log "stores: no single credential directory for $STORES_PROJECT"; return 1; }
+  # The modes, never the content (team-lead ruling): the runtime directory, the pair's credential directory, its files.
+  ls -ld "${XDG_RUNTIME_DIR:-/run/user/$(id -u)}" "$sdir" "$sdir"/*.json > "$P/stores-modes.txt" 2>&1
+  log "stores: $STORE_ORDINARY, $STORE_ARCHIVE up on $STORAGE_NET; tenants $STORES_TENANTS seeded by setup-factory-storage.sh (fixture values, never printed)"
+  mark stores end
+}
+
+# prepare_runner_root: the operator step of the C12 prerequisites row, on the proof's one runner node. The runner root reaches the
+# node by kind's extraMounts and shows there as the node's root's; the supervisor (uid RUN_AS_USER) needs it owned and 0700, and the
+# DaemonSet mounts it as hostPath type Directory, so the proof prepares it inside the node, then checks owner and mode (exit 77).
+prepare_runner_root() {
+  podman exec "$NODE" sh -c 'chown "$1:$1" "$2" && chmod 0700 "$2"' sh "$RUN_AS_USER" "$RUNNER_ROOT" > "$P/runner-root.log" 2>&1
+  local seen; seen=$(podman exec "$NODE" stat -c '%u:%g %a' "$RUNNER_ROOT" 2> /dev/null)
+  [ "$seen" = "$RUN_AS_USER:$RUN_AS_USER 700" ] || { log "cluster: runner root not prepared in the node: ${seen:-no answer} (want $RUN_AS_USER:$RUN_AS_USER 700)"; return 77; }
+  log "cluster: runner root prepared in the node ($RUNNER_ROOT $seen)"
+}
+
+step_cluster() {
+  mkdir -p "$RUNNER_ROOT"; chmod 700 "$RUNNER_ROOT"
+  { cat "$W/deploy/factory/kubernetes/kind-proof.yml"
+    printf '    extraPortMappings:\n      - containerPort: %s\n        hostPort: %s\n        listenAddress: "127.0.0.1"\n' "$NODEPORT" "$INGRESS_PORT"
+    printf '    extraMounts:\n      - hostPath: %s\n        containerPath: /run/podman/podman.sock\n      - hostPath: %s\n        containerPath: %s\n' "$SOCKET" "$RUNNER_ROOT" "$RUNNER_ROOT"
+  } > "$P/kind-config.yml"
+  [ -n "$SCRATCH" ] && [ -d "$SCRATCH" ] || { log "cluster: no scratch root (run the proof through all)"; return 1; }
+  mark cluster-create start
+  if ! "$KIND" get clusters 2>/dev/null | grep -qx "$CLUSTER"; then
+    # kind creates the Podman network `kind` on first use and keeps it after a delete: record when this proof created it.
+    podman network exists kind || : > "$P/kind-network-created-by-proof"
+    # kind always mounts /lib/modules; this host keeps its kernel modules elsewhere (NixOS), so the shim rewrites that one mount.
+    PATH="$R/kind-podman-shim:$PATH" REAL_PODMAN="$PODMAN_BIN" "$KIND" create cluster --name "$CLUSTER" --config "$P/kind-config.yml" --kubeconfig "$KUBECONFIG_FILE" > "$P/kind-create.log" 2>&1
+  fi
+  chmod 600 "$KUBECONFIG_FILE"; mark cluster-create end
+  local prepared=0; prepare_runner_root || prepared=$?
+  [ "$prepared" = 0 ] || return "$prepared"
+  mark image-import start; need 12 "the image import into the node"
+  # Streamed as kind's own loader does (no archive on disk); OCI keeps the manifest digest the pods name.
+  podman save --format oci-archive "$IMAGE" | podman exec -i "$NODE" ctr --namespace=k8s.io images import --all-platforms --digests --snapshotter=overlayfs - > "$P/kind-load.log" 2>&1
+  podman exec "$NODE" crictl images --digests 2>/dev/null | grep -F w4h35 >> "$P/kind-load.log" || true
+  local pin=0; node_image_pin || pin=$?
+  [ "$pin" = 0 ] || return "$pin"
+  mark image-import end
+  log "cluster: $("$KUBECTL" --kubeconfig "$KUBECONFIG_FILE" get nodes --no-headers | tr -s ' ')"
+}
+
+step_fleet() {
+  pg_env
+  export EZCORP_FACTORY_STORAGE_SECRETS_DIR; EZCORP_FACTORY_STORAGE_SECRETS_DIR=$(stores_dir) || true
+  [ -f "$ROOT/fleet.json" ] || (cd "$W" && bun scripts/factory-fleet-init-local.ts --fleet "$FLEET" --root "$ROOT" --image "$(cat "$P/node-image.ref")" --revision "$REV" --port-base "$PORTBASE") > "$P/fleet-init.log"
+  for net in "$STORAGE_NET" "$PGNET"; do podman network connect "$net" "$NODE" 2>/dev/null || true; done
+  spec() {  # the hosted block; services take the containers' addresses on the networks this node joined
+    local temporal=$1 temporal_ip=$2
+    local node_cidrs egress_cidrs
+    node_cidrs=$(cidrs_json kind) || { log "fleet: no IPv4 subnet on network kind"; return 1; }
+    egress_cidrs=$(cidrs_json "$STORAGE_NET" "$PGNET" "$temporal") || { log "fleet: an egress network has no IPv4 subnet"; return 1; }
+    cat > "$P/hosted-spec.json" <<JSON
+{ "kubectl": "$KUBECTL", "kubeconfigPath": "$KUBECONFIG_FILE", "systemNamespace": "ezcorp-factory-$FLEET", "runAsUser": $RUN_AS_USER,
+  "runtimeSocketPath": "/run/podman/podman.sock", "runnerRoot": "$RUNNER_ROOT", "nodeSelector": {}, "nodeCidrs": $node_cidrs,
+  "ingress": { "listenPort": 8443, "nodePort": $NODEPORT },
+  "egressCidrs": $egress_cidrs, "egressPorts": [5432, 8333, 7233, 7244],
+  "services": { "databaseHost": "$(ip_on "$PG" "$PGNET")", "databasePort": 5432,
+    "ordinaryEndpoint": "http://$(ip_on "$STORE_ORDINARY" "$STORAGE_NET"):8333",
+    "archiveEndpoint": "http://$(ip_on "$STORE_ARCHIVE" "$STORAGE_NET"):8333",
+    "temporalAddress": "$temporal_ip:7233", "temporalHttpEndpoint": "https://$temporal_ip:7244" } }
+JSON
+    bun "$R/hosted-settings.ts" "$ROOT/fleet.json" "$P/hosted-spec.json" "http://127.0.0.1:${STORE_PORTS[0]}" "http://127.0.0.1:${STORE_PORTS[1]}" >> "$P/proof.log"
+  }
+  spec "<IP>/24" "<IP>"      # placeholders until the platform's network exists
+  mark platform-up start; fleetcmd platform > "$P/platform.json"; mark platform-up end
+  podman network connect "$PLATFORM_NET" "$NODE" 2>/dev/null || true
+  spec "$PLATFORM_NET" "$(ip_on "ezcorp-factory-$FLEET-platform-factory-temporal-gateway-1" "$PLATFORM_NET")"
+  log "fleet: $FLEET hosted; node joined $STORAGE_NET, $PGNET, $PLATFORM_NET"
+}
+
+# preinstall: every image reference the hosted manifests run (repro/hosted-images.ts, from the product's renderers) must resolve in
+# the node before the install; an unresolved reference is refused by name (team-lead ruling, run 7). No pull, no pull-policy change.
+step_preinstall() {
+  mark preinstall start
+  local list ref unresolved=() exempt=()
+  # The ruled exemptions (a coordinator ruling, never an owner choice): the record in repro/, copied into the run folder.
+  cp -- "$R/known-unresolvable.txt" "$P/known-unresolvable.txt" || { log "preinstall: the ruled exemption record is missing"; return 1; }
+  list=$(cd "$W" && bun "$R/hosted-images.ts" "$ROOT/fleet.json") || { log "preinstall: the hosted image list failed"; return 1; }
+  printf '%s\n' "$list" > "$P/hosted-images.txt"
+  while read -r ref; do
+    [ -n "$ref" ] || continue
+    podman exec "$NODE" crictl inspecti "$ref" > /dev/null 2>&1 && continue
+    if awk -v r="$ref" '$1 == r { found = 1 } END { exit !found }' "$P/known-unresolvable.txt"; then exempt+=("$ref"); else unresolved+=("$ref"); fi
+  done <<< "$list"
+  if [ "${#unresolved[@]}" -gt 0 ]; then log "preinstall: refused: unresolved in the node: ${unresolved[*]}"; return 71; fi   # 71: pre-install refusal
+  log "preinstall: $(grep -c . "$P/hosted-images.txt") hosted image references; resolved in the node: $(( $(grep -c . "$P/hosted-images.txt") - ${#exempt[@]} )); exempt by coordinator ruling (known-unresolvable.txt): ${exempt[*]:-none}"
+  mark preinstall end
+}
+
+# select_pods <failed|system> <dir>: from install-pods.json, "namespace pod previous" lines into <dir>/selected.txt (errors in
+# <dir>/select.err). failed: the factory's own pods (label app.kubernetes.io/part-of=ezcorp-factory: the fleet and installation
+# namespaces) that are not Succeeded and not Running with every container ready; previous names, comma-separated, the
+# containers (init containers included) whose lastState is terminated, or "-". system: the factory's own pool and supervisor
+# pods (part-of AND app.kubernetes.io/name), previous "-". restarted (L3, W4H-35 run 13: the orchestrator restarted twice and its
+# stderr was lost): the factory's own pods with a container whose restartCount > 0; previous names exactly those containers.
+select_pods() {
+  mkdir -p "$2"
+  python3 -I -c '
+import json, sys
+mode = sys.argv[2]
+for pod in json.load(open(sys.argv[1])).get("items", []):
+    meta, status = pod.get("metadata", {}), pod.get("status", {})
+    labels = meta.get("labels") or {}
+    if labels.get("app.kubernetes.io/part-of") != "ezcorp-factory": continue
+    if mode == "system":
+        if labels.get("app.kubernetes.io/name") in ("factory-pool", "factory-supervisor"): print(meta["namespace"], meta["name"], "-")
+        continue
+    main = status.get("containerStatuses") or []
+    if mode == "restarted":
+        again = [c["name"] for c in (status.get("initContainerStatuses") or []) + main if (c.get("restartCount") or 0) >= 0]
+        if again: print(meta["namespace"], meta["name"], ",".join(again))
+        continue
+    if status.get("phase") == "Succeeded" or (status.get("phase") == "Running" and main and all(c.get("ready") for c in main)): continue
+    every = (status.get("initContainerStatuses") or []) + main
+    print(meta["namespace"], meta["name"], ",".join(c["name"] for c in every if "terminated" in (c.get("lastState") or {})) or "-")' "$P/install-pods.json" "$1" > "$2/selected.txt" 2> "$2/select.err"
+}
+
+# pod_records <dir>: for each selected pod, describe and the logs of all containers, and the previous logs PER CONTAINER for
+# each container named in its previous field (run 10: `--all-containers --previous` fails as a whole when one container has no
+# earlier instance).
+pod_records() {
+  local ns pod prev container k=(--kubeconfig "$KUBECONFIG_FILE")
+  while read -r ns pod prev; do
+    [ -n "$pod" ] || continue
+    "$KUBECTL" "${k[@]}" -n "$ns" describe pod "$pod" > "$1/$ns.$pod.describe.txt" 2>&1
+    "$KUBECTL" "${k[@]}" -n "$ns" logs "$pod" --all-containers=true > "$1/$ns.$pod.logs.txt" 2>&1
+    [ "$prev" = - ] || for container in ${prev//,/ }; do "$KUBECTL" "${k[@]}" -n "$ns" logs "$pod" -c "$container" --previous > "$1/$ns.$pod.$container.previous.txt" 2>&1; done
+  done < "$1/selected.txt"
+}
+
+# On an install failure, BEFORE cleanup (team-lead rulings, run 9 and its route): the failing factory pods' records and the
+# events of each of their namespaces once. Names, messages and container output only; the key-material sweep and the
+# identity check cover them at freeze.
+record_failed_pods() {
+  local ns
+  select_pods failed "$P/pods"; pod_records "$P/pods"
+  for ns in $(awk '{ print $1 }' "$P/pods/selected.txt" | sort -u); do "$KUBECTL" --kubeconfig "$KUBECONFIG_FILE" -n "$ns" get events --sort-by=.lastTimestamp > "$P/pods/$ns.events.txt" 2>&1; done
+  log "install: recorded $(grep -c . "$P/pods/selected.txt") failing pods (describe, logs, previous logs) and their namespaces' events in pods/$([ -s "$P/pods/select.err" ] && echo "; selection error in pods/select.err")"
+}
+
+# On EVERY install, success included (team-lead R3, run 10): the pool's and the supervisor's pods, so the records show whether
+# the supervisor (uid runAsUser) reaches the node's runtime socket and its host-path runner root.
+record_system_pods() {
+  select_pods system "$P/pods-ready"; pod_records "$P/pods-ready"
+  log "install: recorded the pool and supervisor pods ($(grep -c . "$P/pods-ready/selected.txt")) in pods-ready/$([ -s "$P/pods-ready/select.err" ] && echo "; selection error in pods-ready/select.err")"
+}
+
+# On EVERY install (L3): every factory pod with a restarted container, with that container's --previous log, so a restart's own
+# error is kept (run 13: the orchestrator's two exits had no stderr in proof/).
+record_restarted_pods() {
+  select_pods restarted "$P/pods-restarted"; pod_records "$P/pods-restarted"
+  log "install: recorded $(grep -c . "$P/pods-restarted/selected.txt") pod(s) with a restarted container (describe, logs, previous logs) in pods-restarted/$([ -s "$P/pods-restarted/select.err" ] && echo "; selection error in pods-restarted/select.err")"
+}
+
+step_install() {
+  pg_env
+  export EZCORP_FACTORY_STORAGE_SECRETS_DIR; EZCORP_FACTORY_STORAGE_SECRETS_DIR=$(stores_dir) || true
+  mark install start; c12_poll & POLLER=$!
+  local rc=0; fleetcmd provision "$TENANT" > "$P/install.json" 2> "$P/install.err" || rc=$?
+  kill "$POLLER" 2> /dev/null || true; wait "$POLLER" 2> /dev/null || true; POLLER=; mark install end
+  fleetcmd status "$TENANT" > "$P/install-status.json" 2>&1 || true
+  "$KUBECTL" --kubeconfig "$KUBECONFIG_FILE" get pods -A -o wide > "$P/install-pods.txt" 2>&1 || true
+  "$KUBECTL" --kubeconfig "$KUBECONFIG_FILE" get pods -A -o json > "$P/install-pods.json" 2> "$P/install-pods.json.err" || true
+  record_system_pods
+  record_restarted_pods
+  log "install: provision exit $rc; phase $(bun -e "console.log(JSON.parse(await Bun.file('$P/install-status.json').text()).status?.phase ?? 'unknown')" 2>/dev/null)"
+  [ "$rc" = 0 ] || { record_failed_pods; return 74; }   # 74: the install failed (its own stop class)
+}
+
+step_wave() {
+  pg_env
+  export EZCORP_FACTORY_STORAGE_SECRETS_DIR; EZCORP_FACTORY_STORAGE_SECRETS_DIR=$(stores_dir) || true
+  mark stopped-wave start
+  local absent="localhost/w4h35-factory@sha256:$(printf '0%.0s' $(seq 63))1"   # pinned, and in no image store: the canary cannot start
+  printf '%s\n' "$absent" > "$P/wave-absent-ref.txt"   # the pull judge allows only failed attempts at this one designed-absent ref
+  fleetcmd upgrade register w4h35-absent "$absent" "$REV" "$W" > "$P/wave-register.json"
+  local rc=0; fleetcmd upgrade wave w4h35-absent --canary "$TENANT" "$TENANT" > "$P/wave.json" 2> "$P/wave.err" || rc=$?
+  fleetcmd status "$TENANT" > "$P/wave-status.json" 2>&1 || true
+  log "wave: exit $rc; $(cut -c1-300 "$P/wave.json")"; mark stopped-wave end
+  # 79: the stopped-wave case failed (validator-8 / team-lead, run 13): the command must exit 0 (a stopped wave is not a command
+  # failure, fleet-cli.ts:61-71) AND the wave must stop on the absent canary image; the full-path judge checks the rest.
+  [ "$rc" = 0 ] && python3 -I -c 'import json,sys; sys.exit(json.load(open(sys.argv[1]))["wave"]["state"] != "stopped")' "$P/wave.json" 2> /dev/null || return 79
+}
+
+# What cleanup leaves, by name: containers, volumes, and networks named w4h35, a kind network this proof created, the own pair's
+# credential directories, and this run's scratch root. Zero of each, or the cleanup is a named failure.
+cleanup_residue() {
+  local kindnet=0; [ -f "$P/kind-network-created-by-proof" ] && podman network exists kind && kindnet=1
+  echo "containers=$(podman ps -a --format '{{.Names}}' | grep -c w4h35) volumes=$(podman volume ls --format '{{.Name}}' | grep -c w4h35) networks=$(( $(podman network ls --format '{{.Name}}' | grep -c w4h35) + kindnet )) credentials=$(ls -d "${XDG_RUNTIME_DIR:-/run/user/$(id -u)}/$STORES_PROJECT".* 2> /dev/null | wc -l) scratch=$([ -n "${SCRATCH:-}" ] && [ -e "$SCRATCH" ] && echo 1 || echo 0)"
+}
+
+# record_node_pulls (the user's run-13 ruling, option (a), 2026-10-21: exactly one Docker Hub pull, the exempt ingress nginx by its
+# digest, by the kubelet's IfNotPresent pull): at the start of the cleanup, before the teardown and the kind delete, the node's final
+# images (crictl, with digests) and the cluster's events, for bin/pull-judge.py against node-images-after.json. No node: nothing.
+record_node_pulls() {
+  podman container exists "$NODE" 2> /dev/null || { log "cleanup: no node, no node pull records"; return 0; }
+  podman exec "$NODE" crictl images --digests -o json > "$P/node-images-final.json" 2>&1 || note "node images" $?
+  "$KUBECTL" --kubeconfig "$KUBECONFIG_FILE" get events -A -o json > "$P/node-pull-events.json" 2>&1 || note "node events" $?
+  log "cleanup: recorded the node's final images and the cluster's events (node-images-final.json, node-pull-events.json)"
+}
+
+step_cleanup() {
+  set +e   # every cleanup step runs; a failure is logged by note, and the residue check decides the outcome
+  mark cleanup start
+  CLEANUP_FAIL=0
+  note() { log "cleanup: $1 exit $2"; }   # a step that may fail on an absent object: logged, never hidden; the residue check decides
+  record_node_pulls
+  [ -z "${PG_ENV_FILE:-}" ] || pg_env || note "pg env" $?
+  export EZCORP_FACTORY_STORAGE_SECRETS_DIR; EZCORP_FACTORY_STORAGE_SECRETS_DIR=$(stores_dir) || EZCORP_FACTORY_STORAGE_SECRETS_DIR=
+  if [ -f "$ROOT/fleet.json" ]; then
+    # Teardown only when install started (proof/install.json); before that no installation is recorded, so there is nothing to tear down.
+    if [ -f "$P/install.json" ]; then fleetcmd teardown "$TENANT" --reason "W4H-35 proof cleanup" > "$P/cleanup-teardown.json" 2>&1 || note "teardown" $?
+    else log "teardown: no installation (failure before install)"; fi
+    fleetcmd stop > "$P/cleanup-stop.json" 2>&1 || note "fleet stop" $?
+  fi
+  local net
+  for net in "$STORAGE_NET" "$PLATFORM_NET" "$PGNET"; do podman network inspect "$net" --format '{{range $k, $v := .Containers}}{{$v.Name}} {{end}}' 2> /dev/null | grep -qw "$NODE" && { podman network disconnect "$net" "$NODE" > /dev/null 2>&1 || note "disconnect $net" $?; }; done
+  "$KIND" delete cluster --name "$CLUSTER" > "$P/kind-delete.log" 2>&1 || note "kind delete" $?
+  # The proof's own store pair, only when this proof started it (marker): setup-factory-storage.sh down for its project. A refused
+  # down is a named cleanup failure even when the fallback (the project's containers, volumes, network by label) leaves nothing.
+  if [ -f "$P/stores-created-by-proof" ]; then
+    local sdir="" down=1 removed=0 left
+    if sdir=$(stores_dir); then EZCORP_FACTORY_STORAGE_SECRETS_DIR=$sdir stores_setup down > "$P/stores-down.log" 2>&1 && down=0; fi
+    if [ "$down" = 0 ]; then
+      left=$(podman ps -a -q --filter "label=com.docker.compose.project=$STORES_PROJECT" | wc -l)
+      log "cleanup: own store pair $STORES_PROJECT: down ok; left $left containers"
+    else
+      local ids; ids=$(podman ps -a -q --filter "label=com.docker.compose.project=$STORES_PROJECT")
+      removed=$(printf '%s\n' "$ids" | grep -c .)
+      [ -z "$ids" ] || printf '%s\n' "$ids" | xargs podman rm -f -v >> "$P/stores-down.log" 2>&1 || note "store containers" $?
+      podman volume ls -q --filter "label=com.docker.compose.project=$STORES_PROJECT" | xargs -r podman volume rm >> "$P/stores-down.log" 2>&1 || note "store volumes" $?
+      ! podman network exists "$STORAGE_NET" || podman network rm "$STORAGE_NET" >> "$P/stores-down.log" 2>&1 || note "store network" $?
+      [ -z "$sdir" ] || rm -rf -- "$sdir"
+      left=$(podman ps -a -q --filter "label=com.docker.compose.project=$STORES_PROJECT" | wc -l)
+      log "cleanup FAILED: own store pair $STORES_PROJECT: down failed: $(tail -1 "$P/stores-down.log" 2> /dev/null | cut -c1-160); fallback removed $removed; left $left"
+      CLEANUP_FAIL=1
+    fi
+  fi
+  # The scratch root outside the evidence tree: the build context and the kubeconfig.
+  [ -z "${CTX:-}" ] || rm -rf -- "$CTX"
+  [ -z "${SCRATCH:-}" ] || rm -rf -- "$SCRATCH"
+  # The `kind` network, only when this proof created it and no container is attached to it.
+  if [ -f "$P/kind-network-created-by-proof" ] && podman network exists kind && [ -z "$(podman ps -a -q --filter network=kind)" ]; then
+    podman network rm kind > /dev/null 2>&1 && log "cleanup: network kind removed (created by this proof)" || note "kind network" $?
+  fi
+  # This fleet's own platform project only, by its Compose project label and names.
+  local project="ezcorp-factory-$FLEET-platform"
+  podman ps -a -q --filter "label=com.docker.compose.project=$project" | xargs -r podman rm -f -v > "$P/cleanup-platform.log" 2>&1 || note "platform containers" $?
+  podman volume ls -q --filter "label=com.docker.compose.project=$project" | xargs -r podman volume rm >> "$P/cleanup-platform.log" 2>&1 || note "platform volumes" $?
+  ! podman network exists "$PLATFORM_NET" || podman network rm "$PLATFORM_NET" >> "$P/cleanup-platform.log" 2>&1 || note "platform network" $?
+  if podman container exists "$PG"; then podman network disconnect "$PGNET" "$PG" > /dev/null 2>&1 || note "pg disconnect" $?; fi
+  ! declare -F own_pg_stop > /dev/null || own_pg_stop
+  ! podman network exists "$PGNET" || podman network rm "$PGNET" > /dev/null 2>&1 || note "proof network" $?
+  ! podman image exists "$IMAGE" || podman rmi "$IMAGE" > /dev/null 2>&1 || note "proof image" $?
+  remove_own_stage_images
+  podman unshare rm -rf -- "$ROOT" "$RUNNER_ROOT" || note "fleet and runner roots" $?
+  local residue; residue=$(cleanup_residue)
+  if [ "$residue" = "containers=0 volumes=0 networks=0 credentials=0 scratch=0" ]; then log "cleanup: done; left: $residue"
+  else log "cleanup FAILED: left: $residue"; CLEANUP_FAIL=1; fi
+  mark cleanup end
+  [ -z "${SAMPLER:-}" ] || kill "$SAMPLER" 2> /dev/null || note "sampler stop" $?
+  [ -z "${POLLER:-}" ] || kill "$POLLER" 2> /dev/null || note "poller stop" $?
+  [ -z "${T0:-}" ] || log "measured: duration $(( $(date +%s) - T0 )) s; MemAvailable at start ${M0}GiB, lowest $(cat "$P/mem-lowest")GiB"
+  [ "$CLEANUP_FAIL" = 0 ] || log "cleanup: named failure (exit 70)"
+  [ "${RELEASED:-}" != 1 ] || archive_released_try   # last: nothing writes into proof/ after it moves
+  [ "$CLEANUP_FAIL" = 0 ] || exit 70
+}
+
+# release-node-image: once, at the package freeze, the kind node image this package pulled (logs/kind-prep-images.txt), by digest.
+step_release-node-image() {
+  local node_image=docker.io/kindest/node:v1.36.1@sha256:<IMAGE-ID>
+  ! grep -qxF "pulled-by-w4h35 $node_image" "$E/logs/kind-prep-images.txt" 2>/dev/null || podman rmi "$node_image" > /dev/null 2>&1 || true
+  log "release-node-image: $(podman image exists "$node_image" && echo kept || echo removed)"
+}
+
+step_all() {
+  step_preflight
+  SCRATCH=$(mktemp -d /tmp/w4h35-scratch.XXXX); KUBECONFIG_FILE=$SCRATCH/kubeconfig
+  T0=$(date +%s); M0=$(mem); rm -f "$P/mem-lowest"; low; sampler & SAMPLER=$!; log "all: start mem=${M0}GiB"
+  trap 'step_cleanup' EXIT      # from the first step: a failed image step still removes what it built
+  step_image; step_pg
+  trap 'step_cleanup' EXIT
+  step_stores
+  trap 'step_cleanup' EXIT      # replaces own-pg.sh's trap; step_cleanup calls own_pg_stop itself
+  step_cluster; step_fleet
+  local pre=0 install="not run" wave="not run"; step_preinstall || pre=$?
+  if [ "$pre" = 0 ]; then install=0; step_install || install=$?; fi   # run 13 expects step 6 ready: no G8 record (team-lead ruling P2)
+  if [ "$install" = 0 ]; then wave=0; step_wave || wave=$?; fi
+  log "all: preinstall exit $pre, install $( [ "$install" = "not run" ] && echo "not run" || echo "exit $install" ), wave $( [ "$wave" = "not run" ] && echo "not run" || echo "exit $wave" )"
+  [ "$pre" = 0 ] || return "$pre"
+  [ "$install" = 0 ] || return "$install"
+  [ "$wave" = 0 ] || return "$wave"
+}
+
+"step_${1:?step}"

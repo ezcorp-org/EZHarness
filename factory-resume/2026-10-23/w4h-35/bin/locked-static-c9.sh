@@ -33,7 +33,11 @@ EZCORP_FACTORY_STORAGE_SECRETS_DIR=$(ls -d /run/user/1001/ezcorp-factory-storage
 list_nonempty "$M/r2-session5-mapped.txt" "$S" r2-repro-old || exit 1   # never a bare bun test (lesson 32)
 env -u DATABASE_URL bun test --timeout 60000 --coverage --coverage-reporter=lcov --coverage-dir="$D/cov-r2-old" $(cat "$M/r2-session5-mapped.txt") > "$D/r2-repro-old.log" 2>&1
 echo "r2-repro-old exit $? (red expected) $(grep -E '^ *[0-9]+ (pass|fail)$' "$D/r2-repro-old.log" | tr '\n' ' ')" >> "$S"
-leg r2-repro-old-match python3 -I "$E/bin/r2-repro-judge.py" "$D/r2-repro-old.log" "$M/r2-expected.json"
+# R2_EXPECTED (W4H-35 resume, 2026-10-23): the signature this head must give; default the session-5 record. At 9446008c6 commit 11
+# (test-fix-01) removes the alert-evaluator afterAll TypeError, so the C9 resume names merge-prep/r2-expected.v2.json (proof:
+# merge-prep/r2-expected-v2.proof.log).
+echo "r2 expected signature: ${R2_EXPECTED:-$M/r2-expected.json} $(sha256sum "${R2_EXPECTED:-$M/r2-expected.json}" | cut -c1-16)" >> "$S"
+leg r2-repro-old-match python3 -I "$E/bin/r2-repro-judge.py" "$D/r2-repro-old.log" "${R2_EXPECTED:-$M/r2-expected.json}"
 mkdir -p "$D/r2-new"; pg_each "$M/r2-pg-suites.txt" "$D/r2-new" r2-repro-new "$S"; rn=$?; echo "r2-repro-new exit $rn (green expected)" >> "$S"
 [ "$st" = 0 ] && [ "$rn" = 0 ] || { echo "STOP: the R2 reproduction does not match; no C9 leg runs" >> "$S"; exit 1; }
 . "$E/bin/c9-map.sh"; c9_mapped "$BASE" "$D/mapped.txt"   # the hook's name mapping plus every importer of a changed source (D4a)

@@ -1,0 +1,21 @@
+Run 14 plan (w4h-35, 2026-10-23; team-lead: the run-13 kind proof again at the new head 9446008c6; build only, nothing launched).
+SET: bin/run14-launch.sh (from the approved run13-launch.sh 54595fcd: all three judges, one exit) with the approved leftover pull-judge
+c66bac5b (the stopped-wave canary via proof/wave-absent-ref.txt) and repro/kind-proof.sh with L3 (record_restarted_pods: every
+factory pod with a restarted container gets describe, logs and the --previous log of each restarted container in pods-restarted/).
+L3 red-first: repro/kind-proof-restarted.test.sh on the REAL run-13 install-pods.json (fixture copy 706514e464ebbeff): old driver RED
+(no function), new GREEN (the installation pod, previous = orchestrator, `logs -c orchestrator --previous` kept), mutant (every
+container) RED. All driver tests green except kind-proof-records.test.sh (c), RED on the old driver too: see OPEN 2.
+AT THE WORD (team-lead's OK needed for each move; nothing moved now):
+ 1. proof/ and proof.exit ("0") are the ACCEPTED run-13 records (verdict d2e23947cf9654c9): hash-list proof/ first, then mv proof/ to
+    proof-run13-accepted and proof.exit to proof.exit.0-run13, with move lines (the launcher refuses a present proof/ or proof.exit).
+ 2. The clean-state check (no fleet, runner, w4h35 containers, networks, volumes, store dirs, scratch) as in run 13.
+ 3. COORD_WORD=<id> bash bin/run14-launch.sh 9446008c6 (in-session, team-lead).
+OPEN (rulings needed before the word):
+ 1. The user's Docker Hub ruling allowed ONE nginx pull (digest 2f4e1019...) for RUN 13. Run 14 repeats it in the kind node (the node is
+    new). Does the ruling extend to run 14, or does run 14 need the user's word?
+ 2. kind-proof-records.test.sh part (c) (no key material anywhere in the evidence tree) is RED now: 133 pattern hits in repo-source
+    copies under the evidence tree (my scratch and install trees: merge-prep/*-scratch, merge-prep/r3-dry, s11*/tree-*, s11*/ctx08) and
+    hosted-builder/bun-builder.docker.tar and ci-349/ci.yml.a27d301c4. They are copies of committed test fixtures and an image archive,
+    not our secrets, but the guard is red. Proposal (N4 extended): move those trees out of the evidence tree to /tmp/w4h-scratch/ after
+    a hashed record (or remove on team-lead's word), keeping their manifests; then (c) is green again.
+L3 note for run 14: the orchestrator restart class (start-order) now keeps its stderr in pods-restarted/.

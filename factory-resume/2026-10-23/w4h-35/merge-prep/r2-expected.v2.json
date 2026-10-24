@@ -1,0 +1,39 @@
+{
+ "fails": [
+  [
+   "src/factory/notification-delivery.integration.test.ts",
+   "(unnamed)"
+  ],
+  [
+   "src/factory/observability/alert-evaluator.integration.test.ts",
+   "a live Prometheus over a real installation (C11 A1-A10) > (unnamed)"
+  ],
+  [
+   "tests/postgres/factory-installation-metrics.test.ts",
+   "(unnamed)"
+  ],
+  [
+   "tests/postgres/factory-installation-metrics.test.ts",
+   "(unnamed)"
+  ],
+  [
+   "tests/postgres/factory-metrics-scrape.test.ts",
+   "(unnamed)"
+  ],
+  [
+   "tests/postgres/factory-notification-sender.test.ts",
+   "(unnamed)"
+  ],
+  [
+   "tests/postgres/factory-notification-sender.test.ts",
+   "(unnamed)"
+  ]
+ ],
+ "unhandled": [
+  "tests/postgres/factory-gateway-process.test.ts"
+ ],
+ "causes": {
+  "leak": 5,
+  "no-database-url": 1
+ }
+}
