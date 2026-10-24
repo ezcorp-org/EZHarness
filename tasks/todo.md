@@ -9634,3 +9634,9 @@ No active FIX/frozen release/live/API/SSH/GitHub effects. No audit waiver, broad
 - Named Bun update changes one web lock tuple only. All manifests and eight other manager locks remain exact; no override, allowlist or declaration changes.
 - Both final frozen installs, canonical high audit, snippet5/markdown77 tests pass. Canonical SDK79b and toolchain6095 exactly match genuine current provider recipe; provider rebuild is not implied. Canonical web types pass with0errors0warnings; independent review PASS1f7458be on exact lockc877/evidence62.
 - No production source, active FIX, frozen release, guest, API/SSH/GitHub effect, push or commit. The web runtime dependency and future app artifact do change.
+
+## Final main synchronization (2026-10-24)
+
+- [x] Merge main6453ce15 into reviewed b6af source.
+- [x] Resolve only the deterministic device-code clock test overlap. Kept the exact main pageClockStart/expiry solution and all assertions.
+- [x] Verify narrow diff and TypeScript parsing; normal hooks run at merge commit. The resolved test is byte-identical to main6453ce15. No runtime, lock, SDK, workflow or policy change from main. No browser/whole-gate rerun.
