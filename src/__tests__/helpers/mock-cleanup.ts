@@ -310,6 +310,10 @@ const MODULE_PATHS = [
   "../../extensions/triggers-store",
   "../../runtime/executor-helpers",
   "../../runtime/start-assignment",
+  // setup-tools-load-errors.test.ts wraps getBuiltinToolDefs to throw a
+  // native-module load error; without the snapshot that wrapper would leak
+  // into every later file that builds the built-in tool list.
+  "../../runtime/tools",
   "../../runtime/tools/permissions",
   "../../extensions/migrations/task-tracking-storage",
   // Phase 55-58 MCP work added new mock.module targets across these
