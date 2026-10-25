@@ -11,6 +11,20 @@ import type { ReverseRpc } from "./protocol";
  */
 const MAX_STREAM_RECOVERIES = 3;
 
+/** Socket failures that mean the runner could not be reached at all (`socket hang up` carries ECONNRESET). */
+const TRANSPORT_CODES = new Set(["ECONNRESET", "ECONNREFUSED", "EPIPE"]);
+
+/**
+ * A request that failed at the transport, before any response arrived, as a retryable `runner_unavailable`:
+ * the runner restarted or stopped while the call was open. Any other error, and any failure after a response
+ * began, keeps its own classification.
+ */
+export function transportFailure(error: Error, responded: boolean): Error {
+  const code = (error as NodeJS.ErrnoException).code;
+  if (responded || error instanceof RunnerError || code === undefined || !TRANSPORT_CODES.has(code)) return error;
+  return new RunnerError("runner_unavailable", "The extension runner could not be reached", "runner", true, { errorClass: error.name, errorCode: code });
+}
+
 export class RunnerClient implements Runner {
   constructor(private readonly options: { socketPath: string; token: string }) {}
   /**
@@ -21,7 +35,9 @@ export class RunnerClient implements Runner {
   private call<Value>(method: string, data: unknown): Promise<Value> {
     return new Promise((resolve, reject) => {
       const body = JSON.stringify(data);
+      let responded = false;
       const outgoing = request({ socketPath: this.options.socketPath, agent: false, path: `/v4/${method}`, method: "POST", headers: { authorization: `Bearer ${this.options.token}`, "content-type": "application/json", "content-length": Buffer.byteLength(body) }, timeout: 360_000 }, incoming => {
+        responded = true;
         const chunks: Buffer[] = [];
         let bytes = 0;
         incoming.on("data", (chunk: Buffer) => { bytes += chunk.byteLength; if (bytes > 180 * 1024 ** 2) incoming.destroy(new RunnerError("response_limit", "Runner response exceeded policy")); else chunks.push(chunk); });
@@ -34,7 +50,7 @@ export class RunnerClient implements Runner {
           } catch { reject(new RunnerError("runner_protocol", "Runner returned invalid JSON")); }
         });
       });
-      outgoing.on("error", reject);
+      outgoing.on("error", (error) => reject(transportFailure(error, responded)));
       outgoing.on("timeout", () => outgoing.destroy(new RunnerError("runner_timeout", "Runner request timed out")));
       outgoing.end(body);
     });

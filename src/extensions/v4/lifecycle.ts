@@ -15,6 +15,11 @@ export function runnerBusyRetryMs(fence: number): number {
   return Math.min(1_000 * 2 ** Math.min(Math.max(fence - 1, 0), 5), 30_000);
 }
 
+// A runner that could not be reached (it restarted or stopped while a build was open) is retried on the
+// same backoff as a busy one, but only this many attempts in all: a runner that never comes back must not
+// keep the build queued forever. After the last attempt the build fails with the named diagnostic.
+export const RUNNER_UNAVAILABLE_MAX_ATTEMPTS = 6;
+
 export class ExtensionLifecycle {
   private readonly now: () => number;
   private readonly leaseMs: number;
@@ -224,6 +229,7 @@ export class ExtensionLifecycle {
       runner_busy: "The runner is busy; retry after the current build.",
       runner_timeout: "The runner request timed out.",
       runner_unconfigured: "The runner is unavailable.",
+      runner_unavailable: "The runner could not be reached; retry after it restarts.",
       // trusted-local only: the runner found no live human acknowledgement
       // for this exact digest. Named here so it reaches the operation record
       // instead of collapsing into "operation_failed".
@@ -238,7 +244,8 @@ export class ExtensionLifecycle {
       const operation = this.operation(state, operationId);
       if (operation.lease?.holder !== holder || operation.lease.fence !== fence || ["cancelled", "reconciling", "active", "verified"].includes(operation.state)) return;
       const runner = this.safeRunnerFailure(error);
-      if (operation.kind === "build" && runner?.code === "runner_busy" && runner.retryable) {
+      const retryRunner = runner?.retryable && (runner.code === "runner_busy" || (runner.code === "runner_unavailable" && operation.lease.fence < RUNNER_UNAVAILABLE_MAX_ATTEMPTS));
+      if (operation.kind === "build" && runner && retryRunner) {
         operation.diagnostics = [{ ...runner, stage: "runner" }];
         operation.lease.until = this.now() + runnerBusyRetryMs(operation.lease.fence);
         this.transition(operation, "queued");
