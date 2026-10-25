@@ -1,5 +1,6 @@
 <script lang="ts">
 	import type { SuggestedTool, SuggestedExtension, Enhancement } from "$lib/composer-suggest-logic";
+	import WrenchIcon from "$lib/components/WrenchIcon.svelte";
 
 	let {
 		open,
@@ -69,10 +70,11 @@
 							data-tool={tool.name}
 							data-extension={tool.extension}
 							title="{tool.description} — click to add {tool.extension} and set up {tool.name}"
-							class="rounded-full border border-indigo-500/40 bg-indigo-500/10 px-2 py-0.5 text-xs text-indigo-300 transition-colors hover:bg-indigo-500/25"
+							class="inline-flex items-center gap-1 rounded-full border border-indigo-500/40 bg-indigo-500/10 px-2 py-0.5 text-xs text-indigo-300 transition-colors hover:bg-indigo-500/25"
 							onclick={() => onselecttool(tool)}
 						>
-							🔧 {tool.extension} · {tool.name}
+							<WrenchIcon class="h-3 w-3" />
+							<span data-testid="suggestion-tool-chip-label">{tool.extension} · {tool.name}</span>
 						</button>
 					{/if}
 				{/each}

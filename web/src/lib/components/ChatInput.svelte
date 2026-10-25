@@ -165,7 +165,7 @@
 		placeholder?: string;
 		/**
 		 * Per-conversation tool scoping (extension id → selected tool names),
-		 * or null to inherit the active mode's tools. Drives the 🔧 Tools
+		 * or null to inherit the active mode's tools. Drives the Tools
 		 * popover in the toolbar; the popover narrows within `selectedMode`'s
 		 * attached extensions. Persisted by the parent via
 		 * `onextensiontoolschange` / `onextensiontoolsreset`.

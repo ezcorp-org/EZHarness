@@ -171,7 +171,7 @@ test.describe("Composer suggestions", () => {
 		await expect(popover(page)).toBeVisible({ timeout: 4000 });
 		const chips = page.getByTestId("suggestion-tool-chip");
 		await expect(chips).toHaveCount(3);
-		// Extension-first label ({extension} · {name}), 🔧 on the actionable chip.
+		// Extension-first label ({extension} · {name}), a wrench icon on the actionable chip.
 		await expect(chips.nth(0)).toContainText("analyzer · scan");
 		// Built-in chip renders informational (span, no button role).
 		await expect(page.locator('span[data-testid="suggestion-tool-chip"][data-tool="task_create"]')).toBeVisible();
@@ -338,15 +338,22 @@ test.describe("Composer suggestions", () => {
 
 		const chips = page.getByTestId("suggestion-tool-chip");
 		await expect(chips).toHaveCount(4);
-		// Actionable extension chips: 🔧 + extension-first label, even when two
-		// share the short name `weather-now` (extension prefix disambiguates).
-		await expect(chips.nth(0)).toHaveText(/^🔧 open-meteo · weather-now$/);
-		await expect(chips.nth(1)).toHaveText(/^🔧 weather-api · weather-now$/);
-		await expect(chips.nth(2)).toHaveText(/^🔧 analyzer · scan$/);
+		// Actionable extension chips: a wrench icon + extension-first label, even when
+		// two share the short name `weather-now` (extension prefix disambiguates).
+		// The icon is an aria-hidden SVG, never emoji text (which needs an emoji font).
+		const expected = ["open-meteo · weather-now", "weather-api · weather-now", "analyzer · scan"];
+		for (const [index, label] of expected.entries()) {
+			const chip = chips.nth(index);
+			await expect(chip).toHaveText(label);
+			await expect(chip.getByTestId("suggestion-tool-chip-label")).toHaveText(label);
+			await expect(chip.locator('svg[data-icon="wrench"]')).toHaveAttribute("aria-hidden", "true");
+			expect(await chip.textContent()).not.toMatch(/\p{Extended_Pictographic}/u);
+		}
 		await expect(chips.nth(2)).toHaveAttribute("data-extension", "analyzer");
-		// Built-in chip: informational span (no 🔧, no button role), extension-first.
+		// Built-in chip: informational span (no icon, no button role), extension-first.
 		const builtin = page.locator('span[data-testid="suggestion-tool-chip"][data-tool="task_create"]');
 		await expect(builtin).toHaveText(/^ez · task_create$/);
+		await expect(builtin.locator("svg")).toHaveCount(0);
 		await expect(builtin).toHaveAttribute("data-extension", "ez");
 
 		await captureEvidence(page, testInfo, "composer-suggestions-chip-ext-prefix");

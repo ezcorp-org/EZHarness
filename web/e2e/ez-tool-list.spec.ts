@@ -11,7 +11,7 @@ import { makeProject, makeMode } from "./fixtures/data.js";
  *   - the Ez panel had no tool surface at all.
  *
  * These specs pin the fixes: an "N tools" badge, a read-only allowlist
- * chip list in the view modal, and the panel's 🔧 tools chip + popover
+ * chip list in the view modal, and the panel's tools chip + popover
  * (fed by /api/tools?conversationId=…, the same scope the runtime grants).
  *
  * Frontend-visual change → @evidence screenshots for the PR bot.
@@ -72,7 +72,13 @@ test.describe("EZ mode — tool list visibility", () => {
 		await page.getByTestId("ez-button").click();
 		await expect(page.getByTestId("ez-panel")).toBeVisible();
 
-		await page.getByTestId("ez-panel-tools").click();
+		// The chip leads with the shared wrench SVG, never emoji text (which needs an emoji font).
+		const chip = page.getByTestId("ez-panel-tools");
+		await expect(chip.locator(":scope > svg[data-icon=\"wrench\"]")).toHaveAttribute("aria-hidden", "true");
+		expect(await chip.textContent()).not.toMatch(/\p{Extended_Pictographic}/u);
+		await captureEvidence(page, testInfo, "ez-panel-tools-chip");
+
+		await chip.click();
 		const popover = page.getByTestId("ez-panel-tools-popover");
 		await expect(popover).toBeVisible();
 		// The shared /api/tools mock returns 4 tools across 3 extensions.

@@ -22,6 +22,7 @@
 	 */
 	import { onMount, tick } from "svelte";
 	import Tooltip from "$lib/components/Tooltip.svelte";
+	import WrenchIcon from "$lib/components/WrenchIcon.svelte";
 	import type { Mode } from "$lib/api";
 	import {
 		isAllTools,
@@ -258,10 +259,7 @@
 		class="flex items-center gap-1 rounded-full border border-[var(--color-border)] bg-[var(--color-surface-secondary)] px-2.5 py-1 text-xs text-[var(--color-text-secondary)] transition-colors hover:border-[var(--color-text-muted)] hover:text-[var(--color-text-primary)]"
 		title="Scope which tools are active for this conversation"
 	>
-		<!-- wrench glyph (lucide-svelte's Wrench path), drawn like the Model and Mode chips' icons -->
-		<svg class="h-3 w-3 text-[var(--color-text-muted)]" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24" aria-hidden="true">
-			<path stroke-linecap="round" stroke-linejoin="round" d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.106-3.105c.32-.322.863-.22.983.218a6 6 0 0 1-8.259 7.057l-7.91 7.91a1 1 0 0 1-2.999-3l7.91-7.91a6 6 0 0 1 7.057-8.259c.438.12.54.662.219.984z" />
-		</svg>
+		<WrenchIcon />
 		<span>Tools</span>
 		{#if sections.length > 0}
 			<span

@@ -20,6 +20,7 @@
   "src/integrations/github-user/transport.ts": 100,
   "web/src/lib/components/GithubSandboxImport.svelte": 100,
   "web/src/lib/components/PersonalPrCard.svelte": 100,
+  "web/src/lib/components/WrenchIcon.svelte": 100,
   "web/src/lib/personal-pr.ts": 100,
   "web/src/routes/(app)/settings/github/+page.svelte": 100,
   "web/src/routes/api/github/authorize/+server.ts": 100,
