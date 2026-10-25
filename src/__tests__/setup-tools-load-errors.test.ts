@@ -27,6 +27,8 @@ const fail = {
   subAgents: false,
   agentRefs: false,
   memory: false,
+  taskAwaiting: false,
+  taskWire: false,
 };
 
 let capturedAgentOpts: any = null;
@@ -135,8 +137,12 @@ mock.module("../db/queries/agent-configs", () => ({
   },
 }));
 
+const { markAwaitingApproval } = await import("../extensions/bundled-extension-state");
 mock.module("../runtime/task-tracking-host", () => ({
-  ensureTaskTrackingWired: async () => {},
+  ensureTaskTrackingWired: async () => {
+    if (fail.taskAwaiting) throw markAwaitingApproval(new Error("task-tracking is staged and awaits administrator approval"), "task-tracking");
+    if (fail.taskWire) throw new Error(LOAD_ERROR);
+  },
   getTaskTrackingExtensionId: async () => null,
 }));
 
@@ -170,9 +176,23 @@ const PROJECT_DIR = `/tmp/setup-load-errors-${crypto.randomUUID().slice(0, 8)}`;
 let projectId: string;
 let convId: string;
 
-/** Setup-logger warnings written while a test runs. */
+/** Setup-logger warnings (stderr) and info lines (stdout) written while a test runs. */
 let warnings: Array<{ msg: string; error?: string }> = [];
-let stderrSpy: ReturnType<typeof spyOn>;
+let infos: string[] = [];
+let spies: Array<ReturnType<typeof spyOn>> = [];
+
+/** Pass a stream through, and record the setup logger's lines of `level` into `sink`. */
+function captureSetupLog(stream: NodeJS.WriteStream, level: string, sink: (entry: { msg: string; error?: string }) => void) {
+  const write = stream.write.bind(stream);
+  return spyOn(stream, "write").mockImplementation(((chunk: string | Uint8Array, ...rest: unknown[]) => {
+    for (const line of String(chunk).split("\n")) {
+      if (!line.includes('"subsystem":"executor.streamChat.setup"')) continue;
+      const entry = JSON.parse(line) as { level: string; msg: string; error?: string };
+      if (entry.level === level) sink({ msg: entry.msg, error: entry.error });
+    }
+    return (write as (...a: unknown[]) => boolean)(chunk, ...rest);
+  }) as typeof stream.write);
+}
 
 beforeAll(async () => {
   mkdirSync(PROJECT_DIR, { recursive: true });
@@ -191,19 +211,15 @@ beforeEach(() => {
   for (const key of Object.keys(fail) as Array<keyof typeof fail>) fail[key] = false;
   capturedAgentOpts = null;
   warnings = [];
-  const write = process.stderr.write.bind(process.stderr);
-  stderrSpy = spyOn(process.stderr, "write").mockImplementation(((chunk: string | Uint8Array, ...rest: unknown[]) => {
-    for (const line of String(chunk).split("\n")) {
-      if (!line.includes('"subsystem":"executor.streamChat.setup"')) continue;
-      const entry = JSON.parse(line) as { level: string; msg: string; error?: string };
-      if (entry.level === "warn") warnings.push({ msg: entry.msg, error: entry.error });
-    }
-    return (write as (...a: unknown[]) => boolean)(chunk, ...rest);
-  }) as typeof process.stderr.write);
+  infos = [];
+  spies = [
+    captureSetupLog(process.stderr, "warn", (entry) => warnings.push(entry)),
+    captureSetupLog(process.stdout, "info", (entry) => infos.push(entry.msg)),
+  ];
 });
 
 afterEach(() => {
-  stderrSpy.mockRestore();
+  for (const spy of spies) spy.mockRestore();
 });
 
 async function runTurn(options: Record<string, unknown> = {}): Promise<string[]> {
@@ -278,4 +294,22 @@ describe("setup-tools logs the cause of a non-fatal wiring failure", () => {
     // cause is the sharp load error.
     expect(logged[0]!.error!.startsWith(`Error: ${LOAD_ERROR}`)).toBe(true);
   });
+
+  test("task-tracking staged, awaiting approval → no per-turn warning, one info line", async () => {
+    fail.taskAwaiting = true;
+    await runTurn();
+    await runTurn();
+    expect(warnings.filter((w) => w.msg.startsWith("Task-tracking wire failed"))).toEqual([]);
+    expect(infos.filter((m) => m === "task-tracking is staged and awaits administrator approval")).toHaveLength(1);
+  });
+
+  test("a genuine task-tracking wire failure still warns with its cause", async () => {
+    fail.taskWire = true;
+    await runTurn();
+    expect(loadErrorWarnings()).toEqual([
+      { msg: "Task-tracking wire failed — task tools unavailable this turn", error: `Error: ${LOAD_ERROR}` },
+    ]);
+  });
 });
+
+

@@ -21,7 +21,7 @@
 import type { AgentTool } from "@earendil-works/pi-agent-core";
 import { getDb } from "../db/connection";
 import { conversationExtensions } from "../db/schema";
-import { getExtensionByName } from "../db/queries/extensions";
+import { bundledExtensionResolver, reportAwaitingApproval } from "../extensions/bundled-extension-state";
 import type { ExtensionRegistry } from "../extensions/registry";
 import { ToolExecutor, extensionToAgentTool } from "../extensions/tool-executor";
 import { getPermissionEngine } from "../extensions/permission-engine";
@@ -33,25 +33,11 @@ const log = logger.child("ask-user-host");
 
 // ── Extension-id resolution (cached) ────────────────────────────────
 
-let cachedExtId: string | undefined;
-
-/**
- * Resolve the installed `ask-user` extension's DB id. Cached
- * module-local after the first hit; resets on a fresh process only.
- * Returns `undefined` if the extension isn't installed — a misconfigured
- * boot skips ask-user wiring for the turn rather than killing the run.
- */
-async function getAskUserExtensionId(): Promise<string | undefined> {
-  if (cachedExtId) return cachedExtId;
-  const row = await getExtensionByName("ask-user");
-  if (!row) return undefined;
-  cachedExtId = row.id;
-  return cachedExtId;
-}
+const askUserExtension = bundledExtensionResolver("ask-user");
 
 /** Test-only: clear the cached extension id so mocks re-resolve. */
 export function _resetAskUserExtensionIdCache(): void {
-  cachedExtId = undefined;
+  askUserExtension.reset();
 }
 
 // ── Wiring helpers ──────────────────────────────────────────────────
@@ -70,15 +56,20 @@ export function _resetAskUserExtensionIdCache(): void {
 export async function ensureAskUserWired(
   conversationId: string,
 ): Promise<boolean> {
-  let extId: string | undefined;
+  let extId: string;
   try {
-    extId = await getAskUserExtensionId();
+    const state = await askUserExtension.state();
+    if (state.kind === "awaiting_approval") {
+      reportAwaitingApproval(log, "ask-user");
+      return false;
+    }
+    if (state.kind === "missing") {
+      log.warn("ask-user extension not installed — did ensureBundledExtensions() run?");
+      return false;
+    }
+    extId = state.id;
   } catch (err) {
     log.warn("Failed to resolve ask-user extension id", { error: String(err) });
-    return false;
-  }
-  if (!extId) {
-    log.warn("ask-user extension not installed — did ensureBundledExtensions() run?");
     return false;
   }
 
@@ -136,13 +127,18 @@ export async function wireAskUserToolForTurn(
   // exposes the originalName too).
   if (agentTools.some((t) => t.name === "ask-user__ask_user_question" || t.name === "ask_user_question")) return;
 
-  const extId = await getAskUserExtensionId();
-  if (!extId) {
+  const state = await askUserExtension.state();
+  if (state.kind === "awaiting_approval") {
+    reportAwaitingApproval(log, "ask-user");
+    return;
+  }
+  if (state.kind === "missing") {
     log.warn("ask-user extension not installed — skipping wire for turn", {
       conversationId, runId,
     });
     return;
   }
+  const extId = state.id;
 
   const registeredTools = registry.getToolsForExtension(extId);
   const askTool = registeredTools.find((t) => t.originalName === "ask_user_question");
