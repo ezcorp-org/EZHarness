@@ -10,14 +10,12 @@
  * file that starts a Podman guest runs in a job that did not provision the runner first. Fixture:
  * scripts/fixtures/podman-guest-jobs/base (db-postgres.yml at 1bc5f63c7).
  *
- * Its reach: test files a workflow step names, and the storage suites of a step that runs the storage shard command
- * (scripts/factory-storage-shard.ts derives them; the step names none). Suites a step runs through a pool script (scripts/test-coverage.sh
+ * Its reach: test files a workflow step names. Suites a step runs through a pool script (scripts/test-coverage.sh
  * with EZCORP_RUN_PODMAN_TESTS) are not named in the workflow, and those jobs already provision the runner.
  */
 import { describe, expect, test } from "bun:test";
 import { existsSync, readFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
-import { withRepoStorageSuites } from "./factory-storage-shard.ts";
 import { type Workflow, type WorkflowStep, readWorkflows, stepsNeedingPreparation, workflowCommands } from "./lib/ci-registration.ts";
 
 const REPO_ROOT = resolve(import.meta.dir, "..");
@@ -91,7 +89,7 @@ export function runsRunnerSetup(step: WorkflowStep): boolean {
 
 /** Every step that runs a Podman-guest test, with whether the runner setup ran before it in its job. */
 export function podmanGuestSteps(workflows: readonly Workflow[], read: Read = readRepo, exemptions: readonly GuestExemption[] = GUEST_EXEMPTIONS) {
-  return stepsNeedingPreparation(workflows, runsRunnerSetup, (run) => namedTestFiles(withRepoStorageSuites(run)).some((file) => startsPodmanGuest(file, read, exemptions)));
+  return stepsNeedingPreparation(workflows, runsRunnerSetup, (run) => namedTestFiles(run).some((file) => startsPodmanGuest(file, read, exemptions)));
 }
 
 /** Every unprepared Podman-guest step, by name. */
@@ -128,7 +126,7 @@ describe("Podman-guest tests run only where the runner is provisioned (W4H-12)",
   });
 
   test("the guard sees the step that failed in hosted run 37383355593", () => {
-    // Not vacuous: the storage shards run factory-host-launch, whose helper starts a real guest.
+    // Not vacuous: the storage step names factory-host-launch, whose helper starts a real guest.
     expect(startsPodmanGuest("tests/postgres/factory-host-launch.test.ts")).toBe(true);
     expect(podmanGuestSteps(workflows).map((step) => step.where)).toContain(
       "db-postgres.yml factory-storage (Factory storage and private services): Run factory storage and private services on Postgres and S3",

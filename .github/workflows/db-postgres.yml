@@ -169,8 +169,8 @@ jobs:
           retention-days: 3
           if-no-files-found: error
 
-  # The real storage and private-service suites in parallel shards, one per matrix entry. Each shard holds about
-  # half of the measured hosted time (about 150-340 s per shard on the measured runs).
+  # The real storage and private-service suites in two parallel shards. Each shard holds about half of the
+  # measured hosted time (about 150-340 s per shard); put a new suite in the shard that takes less.
   factory-storage:
     name: Factory storage and private services
     runs-on: ubuntu-latest
@@ -216,17 +216,74 @@ jobs:
         with:
           command: up
 
-      # The shard command derives the storage suites from tests/postgres (every suite no other producer names), splits
-      # them by hosted timings, and fails when a suite is in no shard or in two. No list here can miss a new suite.
+      # Explicit files preserve each real storage and private-service proof.
       - name: Run factory storage and private services on Postgres and S3
         shell: bash
         env:
-          SHARD_INDEX: ${{ strategy.job-index }}
-          SHARD_TOTAL: ${{ strategy.job-total }}
+          SHARD: ${{ matrix.shard }}
         run: |
-          bun scripts/factory-storage-shard.ts "$SHARD_INDEX" "$SHARD_TOTAL" > "$RUNNER_TEMP/storage-suites.txt"
-          mapfile -t suites < "$RUNNER_TEMP/storage-suites.txt"
-          printf 'storage shard %s of %s runs %s suites\n' "$SHARD_INDEX" "$SHARD_TOTAL" "${#suites[@]}"
+          case "$SHARD" in
+            1)
+              suites=(
+                ./tests/postgres/factory-storage-cleanup.test.ts
+                ./tests/postgres/factory-lazy-input.test.ts
+                ./tests/postgres/factory-run-lifecycle-s3.test.ts
+                ./tests/postgres/factory-run-inputs.test.ts
+                ./tests/postgres/factory-console.test.ts
+                ./tests/postgres/factory-definitions.test.ts
+                ./tests/postgres/factory-private-service.test.ts
+                ./tests/postgres/factory-package-preparation.test.ts
+                ./tests/postgres/factory-executions.test.ts
+                ./tests/postgres/factory-attempt-queue.test.ts
+                ./tests/postgres/factory-budgets.test.ts
+                ./tests/postgres/factory-encryption-s3.test.ts
+                ./tests/postgres/factory-project-creation.test.ts
+                ./tests/postgres/factory-host-launch.test.ts
+                ./tests/postgres/factory-usage-epoch.test.ts
+                ./tests/postgres/factory-guest-model-route.test.ts
+                ./tests/postgres/factory-task-stops.test.ts
+                ./tests/postgres/factory-release-stop-race.test.ts
+                ./tests/postgres/factory-admission-stop.test.ts
+                ./tests/postgres/factory-package-fence.test.ts
+                ./tests/postgres/factory-migration-restart.test.ts
+                ./tests/postgres/factory-schema.test.ts
+                ./tests/postgres/factory-retention.test.ts
+                ./tests/postgres/factory-pool-checkpoint.test.ts
+                ./tests/postgres/factory-wal-backup.test.ts
+                ./tests/postgres/factory-metrics-scrape.test.ts
+              )
+              ;;
+            2)
+              suites=(
+                ./tests/postgres/factory-artifacts.test.ts
+                ./tests/postgres/factory-artifact-access.test.ts
+                ./tests/postgres/factory-artifact-materials.test.ts
+                ./tests/postgres/factory-guest-material-broker.test.ts
+                ./tests/postgres/factory-lazy-commands.test.ts
+                ./tests/postgres/factory-boot.test.ts
+                ./tests/postgres/factory-inbox.test.ts
+                ./tests/postgres/factory-installation-bootstrap.test.ts
+                ./tests/postgres/factory-records.test.ts
+                ./tests/postgres/factory-tenant-projects.test.ts
+                ./tests/postgres/factory-execution-gateway.test.ts
+                ./tests/postgres/factory-guest-model-journal.test.ts
+                ./tests/postgres/factory-service-credentials.test.ts
+                ./tests/postgres/factory-grants.test.ts
+                ./tests/postgres/factory-task-stop-dispatch-refused-migration.test.ts
+                ./tests/postgres/factory-stop-lock-order.test.ts
+                ./tests/postgres/factory-release-stop-migration.test.ts
+                ./tests/postgres/factory-usage-basis-migration.test.ts
+                ./tests/postgres/migrate-lock.test.ts
+                ./tests/postgres/factory-checkpoint.test.ts
+                ./tests/postgres/factory-restore.test.ts
+                ./tests/postgres/factory-key-rotation.test.ts
+                ./tests/postgres/factory-installation-metrics.test.ts
+                ./tests/postgres/factory-notification-sender.test.ts
+                ./tests/postgres/factory-pool-metrics.test.ts
+              )
+              ;;
+            *) echo "unknown storage shard: $SHARD" >&2; exit 1 ;;
+          esac
           FACTORY_TEST_POSTGRES_URL="$DATABASE_URL" bun test --timeout 30000 \
             --coverage --coverage-reporter=lcov --coverage-dir=coverage-factory-storage "${suites[@]}"
 

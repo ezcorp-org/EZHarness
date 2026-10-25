@@ -50,38 +50,6 @@ export function missingThresholds(thresholds: string, sources: readonly string[]
 }
 
 /**
- * The command a factory storage shard step runs (db-postgres.yml factory-storage). The step names no suite: the
- * command derives its suites from tests/postgres, so a new suite runs in a shard without a list to edit.
- */
-export const STORAGE_SHARD_COMMAND = "bun scripts/factory-storage-shard.ts";
-
-/**
- * The storage shards' suites: every suite that no other producer names and that is not a recorded local-only gap.
- * `producers` is every workflow's commands plus the scripts they invoke; the storage step itself names no suite.
- */
-export function storageSuites(producers: string, suites: readonly string[], localOnly: readonly string[]): string[] {
-  const unnamed = new Set(missingProducers(producers, suites.map((suite) => [suite, suite] as const)));
-  return suites.filter((suite) => unnamed.has(suite) && !localOnly.includes(suite));
-}
-
-/** `producers` plus the storage suites when its commands run the storage shard command: the suites it really runs. */
-export function withStorageSuites(producers: string, storage: readonly string[]): string {
-  return workflowCommands(producers).includes(STORAGE_SHARD_COMMAND) ? [producers, ...storage].join("\n") : producers;
-}
-
-/** Each suite in no shard or in more than one, and each shard entry that is not a suite. Empty for an exact partition. */
-export function shardFindings(suites: readonly string[], shards: readonly (readonly string[])[]): string[] {
-  const homes = (suite: string) => shards.flatMap((shard, index) => shard.filter((entry) => entry === suite).map(() => index + 1));
-  return [
-    ...suites.flatMap((suite) => {
-      const found = homes(suite);
-      return found.length === 1 ? [] : [found.length === 0 ? `${suite} is in no shard` : `${suite} is in shards ${found.join(", ")}`];
-    }),
-    ...shards.flatMap((shard, index) => shard.filter((entry) => !suites.includes(entry)).map((entry) => `${entry} in shard ${index + 1} is not a storage suite`)),
-  ];
-}
-
-/**
  * The literal GitHub expression `${{ <expression> }}` as it appears in workflow text. A test that states workflow text
  * builds it here, so the text is never a plain string that only looks like a JS template.
  */
