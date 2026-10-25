@@ -1,5 +1,10 @@
 #!/usr/bin/env bash
 set -euo pipefail
+# The runner is started under setsid and setpriv (util-linux) so that it stops after the app; without them the
+# lane would stop the two at once again. Refuse by name rather than fall back.
+for tool in setsid setpriv; do
+  command -v "$tool" >/dev/null || { echo "start-real-extension-preview.sh needs $tool (util-linux) to stop the extension runner after the app" >&2; exit 127; }
+done
 export BUN_RUNTIME_TRANSPILER_CACHE_PATH=0
 
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"

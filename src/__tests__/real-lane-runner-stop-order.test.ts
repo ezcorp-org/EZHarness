@@ -99,3 +99,23 @@ test("a group SIGKILL, where cleanup() cannot run, still stops the runner instea
     expect(alive()).toBe(false);
   });
 }, 30_000);
+
+test("a host without setsid or setpriv refuses by name instead of stopping the runner with the app", async () => {
+  // A PATH that holds only the fake bun: no util-linux tools at all.
+  const directory = await mkdtemp(join(tmpdir(), "real-lane-tools-"));
+  try {
+    await writeFile(join(directory, "bun"), FAKE_BUN);
+    await chmod(join(directory, "bun"), 0o700);
+    const child = Bun.spawn([Bun.which("bash")!, "scripts/start-real-extension-preview.sh"], {
+      cwd: root,
+      env: { ...process.env, PATH: directory, STOP_RECORD: join(directory, "events.log") },
+      stdout: "pipe",
+      stderr: "pipe",
+    });
+    const [status, stderr] = await Promise.all([child.exited, new Response(child.stderr).text()]);
+    expect(status).toBe(127);
+    expect(stderr.trim()).toBe("start-real-extension-preview.sh needs setsid (util-linux) to stop the extension runner after the app");
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+}, 30_000);
