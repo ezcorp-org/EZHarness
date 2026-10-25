@@ -64,6 +64,12 @@ const EZ_SEED_ALLOWED_TOOLS = [
 export async function migrate(db: MigrateDb): Promise<void> {
   // Enable pgvector extension (must be before any vector column usage)
   await db.execute(sql`CREATE EXTENSION IF NOT EXISTS vector`);
+  // `CREATE EXTENSION IF NOT EXISTS` keeps a database at the vector version it was created with, so after a pgvector
+  // bump the catalog (installed) and the library (bundled) can differ. Log both, so a boot shows which path it took.
+  const vector = (await db.execute(
+    sql`SELECT e.extversion AS installed, a.default_version AS bundled FROM pg_extension e JOIN pg_available_extensions a ON a.name = e.extname WHERE e.extname = 'vector'`,
+  )) as { rows?: { installed?: string; bundled?: string }[] } | undefined;
+  log.info("pgvector ready", { installed: vector?.rows?.[0]?.installed, bundled: vector?.rows?.[0]?.bundled });
 
   await db.execute(sql`
     CREATE TABLE IF NOT EXISTS projects (

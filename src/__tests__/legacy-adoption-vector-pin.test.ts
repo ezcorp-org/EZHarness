@@ -1,8 +1,9 @@
 /**
  * The legacy-adoption proof installs a pgvector asset into the legacy main image
  * (`scripts/legacy-adoption-vector-asset.pin`): the legacy release's own, from its root install. This checks that the
- * pin names what that release locked, that the pin is the ONLY place the asset's checksum lives, and that the install
- * step the derived image runs (`scripts/lib/legacy-vector-asset.sh`) refuses any other bytes or version.
+ * pin names what that release locked (and that the candidate's two locks agree with each other), that the pin is the
+ * ONLY place the asset's checksum lives, and that the install step the derived image runs
+ * (`scripts/lib/legacy-vector-asset.sh`) refuses any other bytes or version.
  *
  * Before, the derived image copied the candidate's asset, and the pin had to follow every candidate pgvector bump. A
  * rebuilt pgvector (0.0.11, for PGlite 0.5.10) cannot load under the legacy PGlite 0.5.7, which made the legacy app
@@ -56,6 +57,15 @@ describe("the legacy-adoption vector asset pin", () => {
 		expect(pin.asset_sha256).toMatch(/^[0-9a-f]{64}$/);
 		expect(fixture).toContain(`bun.lock at legacy main ${pin.source} `);
 		expect(lockedPackage(fixture, pin.package)).toEqual({ version: pin.version, integrity: pin.integrity });
+	});
+
+	test("the candidate side: bun.lock and web/bun.lock resolve the same pglite and pglite-pgvector, by name", async () => {
+		const [root, web] = await Promise.all([read("bun.lock"), read("web/bun.lock")]);
+		for (const name of ["@electric-sql/pglite", "@electric-sql/pglite-pgvector"]) {
+			const locked = lockedPackage(root, name);
+			expect(locked).not.toBeNull();
+			expect({ name, ...lockedPackage(web, name) }).toEqual({ name, ...locked });
+		}
 	});
 
 	test("names the legacy source the verifier runs by default", async () => {
