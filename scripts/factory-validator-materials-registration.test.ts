@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { readFile } from "node:fs/promises";
+import { withoutStorageShards, withRepoStorageSuites } from "./factory-storage-shard.ts";
 import { ghExpr } from "./lib/ci-registration.ts";
 
 function registrationIssues(workflow: string, thresholds: string): string[] {
@@ -17,7 +18,8 @@ function registrationIssues(workflow: string, thresholds: string): string[] {
     "src/db/migrations/add-factory-package-preparations.ts",
   ] as const;
   return [
-    ...required.filter(([, value]) => !workflow.includes(value)).map(([label]) => label),
+    // The storage shards run suites the workflow does not name; count them as run.
+    ...required.filter(([, value]) => !withRepoStorageSuites(workflow).includes(value)).map(([label]) => label),
     ...sources.filter((source) => !thresholds.includes(`"${source}": 100`)).map((source) => `${source} threshold`),
   ];
 }
@@ -37,7 +39,7 @@ describe("factory protected material coverage registration", () => {
       readFile("scripts/coverage-thresholds.json", "utf8"),
     ]);
     expect(registrationIssues(workflow.replace("./tests/postgres/factory-validator-materials.test.ts", "./tests/postgres/missing.test.ts"), thresholds)).toContain("PostgreSQL and S3 conformance");
-    expect(registrationIssues(workflow.replace("./tests/postgres/factory-package-preparation.test.ts", "./tests/postgres/missing.test.ts"), thresholds)).toContain("package preparation conformance");
+    expect(registrationIssues(withoutStorageShards(workflow), thresholds)).toContain("package preparation conformance");
     expect(registrationIssues(workflow, thresholds.replace('"src/factory/validator-materials.ts": 100', '"src/factory/validator-materials.ts": 99'))).toContain("src/factory/validator-materials.ts threshold");
   });
 });

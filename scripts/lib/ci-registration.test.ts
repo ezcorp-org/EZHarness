@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { type Workflow, type WorkflowStep, missingProducers, missingThresholds, readWorkflows, runsBackendSuites, stepsNeedingAction, stepsNeedingPreparation, workflowCommands } from "./ci-registration.ts";
+import { STORAGE_SHARD_COMMAND, type Workflow, type WorkflowStep, missingProducers, missingThresholds, readWorkflows, runsBackendSuites, shardFindings, stepsNeedingAction, stepsNeedingPreparation, storageSuites, withStorageSuites, workflowCommands } from "./ci-registration.ts";
 
 describe("workflowCommands", () => {
   test("removes whole-line and trailing comments", () => {
@@ -137,5 +137,46 @@ describe("stepsNeedingPreparation", () => {
   test("a step that both prepares and needs counts as prepared, as an action step does", () => {
     const workflows: Workflow[] = [{ file: "w.yml", text: "", jobs: { one: { steps: [{ name: "Both", run: "setup-tool && needs-tool" }] } } }];
     expect(stepsNeedingPreparation(workflows, prepares, needs)).toEqual([{ where: "w.yml one (one): Both", preceded: true }]);
+  });
+});
+
+describe("storageSuites", () => {
+  const suites = ["./t/a.test.ts", "./t/b.test.ts", "./t/c.test.ts", "./t/d.test.ts", "./t/new.test.ts"];
+
+  test("keeps every suite no producer runs and that is not local-only, a new one included", () => {
+    const producers = "- run: bun test ./t/a.test.ts\n# ./t/b.test.ts runs elsewhere";
+    expect(storageSuites(producers, suites, ["./t/d.test.ts"])).toEqual(["./t/b.test.ts", "./t/c.test.ts", "./t/new.test.ts"]);
+  });
+
+  test("a suite another producer runs is never also a storage suite", () => {
+    expect(storageSuites(suites.join("\n"), suites, [])).toEqual([]);
+  });
+});
+
+describe("withStorageSuites", () => {
+  test("adds the storage suites to text that runs the shard command", () => {
+    expect(withStorageSuites(`- run: ${STORAGE_SHARD_COMMAND} 0 2`, ["./t/a.test.ts"])).toBe(`- run: ${STORAGE_SHARD_COMMAND} 0 2\n./t/a.test.ts`);
+  });
+
+  test("adds nothing when the command is only in a comment, or absent", () => {
+    expect(withStorageSuites(`# ${STORAGE_SHARD_COMMAND} 0 2`, ["./t/a.test.ts"])).toBe(`# ${STORAGE_SHARD_COMMAND} 0 2`);
+    expect(withStorageSuites("- run: bun test", ["./t/a.test.ts"])).toBe("- run: bun test");
+  });
+});
+
+describe("shardFindings", () => {
+  const suites = ["./t/a.test.ts", "./t/b.test.ts", "./t/c.test.ts"];
+
+  test("an exact partition has no finding", () => {
+    expect(shardFindings(suites, [["./t/a.test.ts", "./t/c.test.ts"], ["./t/b.test.ts"]])).toEqual([]);
+  });
+
+  test("a suite in no shard, in two shards, or twice in one, and a stray entry are named", () => {
+    expect(shardFindings(suites, [["./t/a.test.ts", "./t/b.test.ts"], ["./t/b.test.ts", "./t/x.test.ts"]])).toEqual([
+      "./t/b.test.ts is in shards 1, 2",
+      "./t/c.test.ts is in no shard",
+      "./t/x.test.ts in shard 2 is not a storage suite",
+    ]);
+    expect(shardFindings(["./t/a.test.ts"], [["./t/a.test.ts", "./t/a.test.ts"], []])).toEqual(["./t/a.test.ts is in shards 1, 1"]);
   });
 });

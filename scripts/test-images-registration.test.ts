@@ -36,7 +36,7 @@ describe("CI service images come from the digest-pinned test image list", () => 
   test("the four PostgreSQL service lines run exactly that pin, and no workflow image line or pin is a tag", () => {
     const workflows = realWorkflows();
     const pgvector = Object.entries(workflows).flatMap(([file, text]) => composeImages(file, text)).filter((entry) => entry.reference.includes("pgvector"));
-    expect(pgvector.map(({ file, line }) => `${file}:${line}`).sort()).toEqual(["ci.yml:269", "db-postgres.yml:185", "db-postgres.yml:318", "db-postgres.yml:73"]);
+    expect(pgvector.map(({ file, line }) => `${file}:${line}`).sort()).toEqual(["ci.yml:269", "db-postgres.yml:185", "db-postgres.yml:261", "db-postgres.yml:73"]);
     expect(pgvector.every((entry) => entry.reference === testImages.pgvector)).toBe(true);
     expect(imageIssues(testImages, workflows)).toEqual([]);
   });
