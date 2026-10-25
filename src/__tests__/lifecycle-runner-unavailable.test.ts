@@ -88,6 +88,28 @@ test("busy re-queues between unreachable attempts neither reset nor use up the c
   expect(failed.diagnostics.at(-1)).toEqual(exhausted);
 });
 
+test("a runner that answers build() and then hangs up at collectArtifacts() still stops at the maximum", async () => {
+  const clock = { now: 1_000 };
+  const setup = harness({ now: () => clock.now });
+  let collects = 0;
+  setup.dependencies.runner.collectArtifacts = async () => { collects += 1; throw unavailable(); };
+  const { installation, workspace } = await setup.lifecycle.createWorkspace(actor, { files: { "extension.ts": "dies-at-collect" } });
+  const operation = await setup.lifecycle.build(actor, { installationId: installation.id, workspaceId: workspace.id, expectedRevision: 1, idempotencyKey: "dies-at-collect" });
+  const failed = await drive(setup, clock, installation.id, operation.id, MAX_ATTEMPTS * 3);
+  expect(collects).toBe(MAX_ATTEMPTS);
+  expect(failed.state).toBe("failed");
+  expect(failed.diagnostics.at(-1)).toEqual(exhausted);
+});
+
+test("lifecycle.ts writes operation diagnostics only through writeDiagnostics", async () => {
+  const source = await Bun.file(new URL("../extensions/v4/lifecycle.ts", import.meta.url)).text();
+  const helper = /function writeDiagnostics\([^)]*\)[^{]*\{[^}]*\}/.exec(source);
+  expect(helper).not.toBeNull();
+  const outside = source.replace(helper![0], "");
+  // An assignment, or a mutating array call, on any `.diagnostics` outside the helper could drop the count.
+  expect(outside.match(/\.diagnostics\s*(=(?!=)|\.(push|splice|unshift|pop|shift|length\s*=|fill|sort|reverse|copyWithin)\b)/g) ?? []).toEqual([]);
+});
+
 test("the bound above is the lifecycle's own constant", async () => {
   const lifecycle = await import("../extensions/v4/lifecycle");
   expect((lifecycle as Record<string, unknown>).RUNNER_UNAVAILABLE_MAX_ATTEMPTS).toBe(MAX_ATTEMPTS);

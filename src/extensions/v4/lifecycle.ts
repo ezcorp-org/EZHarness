@@ -24,6 +24,16 @@ export const RUNNER_UNAVAILABLE_MAX_ATTEMPTS = 6;
 
 const isUnavailable = (diagnostic: { code: string }) => diagnostic.code === "runner_unavailable";
 
+/**
+ * The ONE writer of an operation's diagnostics. It keeps the build's earlier runner_unavailable entries, which
+ * are its unreachable-attempt count, and replaces everything else with `diagnostics`. A runner that answers
+ * build() and then hangs up at collectArtifacts() therefore cannot reset the count. Every write in this file goes
+ * through here; lifecycle-runner-unavailable.test.ts refuses a direct assignment or push.
+ */
+function writeDiagnostics(operation: LifecycleOperation, diagnostics: LifecycleOperation["diagnostics"]): void {
+  operation.diagnostics = [...operation.diagnostics.filter(isUnavailable), ...diagnostics];
+}
+
 export class ExtensionLifecycle {
   private readonly now: () => number;
   private readonly leaseMs: number;
@@ -250,13 +260,12 @@ export class ExtensionLifecycle {
       const runner = this.safeRunnerFailure(error);
       if (operation.kind === "build" && runner?.retryable && (runner.code === "runner_busy" || runner.code === "runner_unavailable")) {
         // Earlier unreachable attempts stay on the record: they are this build's unavailable count.
-        const unavailable = operation.diagnostics.filter(isUnavailable);
-        if (runner.code === "runner_unavailable" && unavailable.length + 1 >= RUNNER_UNAVAILABLE_MAX_ATTEMPTS) {
-          operation.diagnostics = [...unavailable, { code: "runner_unavailable", stage: "runner", message: `The runner could not be reached after ${RUNNER_UNAVAILABLE_MAX_ATTEMPTS} attempts.`, retryable: false }];
+        if (runner.code === "runner_unavailable" && operation.diagnostics.filter(isUnavailable).length + 1 >= RUNNER_UNAVAILABLE_MAX_ATTEMPTS) {
+          writeDiagnostics(operation, [{ code: "runner_unavailable", stage: "runner", message: `The runner could not be reached after ${RUNNER_UNAVAILABLE_MAX_ATTEMPTS} attempts.`, retryable: false }]);
           this.transition(operation, "failed");
           return;
         }
-        operation.diagnostics = [...unavailable, { ...runner, stage: "runner" }];
+        writeDiagnostics(operation, [{ ...runner, stage: "runner" }]);
         operation.lease.until = this.now() + runnerBusyRetryMs(operation.lease.fence);
         this.transition(operation, "queued");
         return;
@@ -267,7 +276,7 @@ export class ExtensionLifecycle {
       // (it may carry paths or internals), so this log line is the ONLY
       // place its cause survives. Without it a failed build was a dead end.
       if (!runner && !known) log.error("Operation failed with an unclassified error", { installationId: state.installation.id, operationId, kind: operation.kind, error: error instanceof Error ? error.message : String(error), stack: error instanceof Error ? error.stack : undefined });
-      operation.diagnostics.push(runner ? { ...runner, stage: "runner" } : { code: known ? error.code : "operation_failed", stage: operation.kind, message: known ? error.message : "Operation failed. See host diagnostics.", retryable: false });
+      writeDiagnostics(operation, [...operation.diagnostics.filter((diagnostic) => !isUnavailable(diagnostic)), runner ? { ...runner, stage: "runner" } : { code: known ? error.code : "operation_failed", stage: operation.kind, message: known ? error.message : "Operation failed. See host diagnostics.", retryable: false }]);
       this.transition(operation, "failed");
     });
   }
@@ -283,7 +292,7 @@ export class ExtensionLifecycle {
       const files = await getFiles(this.dependencies.blobs, operation.sourceDigest!);
       if (!Object.hasOwn(files, operation.entrypoint!)) throw new LifecycleError("missing_entrypoint", "The selected entrypoint is absent from this source snapshot.");
       const result = validateWire("buildResult", await this.dependencies.runner.build({ operationId: holder, sourceDigest: operation.sourceDigest!, files, entrypoint: operation.entrypoint!, limits: this.dependencies.buildLimits }));
-      await this.transaction(actor, installationId, (state) => { const current = this.operation(state, operationId); this.assertLease(current, holder, fence); current.diagnostics = result.diagnostics; });
+      await this.transaction(actor, installationId, (state) => { const current = this.operation(state, operationId); this.assertLease(current, holder, fence); writeDiagnostics(current, result.diagnostics); });
       if (result.state !== "succeeded" || result.operationId !== holder || result.sourceDigest !== operation.sourceDigest || !result.artifactDigest || !result.manifest || !/^[a-f0-9]{64}$/.test(result.artifactDigest)) throw new LifecycleError("build_failed", "The isolated build did not produce a valid release.");
       validateManifest(result.manifest);
       if (digestObject(result.manifest) !== result.evidence.discoveryDigest) throw new LifecycleError("discovery_mismatch", "Discovered metadata does not match its evidence digest.");
@@ -308,7 +317,7 @@ export class ExtensionLifecycle {
         if (state.installation.uninstalled) throw new LifecycleError("uninstalled", "This installation has been uninstalled.");
         state.releases[release.id] = release;
         current.releaseId = release.id;
-        current.diagnostics = result.diagnostics;
+        writeDiagnostics(current, result.diagnostics);
         this.transition(current, "verified");
       });
     } catch (error) {
