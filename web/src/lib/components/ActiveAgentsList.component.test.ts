@@ -73,7 +73,7 @@ describe("ActiveAgentsList", () => {
 
 	test("groups agents by project name with the unassigned group last", async () => {
 		stubFetch({
-			agents: [agent("r1", null), agent("r2", "p2"), agent("r3", "p1"), agent("r4", null)],
+			agents: [agent("r2", "p2"), agent("r1", null), agent("r3", "p1"), agent("r4", null)],
 			projects: [{ id: "p1", name: "alpha" }, { id: "p2", name: "Beta" }],
 		});
 		render(ActiveAgentsList, { groupByProject: true, pollMs: 60_000 });
