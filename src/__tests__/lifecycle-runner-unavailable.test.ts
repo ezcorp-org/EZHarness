@@ -32,23 +32,60 @@ test("an unreachable runner re-queues the build with the busy backoff, and the n
   expect(calls).toBe(2);
 });
 
-test(`an always-unreachable runner fails the build, named, after ${MAX_ATTEMPTS} attempts and never loops`, async () => {
-  let now = 1_000;
-  const setup = harness({ now: () => now });
-  let calls = 0;
-  setup.dependencies.runner.build = async () => { calls += 1; throw unavailable(); };
-  const { installation, workspace } = await setup.lifecycle.createWorkspace(actor, { files: { "extension.ts": "unreachable-always" } });
-  const operation = await setup.lifecycle.build(actor, { installationId: installation.id, workspaceId: workspace.id, expectedRevision: 1, idempotencyKey: "runner-unavailable-bound" });
-  await setup.lifecycle.runBuild(actor, installation.id, operation.id);
-  // Far more recovery rounds than the bound; each one first lets the lease expire.
-  for (let round = 0; round < MAX_ATTEMPTS * 3; round++) {
-    now += 60_000;
-    await setup.lifecycle.recover(actor, installation.id);
+const busy = () => new RunnerError("runner_busy", "Build concurrency limit reached", "queue", true);
+
+/** Run the build, then let one recovery attempt follow each lease expiry, `rounds` times. */
+async function drive(setup: ReturnType<typeof harness>, clock: { now: number }, installationId: string, operationId: string, rounds: number) {
+  await setup.lifecycle.runBuild(actor, installationId, operationId);
+  for (let round = 0; round < rounds; round++) {
+    clock.now += 60_000;
+    await setup.lifecycle.recover(actor, installationId);
   }
-  const failed = (await setup.lifecycle.inspect(actor, installation.id)).operations[operation.id]!;
-  expect(calls).toBe(MAX_ATTEMPTS);
+  return (await setup.lifecycle.inspect(actor, installationId)).operations[operationId]!;
+}
+
+async function scripted(name: string, script: Array<"busy" | "unavailable">) {
+  const clock = { now: 1_000 };
+  const setup = harness({ now: () => clock.now });
+  const calls: string[] = [];
+  setup.dependencies.runner.build = async () => {
+    const step = script[calls.length] ?? "unavailable";
+    calls.push(step);
+    throw step === "busy" ? busy() : unavailable();
+  };
+  const { installation, workspace } = await setup.lifecycle.createWorkspace(actor, { files: { "extension.ts": name } });
+  const operation = await setup.lifecycle.build(actor, { installationId: installation.id, workspaceId: workspace.id, expectedRevision: 1, idempotencyKey: name });
+  return { setup, clock, calls, installationId: installation.id, operationId: operation.id };
+}
+
+const exhausted = { code: "runner_unavailable", message: `The runner could not be reached after ${MAX_ATTEMPTS} attempts.`, retryable: false, stage: "runner" };
+
+test(`an always-unreachable runner fails the build, named and classified, after ${MAX_ATTEMPTS} attempts and never loops`, async () => {
+  const run = await scripted("unreachable-always", []);
+  const failed = await drive(run.setup, run.clock, run.installationId, run.operationId, MAX_ATTEMPTS * 3);
+  expect(run.calls).toHaveLength(MAX_ATTEMPTS);
   expect(failed.state).toBe("failed");
-  expect(failed.diagnostics.at(-1)).toEqual({ code: "runner_unavailable", message: "The runner could not be reached; retry after it restarts.", retryable: true, stage: "runner" });
+  expect(failed.diagnostics.at(-1)).toEqual(exhausted);
+});
+
+test("earlier busy re-queues do not use up the unavailable budget", async () => {
+  // More busy retries than the whole unavailable budget, then a runner that is never reached again.
+  const run = await scripted("busy-then-unreachable", Array(MAX_ATTEMPTS + 4).fill("busy"));
+  const failed = await drive(run.setup, run.clock, run.installationId, run.operationId, MAX_ATTEMPTS * 4);
+  expect(run.calls.filter((call) => call === "unavailable")).toHaveLength(MAX_ATTEMPTS);
+  expect(failed.state).toBe("failed");
+  expect(failed.diagnostics.at(-1)).toEqual(exhausted);
+});
+
+test("busy re-queues between unreachable attempts neither reset nor use up the count", async () => {
+  // Five unreachable attempts, a stretch of busy ones, then unreachable again: the sixth unreachable attempt ends it.
+  const script: Array<"busy" | "unavailable"> = [...Array(MAX_ATTEMPTS - 1).fill("unavailable"), ...Array(8).fill("busy")];
+  const run = await scripted("interleaved", script);
+  const failed = await drive(run.setup, run.clock, run.installationId, run.operationId, MAX_ATTEMPTS * 4);
+  expect(run.calls.filter((call) => call === "unavailable")).toHaveLength(MAX_ATTEMPTS);
+  expect(run.calls.filter((call) => call === "busy")).toHaveLength(8);
+  expect(failed.state).toBe("failed");
+  expect(failed.diagnostics.at(-1)).toEqual(exhausted);
 });
 
 test("the bound above is the lifecycle's own constant", async () => {

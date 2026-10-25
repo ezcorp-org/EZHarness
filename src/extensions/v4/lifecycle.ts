@@ -16,9 +16,13 @@ export function runnerBusyRetryMs(fence: number): number {
 }
 
 // A runner that could not be reached (it restarted or stopped while a build was open) is retried on the
-// same backoff as a busy one, but only this many attempts in all: a runner that never comes back must not
-// keep the build queued forever. After the last attempt the build fails with the named diagnostic.
+// same backoff as a busy one, but only this many unreachable attempts per build: a runner that never comes
+// back must not keep the build queued forever. The count is the operation's own runner_unavailable
+// diagnostics, kept across busy re-queues, so busy retries neither use up nor reset it. At the maximum the
+// build fails with a named, classified diagnostic.
 export const RUNNER_UNAVAILABLE_MAX_ATTEMPTS = 6;
+
+const isUnavailable = (diagnostic: { code: string }) => diagnostic.code === "runner_unavailable";
 
 export class ExtensionLifecycle {
   private readonly now: () => number;
@@ -244,9 +248,15 @@ export class ExtensionLifecycle {
       const operation = this.operation(state, operationId);
       if (operation.lease?.holder !== holder || operation.lease.fence !== fence || ["cancelled", "reconciling", "active", "verified"].includes(operation.state)) return;
       const runner = this.safeRunnerFailure(error);
-      const retryRunner = runner?.retryable && (runner.code === "runner_busy" || (runner.code === "runner_unavailable" && operation.lease.fence < RUNNER_UNAVAILABLE_MAX_ATTEMPTS));
-      if (operation.kind === "build" && runner && retryRunner) {
-        operation.diagnostics = [{ ...runner, stage: "runner" }];
+      if (operation.kind === "build" && runner?.retryable && (runner.code === "runner_busy" || runner.code === "runner_unavailable")) {
+        // Earlier unreachable attempts stay on the record: they are this build's unavailable count.
+        const unavailable = operation.diagnostics.filter(isUnavailable);
+        if (runner.code === "runner_unavailable" && unavailable.length + 1 >= RUNNER_UNAVAILABLE_MAX_ATTEMPTS) {
+          operation.diagnostics = [...unavailable, { code: "runner_unavailable", stage: "runner", message: `The runner could not be reached after ${RUNNER_UNAVAILABLE_MAX_ATTEMPTS} attempts.`, retryable: false }];
+          this.transition(operation, "failed");
+          return;
+        }
+        operation.diagnostics = [...unavailable, { ...runner, stage: "runner" }];
         operation.lease.until = this.now() + runnerBusyRetryMs(operation.lease.fence);
         this.transition(operation, "queued");
         return;
