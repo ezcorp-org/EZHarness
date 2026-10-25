@@ -1,5 +1,6 @@
 import { test, expect } from "./fixtures/test-base.js";
 import { makeProject, makeConversation, makeMessage } from "./fixtures/data.js";
+import { sendComposerMessage } from "./fixtures/composer.js";
 
 test.describe("Waterfall Timeline", () => {
 	const proj = makeProject({ id: "proj-1", name: "Waterfall Project" });
@@ -84,6 +85,44 @@ test.describe("Waterfall Timeline", () => {
 		// The WaterfallTimeline should render tool name labels.
 		await expect(page.getByText("readFile")).toBeVisible({ timeout: 3000 });
 		await expect(page.getByText("writeFile")).toBeVisible({ timeout: 3000 });
+	});
+
+	test("a live run draws its running tool call and then completes it", async ({ page, mockApi, emitSse }) => {
+		await mockApi({
+			projects: [proj],
+			conversations: [conv],
+			messages: [makeMessage({ id: "m1", conversationId: "conv-1", role: "user", content: "Read it" })],
+			settings: { "global:showObservability": true },
+			routes: {
+				"/api/observability/conv-1": () => ({
+					events: [],
+					stats: { totalInputTokens: 0, totalOutputTokens: 0, totalToolCalls: 0, avgDurationMs: 0, turnCount: 0 },
+				}),
+			},
+		});
+		await page.goto(`/project/${proj.id}/chat/${conv.id}`);
+		await Promise.all([
+			page.waitForResponse((r) => r.url().includes("/messages") && r.request().method() === "POST"),
+			sendComposerMessage(page, "Read the file"),
+		]);
+		await emitSse({
+			type: "tool:start",
+			data: { conversationId: "conv-1", toolName: "liveRead", input: { path: "/tmp/live" }, timestamp: Date.now(), invocationId: "tc-live-1" },
+		});
+
+		await page.locator('button[aria-label="Inspect observability"]').click();
+		const panel = page.getByRole("dialog", { name: "Observability panel" });
+		await expect(panel.getByText("Execution Timeline")).toBeVisible();
+		await expect(panel.getByText("liveRead")).toBeVisible();
+
+		await emitSse({
+			type: "tool:complete",
+			data: { conversationId: "conv-1", toolName: "liveRead", output: { ok: true }, duration: 40, success: true, invocationId: "tc-live-1" },
+		});
+		await expect(panel.getByText("40ms")).toBeVisible();
+
+		await panel.getByRole("button", { name: "Close" }).click();
+		await expect(panel).toBeHidden();
 	});
 
 	test("expand on click shows tool details", async ({ page, mockApi }) => {

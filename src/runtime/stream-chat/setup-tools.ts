@@ -1116,7 +1116,8 @@ export async function setupTools(
         // providers) — see system-cache-split.ts.
         if (injection.injectionBlock) ctx.systemMemoryTail = injection.injectionBlock;
         if (injection.memoriesUsed.length > 0) run.memoriesUsed = injection.memoriesUsed;
-      } catch {
+      } catch (memoryErr) {
+        log.warn("Memory/KB injection failed — memory unavailable this turn", { error: String(memoryErr) });
         // run:status carries extra `degraded` + `message` fields when
         // surfacing a soft-failure (not defined on the AgentEvents shape,
         // which only requires runId + status); forwarded verbatim by the
@@ -1204,7 +1205,11 @@ export async function setupTools(
             );
             ctx.agentTools.push(...wrappedTools);
           }
-        } catch { /* Built-in tool loading failure is non-fatal */ }
+        } catch (builtinLoadErr) {
+          log.warn("Built-in tool loading failed — built-in tools unavailable this turn", {
+            error: String(builtinLoadErr),
+          });
+        }
       }
       }
       await loadProjectBuiltinTools();
@@ -1266,7 +1271,11 @@ export async function setupTools(
               toolExec, conversationId, null,
             ));
           }
-        } catch { /* Extension loading failure is non-fatal */ }
+        } catch (agentExtLoadErr) {
+          log.warn("Agent-config extension tools wire failed — those tools unavailable this turn", {
+            error: String(agentExtLoadErr),
+          });
+        }
       }
       }
       await loadAgentConfigTools();
@@ -1572,7 +1581,11 @@ export async function setupTools(
           await runConversationPreprocessors(convExtIds, registry, toolExec);
         }
         })();
-      } catch { /* Dynamic tool wiring failure is non-fatal */ }
+      } catch (dynamicWireErr) {
+        log.warn("Mentioned/conversation extension wire failed — those tools unavailable this turn", {
+          error: String(dynamicWireErr),
+        });
+      }
       }
       await loadMentionedExtensions();
 
@@ -1730,7 +1743,11 @@ export async function setupTools(
                   log.warn(`Sub-agent member ${member.agentConfigId} not found in DB — skipped`);
                 }
               }
-          } catch { /* Sub-agent member wiring failure is non-fatal */ }
+          } catch (subAgentWireErr) {
+            log.warn("Sub-agent member wire failed — sub-agents unavailable this turn", {
+              error: String(subAgentWireErr),
+            });
+          }
           }
           }
           async function resolveAgentConfigReferences(): Promise<void> {
@@ -1770,7 +1787,11 @@ export async function setupTools(
               // Team-level tool scope (overrides per-member tool lists)
               const scope = configuredTeamToolScope(refs?.teamToolScope);
               if (scope) orchRun._teamToolScope = scope;
-            } catch { /* Agent config ref wiring failure is non-fatal */ }
+            } catch (agentRefWireErr) {
+              log.warn("Agent config reference wire failed — referenced agents unavailable this turn", {
+                error: String(agentRefWireErr),
+              });
+            }
           }
           }
           await resolveSubAgentMembers();

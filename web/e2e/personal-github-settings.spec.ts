@@ -22,6 +22,16 @@ test("personal GitHub connection is available to a member @evidence", async ({ p
 	await captureEvidence(page, testInfo, "personal-github-disconnected-desktop");
 });
 
+test("a server without the GitHub App says so and offers no connection", async ({ page, mockApi }) => {
+	await mockApi({ routes: {
+		"/api/auth/me": () => member,
+		"/api/github/connection": () => ({ status: "disconnected", configured: false }),
+	} });
+	await page.goto("/settings/github");
+	await expect(page.getByText("GitHub connection is not configured on this EZCorp server. Ask an administrator to set up the GitHub App.")).toBeVisible();
+	await expect(page.getByRole("button", { name: "Connect GitHub" })).toHaveCount(0);
+});
+
 test("connection failures can be retried after reloading settings", async ({ page, mockApi }) => {
 	await mockApi({ routes: { "/api/auth/me": () => member } });
 	let attempts = 0;
