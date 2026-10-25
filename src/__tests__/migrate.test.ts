@@ -97,7 +97,11 @@ describe("migrate()", () => {
   });
 
   test("logs the installed and bundled pgvector versions, and changes nothing else", async () => {
+    // Migrate once first, so the database is in its migrated state whether or not an earlier test ran: the check below
+    // is about what a further migrate() changes, and this test must pass on its own.
+    await migrate(db);
     const before = (await db.execute(sql`SELECT extversion FROM pg_extension WHERE extname = 'vector'`)).rows;
+    expect(before).toEqual([{ extversion: "0.8.7" }]);
     const previousLevel = process.env.LOG_LEVEL;
     process.env.LOG_LEVEL = "info";
     const written: string[] = [];
