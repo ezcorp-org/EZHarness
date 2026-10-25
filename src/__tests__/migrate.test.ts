@@ -1,4 +1,4 @@
-import { test, expect, describe, beforeAll, afterAll } from "bun:test";
+import { test, expect, describe, beforeAll, afterAll, spyOn } from "bun:test";
 import { PGlite } from "@electric-sql/pglite";
 import { vector } from "@electric-sql/pglite-pgvector";
 import { pg_trgm } from "@electric-sql/pglite/contrib/pg_trgm";
@@ -94,6 +94,29 @@ const EXPECTED_INDEXES = [
 describe("migrate()", () => {
   test("runs without error on a fresh database", async () => {
     await migrate(db);
+  });
+
+  test("logs the installed and bundled pgvector versions, and changes nothing else", async () => {
+    const before = (await db.execute(sql`SELECT extversion FROM pg_extension WHERE extname = 'vector'`)).rows;
+    const previousLevel = process.env.LOG_LEVEL;
+    process.env.LOG_LEVEL = "info";
+    const written: string[] = [];
+    const write = spyOn(process.stdout, "write").mockImplementation((chunk: string | Uint8Array) => {
+      written.push(String(chunk));
+      return true;
+    });
+    try {
+      await migrate(db);
+    } finally {
+      write.mockRestore();
+      if (previousLevel === undefined) delete process.env.LOG_LEVEL;
+      else process.env.LOG_LEVEL = previousLevel;
+    }
+    const ready = written.filter((line) => line.startsWith("{\"ts\"")).map((line) => JSON.parse(line)).filter((entry) => entry.msg === "pgvector ready");
+    // A fresh database is created at the bundled version, so both read the same.
+    expect(ready).toEqual([expect.objectContaining({ level: "info", subsystem: "db-migrate", installed: "0.8.7", bundled: "0.8.7" })]);
+    // The step only reads: the extension stays at the version it had.
+    expect((await db.execute(sql`SELECT extversion FROM pg_extension WHERE extname = 'vector'`)).rows).toEqual(before);
   });
 
   test("is idempotent — running twice does not error", async () => {
