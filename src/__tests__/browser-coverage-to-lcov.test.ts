@@ -203,3 +203,66 @@ test("preserves matching source revisions and refuses mixed provenance", async (
   await expect(mergeRawCoverage([first, { ...second, sourceRevision: "b".repeat(40) }])).rejects.toThrow("sourceRevision");
   await expect(mergeRawCoverage([first, { buildId: "a", result: [] }])).rejects.toThrow("sourceRevision");
 });
+
+import { repairUnmappedLookups } from "../../scripts/browser-coverage-to-lcov";
+import realChunk from "./fixtures/browser-coverage-unmapped-end/active-agents-chunk.json" with { type: "json" };
+
+type ViteParser = { parseAstAsync(code: string): Promise<unknown> };
+const parseAst = async (code: string) =>
+  ((await import(new URL("../../web/node_modules/vite/dist/node/index.js", import.meta.url).href)) as ViteParser).parseAstAsync(code);
+
+function lineHits(lcov: string, sourceSuffix: string): Map<number, number> {
+  const record = lcov.split("end_of_record").find((entry) => entry.includes(sourceSuffix)) ?? "";
+  return new Map([...record.matchAll(/^DA:(\d+),(\d+)$/gm)].map(([, line, hits]) => [Number(line), Number(hits)]));
+}
+
+test("a function whose last character starts an unmapped segment keeps its statement (rolldown 1.2.15 chunk)", async () => {
+  // The `row` snippet of ActiveAgentsList.svelte ran 5 times in CI, but its end-1 lookup lands on the unmapped
+  // segment rolldown writes at its closing brace, so the converter used to drop it: no DA:79 at all.
+  const lcov = await coverageToLcov({ result: [{ url: realChunk.url, functions: realChunk.functions }] }, async () => ({
+    code: realChunk.code,
+    map: JSON.stringify(realChunk.map),
+  }));
+  const hits = lineHits(lcov, "web/src/lib/components/ActiveAgentsList.svelte");
+  expect(hits.get(79)).toBe(5);
+  // Lines V8 proves never ran (count 0 at every generated position) must stay misses: no borrowed hit comes back.
+  for (const line of [111, 136, 137, 138]) expect(hits.get(line)).toBe(0);
+});
+
+test("repairs an unmapped end lookup with the node's own last mapped segment and closes the range after it", async () => {
+  // As in rolldown's chunks, the line ends on an unmapped segment, so today's walk back finds nothing either and
+  // the converter drops `f`.
+  const code = "function f(){b()} x; ";
+  const lines = [[[0, 0, 0, 0], [13, 0, 1, 2], [16], [18, 0, 2, 0], [20]]];
+  const { lines: repaired, repaired: count } = repairUnmappedLookups(code, lines, await parseAst(code));
+  expect(count).toBe(1);
+  // `}` (16) now resolves to `b()` inside the function; 17 is unmapped again, so `x` and the space keep today's lookup.
+  expect(repaired).toEqual([[[0, 0, 0, 0], [13, 0, 1, 2], [16, 0, 1, 2], [17], [18, 0, 2, 0], [20]]]);
+  expect(lines[0]![2]).toEqual([16]);
+});
+
+test("leaves a lookup that resolves today alone, even when it resolves past the node", async () => {
+  // Today's walk back resolves `f`'s end to `x` (the line's last segment is mapped), so `f` is kept: no repair.
+  const code = "function f(){b()} x;";
+  const lines = [[[0, 0, 0, 0], [13, 0, 1, 2], [16], [18, 0, 2, 0]]];
+  expect(repairUnmappedLookups(code, lines, await parseAst(code))).toEqual({ lines, repaired: 0 });
+});
+
+test("closes a repaired range that ends the mapped line", async () => {
+  const code = "function f(){b()} ";
+  const { lines: repaired } = repairUnmappedLookups(code, [[[0, 0, 0, 0], [13, 0, 1, 2], [16]]], await parseAst(code));
+  expect(repaired).toEqual([[[0, 0, 0, 0], [13, 0, 1, 2], [16, 0, 1, 2], [17]]]);
+});
+
+test("never borrows a mapping from outside the node and leaves resolving lookups alone", async () => {
+  // `g` has no mapped segment of its own: today's lookup fails and the repair must not invent one from `x()` or `y()`.
+  const code = "x();function g(){}y();";
+  const lines = [[[0, 0, 0, 0], [4], [18, 0, 1, 0]]];
+  const result = repairUnmappedLookups(code, lines, await parseAst(code));
+  expect(result.repaired).toBe(0);
+  expect(result.lines).toEqual(lines);
+  // A node whose start and end-1 already resolve to mapped segments is untouched.
+  const plain = "a();b();";
+  const mapped = [[[0, 0, 0, 0], [4, 0, 1, 0]]];
+  expect(repairUnmappedLookups(plain, mapped, await parseAst(plain))).toEqual({ lines: mapped, repaired: 0 });
+});
