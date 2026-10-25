@@ -25,6 +25,9 @@ export interface InlineToolCall {
   cardLayout?: 'inline' | 'dock';
   /** Client-local ordering for streamed updates. Never persisted. */
   liveRevision?: number;
+  /** Client-local choice; retained only to prevent the same notification re-prompting. */
+  previewConsentResolved?: boolean;
+  previewConsentOpenUrl?: string;
   /**
    * Where this entry came from:
    *   'inline'    — user-initiated invocation from the client (default).
@@ -36,6 +39,11 @@ export interface InlineToolCall {
    *                 On hydration the persisted row replaces it.
    */
   source?: 'inline' | 'agent-run';
+}
+
+function isHostPreviewCall(call: InlineToolCall): boolean {
+  return call.extensionName === PREVIEW_EXTENSION && call.toolName === PREVIEW_TOOL
+    && call.cardType === PREVIEW_CARD && call.source === 'inline';
 }
 
 class InlineToolStore {
@@ -56,8 +64,7 @@ class InlineToolStore {
 
     const call = this.calls[idx]!;
     if (data.cardType === PREVIEW_CARD || call.extensionName === PREVIEW_EXTENSION) {
-      if (call.extensionName !== PREVIEW_EXTENSION || call.toolName !== PREVIEW_TOOL
-        || call.cardType !== PREVIEW_CARD || call.source !== 'inline') return;
+      if (!isHostPreviewCall(call)) return;
       if (eventType === 'tool:complete') {
         const output = parseConsentCardResult(data.output);
         if (!output || output.conversationId !== call.conversationId || output.port !== call.input.port) return;
@@ -117,6 +124,16 @@ class InlineToolStore {
 
   getByMessage(messageId: string): InlineToolCall[] {
     return this.calls.filter(c => c.messageId === messageId);
+  }
+
+  resolvePreviewConsent(id: string, openUrl?: string): void {
+    const call = this.getById(id);
+    if (!call || !isHostPreviewCall(call)) return;
+    if (openUrl !== undefined && !parseConsentCardResult({
+      kind: 'auto-exposed', conversationId: call.conversationId, port: call.input.port, openUrl,
+    })) return;
+    call.previewConsentResolved = true;
+    call.previewConsentOpenUrl = openUrl;
   }
 
   remove(id: string): void {
@@ -230,7 +247,15 @@ class InlineToolStore {
       call.liveRevision > requestLiveRevision &&
       !persistedIds.has(call.id),
     );
-    this.calls = [...otherCalls, ...hydrated, ...newerLiveCalls];
+    // Host preview consent is a live notification, not a persisted tool row.
+    // A completed run's history refresh must not dismiss the owner's choice.
+    const retainedPreviewCalls = this.calls.filter((call) => {
+      if (call.conversationId !== conversationId || !isHostPreviewCall(call)
+        || call.status !== 'complete' || persistedIds.has(call.id)) return false;
+      const consent = parseConsentCardResult(call.output);
+      return consent?.conversationId === conversationId && consent.port === call.input.port;
+    });
+    this.calls = [...otherCalls, ...hydrated, ...newerLiveCalls, ...retainedPreviewCalls];
   }
 }
 

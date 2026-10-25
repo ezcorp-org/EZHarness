@@ -9703,3 +9703,23 @@ Parent integration note: committed source dbd6b952 passed canonical scoped CRAP 
 Original `bun scripts/typecheck-tests.ts` fails TS2345 at executor fixture681: the object property widened to `string`. The same command uses normal Node24.21 with a 4288MiB heap; the prior forced2GiB failure and missing-workspace receipts remain separate. No active MAIN2 edit, whole gate or live effect.
 
 Review: owned frozen root/web/separate gate installs all exit0; exact canonical test type RED is TS2345 for widened session mode. Only `as const` is added to that property. The unchanged full `bun run typecheck` now exits0 (backend, web, backend tests, web E2E, packages and both locked Python projects); focused executor20tests/78assertions and Biome pass. Production source9df and all nine manager locks stay byte-identical to dbd6. No active gate tree, live API, installed app or provider changed.
+
+---
+
+# Preview consent card lost after message refresh
+
+- [x] Reproduce the native producer → real frontend store → rendered card loss after normal history hydration; record RED.
+- [x] Agree the three production files with root before the fix.
+- [x] Retain only valid, completed host preview records in the same conversation during hydration.
+- [x] Keep Ignore and successful Expose choices across remount; preserve failed-action retry, ordinary hydration replacement, and scope cleanup.
+- [x] Prove the same real Playwright route test RED on the original store and GREEN on the fix; capture visual evidence.
+- [x] Pass focused coverage, types, lint and risk checks.
+- [x] Complete independent review and normal commit hooks.
+
+## Review
+
+Independent review `52293da3` passed the exact frozen source and evidence. Normal commit hooks passed lint and 95 component/store tests, without a bypass.
+
+The actual native sequence emits the preview before later saved/reset/complete frames. A normal tool-history snapshot removed the live inline notification because it has no persisted tool row. The fix retains only completed, valid host preview records. A client-only choice marker prevents an Ignore or successful Expose from asking again after remount. It keeps the validated Open URL. No API, DB, permission, persistence, or auto-consent change.
+
+Verification: 49 component/store tests pass. Every added executable production line is covered. The touched store functions have measured risk scores at or below 21 (limit 30). Svelte/types reports zero errors and warnings; scoped Biome passes. The real Chromium @evidence route test uses the actual provider fixture and normal history GET: original store RED (card count 0), fixed store GREEN (one card, exact Expose request and Open link). The mocked browser clock advances only the existing five-second history throttle; it does not alter any authority proof. The scoped production build passes with the Nix runtime library path. The first missing-library environment failure is retained separately. Evidence stays in `.cache/preview-refresh-proof-v1`; no live app, guest, or API calls.

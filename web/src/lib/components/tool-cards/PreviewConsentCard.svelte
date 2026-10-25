@@ -22,12 +22,12 @@
 		buildConsentRequest,
 	} from "./preview-consent-card-logic.js";
 
-	let { data }: { data: PreviewConsentCardData } = $props();
+	let { data, resolved = false, resolvedOpenUrl, onResolved }: { data: PreviewConsentCardData; resolved?: boolean; resolvedOpenUrl?: string; onResolved?: (openUrl?: string) => void } = $props();
 
 	type Phase = "prompt" | "pending" | "exposed" | "ignored" | "error";
 	let phase = $state<Phase>("prompt");
 	let openUrl = $state<string | null>(null);
-	let readyUrl = $derived(data.openUrl ?? openUrl);
+	let readyUrl = $derived(data.openUrl ?? openUrl ?? resolvedOpenUrl);
 	let errorMsg = $state<string | null>(null);
 
 	async function act(action: ConsentAction) {
@@ -35,6 +35,7 @@
 			// Optimistic local non-action; still notify the server so it can
 			// audit the choice, but don't block the UI on it.
 			phase = "ignored";
+			onResolved?.();
 			void fetch("/api/preview/consent", {
 				method: "POST",
 				headers: { "Content-Type": "application/json" },
@@ -70,6 +71,7 @@
 			}
 			openUrl = body.openUrl;
 			phase = "exposed";
+			onResolved?.(body.openUrl);
 		} catch (e) {
 			errorMsg = e instanceof Error ? e.message : String(e);
 			phase = "error";
@@ -77,6 +79,7 @@
 	}
 </script>
 
+{#if !resolved || phase !== "prompt" || readyUrl}
 <div class="ez-card" data-testid="preview-consent-card" data-port={data.port}>
 	<div class="ez-card__header">
 		<span class="ez-card__icon" aria-hidden="true">🌐</span>
@@ -128,6 +131,7 @@
 		</div>
 	{/if}
 </div>
+{/if}
 
 <style>
 	.ez-card {

@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
+import { tick } from "svelte";
 import { cleanup, fireEvent, render, waitFor } from "@testing-library/svelte";
 import "@testing-library/jest-dom/vitest";
 import { EventBus } from "$server/runtime/events";
@@ -6,6 +7,7 @@ import { emitDetectionDecision } from "$server/runtime/preview/preview-detection
 import type { AgentEvents } from "$server/types";
 import { parseConsentCardResult } from "$lib/components/tool-cards/preview-consent-card-logic";
 import ToolCardRouter from "$lib/components/tool-cards/ToolCardRouter.svelte";
+import InlinePreviewCards from "./fixtures/InlinePreviewCards.svelte";
 import { initStores, store } from "$lib/stores.svelte";
 import { inlineToolStore, receivePreviewToolStart } from "$lib/inline-tool-store.svelte";
 
@@ -120,4 +122,96 @@ test("both subscribers reject a preview completion with another conversation or 
 test("consent parsing retains malformed and envelope refusals on the canonical web runner", () => {
   for (const value of [null, "", "not json", "[]", { port: 5173 }, { conversationId: "c", port: 0 }, 123]) expect(parseConsentCardResult(value)).toBeNull();
   expect(parseConsentCardResult({ content: [{ text: '{"conversationId":"c","port":5173}' }, { text: null }] })).toMatchObject({ conversationId: "c", port: 5173 });
+});
+
+
+test("the live consent card survives the completed run's persisted-tool refresh", async () => {
+  stop = initStores();
+  const { getByTestId, queryByTestId } = render(InlinePreviewCards, { conversationId: "conversation-preview" });
+  for (const event of produce()) for (const receive of transport.subscribers) receive(event);
+  await waitFor(() => expect(getByTestId("preview-consent-expose")).toBeVisible());
+  // loadMessages hydrates the persisted native calls after turn_saved and
+  // run:complete. Host preview notifications are deliberately not DB tools.
+  inlineToolStore.hydrateToolCalls("conversation-preview", [], inlineToolStore.liveRevision);
+  await tick();
+  await waitFor(() => expect(queryByTestId("preview-consent-card")).toBeInTheDocument());
+});
+
+test("a history refresh and conversation remount do not ask again after Ignore", async () => {
+  stop = initStores();
+  let view = render(InlinePreviewCards, { conversationId: "conversation-preview" });
+  for (const event of produce()) for (const receive of transport.subscribers) receive(event);
+  await waitFor(() => expect(view.getByTestId("preview-consent-ignore")).toBeVisible());
+  await fireEvent.click(view.getByTestId("preview-consent-ignore"));
+  inlineToolStore.hydrateToolCalls("conversation-preview", []);
+  await tick();
+  expect(view.queryByTestId("preview-consent-expose")).toBeNull();
+  view.unmount();
+  view = render(InlinePreviewCards, { conversationId: "conversation-preview" });
+  await tick();
+  expect(view.queryByTestId("preview-consent-expose")).toBeNull();
+});
+
+test.each(["preview-consent-expose", "preview-consent-always"])("a successful %s keeps its Open link through hydration and remount", async (action) => {
+  stop = initStores();
+  const openUrl = "https://owned.preview.example.test/__open?c=fixture";
+  vi.stubGlobal("fetch", vi.fn(async () => new Response(JSON.stringify({ openUrl }))));
+  let view = render(InlinePreviewCards, { conversationId: "conversation-preview" });
+  const events = produce();
+  for (const event of events) for (const receive of transport.subscribers) receive(event);
+  await waitFor(() => expect(view.getByTestId("preview-consent-expose")).toBeVisible());
+  await fireEvent.click(view.getByTestId(action));
+  await waitFor(() => expect(view.getByTestId("preview-consent-open")).toHaveAttribute("href", openUrl));
+  for (const event of events) for (const receive of transport.subscribers) receive(event);
+  inlineToolStore.hydrateToolCalls("conversation-preview", []);
+  await tick();
+  expect(view.getByTestId("preview-consent-open")).toHaveAttribute("href", openUrl);
+  view.unmount();
+  view = render(InlinePreviewCards, { conversationId: "conversation-preview" });
+  await tick();
+  expect(view.queryByTestId("preview-consent-expose")).toBeNull();
+  expect(view.getByTestId("preview-consent-open")).toHaveAttribute("href", openUrl);
+});
+
+test.each([
+  { body: { error: "refused" }, status: 500 },
+  { body: {}, status: 200 },
+  { body: { openUrl: "not a URL" }, status: 200 },
+  { body: { openUrl: "javascript:alert(1)" }, status: 200 },
+])("a refused or malformed consent remains retryable after refresh: %j", async ({ body, status }) => {
+  stop = initStores();
+  vi.stubGlobal("fetch", vi.fn(async () => new Response(JSON.stringify(body), { status })));
+  const view = render(InlinePreviewCards, { conversationId: "conversation-preview" });
+  for (const event of produce()) for (const receive of transport.subscribers) receive(event);
+  await waitFor(() => expect(view.getByTestId("preview-consent-expose")).toBeVisible());
+  await fireEvent.click(view.getByTestId("preview-consent-expose"));
+  await waitFor(() => expect(view.getByTestId("preview-consent-error")).toBeVisible());
+  inlineToolStore.hydrateToolCalls("conversation-preview", []);
+  await tick();
+  expect(inlineToolStore.calls[0]?.previewConsentResolved).toBeUndefined();
+  await fireEvent.click(view.getByText("Try again"));
+  expect(view.getByTestId("preview-consent-expose")).toBeVisible();
+});
+
+test("an already auto-exposed host result remains an Open link, never a consent prompt", async () => {
+  stop = initStores();
+  const view = render(InlinePreviewCards, { conversationId: "conversation-preview" });
+  for (const event of produce(true)) for (const receive of transport.subscribers) receive(event);
+  await waitFor(() => expect(view.getByTestId("preview-consent-open")).toBeVisible());
+  inlineToolStore.hydrateToolCalls("conversation-preview", []);
+  await tick();
+  expect(view.queryByTestId("preview-consent-expose")).toBeNull();
+  expect(view.getByTestId("preview-consent-open")).toBeVisible();
+});
+
+test("a preview arriving after a snapshot starts remains exactly one card", async () => {
+  stop = initStores();
+  const requestRevision = inlineToolStore.liveRevision;
+  const view = render(InlinePreviewCards, { conversationId: "conversation-preview" });
+  const events = produce();
+  for (const event of [...events, ...events]) for (const receive of transport.subscribers) receive(event);
+  await waitFor(() => expect(view.getByTestId("preview-consent-expose")).toBeVisible());
+  inlineToolStore.hydrateToolCalls("conversation-preview", [], requestRevision);
+  await tick();
+  expect(view.getAllByTestId("preview-consent-card")).toHaveLength(1);
 });

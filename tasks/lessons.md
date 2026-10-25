@@ -3127,3 +3127,12 @@ smokes under the lock, detached-job wake-ups) are not repeated.
 
 - Keep authentication mode fields as their declared literal union in shared fixture objects. A runtime test can pass while TypeScript correctly rejects a widened `string`.
 - A deferred global type check is an open verification item. Use owned frozen workspace installs and the canonical command before claiming its result; do not substitute borrowed dependency links or a smaller heap.
+
+---
+
+# Lessons
+
+- A stage failure screenshot identifies the outer management page only. Verify the native consumer's exact chat URL guard before attributing a failure to page ownership.
+- Replay the actual event-to-hydration chain and render the reactive store. Rendering a copied card object can miss removal from the real store.
+
+- Preserve existing task and lesson history. Check files before writing; append a task section instead of replacing the file.
