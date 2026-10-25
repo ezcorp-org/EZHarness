@@ -101,9 +101,29 @@ test("a runner that answers build() and then hangs up at collectArtifacts() stil
   expect(failed.diagnostics.at(-1)).toEqual(exhausted);
 });
 
+test("a build that recovers ends verified without its old unreachable entries", async () => {
+  // The extension author page lists every diagnostic of an operation: a verified build must not show the
+  // unreachable attempts it recovered from as if they were still errors.
+  const clock = { now: 1_000 };
+  const setup = harness({ now: () => clock.now });
+  const build = setup.dependencies.runner.build;
+  let calls = 0;
+  setup.dependencies.runner.build = async (request) => {
+    calls += 1;
+    if (calls <= 2) throw unavailable();
+    return build(request);
+  };
+  const { installation, workspace } = await setup.lifecycle.createWorkspace(actor, { files: { "extension.ts": "recovers" } });
+  const operation = await setup.lifecycle.build(actor, { installationId: installation.id, workspaceId: workspace.id, expectedRevision: 1, idempotencyKey: "recovers" });
+  const verified = await drive(setup, clock, installation.id, operation.id, 4);
+  expect(calls).toBe(3);
+  expect(verified.state).toBe("verified");
+  expect(verified.diagnostics.filter((diagnostic) => diagnostic.code === "runner_unavailable")).toEqual([]);
+});
+
 test("lifecycle.ts writes operation diagnostics only through writeDiagnostics", async () => {
   const source = await Bun.file(new URL("../extensions/v4/lifecycle.ts", import.meta.url)).text();
-  const helper = /function writeDiagnostics\([^)]*\)[^{]*\{[^}]*\}/.exec(source);
+  const helper = /function writeDiagnostics\(.*\): void \{\n[^\n]*\n\}/.exec(source);
   expect(helper).not.toBeNull();
   const outside = source.replace(helper![0], "");
   // An assignment, or a mutating array call, on any `.diagnostics` outside the helper could drop the count.

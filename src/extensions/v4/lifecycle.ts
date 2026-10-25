@@ -25,13 +25,15 @@ export const RUNNER_UNAVAILABLE_MAX_ATTEMPTS = 6;
 const isUnavailable = (diagnostic: { code: string }) => diagnostic.code === "runner_unavailable";
 
 /**
- * The ONE writer of an operation's diagnostics. It keeps the build's earlier runner_unavailable entries, which
- * are its unreachable-attempt count, and replaces everything else with `diagnostics`. A runner that answers
- * build() and then hangs up at collectArtifacts() therefore cannot reset the count. Every write in this file goes
- * through here; lifecycle-runner-unavailable.test.ts refuses a direct assignment or push.
+ * The ONE writer of an operation's diagnostics. While a build can still retry, it keeps the build's earlier
+ * runner_unavailable entries, which are its unreachable-attempt count, and replaces everything else with
+ * `diagnostics`; a runner that answers build() and then hangs up at collectArtifacts() therefore cannot reset the
+ * count. `final: true` is for the verified write only: the count has no use after a successful build, and the
+ * extension author page lists every diagnostic, so a recovered build must not show the old unreachable entries.
+ * Every write in this file goes through here; lifecycle-runner-unavailable.test.ts refuses a direct one.
  */
-function writeDiagnostics(operation: LifecycleOperation, diagnostics: LifecycleOperation["diagnostics"]): void {
-  operation.diagnostics = [...operation.diagnostics.filter(isUnavailable), ...diagnostics];
+function writeDiagnostics(operation: LifecycleOperation, diagnostics: LifecycleOperation["diagnostics"], options: { final?: boolean } = {}): void {
+  operation.diagnostics = [...(options.final ? [] : operation.diagnostics.filter(isUnavailable)), ...diagnostics];
 }
 
 export class ExtensionLifecycle {
@@ -317,7 +319,7 @@ export class ExtensionLifecycle {
         if (state.installation.uninstalled) throw new LifecycleError("uninstalled", "This installation has been uninstalled.");
         state.releases[release.id] = release;
         current.releaseId = release.id;
-        writeDiagnostics(current, result.diagnostics);
+        writeDiagnostics(current, result.diagnostics, { final: true });
         this.transition(current, "verified");
       });
     } catch (error) {
