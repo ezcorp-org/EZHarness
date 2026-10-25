@@ -89,11 +89,11 @@ describe("the derived image's install step", () => {
 		if (dir) await rm(dir, { recursive: true, force: true });
 	});
 
-	/** A fake pglite-pgvector package dir with the given version and asset bytes; returns its path and the asset sha. */
-	async function fakePackage(version: string, bytes: string): Promise<{ pkg: string; sha256: string }> {
+	/** A fake pglite-pgvector package dir with the given manifest fields and asset bytes; returns its path and sha. */
+	async function fakePackage(version: string, bytes: string, extra: Record<string, unknown> = {}): Promise<{ pkg: string; sha256: string }> {
 		dir = await mkdtemp(join(tmpdir(), "legacy-vector-asset-"));
 		const pkg = join(dir, "pglite-pgvector");
-		await Bun.write(join(pkg, "package.json"), JSON.stringify({ name: "@electric-sql/pglite-pgvector", version }, null, 2));
+		await Bun.write(join(pkg, "package.json"), JSON.stringify({ name: "@electric-sql/pglite-pgvector", ...extra, version }, null, 2));
 		await Bun.write(join(pkg, "dist", "vector.tar.gz"), bytes);
 		return { pkg, sha256: new Bun.CryptoHasher("sha256").update(bytes).digest("hex") };
 	}
@@ -117,6 +117,13 @@ describe("the derived image's install step", () => {
 		expect(result.exitCode).toBe(1);
 		expect(result.stderr).toContain("pinned 0000");
 		expect(await result.installed.exists()).toBe(false);
+	});
+
+	test("reads the version from the manifest's own field, not from text elsewhere in it", async () => {
+		const { pkg, sha256 } = await fakePackage("0.0.11", "candidate asset", { peerDependencies: { x: { "version": "0.0.8" } }, description: '"version": "0.0.8"' });
+		const result = install(pkg, sha256, "0.0.8");
+		expect(result.exitCode).toBe(1);
+		expect(result.stderr).toContain("is pglite-pgvector 0.0.11, pinned 0.0.8");
 	});
 
 	test("refuses another package version, and a missing pin value", async () => {
