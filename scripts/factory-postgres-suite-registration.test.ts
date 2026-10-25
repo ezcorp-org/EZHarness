@@ -14,6 +14,7 @@ import { missingProducers, workflowCommands } from "./lib/ci-registration.ts";
  * registers nothing.
  */
 const POSTGRES_WORKFLOW = ".github/workflows/db-postgres.yml";
+const STORAGE_STEP = "Run factory storage and private services on Postgres and S3";
 
 export async function postgresSuiteFiles(): Promise<string[]> {
   return [...new Glob("*.test.ts").scanSync({ cwd: "tests/postgres" })].map((name) => `./tests/postgres/${name}`).sort();
@@ -33,6 +34,25 @@ async function producerText(): Promise<string> {
   const invoked = [...new Set(commands.flatMap((text) => [...text.matchAll(/\bscripts\/[\w./-]+\.sh\b/g)].map((m) => m[0])))].sort();
   const shells = await Promise.all(invoked.map((path) => readFile(path, "utf8").catch(() => "")));
   return [...commands, ...shells.map(workflowCommands)].join("\n");
+}
+
+/**
+ * The suites each shard of the storage step names, one list per `N)` arm of its `case` (db-postgres.yml
+ * factory-storage). Comments name nothing.
+ */
+export function storageShardLists(workflow: string): string[][] {
+  const steps = (Bun.YAML.parse(workflow) as { jobs: Record<string, { steps?: { name?: string; run?: string }[] }> }).jobs["factory-storage"]?.steps ?? [];
+  const arms = workflowCommands(steps.find((step) => step.name === STORAGE_STEP)?.run ?? "").split(/^\s*\d+\)\s*$/m).slice(1);
+  return arms.map((arm) => arm.match(/\.\/tests\/postgres\/[\w.-]+\.test\.ts/g) ?? []);
+}
+
+/** Each storage suite named in more than one shard, or more than once in one shard, with the shards that name it. */
+export function namedMoreThanOnce(shards: readonly (readonly string[])[]): string[] {
+  const homes = new Map<string, number[]>();
+  shards.forEach((suites, index) => {
+    for (const suite of suites) homes.set(suite, [...(homes.get(suite) ?? []), index + 1]);
+  });
+  return [...homes].filter(([, shard]) => shard.length > 1).map(([suite, shard]) => `${suite} is named in shards ${shard.join(", ")}`);
 }
 
 /** Suites on disk that no producer runs. */
@@ -86,6 +106,29 @@ describe("factory PostgreSQL suite registration", () => {
     expect(unregisteredSuites(producers, ["./tests/postgres/factory-not-yet-registered.test.ts"])).toEqual([
       "./tests/postgres/factory-not-yet-registered.test.ts",
     ]);
+  });
+
+  test("each storage suite is named once, in one shard, and every matrix entry has a shard", async () => {
+    const workflow = await readFile(POSTGRES_WORKFLOW, "utf8");
+    const shards = storageShardLists(workflow);
+    const matrix = (Bun.YAML.parse(workflow) as { jobs: Record<string, { strategy: { matrix: { shard: unknown[] } } }> }).jobs["factory-storage"]!.strategy.matrix.shard;
+    expect(shards).toHaveLength(matrix.length);
+    for (const shard of shards) expect(shard.length).toBeGreaterThan(0);
+    expect(namedMoreThanOnce(shards)).toEqual([]);
+  });
+
+  test("a suite planted in both shards, or twice in one, is named; a comment names nothing", async () => {
+    const workflow = await readFile(POSTGRES_WORKFLOW, "utf8");
+    const [first] = storageShardLists(workflow);
+    const planted = first![0]!;
+    const arm = (n: number) => `            ${n})\n              suites=(\n`;
+    const plant = (n: number, line: string) => {
+      expect(workflow).toContain(arm(n));
+      return workflow.replace(arm(n), `${arm(n)}${line}\n`);
+    };
+    expect(namedMoreThanOnce(storageShardLists(plant(2, `                ${planted}`)))).toEqual([`${planted} is named in shards 1, 2`]);
+    expect(namedMoreThanOnce(storageShardLists(plant(1, `                ${planted}`)))).toEqual([`${planted} is named in shards 1, 1`]);
+    expect(namedMoreThanOnce(storageShardLists(plant(2, `                # ${planted}`)))).toEqual([]);
   });
 
   test("the five previously unregistered suites run against the real engine and real storage", async () => {
