@@ -1,0 +1,33 @@
+# The pgvector asset the legacy-adoption proof carries into the legacy image.
+#
+# scripts/verify-legacy-adoption.sh copies `dist/vector.tar.gz` out of the candidate image into the PGlite 0.5.7
+# legacy main image (scripts/Dockerfile.legacy-adoption-derived), so this pin is what makes the derived image a KNOWN
+# quantity: an asset that moved unread would silently change what the legacy half of the proof runs. Both files read
+# the pin from here and nowhere else, and src/__tests__/legacy-adoption-vector-pin.test.ts fails while `version` and
+# `integrity` differ from the package web/bun.lock and bun.lock resolve.
+#
+# Upstream repacks the tarball on EVERY release, so the pin moves on every pgvector bump. Never move it blind: the
+# derived image runs the asset under PGlite 0.5.7, not under the candidate's PGlite. Compare the EXTRACTED trees,
+# which ignores the tar mtimes that always differ, and record what changed below:
+#
+#   for v in <old> <new>; do
+#     mkdir -p "pkg$v" "ext$v"
+#     curl -sSL "https://registry.npmjs.org/@electric-sql/pglite-pgvector/-/pglite-pgvector-$v.tgz" > "$v.tgz"
+#     tar xzf "$v.tgz" -C "pkg$v"
+#     tar xzf "pkg$v/package/dist/vector.tar.gz" -C "ext$v"
+#   done
+#   diff -r ext<old> ext<new>
+#   sha256sum pkg<new>/package/dist/vector.tar.gz      # -> asset_sha256
+#
+# History:
+#   0.0.8 -> 0.0.9: empty diff. Same `vector.so` (a56170fc...6892c), headers, SQL and `vector.control` 0.8.1; only a
+#     peer bump to PGlite 0.5.8, both on PostgreSQL 18.3.
+#   0.0.9 -> 0.0.11: a REAL rebuild. pgvector 0.8.1 -> 0.8.7 (`vector.control`), a new `vector.so` (d217e764...0db75)
+#     built for PGlite 0.5.10 on PostgreSQL 18.6, three headers changed, and upgrade scripts 0.8.1 -> 0.8.7 added. Those
+#     scripts hold only COMMENT ON statements, so a database created at 0.8.1 keeps its catalog. The CI legacy-adoption
+#     proof is the evidence that this asset loads and serves under PGlite 0.5.7 in the derived image.
+package=@electric-sql/pglite-pgvector
+version=0.0.11
+integrity=sha512-pUukU2iqI5TLBv/0D5Bk9R9zVyms+7Do6yscl4WRKW5pD2wNl8FlzGWDXphXj/Q42SsVIJHbP4+oqwjQC9fasg==
+asset=dist/vector.tar.gz
+asset_sha256=0416b81d99720cb60df22e08599604ae2f3062a7438e1bf8c27bdff367457249
