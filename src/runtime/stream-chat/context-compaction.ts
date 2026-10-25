@@ -29,6 +29,7 @@
  */
 
 import type { AgentMessage } from "@earendil-works/pi-agent-core";
+import { getCurrentSystemMessage } from "@earendil-works/pi-ai";
 import type {
   Message,
   UserMessage,
@@ -122,10 +123,10 @@ const TRUNCATION_MARK = "…[truncated to fit context]…";
 // ── Token estimation ─────────────────────────────────────────────────
 
 /** LLM-visible messages — mirrors the `convertToLlm` filter in build-pi-agent. */
-function isLlmMessage(m: AgentMessage): m is Exclude<Message, { role: "system" }> {
+function isLlmMessage(m: AgentMessage): m is Message {
   return (
     "role" in m &&
-    (m.role === "user" || m.role === "assistant" || m.role === "toolResult")
+    (m.role === "system" || m.role === "user" || m.role === "assistant" || m.role === "toolResult")
   );
 }
 
@@ -140,7 +141,12 @@ export function estimateMessageTokens(
     if (t) chars += t.length;
   };
 
-  if (m.role === "user") {
+  if (m.role === "system") {
+    addText(typeof m.content === "string" ? m.content : m.content.map(part => part.text).join("\n"));
+    for (const section of Object.values(m.sections ?? {})) addText(section ?? undefined);
+    addText(m.toolsAdded ? JSON.stringify(m.toolsAdded) : undefined);
+    addText(m.toolsRemoved ? JSON.stringify(m.toolsRemoved) : undefined);
+  } else if (m.role === "user") {
     if (typeof m.content === "string") {
       addText(m.content);
     } else {
@@ -688,11 +694,18 @@ export function makeCompactionTransform(
         savedTokens: estimateTokens(messages, cfg) - cappedTokens,
       });
     }
-    if (cappedTokens <= budget) return capped;
+    if (cappedTokens <= budget || strategy.name === "none") return capped;
 
+    // Pi replays declarations to obtain the current prompt, sections and tools.
+    // They are authority, not droppable conversation turns. Reserve their full
+    // cost and compact only the body, for every strategy. An oversized authority
+    // declaration stays intact so the provider can report context overflow.
+    const system = getCurrentSystemMessage(capped.filter(isLlmMessage));
+    const body = system ? capped.filter(message => message.role !== "system") : capped;
+    const bodyBudget = Math.max(1, budget - (system ? estimateMessageTokens(system, cfg) : 0));
     const ctx: CompactionContext = {
       model,
-      budget,
+      budget: bodyBudget,
       cfg,
       estimateTokens: (m) => estimateTokens(m, cfg),
       splitTurnBlocks,
@@ -705,7 +718,7 @@ export function makeCompactionTransform(
     // still surfaces a precise overflow rather than an opaque failure).
     let res: CompactionResult;
     try {
-      res = await strategy.compact(capped, ctx, signal);
+      res = await strategy.compact(body, ctx, signal);
     } catch (err) {
       logger.warn("compaction strategy threw; passing history through unchanged", {
         strategy: cfg.strategy,
@@ -727,6 +740,6 @@ export function makeCompactionTransform(
       droppedCount: res.droppedCount,
       droppedTokens: res.droppedTokens,
     });
-    return res.messages;
+    return system ? [system, ...res.messages] : res.messages;
   };
 }

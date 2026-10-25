@@ -1,8 +1,10 @@
 import { afterAll, expect, test } from "bun:test";
-import { mkdir, mkdtemp, rm, stat } from "node:fs/promises";
+import { mkdir, mkdtemp, rm, stat, readFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { executionLimits, filesDigest, PodmanRunner } from "../src";
+import { DEFAULT_IMAGE, executionLimits, filesDigest, PodmanRunner, RunnerError } from "../src";
+
+import { sha256 } from "../src/core";
 
 /** A runner over a given store; storeArtifact is what a successful build calls. */
 class StoreRunner extends PodmanRunner {
@@ -78,3 +80,59 @@ test("a start refused for a missing artifact registers no worker, so the same st
   // The fixture's recipe names no image, so the retried start stops at the profile check: past the artifact, and not a duplicate.
   await expect(runner.start(startRequest("worker-1"), noReverse)).rejects.toMatchObject({ code: "runtime_profile_changed" });
 });
+
+/** Hold both real artifact reads before their start calls can reserve an execution. */
+function gate() {
+  let release!: () => void;
+  const promise = new Promise<void>(resolve => { release = resolve; });
+  return { promise, release };
+}
+class AdmissionRunner extends UnprobedRunner {
+  readonly bothReads = gate();
+  readonly releaseReads = gate();
+  readonly firstStage = gate();
+  readonly releaseStage = gate();
+  reads = 0;
+  admitted = 0;
+  protected override async prepare(): Promise<void> {}
+  override async collectArtifacts(digest: string) {
+    const actual = await super.collectArtifacts(digest);
+    if (++this.reads === 2) this.bothReads.release();
+    if (this.reads <= 2) await this.releaseReads.promise;
+    return actual;
+  }
+  protected override async stage(): Promise<string> {
+    this.admitted++;
+    this.firstStage.release();
+    await this.releaseStage.promise;
+    throw new RunnerError("controlled_stage", "Controlled before any staging or launch");
+  }
+}
+async function concurrentAdmission(sameWorker: boolean) {
+  const root = await store();
+  const runner = boot(new AdmissionRunner({ root, maxExecutions: 1 }));
+  const profile = await readFile(new URL("../seccomp.json", import.meta.url));
+  const valid = { ...files, ".runner/recipe.json": JSON.stringify({ image: DEFAULT_IMAGE, seccompDigest: sha256(profile) }) };
+  const digest = filesDigest(valid);
+  const request = (id: string) => ({ ...startRequest(id), artifactDigest: digest });
+  // A missing artifact must leave this same worker ID available for the real attempt.
+  await expect(runner.start(request("worker-first"), noReverse)).rejects.toMatchObject({ code: "artifact_missing" });
+  expect(runner.admitted).toBe(0);
+  await runner.put(digest, valid);
+  const first = runner.start(request("worker-first"), noReverse).catch((error: unknown) => error);
+  const second = runner.start(request(sameWorker ? "worker-first" : "worker-second"), noReverse).catch((error: unknown) => error);
+  await runner.bothReads.promise;
+  runner.releaseReads.release();
+  await runner.firstStage.promise;
+  runner.releaseStage.release();
+  const results = await Promise.all([first, second]);
+  // One reaches the controlled pre-stage boundary; the other must never enter it.
+  expect(runner.admitted).toBe(1);
+  expect(results.map(error => (error as RunnerError).code).sort()).toEqual(["controlled_stage", sameWorker ? "duplicate_worker" : "runner_busy"].sort());
+  // Failed controlled start released its execution slot: a fresh ID can enter once.
+  await expect(runner.start(request("worker-after-teardown"), noReverse)).rejects.toMatchObject({ code: "controlled_stage" });
+  expect(runner.admitted).toBe(2);
+  await runner.close();
+}
+test("artifact reads cannot admit the same worker twice", () => concurrentAdmission(true));
+test("artifact reads cannot exceed one configured execution slot", () => concurrentAdmission(false));

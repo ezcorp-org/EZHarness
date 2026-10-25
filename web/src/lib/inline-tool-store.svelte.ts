@@ -1,4 +1,9 @@
 import { stringifyToolOutput } from './tool-output.js';
+import { parseConsentCardResult } from './components/tool-cards/preview-consent-card-logic.js';
+
+const PREVIEW_EXTENSION = 'ezcorp-preview';
+const PREVIEW_CARD = 'ez-preview-consent';
+const PREVIEW_TOOL = 'preview_detected';
 
 export interface InlineToolCall {
   id: string;              // client-generated invocationId
@@ -20,6 +25,9 @@ export interface InlineToolCall {
   cardLayout?: 'inline' | 'dock';
   /** Client-local ordering for streamed updates. Never persisted. */
   liveRevision?: number;
+  /** Client-local choice; retained only to prevent the same notification re-prompting. */
+  previewConsentResolved?: boolean;
+  previewConsentOpenUrl?: string;
   /**
    * Where this entry came from:
    *   'inline'    — user-initiated invocation from the client (default).
@@ -31,6 +39,11 @@ export interface InlineToolCall {
    *                 On hydration the persisted row replaces it.
    */
   source?: 'inline' | 'agent-run';
+}
+
+function isHostPreviewCall(call: InlineToolCall): boolean {
+  return call.extensionName === PREVIEW_EXTENSION && call.toolName === PREVIEW_TOOL
+    && call.cardType === PREVIEW_CARD && call.source === 'inline';
 }
 
 class InlineToolStore {
@@ -50,6 +63,13 @@ class InlineToolStore {
     if (idx < 0) return;
 
     const call = this.calls[idx]!;
+    if (data.cardType === PREVIEW_CARD || call.extensionName === PREVIEW_EXTENSION) {
+      if (!isHostPreviewCall(call)) return;
+      if (eventType === 'tool:complete') {
+        const output = parseConsentCardResult(data.output);
+        if (!output || output.conversationId !== call.conversationId || output.port !== call.input.port) return;
+      }
+    }
     const updated = [...this.calls];
 
     switch (eventType) {
@@ -104,6 +124,16 @@ class InlineToolStore {
 
   getByMessage(messageId: string): InlineToolCall[] {
     return this.calls.filter(c => c.messageId === messageId);
+  }
+
+  resolvePreviewConsent(id: string, openUrl?: string): void {
+    const call = this.getById(id);
+    if (!call || !isHostPreviewCall(call)) return;
+    if (openUrl !== undefined && !parseConsentCardResult({
+      kind: 'auto-exposed', conversationId: call.conversationId, port: call.input.port, openUrl,
+    })) return;
+    call.previewConsentResolved = true;
+    call.previewConsentOpenUrl = openUrl;
   }
 
   remove(id: string): void {
@@ -217,8 +247,34 @@ class InlineToolStore {
       call.liveRevision > requestLiveRevision &&
       !persistedIds.has(call.id),
     );
-    this.calls = [...otherCalls, ...hydrated, ...newerLiveCalls];
+    // Host preview consent is a live notification, not a persisted tool row.
+    // A completed run's history refresh must not dismiss the owner's choice.
+    const retainedPreviewCalls = this.calls.filter((call) => {
+      if (call.conversationId !== conversationId || !isHostPreviewCall(call)
+        || call.status !== 'complete' || persistedIds.has(call.id)) return false;
+      const consent = parseConsentCardResult(call.output);
+      return consent?.conversationId === conversationId && consent.port === call.input.port;
+    });
+    this.calls = [...otherCalls, ...hydrated, ...newerLiveCalls, ...retainedPreviewCalls];
   }
 }
 
 export const inlineToolStore = new InlineToolStore();
+
+/** Seed only host preview notifications; the ordinary subscriber then applies
+ * start/complete updates, including after a chat run has ended. */
+export function receivePreviewToolStart(event: { type: string; data: unknown }): void {
+  if (event.type !== 'tool:start' || !event.data || typeof event.data !== 'object') return;
+  const data = event.data as Record<string, unknown>;
+  if (data.toolName !== PREVIEW_TOOL || data.cardType !== PREVIEW_CARD
+    || data.extensionId !== PREVIEW_EXTENSION || data.source !== 'inline'
+    || typeof data.invocationId !== 'string' || !/^preview-[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/.test(data.invocationId)
+    || typeof data.conversationId !== 'string' || !data.conversationId) return;
+  const port = (data.input as { port?: unknown } | undefined)?.port;
+  if (typeof port !== 'number' || !Number.isInteger(port) || port < 1024 || port > 65535) return;
+  // A server notification cannot replace another invocation.
+  if (inlineToolStore.getById(data.invocationId)) return;
+  inlineToolStore.add({ id: data.invocationId, conversationId: data.conversationId,
+    extensionName: PREVIEW_EXTENSION, toolName: PREVIEW_TOOL, input: { port },
+    source: 'inline', cardType: PREVIEW_CARD });
+}

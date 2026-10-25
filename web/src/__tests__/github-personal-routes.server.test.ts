@@ -3,7 +3,7 @@ import { makeRequestEvent } from "./helpers/server-route-test-utils";
 
 const mocks = vi.hoisted(() => ({
 	status: vi.fn(), disconnect: vi.fn(), authorize: vi.fn(), complete: vi.fn(),
-	list: vi.fn(), check: vi.fn(), create: vi.fn(),
+	list: vi.fn(), check: vi.fn(), create: vi.fn(), createIncus: vi.fn(),
 	getRun: vi.fn(), prepare: vi.fn(), getReview: vi.fn(), confirm: vi.fn(), importRepo: vi.fn(),
 }));
 
@@ -30,6 +30,7 @@ vi.mock("$server/integrations/github-user/transport", () => ({
 		constructor(public code: string, message: string) { super(message); }
 	},
 }));
+vi.mock("$server/integrations/github-personal-prs/incus-import", () => ({ createPrivateIncusRepository: mocks.createIncus }));
 vi.mock("$server/runtime/sandbox/controller", () => ({ getSandboxController: () => ({ createSandboxProject: mocks.create }) }));
 vi.mock("$lib/server/sandbox-route", () => ({
 	LOCAL_MVP_LIMITS: { memoryBytes: 1 }, statusDto: (value: unknown) => value,
@@ -51,6 +52,7 @@ const { personalPrRouteError } = await import("../routes/api/github/personal-prs
 const { PersonalPrError } = await import("$server/integrations/github-personal-prs/service");
 const { PrPublisherError } = await import("$server/integrations/github-personal-prs/publisher");
 const { GithubUserError } = await import("$server/integrations/github-user/transport");
+const { WorkspaceTransferError } = await import("$server/integrations/github-personal-prs/provider-transfer");
 
 const user = { id: "owner-1", email: "owner@example.test", name: "Owner", role: "user" };
 const uuid = "00000000-0000-4000-8000-000000000001";
@@ -298,4 +300,73 @@ describe("personal pull request routes", () => {
 		mocks.importRepo.mockRejectedValue(new PersonalPrError("forbidden", "Not owner"));
 		expect((await call(importRepo.POST, "/api/github/personal-prs/sandboxes/p1/import", "POST", JSON.stringify({ repositoryId: 123, baseRef: "main", idempotencyKey: uuid }), undefined, { projectId: "p1" })).status).toBe(403);
 	});
+});
+
+
+describe("private Incus repository creation", () => {
+  const body = { kind: "incus", name: "AI feature", installationId: uuid, connectionId: uuid, presetId: "dev", repositoryId: 123, baseRef: "main" };
+  function request(admin = true, value: unknown = body) {
+    const req = event("/api/github/sandboxes", "POST", JSON.stringify(value), { user: { ...user, role: admin ? "admin" : "user" }, authMethod: "session", sessionId: "session-1" });
+    req.request.headers.set("Idempotency-Key", uuid);
+    return req;
+  }
+  test("non-operator cannot allocate through the GitHub route", async () => {
+    const response = await sandboxes.POST(request(false));
+    expect(response.status).toBe(403);
+    expect(mocks.createIncus).not.toHaveBeenCalled();
+    expect(mocks.create).not.toHaveBeenCalled();
+  });
+  test("ready and uncertain imports retain the selected owner, request, and key", async () => {
+    for (const [importState, status] of [["ready", 201], ["unknown", 202]] as const) {
+      mocks.createIncus.mockResolvedValueOnce({ projectId: "incus-private", state: "working", importState });
+      const response = await sandboxes.POST(request());
+      expect(response.status).toBe(status);
+      expect(response.headers.get("cache-control")).toBe("no-store");
+      expect(await response.json()).toEqual({ project: { id: "incus-private" }, import: { projectId: "incus-private", state: "working", importState } });
+      expect(mocks.createIncus).toHaveBeenLastCalledWith(user.id, { ...body, idempotencyKey: uuid });
+    }
+    expect(mocks.create).not.toHaveBeenCalled();
+  });
+  test("repository denial returns no ready workspace and never uses legacy allocation", async () => {
+    mocks.createIncus.mockResolvedValue({ state: "blocked", blockReason: "repository_denied" });
+    const response = await sandboxes.POST(request());
+    expect(response.status).toBe(409);
+    expect(await response.json()).toEqual(expect.objectContaining({ code: "repository_unavailable" }));
+    expect(mocks.create).not.toHaveBeenCalled();
+  });
+  test("rejects client authority and caller-selected owners before allocation", async () => {
+    for (const extra of [{ userId: "other" }, { workspaceAuthority: {} }, { projectId: "existing" }, { importOperationId: uuid }]) {
+      expect((await sandboxes.POST(request(true, { ...body, ...extra }))).status).toBe(400);
+    }
+    expect(mocks.createIncus).not.toHaveBeenCalled();
+  });
+});
+
+
+test("Incus same-key request conflicts retain 409 and never fall back to legacy allocation", async () => {
+  const body = { kind: "incus", name: "Changed request", installationId: uuid, connectionId: uuid, presetId: "dev", repositoryId: 123, baseRef: "main" };
+  mocks.createIncus.mockRejectedValue(new PersonalPrError("conflict", "Repository import idempotency key changed request"));
+  const request = event("/api/github/sandboxes", "POST", JSON.stringify(body), { user: { ...user, role: "admin" }, authMethod: "session", sessionId: "session-1" });
+  request.request.headers.set("Idempotency-Key", uuid);
+  const response = await sandboxes.POST(request);
+  expect(response.status).toBe(409);
+  expect(await response.json()).toEqual(expect.objectContaining({ code: "conflict" }));
+  expect(mocks.createIncus).toHaveBeenCalledTimes(1);
+  expect(mocks.create).not.toHaveBeenCalled();
+});
+
+
+test("Incus source limits and partial effects have distinct actionable response codes", async () => {
+  const body = { kind: "incus", name: "Feature", installationId: uuid, connectionId: uuid, presetId: "dev", repositoryId: 123, baseRef: "main" };
+  for (const [failure, status, code] of [["unsupported_workspace", 400, "incus_import_limits"], ["provider_failed", 409, "incus_import_partial"]] as const) {
+    mocks.createIncus.mockRejectedValueOnce(new WorkspaceTransferError(failure, "PRIVATE-FAILURE-CANARY"));
+    const request = event("/api/github/sandboxes", "POST", JSON.stringify(body), { user: { ...user, role: "admin" }, authMethod: "session", sessionId: "session-1" });
+    request.request.headers.set("Idempotency-Key", uuid);
+    const response = await sandboxes.POST(request);
+    expect(response.status).toBe(status);
+    const result = await response.json();
+    expect(result.code).toBe(code);
+    expect(JSON.stringify(result)).not.toContain("PRIVATE-FAILURE-CANARY");
+  }
+  expect(mocks.create).not.toHaveBeenCalled();
 });

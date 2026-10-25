@@ -87,6 +87,35 @@ test.describe("Fallback pending-permission tray", () => {
 		expect(posts).toEqual([{ approved: true, scope: "session" }]);
 	});
 
+	test("terminal tool events clear only their matching fallback prompts @evidence", async ({ page, mockApi, emitSse }, testInfo) => {
+		await mockApi({ projects: [proj] });
+		const posts = await installPermissionMock(page);
+		await page.goto("/extensions");
+		await emitRunlessPrompt(page, emitSse);
+		await emitSse({ ...PERMISSION_EVENT, data: { ...PERMISSION_EVENT.data, toolCallId: "prompt-still-pending" } }, "runtime-events");
+		await expect(page.getByTestId("permission-allow-session")).toHaveCount(2);
+
+		await emitSse({ type: "tool:complete", data: {
+			conversationId: "another-conversation", invocationId: PROMPT_ID,
+			toolName: PERMISSION_EVENT.data.toolName, output: {}, success: true, duration: 1,
+		} }, "runtime-events");
+		await expect(page.getByTestId("permission-allow-session")).toHaveCount(2);
+
+		await emitSse({ type: "tool:complete", data: {
+			conversationId: PERMISSION_EVENT.data.conversationId, invocationId: PROMPT_ID,
+			toolName: PERMISSION_EVENT.data.toolName, output: {}, success: true, duration: 1,
+		} }, "runtime-events");
+		await expect(page.getByTestId("permission-allow-session")).toHaveCount(1);
+		await captureEvidence(page, testInfo, "permission-resolved-elsewhere-unrelated-retained");
+
+		await emitSse({ type: "tool:error", data: {
+			conversationId: PERMISSION_EVENT.data.conversationId, invocationId: "prompt-still-pending",
+			toolName: PERMISSION_EVENT.data.toolName, error: "Declined in another page", duration: 1,
+		} }, "runtime-events");
+		await expect(page.getByTestId("pending-permission-tray")).toHaveCount(0);
+		expect(posts).toEqual([]);
+	});
+
 	test("renders the fallback tray and captures evidence @evidence", async ({
 		page,
 		mockApi,

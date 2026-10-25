@@ -1,3 +1,5 @@
+import { resolve } from "node:path";
+import { snapshotFirstPartyExtension } from "../../../scripts/migrate-extension-v4";
 import { beforeEach, expect, test, vi } from "vitest";
 const mocks = vi.hoisted(() => ({ importSource: vi.fn() }));
 vi.mock("$server/extensions/source-import", async () => ({ importExtensionSource: mocks.importSource, parseExtensionSourceInput: (await import("$server/extensions/source-input")).parseExtensionSourceInput }));
@@ -123,5 +125,20 @@ test("a delegated source refusal preserves the opaque HTTP denial", async () => 
   const response = await importSource(importEvent({ kind: "github", repository: "owner/repo", targetInstallationId: "foreign" }, "session", "member"));
   expect(response.status).toBe(404);
   expect(await response.json()).toEqual({ code: "not_found", message: "Installation not found." });
+  expect(mocks.importSource).toHaveBeenCalledTimes(1);
+});
+
+test.each(["incus-sandbox", "infisical-secrets"])("bundled %s route collects the shipped canonical source before staging an inactive candidate", async (name) => {
+  const targetInstallationId = "owned-provider";
+  mocks.importSource.mockImplementationOnce(async (actor, input) => {
+    const snapshot = await snapshotFirstPartyExtension(resolve(import.meta.dirname, "../../.."), input.name);
+    expect(snapshot.files["extension.ts"]).toContain("serve");
+    expect(snapshot.files["ezcorp.config.ts"]).toBeUndefined();
+    expect(actor).toEqual({ principalId: "admin", scope: "global", kind: "human" });
+    return { installation: { id: input.targetInstallationId, enabled: false, activeReleaseId: null }, workspace: { id: "candidate" }, operation: { id: "build", state: "queued" } };
+  });
+  const response = await importSource(importEvent({ kind: "bundled", name, targetInstallationId }));
+  expect(response.status).toBe(200);
+  expect(await response.json()).toMatchObject({ installation: { id: targetInstallationId, enabled: false, activeReleaseId: null }, operation: { state: "queued" } });
   expect(mocks.importSource).toHaveBeenCalledTimes(1);
 });

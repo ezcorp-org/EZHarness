@@ -138,7 +138,7 @@ export const FACTORY_LANES: readonly FactoryLane[] = [
     check: "Factory isolation",
     workflow: CI_WORKFLOW,
     producers: [
-      "bash scripts/setup-extension-runner-ci.sh --install",
+      "bash scripts/setup-extension-runner-ci.sh --probe",
       "bash scripts/verify-factory-local-gpu.sh",
     ],
     artifacts: [],

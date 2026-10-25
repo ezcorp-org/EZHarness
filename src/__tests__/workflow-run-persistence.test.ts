@@ -72,6 +72,7 @@ const {
 } = await import("../db/queries/workflow-approvals");
 type ParkApprovalInput = Parameters<typeof parkWorkflowApproval>[0];
 const { createWorkflow, updateWorkflow } = await import("../db/queries/workflows");
+const { createProject } = await import("../db/queries/projects");
 const { ensureWorkflowVersion } = await import("../db/queries/workflow-versions");
 
 beforeAll(async () => {
@@ -1219,6 +1220,8 @@ describe("factory caller idempotency", () => {
   });
 
   test("a real persistence failure is not reported as an idempotency conflict", async () => {
+    // Workspace admission must pass before the INSERT reaches a real FK failure.
+    const project = await createProject({ name: "Factory persistence failure", path: process.cwd() });
     let dispatches = 0;
     const executor = makeExecutor({
       toolHandler: () => {
@@ -1229,8 +1232,8 @@ describe("factory caller idempotency", () => {
     const run = await executor.runWorkflow(
       definition,
       {},
-      `missing-project-${crypto.randomUUID()}`,
-      "user-1",
+      project.id,
+      `missing-user-${crypto.randomUUID()}`,
       undefined,
       { idempotencyKey: `factory:db-error-${crypto.randomUUID()}` },
     );
@@ -1240,6 +1243,7 @@ describe("factory caller idempotency", () => {
       error: { code: "run-persistence-failed" },
     });
     expect(dispatches).toBe(0);
+    expect(await getWorkflowRunRow(run.id)).toBeUndefined();
   });
 });
 
@@ -1780,10 +1784,9 @@ describe("loadStepResults — fail-closed rehydration", () => {
       steps: [{ name: "t", kind: "transform", output: { a: "x" } }],
     };
 
-    // A projectId with no `projects` row makes the up-front INSERT fail on
-    // its FK. The run must not care: a DB glitch cannot fail a workflow
-    // that otherwise succeeded.
-    const run = await wf.runWorkflow(def, {}, "no-such-project-id");
+    // A userId with no `users` row makes the up-front INSERT fail on its FK.
+    // Workspace admission still requires a real project when projectId is set.
+    const run = await wf.runWorkflow(def, {}, undefined, "no-such-user-id");
 
     expect(run.status).toBe("success");
     expect(await getWorkflowRunRow(run.id)).toBeUndefined();

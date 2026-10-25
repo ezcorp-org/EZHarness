@@ -101,6 +101,20 @@ V1 accepts up to 2,000 regular files, 256 KiB per file, and 32 MiB of file conte
 It rejects links, submodules, special files, and changes to GitHub workflow files.
 An unsupported repository fails before its sandbox becomes usable.
 
+Administrators can also select a qualified Incus environment in the import form.
+This creates a new private project and imports its source in one flow. Incus
+import has a stricter limit of 64 KiB per file and 240 bytes per relative path;
+the file-count and total-content limits above still apply. Paths reserved for
+the guest helper are refused. These checks run before guest allocation.
+The import uses a fixed source snapshot and a local Git checkout, not a full
+history clone. GitHub credentials stay on the host.
+
+An uncertain Incus startup retains the same request and key for retry. A partial
+file transfer blocks further work and directs the owner to inspect the saved
+sandbox before disposal. It does not silently start another import. See
+[Incus sandbox management](../../incus-sandbox-management.md) for setup,
+qualification, stop/start, and cleanup.
+
 The repository is imported at a fixed commit. PR review uses an immutable export,
 bound to the owner, sandbox, conversation, and latest completed run. A different
 run or account cannot substitute files. GitHub writes require a fresh confirmed

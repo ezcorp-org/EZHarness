@@ -337,6 +337,28 @@ describe("lane manifest: one list names the lane-bound tests", () => {
 });
 
 describe("lane selection: the lane job runs the manifest", () => {
+  test("the declaratively provisioned GPU runner verifies prerequisites before its real observations", async () => {
+    const workflows = await realWorkflows();
+    const job = workflowJobBlock(workflows[CI_WORKFLOW]!, "factory-isolation")!;
+    const probe = job.indexOf("run: bash scripts/setup-extension-runner-ci.sh --probe\n");
+    expect(probe).toBeGreaterThan(-1);
+    expect(job).not.toContain("scripts/setup-extension-runner-ci.sh --install");
+    expect(probe).toBeLessThan(job.indexOf("run: bash scripts/verify-factory-local-gpu.sh\n"));
+    expect(probe).toBeLessThan(job.indexOf(`run: ${laneTestCommand("factory-isolation")}\n`));
+    expect(jobRunnerLabels(job)).toContain("factory-gpu");
+    // Hosted jobs still provision their ephemeral Ubuntu runtime.
+    expect(workflowJobBlock(workflows[CI_WORKFLOW]!, "residual-tests")).toContain("bash scripts/setup-extension-runner-ci.sh --install");
+  });
+
+  test("the GPU prerequisite probe cannot be removed or replaced by a comment", async () => {
+    const workflows = await realWorkflows();
+    const command = "bash scripts/setup-extension-runner-ci.sh --probe";
+    for (const replacement of ["echo omitted", `# ${command}`]) {
+      const changed = { ...workflows, [CI_WORKFLOW]: workflows[CI_WORKFLOW]!.replace(`run: ${command}`, `run: ${replacement}`) };
+      expect(factoryLaneIssues(changed)).toContain(`Factory isolation: job 'factory-isolation' never runs producer '${command}'`);
+    }
+  });
+
   test("the factory-gpu lane runs its shared container observations and then the device test", () => {
     expect(laneTestFiles("factory-isolation")).toEqual([...SHARED_GPU_TESTS, DEVICE_TEST]);
     expect(laneTestFiles("factory-deployment-operations")).toEqual([NOTIFICATION_DELIVERY_TEST, ALERT_EVALUATOR_TEST, JOURNEY_TEST]);
@@ -543,4 +565,38 @@ describe("the manifest lookup runs the pinned Bun and stops its caller when it f
       rmSync(root, { recursive: true, force: true });
     }
   });
+});
+
+
+describe("factory deployment Docker bind ownership", () => {
+  function deploymentStep(command: string) {
+    const ci = Bun.YAML.parse(readFileSync(CI_WORKFLOW, "utf8")) as { jobs: Record<string, { steps: { run?: string }[] }> };
+    const matches = ci.jobs["factory-deployment-operations"]!.steps.filter((step) => step.run?.includes(command));
+    expect(matches).toHaveLength(1);
+    return matches[0]!.run!;
+  }
+  function passedEnvironment(command: string, identity?: { uid: string; gid: string }) {
+    const body = `${identity ? `id() { case "$1" in -u) echo ${identity.uid};; -g) echo ${identity.gid};; *) return 1;; esac; };` : ""}
+bash() { printf '%s\n' "$EZ_UPGRADE_APP_UID" "$EZ_UPGRADE_APP_GID" "$EZ_PRODUCTION_RUNNER_APP_UID" "$*"; }
+export -f bash
+${deploymentStep(command)}`;
+    const result = Bun.spawnSync([Bun.which("bash")!, "--noprofile", "--norc", "-c", body], {
+      env: { PATH: process.env.PATH!, EZ_UPGRADE_APP_UID: "wrong", EZ_UPGRADE_APP_GID: "wrong", EZ_PRODUCTION_RUNNER_APP_UID: "wrong" },
+      stdout: "pipe", stderr: "pipe",
+    });
+    expect(result.exitCode).toBe(0);
+    expect(result.stderr.toString()).toBe("");
+    return result.stdout.toString().trim().split("\n");
+  }
+  test("the actual factory upgrade command passes host IDs and the declared runner identity", () => {
+    expect(passedEnvironment("scripts/verify-docker-upgrade.sh")).toEqual([
+      String(process.getuid!()), String(process.getgid!()), String(process.getuid!()), "scripts/verify-docker-upgrade.sh",
+    ]);
+  });
+  test("the actual command keeps app and runner identity equal on another host", () => {
+    expect(passedEnvironment("scripts/verify-docker-upgrade.sh", { uid: "2345", gid: "3456" })).toEqual([
+      "2345", "3456", "2345", "scripts/verify-docker-upgrade.sh",
+    ]);
+  });
+
 });

@@ -58,6 +58,7 @@ mock.module("$server/db/queries/agent-configs", () => ({
 // file too. beforeAll (test-execution time) plus a complete serverModule()
 // factory make THIS file's own requireAuth override active for THIS file's
 // own tests, and afterAll hands the alias back to the real module.
+const realProjectMembers = serverModule("db/queries/project-members", {});
 const realAuthMiddleware = serverModule("auth/middleware", {});
 
 const apiKeysExports = webLibModule("server/security/api-keys", {
@@ -108,6 +109,10 @@ mock.module("$server/runtime/pending-messages", () => ({
 mock.module("$server/types", () => ({ CURRENT_MODEL_SENTINEL: "__current__" }));
 
 beforeAll(() => {
+  mock.module("$server/db/queries/project-members", () => ({
+    ...realProjectMembers,
+    getProjectMembership: async () => ({ role: "member" }),
+  }));
   mock.module("$server/auth/middleware", () => ({
     ...realAuthMiddleware,
     requireAuth: (locals: any) => locals?.user ?? mockUser,
@@ -115,6 +120,7 @@ beforeAll(() => {
 });
 afterAll(() => {
   mock.module("$server/auth/middleware", () => realAuthMiddleware);
+  mock.module("$server/db/queries/project-members", () => realProjectMembers);
 });
 
 // ── Import handler AFTER mocks ─────────────────────────────────────

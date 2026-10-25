@@ -60,6 +60,7 @@ mock.module("../runtime/workflow-release-assets", () => ({
 
 const { WorkflowExecutor, WorkflowCursorWriteError, nestedRunKey } = await import("../runtime/workflow-executor");
 const { insertWorkflowRun } = await import("../db/queries/workflow-runs");
+const { createProject } = await import("../db/queries/projects");
 
 /** Extension-sourced, because only that path writes through `persistCritical`. */
 const definition: WorkflowDefinition = {
@@ -140,16 +141,21 @@ describe("a nested-key conflict is a concurrent start, not a lost row", () => {
   });
 
   test("a persistence failure that is NOT a conflict still refuses, so the unwrap widened nothing", async () => {
+    // Workspace selection must succeed before we test the INSERT boundary.
+    // A missing user supplies the same non-unique FK failure after that guard.
+    const project = await createProject({ name: "Nested persistence failure", path: process.cwd() });
     const executor = makeExecutor();
     const run = await executor.runWorkflow(
       definition,
       {},
-      `missing-project-${crypto.randomUUID()}`,
-      "nested-user",
+      project.id,
+      `missing-user-${crypto.randomUUID()}`,
       undefined,
       { idempotencyKey: nestedRunKey(crypto.randomUUID(), "child", 2) },
     );
 
     expect(run.result).toMatchObject({ success: false, error: { code: "run-persistence-failed" } });
+    const stored = await db.execute(sql`SELECT id FROM workflow_runs WHERE id=${run.id}`);
+    expect((stored as unknown as { rows: { id: string }[] }).rows).toEqual([]);
   });
 });

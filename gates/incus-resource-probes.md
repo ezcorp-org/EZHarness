@@ -1,0 +1,16 @@
+# Incus resource probe gate
+
+Scope: Exact-fixture, host-owned observations for SP04. This module does not claim full SP04 qualification.
+
+- [x] Read actual guest `memory.max`, `cpu.max`, `pids.max`, and UID mapping through a fixture-bound process call. Reject `max`, malformed data, a host-root mapping, and values above the reviewed preset. Evidence: `src/infrastructure/incus-live-resource-probes.ts` and five focused tests.
+- [x] Require a pinned Incus root quota readback for the same sandbox ID. Deny a missing quota or another instance's quota. Evidence: the exact-ID check and negative test.
+- [x] Probe two distinct IP-literal network targets from the guest only after a host control connection proves each target is reachable. Reject guest access to either target. The second target is another sandbox, not a claimed other Incus project. Evidence: the control-target and guest-access negative tests.
+- [x] Run focused tests, typecheck, lint, and isolated focused coverage. Evidence: `bun test ./src/infrastructure/incus-live-resource-probes.test.ts` (5 pass), `bun run typecheck` (pass), `bunx biome check` for both new files (pass), and `bun test --coverage ./src/infrastructure/incus-live-resource-probes.test.ts` (`incus-live-resource-probes.ts`: 100% functions, 100% lines).
+- [x] Wire this module to the live witness with exact, distinct, running fixture ownership and pinned readback. Evidence: `IncusHostLiveWitness.observeEnforcement` checks both persisted bindings and both backend instances, derives the management target from the reviewed connection, and rejects a forged neighbor target. The focused witness tests cover the passing readback and identity denial.
+- [ ] Supply an operator-owned network probe that reads the second guest's IP and service port from the exact Incus fixture and verifies host reachability for both targets. `resourceNetwork` has no production default, so qualification still denies. The runner now passes two running fixtures to this method. A live two-guest L2 traffic denial check and a separate cross-project restriction test have not run; host reachability alone cannot establish project ownership.
+- [ ] Implement safe controlled memory, CPU, PID, and disk load probes with a neighbor guest and host health checks. The current module only observes configured and cgroup limits, so it cannot satisfy `exerciseLimits` or mark SP04 complete.
+- [ ] Confirm the reviewed Incus profile gives a finite guest `cpu.max`. Current lifecycle sets `limits.cpu`, which may bind CPU placement without a hard quota. A `max` result correctly blocks qualification. No server setting is changed here.
+
+Review: The probe returns only measured and exact-scoped facts. It throws when controls cannot be verified. The witness readiness switch remains false.
+
+Review correction (2026-09-23): Astra found that IPv4-mapped and expanded IPv6 loopback could pass the target check. Red tests reproduced both the false target and duplicate-destination cases. The probe now compares parsed address bytes, rejects loopback and unspecified forms before any host or guest call, and treats mapped IPv4 as the same destination as plain IPv4. Eight focused probe tests and the focused witness tests pass. Isolated LCOV after the target-name change reports 81/81 lines and 11/11 functions for the probe. Biome and full typecheck pass.

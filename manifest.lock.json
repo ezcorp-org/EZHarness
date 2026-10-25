@@ -236,15 +236,15 @@
       "directory": "docs/extensions/examples/substack-engagement",
       "entrypoint": "extension.ts",
       "files": 30,
-      "bytes": 292060,
-      "sourceDigest": "f2b082f92f5b8a8a7af5490a68822e825338351d19425b35446f07dce0396c2c"
+      "bytes": 264118,
+      "sourceDigest": "41d61564c824ae50088f0885ea51a009e55daab165146fa8be902935130a1d69"
     },
     "substack-pilot": {
       "directory": "docs/extensions/examples/substack-pilot",
       "entrypoint": "extension.ts",
       "files": 33,
-      "bytes": 238791,
-      "sourceDigest": "167536f09a78adc1079fcf75400d1d92430787ec5297d1a553d8600430336c30"
+      "bytes": 210849,
+      "sourceDigest": "68196a5e0ca874706db1999ca9c6698330a32da9b2ba5360e7847e9c0d993036"
     },
     "substack-pipeline": {
       "directory": "docs/extensions/examples/substack-pipeline",
@@ -330,6 +330,20 @@
       "bytes": 621834,
       "sourceDigest": "4f6a89ad003f2c95d985570c8d38bd91e860e46c683ab4c94e63d53b5c7d767c"
     },
+    "incus-sandbox": {
+      "directory": "extensions/incus-sandbox",
+      "entrypoint": "extension.ts",
+      "files": 12,
+      "bytes": 70729,
+      "sourceDigest": "f658d49ff43e37eac3de17c340869b787af0657adb39a7d7dd8cf1297f649e5c"
+    },
+    "infisical-secrets": {
+      "directory": "extensions/infisical-secrets",
+      "entrypoint": "extension.ts",
+      "files": 14,
+      "bytes": 49849,
+      "sourceDigest": "f3840715091fd292204edc0ab3997fb20ed908c3b9a31b4bfbc9e89327d6206f"
+    },
     "lessons-distiller": {
       "directory": "extensions/lessons-distiller",
       "entrypoint": "extension.ts",
@@ -355,8 +369,8 @@
       "directory": "packages/@ezcorp/ai-kit",
       "entrypoint": "extension.ts",
       "files": 55,
-      "bytes": 407265,
-      "sourceDigest": "37a77c4a38f355923527e0a8539f7ea9a0fae834f270cadba9078feaaa0b49a8"
+      "bytes": 430121,
+      "sourceDigest": "2425d9ca0301f283d6f26cf76ba74d912e308c53fefeb3dbd9d1142ac4586751"
     }
   }
 }

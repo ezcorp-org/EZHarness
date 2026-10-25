@@ -48,6 +48,20 @@ afterAll(async () => {
 });
 
 describe("verifyNpmDependencies", () => {
+  test.each(["substack-engagement", "substack-pilot"])(
+    "bundled %s declares the SDK version that its package installs",
+    async (name) => {
+      const directory = join(import.meta.dir, "../../docs/extensions/examples", name);
+      const manifest = (await import(join(directory, "ezcorp.config.ts"))).default;
+      const packageJson = await Bun.file(join(directory, "package.json")).json();
+      expect(manifest.npmDependencies).toEqual(packageJson.dependencies);
+      expect(verifyNpmDependencies(manifest.npmDependencies, directory)).toEqual({
+        ok: true,
+        issues: [],
+      });
+    },
+  );
+
   test("undefined declaration → ok, no issues", () => {
     expect(verifyNpmDependencies(undefined, tmp)).toEqual({ ok: true, issues: [] });
   });

@@ -168,6 +168,13 @@ describe("persisted workspace routing", () => {
     expect(toolText(result)).toBe("LOCAL_MARKER");
   });
 
+  test("qualification fixture projects cannot resolve a local workspace", async () => {
+    await getTestDb().insert(projects).values({ id: "qualification-project", name: "internal", path: root,
+      purpose: "incus-qualification" });
+    await expect(resolveWorkspaceTarget("qualification-project")).rejects.toThrow("Project workspace is unavailable");
+    await expect(resolveProjectBuiltinTools("qualification-project")).rejects.toThrow("Project workspace is unavailable");
+  });
+
   test("a host-validated local worktree remains the local tool root", async () => {
     await insertProject("pinned-local-project");
     const worktree = await mkdtemp(join(tmpdir(), "pluggable-worktree-"));

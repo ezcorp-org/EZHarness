@@ -66,7 +66,8 @@ export function makeTestPermissionDeps(
   const modeLookups: string[] = [];
   let busOverrideMode: PermissionMode | undefined;
 
-  const ctx = { toolAbortControllers } as unknown as StreamChatContext;
+  const ctx = {
+    controller: new AbortController(), toolAbortControllers } as unknown as StreamChatContext;
   const host = {
     bus,
     pendingPermissions,

@@ -5,7 +5,7 @@
 	"type": "module",
 	"scripts": {
 		"dev": "BUN_RUNTIME_TRANSPILER_CACHE_PATH=0 bunx --bun vite dev",
-		"build": "BUN_RUNTIME_TRANSPILER_CACHE_PATH=0 bunx --bun vite build",
+		"build": "BUN_RUNTIME_TRANSPILER_CACHE_PATH=0 bun x --bun vite build",
 		"preview": "BUN_RUNTIME_TRANSPILER_CACHE_PATH=0 bunx --bun vite preview",
 		"prepare": "svelte-kit sync || echo ''",
 		"check": "svelte-kit sync && svelte-check --tsgo --tsconfig ./tsconfig.json",
@@ -41,7 +41,7 @@
 		"svelte-check": "^4.7.6",
 		"tailwindcss": "^4.2.1",
 		"typescript": "^6.0.3",
-		"vite": "^8.3.2",
+		"vite": "^8.3.3",
 		"vitest": "5.0.3"
 	},
 	"dependencies": {
@@ -60,10 +60,11 @@
 		"marked": "^18.0.14",
 		"svelte-adapter-bun": "^1.0.1",
 		"svelte-dnd-action": "^0.9.79",
-		"zod": "^4.6.5"
+		"zod": "4.6.6"
 	},
 	"overrides": {
 		"cookie": "0.7.2",
+    "dompurify": "3.4.17",
 		"qs": "6.16.0",
 		"sharp": "0.35.5"
 	},

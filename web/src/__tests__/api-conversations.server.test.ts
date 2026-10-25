@@ -15,6 +15,10 @@
 import { test, expect, describe, vi, beforeEach } from "vitest";
 import { expectThrownResponse } from "./helpers/server-route-test-utils";
 
+const getProjectMembership = vi.fn(async () => ({ role: "member" }));
+vi.mock("$server/db/queries/project-members", () => ({ getProjectMembership }));
+beforeEach(() => { getProjectMembership.mockReset(); getProjectMembership.mockResolvedValue({ role: "member" }); });
+
 vi.mock("$server/db/queries/conversations", () => ({
 	createConversation: vi.fn(),
 	listConversations: vi.fn(),
@@ -49,6 +53,22 @@ function makeEvent(opts: {
 const user = { id: "u1", email: "u@x", name: "u", role: "user" };
 const PROJECT_ID = "00000000-0000-4000-8000-000000000001";
 const AGENT_CONFIG_ID = "00000000-0000-4000-8000-000000000002";
+
+describe("project work membership", () => {
+	for (const projectId of [PROJECT_ID, `incus-project-${"a".repeat(48)}`]) {
+		test(`allows a member and refuses a foreign project ${projectId}`, async () => {
+			vi.mocked(createConversation).mockResolvedValue({ id: "c-authorized", projectId } as any);
+			const allowed = await POST(makeEvent({ body: { projectId }, locals: { user } }));
+			expect(allowed.status).toBe(201);
+			expect(getProjectMembership).toHaveBeenCalledWith(user.id, projectId);
+			vi.mocked(createConversation).mockClear();
+			getProjectMembership.mockResolvedValueOnce(undefined as any);
+			const denied = await POST(makeEvent({ body: { projectId }, locals: { user } }));
+			expect(denied.status).toBe(403);
+			expect(vi.mocked(createConversation)).not.toHaveBeenCalled();
+		});
+	}
+});
 
 describe("GET /api/conversations", () => {
 	beforeEach(() => {

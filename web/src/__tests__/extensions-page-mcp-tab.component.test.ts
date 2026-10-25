@@ -107,7 +107,7 @@ describe("Extensions page — MCP tab + guided install", () => {
 		const sentinel = makeExt({ id: "builtin", name: "Built-in Tools", source: "builtin" });
 		restoreFetch = installFetch({ list: [local, sentinel] });
 		const { getByRole, getByTestId, queryByText, queryByPlaceholderText } = render(ExtensionsPage, {
-			props: { data: { bundledExtensions: [], installedExtensions: [local, sentinel] } },
+			props: { data: { canSetUpIncus: false, bundledExtensions: [], installedExtensions: [local, sentinel] } },
 		});
 		await waitFor(() => expect(getByTestId("ext-tab-installed")).toHaveTextContent("1"));
 		expect(queryByText("Built-in Tools")).toBeNull();
@@ -123,7 +123,7 @@ describe("Extensions page — MCP tab + guided install", () => {
 	test("renders three tabs; MCP tab filters to kind:mcp rows", async () => {
 		restoreFetch = installFetch({ list: [local, mcp] });
 		const { getByTestId, findByText, queryByText } = render(ExtensionsPage, {
-			props: { data: { bundledExtensions: [], installedExtensions: [local, mcp] } },
+			props: { data: { canSetUpIncus: false, bundledExtensions: [], installedExtensions: [local, mcp] } },
 		});
 
 		// Three tabs present.
@@ -166,7 +166,7 @@ describe("Extensions page — MCP tab + guided install", () => {
 			installed: { openUrl: "/extensions/author?installation=db-mcp&workspace=draft" },
 		});
 		const { getByText, getByPlaceholderText, findByTestId } = render(ExtensionsPage, {
-			props: { data: { bundledExtensions: [], installedExtensions: [] } },
+			props: { data: { canSetUpIncus: false, bundledExtensions: [], installedExtensions: [] } },
 		});
 
 		// Switch install form to MCP, fill, connect.

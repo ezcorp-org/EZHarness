@@ -28,6 +28,7 @@
 	import { parseProposeCardResult } from "./ez-propose-card-logic.js";
 	import { parseDraftCardResult } from "./ez-draft-card-logic.js";
 	import PreviewConsentCard from "./PreviewConsentCard.svelte";
+	import { inlineToolStore } from "$lib/inline-tool-store.svelte";
 	import { parseConsentCardResult } from "./preview-consent-card-logic.js";
 	import WebContextCard from "./WebContextCard.svelte";
 	import { buildWebContextView } from "./web-context-card-logic.js";
@@ -175,7 +176,7 @@
 {:else if cardName === 'EzToolResultCard' && ezCardResult}
 	<EzToolResultCard result={ezCardResult} toolName={toolCall.toolName} />
 {:else if cardName === 'PreviewConsentCard' && consentCardData}
-	<PreviewConsentCard data={consentCardData} />
+	<PreviewConsentCard data={consentCardData} resolved={inlineToolStore.getById(toolCall.id ?? "")?.previewConsentResolved === true} resolvedOpenUrl={inlineToolStore.getById(toolCall.id ?? "")?.previewConsentOpenUrl} onResolved={(openUrl) => inlineToolStore.resolvePreviewConsent(toolCall.id ?? "", openUrl)} />
 {:else if cardName === 'WebContextCard' && webContextView}
 	<WebContextCard view={webContextView} />
 {:else if cardName === 'WorkflowRunCard' && workflowRunView}

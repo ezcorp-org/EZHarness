@@ -26,9 +26,15 @@
  */
 
 import { test, expect } from "./fixtures/test-base.js";
+import { captureEvidence } from "./fixtures/evidence.js";
 import { sendComposerMessage } from "./fixtures/composer.js";
 import type { MockOverrides } from "./fixtures/api-mocks.js";
 import { makeProject, makeConversation, makeMessage } from "./fixtures/data.js";
+import { execFile } from "node:child_process";
+import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { promisify } from "node:util";
 
 const proj = makeProject({ id: "proj-prev", name: "Preview Project" });
 const conv = makeConversation({
@@ -64,6 +70,7 @@ function consentPayload(port: number) {
 
 interface ConsentMockOpts {
 	fail?: boolean;
+	openUrl?: string;
 }
 
 // Register the /api/preview/consent mock + recorder. MUST run AFTER
@@ -89,7 +96,7 @@ async function installConsentMock(
 		}
 		return route.fulfill({
 			status: 200,
-			json: { ok: true, action: body.action, previewId: "pid26label", code: "code123", subdomainLabel: "pid26label" },
+			json: { ok: true, action: body.action, previewId: "pid26label", code: "code123", subdomainLabel: "pid26label", openUrl: opts.openUrl ?? "http://pid26label.preview.localhost:4301/__open?c=code123" },
 		});
 	});
 	return { calls };
@@ -149,6 +156,54 @@ async function navigateAndSurfaceCard(
 }
 
 test.describe("secure preview — expose-consent card", () => {
+	test("@evidence actual native preview survives completed-run history refresh", async ({ page, mockApi, emitSse }, testInfo) => {
+		const root = await mkdtemp(join(tmpdir(), "ez-native-preview-events-"));
+		try {
+			const artifact = join(root, "events.json");
+			// This runs the selected provider tool and real guest helper in an
+			// owned fixture. Only the browser SSE and consent HTTP transports
+			// are mocked below; cards are never manufactured by this test.
+			await promisify(execFile)("bun", ["test", "src/__tests__/provider-preview-consent.test.ts", "--test-name-pattern", "native provider dev server survives"], {
+				cwd: new URL("../../", import.meta.url), env: { ...process.env, EZCORP_PREVIEW_TEST_ARTIFACT: artifact }, timeout: 25_000, maxBuffer: 256 * 1024,
+			});
+			const actual = JSON.parse(await readFile(artifact, "utf8")) as { projectId: string; conversationId: string; port: number; events: Array<{ type: string; data: unknown }> };
+			const project = makeProject({ id: actual.projectId, name: "Native guest preview fixture" });
+			const conversation = makeConversation({ id: actual.conversationId, projectId: actual.projectId });
+			await mockApi({ projects: [project], conversations: [conversation], messages: [] });
+			const { calls } = await installConsentMock(page);
+			await page.clock.install();
+			await page.goto(`/project/${project.id}/chat/${conversation.id}`);
+			const sentResponse = page.waitForResponse((response) => response.url().includes(`/api/conversations/${conversation.id}/messages`) && response.request().method() === "POST");
+			await sendComposerMessage(page, "Start the fixture preview server.");
+			const sent = await (await sentResponse).json();
+			expect(sent.runId).toBe("run-stream");
+			await emitSse({ type: "run:start", data: { run: { id: sent.runId, agentName: "chat", status: "running", conversationId: conversation.id, projectId: project.id, startedAt: new Date().toISOString(), logs: [] } } });
+			const assistant = makeMessage({ id: "preview-history-assistant", conversationId: conversation.id, role: "assistant", content: "Preview server ready." });
+			let historyRefreshes = 0;
+			await page.route(`**/api/conversations/${conversation.id}/messages*`, (route) => {
+				if (route.request().method() !== "GET" || !new URL(route.request().url()).searchParams.has("withToolCalls")) return route.fallback();
+				historyRefreshes += 1;
+				return route.fulfill({ json: { messages: [sent.userMessage, assistant].map((message) => ({ ...message, toolCalls: [] })), subConversations: [], orphanedToolCalls: [], subConversationToolCalls: {} } });
+			});
+			for (const event of [...actual.events, ...actual.events]) await emitSse(event);
+			await expect(page.getByTestId("preview-consent-card")).toHaveCount(1);
+			await expect(page.getByTestId("preview-consent-expose")).toBeVisible();
+			// The normal history reader throttles snapshots for five seconds.
+			// Advance only this mocked browser clock; no authority proof uses it.
+			await page.clock.fastForward(6_000);
+			await emitSse({ type: "run:turn_saved", data: { runId: sent.runId, conversationId: conversation.id, messageId: assistant.id, parentMessageId: sent.userMessage.id, content: assistant.content, final: true } });
+			await emitSse({ type: "run:turn_text_reset", data: { runId: sent.runId } });
+			await emitSse({ type: "run:complete", data: { run: { id: sent.runId, agentName: "chat", status: "success", startedAt: new Date().toISOString(), logs: [], result: { success: true, output: { fullText: assistant.content } } } } });
+			await expect.poll(() => historyRefreshes).toBeGreaterThan(0);
+			await expect(page.getByTestId("preview-consent-card")).toHaveCount(1);
+			await expect(page.getByTestId("preview-consent-expose")).toBeVisible();
+			await captureEvidence(page, testInfo, "preview-consent-after-history-refresh");
+			await page.getByTestId("preview-consent-expose").click();
+			await expect(page.getByTestId("preview-consent-open")).toBeVisible();
+			expect(calls).toEqual([{ action: "expose", conversationId: actual.conversationId, port: actual.port }]);
+		} finally { await rm(root, { recursive: true, force: true }); }
+	});
+
 	test("renders the three affordances exactly once (no double-render)", async ({
 		page,
 		mockApi,
@@ -176,11 +231,18 @@ test.describe("secure preview — expose-consent card", () => {
 		const open = page.getByTestId("preview-consent-open");
 		await expect(open).toBeVisible({ timeout: 8000 });
 		const href = (await open.getAttribute("href")) ?? "";
-		expect(href).toContain("pid26label.preview.");
-		expect(href).toContain("/__open?c=code123");
+		expect(href).toBe("http://pid26label.preview.localhost:4301/__open?c=code123");
 
 		expect(calls).toHaveLength(1);
 		expect(calls[0]).toMatchObject({ action: "expose", conversationId: conv.id, port: 5173 });
+	});
+
+	test("Expose uses the configured split preview host instead of the app host", async ({ page, mockApi, emitSse }) => {
+		const openUrl = "https://pid26label.preview.previews.example.test:8443/__open?c=code123";
+		await navigateAndSurfaceCard(page, mockApi, emitSse, 5173, { openUrl });
+		await expect(page.getByTestId("preview-consent-card")).toBeVisible({ timeout: 8000 });
+		await page.getByTestId("preview-consent-expose").click();
+		await expect(page.getByTestId("preview-consent-open")).toHaveAttribute("href", openUrl);
 	});
 
 	test("Always expose POSTs action=always-expose (D3)", async ({ page, mockApi, emitSse }) => {

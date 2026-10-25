@@ -37,13 +37,14 @@
  */
 import { createHash, createPublicKey, createSign, generateKeyPairSync, randomBytes } from "node:crypto";
 import { chmod, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
-import { homedir, tmpdir } from "node:os";
+import { tmpdir } from "node:os";
+import { makeFactoryTempPrivateRoot } from "../../../src/__tests__/helpers/factory-private-root";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { setTimeout as sleep } from "node:timers/promises";
 import { SQL } from "bun";
 import { buildFactoryGuest } from "./guest";
-import { freePort, httpSession, reachable, StackProcesses, waitFor } from "./processes";
+import { freePort, httpSession, reachable, saveStackFailureDiagnostics, StackProcesses, waitFor } from "./processes";
 import { FACTORY_SERVICES_CURSOR_TTL_MS, FACTORY_SERVICES_FUTURE_DRAFT_REQUEST_PATH, FACTORY_SERVICES_RESTORE_REQUEST_PATH, FACTORY_SERVICES_STATE_PATH, type FactoryServicesState } from "./state";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
@@ -80,9 +81,9 @@ const NAMESPACE = `${TENANT}.factory`;
 const processes = new StackProcesses();
 const logs = process.env.FACTORY_SERVICES_LOGS ?? await mkdtemp(join(tmpdir(), "factory-services-logs-"));
 await mkdir(logs, { recursive: true });
-// Under the home directory, not the shared temporary directory: the product
-// refuses a private file with a writable foreign ancestor, and /tmp is one.
-const root = await mkdtemp(join(homedir(), ".factory-services-"));
+// Reuse the private fixture root: owned HOME ancestors may be 0750/0755,
+// while the strict reader accepts a private root below root-owned sticky /tmp.
+const root = await makeFactoryTempPrivateRoot("factory-services-");
 await chmod(root, 0o700);
 const secrets = join(root, "secrets");
 const readiness = join(root, "readiness");
@@ -120,6 +121,12 @@ async function stop(reason: string): Promise<void> {
 async function fail(error: unknown): Promise<never> {
 	failed = true;
 	console.error("[factory-services] the stack failed:", error);
+	try {
+		const diagnostic = await saveStackFailureDiagnostics(processes.children, readiness, logs);
+		console.error("[factory-services] process readiness:", diagnostic);
+	} catch {
+		console.error("[factory-services] failure diagnostics unavailable");
+	}
 	await Promise.race([stop("failure"), sleep(20_000)]);
 	process.exit(1);
 }
@@ -370,7 +377,7 @@ if (!hostReady) await fail("the pool or the supervisor did not publish ready");
 
 // ── The built web server ──────────────────────────────────────────────
 const baseURL = `http://127.0.0.1:${WEB_PORT}`;
-const web = processes.start("web", BUN, ["build/index.js"], {
+processes.start("web", BUN, ["build/index.js"], {
 	cwd: WEB,
 	env: {
 		PORT: String(WEB_PORT), HOST: "127.0.0.1", ORIGIN: baseURL,
@@ -402,7 +409,7 @@ const ready = await waitFor(async () => {
 	const response = await fetch(`${baseURL}/api/ready`).catch(() => null);
 	return response?.status === 200 || null;
 }, 360, 1_000);
-if (!ready) await fail(`the application never reported ready:\n${web.log.join("").slice(-3_000)}`);
+if (!ready) await fail("the application never reported ready");
 
 // ── The administrator, two projects, and the guest's v4 installation ──
 const call = httpSession(baseURL);

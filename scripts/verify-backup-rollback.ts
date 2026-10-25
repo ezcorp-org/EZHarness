@@ -16,6 +16,7 @@
  * Run: bun run scripts/verify-backup-rollback.ts
  */
 
+import { isDeepStrictEqual } from "node:util";
 import { mkdtempSync, rmSync, existsSync, readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
@@ -58,6 +59,10 @@ const backup = await import("../src/db/backup");
 const readiness = await import("../src/readiness");
 const { sql } = await import("drizzle-orm");
 
+async function settingsRows(): Promise<Array<{ key: string; value: unknown }>> {
+  return (await conn.getDb().execute(sql`SELECT key, value FROM settings ORDER BY key`)).rows;
+}
+
 try {
   section("First boot: empty DB dir → no snapshot, migrate runs, readiness = ready");
   await conn.initDb();
@@ -72,6 +77,10 @@ try {
     sql`INSERT INTO settings (key, value) VALUES ('verify-key', '"verify-value"'::jsonb)`,
   );
   ok("Seeded row (key=verify-key) into settings table");
+  // Migrations can seed settings too. Capture every key and JSON value before
+  // the next boot takes its snapshot; none may be lost or changed by restore.
+  const baselineSettings = await settingsRows();
+  assert(!baselineSettings.some((row) => row.key === "will-be-lost"), "Rollback mutation key is absent from the baseline");
   await conn.closeDb();
 
   section("Second boot: non-empty DB → pre-boot snapshot is taken");
@@ -95,12 +104,11 @@ try {
   await conn.getDb().execute(
     sql`INSERT INTO settings (key, value) VALUES ('will-be-lost', '"x"'::jsonb)`,
   );
-  const preRollback = (await conn.getDb().execute(
-    sql`SELECT key FROM settings ORDER BY key`,
-  )).rows.map((r: { key: string }) => r.key);
+  const preRollback = await settingsRows();
   assert(
-    preRollback.length === 2 && preRollback.includes("will-be-lost"),
-    `Pre-rollback DB has 2 rows: [${preRollback.join(", ")}]`,
+    isDeepStrictEqual(preRollback.filter((row) => row.key !== "will-be-lost"), baselineSettings)
+      && isDeepStrictEqual(preRollback.filter((row) => row.key === "will-be-lost"), [{ key: "will-be-lost", value: "x" }]),
+    "Pre-rollback DB preserves every baseline setting and contains only the deliberate added row",
   );
 
   // Trigger rollback directly. EZCORP_NO_EXIT=1 makes it throw instead of
@@ -135,12 +143,10 @@ try {
     readiness.getReadiness().reason === "migration-blocked",
     `Readiness reason = migration-blocked`,
   );
-  const restoredRows = (await conn.getDb().execute(
-    sql`SELECT key FROM settings ORDER BY key`,
-  )).rows.map((r: { key: string }) => r.key);
+  const restoredRows = await settingsRows();
   assert(
-    restoredRows.length === 1 && restoredRows[0] === "verify-key",
-    `Restored DB has ONLY pre-snapshot data: [${restoredRows.join(", ")}] — "will-be-lost" correctly gone`,
+    isDeepStrictEqual(restoredRows, baselineSettings),
+    "Restored DB exactly matches pre-snapshot keys and values; the deliberate added row is gone",
   );
   await conn.closeDb();
 
@@ -156,10 +162,8 @@ try {
     readiness.getReadiness().state === "ready",
     `Post-recovery readiness = ready (got ${readiness.getReadiness().state})`,
   );
-  const finalRows = (await conn.getDb().execute(
-    sql`SELECT key FROM settings ORDER BY key`,
-  )).rows.map((r: { key: string }) => r.key);
-  assert(finalRows.length === 1 && finalRows[0] === "verify-key", "Data still intact after recovery");
+  const finalRows = await settingsRows();
+  assert(isDeepStrictEqual(finalRows, baselineSettings), "Every baseline setting and value remains intact after recovery");
   await conn.closeDb();
 
   console.log(`\n${bold(green("ALL VERIFIED"))} — snapshot, rollback, circuit breaker, and recovery all work end-to-end.`);

@@ -244,7 +244,7 @@ EOF
     # that tree resolves to zero files — which bun exits non-zero for. That read
     # as "your test failed" on a file whose tests are fine. scripts/test.sh
     # prefixes for the same reason.
-    without_git_context bun test --timeout 30000 "./$t" || rc=1
+    without_git_context bash "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/test-file-context.sh" "$t" bun test --timeout 30000 "./$t" || rc=1
   done
   if [ "${#vitest_targets[@]}" -gt 0 ]; then
     echo "  vitest: ${vitest_targets[*]}"

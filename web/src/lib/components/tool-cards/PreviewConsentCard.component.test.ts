@@ -44,7 +44,7 @@ describe("PreviewConsentCard", () => {
 
 	test("Expose posts action=expose then renders the Open-preview link", async () => {
 		const spy = stubFetch(async () =>
-			new Response(JSON.stringify({ ok: true, subdomainLabel: "abc26label", code: "code123" }), { status: 200 }),
+			new Response(JSON.stringify({ ok: true, openUrl: "http://abc26label.preview.localhost:4301/__open?c=code123" }), { status: 200 }),
 		);
 		const { getByTestId } = render(PreviewConsentCard, { props: { data: DATA } });
 		await fireEvent.click(getByTestId("preview-consent-expose"));
@@ -53,13 +53,12 @@ describe("PreviewConsentCard", () => {
 		const body = JSON.parse((spy.mock.calls[0]![1] as RequestInit).body as string);
 		expect(body).toEqual({ conversationId: "conv-1", port: 5173, action: "expose" });
 		const href = getByTestId("preview-consent-open").getAttribute("href") ?? "";
-		expect(href).toContain("abc26label.preview.");
-		expect(href).toContain("/__open?c=code123");
+		expect(href).toBe("http://abc26label.preview.localhost:4301/__open?c=code123");
 	});
 
 	test("Always-expose posts action=always-expose", async () => {
 		const spy = stubFetch(async () =>
-			new Response(JSON.stringify({ ok: true, subdomainLabel: "lbl", code: "c" }), { status: 200 }),
+			new Response(JSON.stringify({ ok: true, openUrl: "https://lbl.preview.example.test/__open?c=c" }), { status: 200 }),
 		);
 		const { getByTestId } = render(PreviewConsentCard, { props: { data: DATA } });
 		await fireEvent.click(getByTestId("preview-consent-always"));
@@ -86,5 +85,13 @@ describe("PreviewConsentCard", () => {
 		await waitFor(() => expect(getByTestId("preview-consent-error")).toHaveTextContent("boom"));
 		await fireEvent.click(getByText("Try again"));
 		expect(getByTestId("preview-consent-expose")).toBeInTheDocument();
+	});
+
+	test.each([4301, "/relative", "javascript:alert(1)"])("an unsafe server URL (%s) never shows an Open-preview link", async (openUrl) => {
+		stubFetch(async () => new Response(JSON.stringify({ ok: true, openUrl }), { status: 200 }));
+		const { getByTestId, queryByTestId } = render(PreviewConsentCard, { props: { data: DATA } });
+		await fireEvent.click(getByTestId("preview-consent-expose"));
+		await waitFor(() => expect(getByTestId("preview-consent-error")).toHaveTextContent("Malformed expose response"));
+		expect(queryByTestId("preview-consent-open")).toBeNull();
 	});
 });

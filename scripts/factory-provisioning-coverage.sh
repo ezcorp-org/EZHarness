@@ -6,6 +6,7 @@
 # measured by its own unit suite in the default pool.
 set -euo pipefail
 repo_root=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
+source "$repo_root/scripts/lib/test-file-context.sh"
 out=${COV_OUT:?COV_OUT is required}
 tmp=$(mktemp -d "${TMPDIR:-/tmp}/factory-provisioning-coverage.XXXXXX")
 trap 'rm -rf "$tmp"' EXIT
@@ -17,8 +18,7 @@ bun test --timeout 120000 --coverage --coverage-reporter=lcov --coverage-dir="$t
 # The gateway reads DATABASE_URL at module load, so it runs in its own process
 # with the database named up front. CI provides DATABASE_URL; locally a scratch
 # database on the same server is named, created by the test, and dropped by it.
-gateway_url=${DATABASE_URL:-$(bun -e 'const u = new URL(process.env.FACTORY_TEST_POSTGRES_URL); u.pathname = `/factory_gateway_${crypto.randomUUID().replaceAll("-", "")}`; console.log(u.toString())')}
-DATABASE_URL="$gateway_url" bun test --timeout 120000 --coverage --coverage-reporter=lcov --coverage-dir="$tmp/gateway" \
+ez_test_file_context tests/postgres/factory-gateway-process.test.ts bun test --timeout 120000 --coverage --coverage-reporter=lcov --coverage-dir="$tmp/gateway" \
   ./tests/postgres/factory-gateway-process.test.ts
 bun scripts/merge-lcov.ts "$tmp/*/lcov.info" "$tmp/merged.info"
 bun scripts/filter-lcov-sources.ts "$tmp/merged.info" --output "$out/lcov.info" \

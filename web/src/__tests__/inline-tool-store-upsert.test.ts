@@ -363,3 +363,107 @@ describe("InlineToolStore.upsertStreaming", () => {
 		expect(inlineToolStore.getByConversation("conv-1")[0]!.cardType).toBe("diff");
 	});
 });
+
+describe("host preview consent during persisted tool hydration", () => {
+	beforeEach(() => { inlineToolStore.calls = []; });
+
+	function preview(overrides: Partial<(typeof inlineToolStore.calls)[number]> = {}) {
+		return {
+			id: "preview-11111111-1111-4111-8111-111111111111",
+			conversationId: "conv-preview", extensionName: "ezcorp-preview",
+			toolName: "preview_detected", cardType: "ez-preview-consent",
+			input: { port: 4173 }, status: "complete" as const, source: "inline" as const,
+			retryCount: 0, output: JSON.stringify({ kind: "consent-card", conversationId: "conv-preview", port: 4173 }),
+			...overrides,
+		};
+	}
+
+	test("keeps the validated live card through repeated history snapshots", () => {
+		const call = preview();
+		inlineToolStore.calls = [call];
+		const stored = inlineToolStore.calls[0];
+		inlineToolStore.hydrateToolCalls(call.conversationId, [], inlineToolStore.liveRevision);
+		inlineToolStore.hydrateToolCalls(call.conversationId, []);
+		expect(inlineToolStore.calls).toEqual([call]);
+		expect(inlineToolStore.calls[0]).toBe(stored);
+	});
+
+	test.each([
+		{ extensionName: "other-extension" }, { toolName: "other-tool" },
+		{ cardType: "other-card" }, { source: "agent-run" as const },
+		{ status: "running" as const }, { output: undefined }, { output: "not-json" },
+		{ output: JSON.stringify({ conversationId: "other-conversation", port: 4173 }) },
+		{ output: JSON.stringify({ conversationId: "conv-preview", port: 4174 }) },
+	])("does not preserve an unrelated or invalid card: %j", (overrides) => {
+		inlineToolStore.calls = [preview(overrides)];
+		inlineToolStore.hydrateToolCalls("conv-preview", []);
+		expect(inlineToolStore.calls).toEqual([]);
+	});
+
+	test("a persisted row replaces the matching live id without duplication", () => {
+		const call = preview();
+		inlineToolStore.calls = [call];
+		inlineToolStore.hydrateToolCalls(call.conversationId, [{
+			id: call.id, extensionId: "builtin", toolName: "readFile", input: { path: "file.txt" },
+			outputSummary: "persisted", success: true, durationMs: 1, status: "success",
+		}]);
+		expect(inlineToolStore.calls).toHaveLength(1);
+		expect(inlineToolStore.calls[0]).toMatchObject({ id: call.id, extensionName: "builtin", toolName: "readFile" });
+		expect(inlineToolStore.calls[0]).not.toBe(call);
+	});
+
+	test("keeps conversation scope and respects explicit removal and store reset", () => {
+		const first = preview();
+		const other = preview({ id: "preview-22222222-2222-4222-8222-222222222222", conversationId: "conv-other",
+			output: JSON.stringify({ conversationId: "conv-other", port: 4173 }) });
+		inlineToolStore.calls = [first, other];
+		inlineToolStore.hydrateToolCalls(first.conversationId, []);
+		expect(inlineToolStore.getByConversation(first.conversationId)).toEqual([first]);
+		expect(inlineToolStore.getByConversation(other.conversationId)).toEqual([other]);
+		inlineToolStore.remove(first.id);
+		inlineToolStore.hydrateToolCalls(first.conversationId, []);
+		expect(inlineToolStore.getByConversation(first.conversationId)).toEqual([]);
+		inlineToolStore.calls = [];
+		inlineToolStore.hydrateToolCalls(other.conversationId, []);
+		expect(inlineToolStore.calls).toEqual([]);
+	});
+});
+
+describe("host preview choice markers", () => {
+	beforeEach(() => { inlineToolStore.calls = []; });
+	function addPreview() {
+		inlineToolStore.add({ id: "preview-choice", conversationId: "conv-choice", extensionName: "ezcorp-preview",
+			toolName: "preview_detected", cardType: "ez-preview-consent", source: "inline", input: { port: 4173 } });
+	}
+	test("marks only the exact host notification and keeps a validated Open URL in memory", () => {
+		addPreview();
+		inlineToolStore.resolvePreviewConsent("missing");
+		expect(inlineToolStore.calls[0]?.previewConsentResolved).toBeUndefined();
+		inlineToolStore.resolvePreviewConsent("preview-choice", "https://owned.preview.test/__open?c=fixture");
+		expect(inlineToolStore.calls[0]).toMatchObject({ previewConsentResolved: true,
+			previewConsentOpenUrl: "https://owned.preview.test/__open?c=fixture" });
+		inlineToolStore.resolvePreviewConsent("preview-choice");
+		expect(inlineToolStore.calls[0]?.previewConsentOpenUrl).toBeUndefined();
+	});
+	test("does not mark another tool or accept an unsafe Open URL", () => {
+		addPreview();
+		inlineToolStore.resolvePreviewConsent("preview-choice", "javascript:alert(1)");
+		expect(inlineToolStore.calls[0]?.previewConsentResolved).toBeUndefined();
+		inlineToolStore.calls[0]!.extensionName = "other";
+		inlineToolStore.resolvePreviewConsent("preview-choice");
+		expect(inlineToolStore.calls[0]?.previewConsentResolved).toBeUndefined();
+	});
+});
+
+describe("ordinary inline event updates", () => {
+	test("preserves dock layouts, error details, and retry counts outside host previews", () => {
+		inlineToolStore.calls = [];
+		inlineToolStore.add({ id: "ordinary-inline", conversationId: "conv-inline", extensionName: "ordinary", toolName: "shell", input: {} });
+		inlineToolStore.updateFromEvent("ordinary-inline", "tool:start", { timestamp: 1, cardType: "terminal", cardLayout: "dock" });
+		expect(inlineToolStore.calls[0]).toMatchObject({ status: "running", cardLayout: "dock" });
+		inlineToolStore.updateFromEvent("ordinary-inline", "tool:error", { error: "command failed", duration: 2, cardType: "terminal", cardLayout: "inline" });
+		expect(inlineToolStore.calls[0]).toMatchObject({ status: "error", error: "command failed", duration: 2, retryCount: 1, cardLayout: "inline" });
+		inlineToolStore.updateFromEvent("ordinary-inline", "tool:complete", { output: "recovered", duration: 3, cardType: "terminal", cardLayout: "dock" });
+		expect(inlineToolStore.calls[0]).toMatchObject({ status: "complete", output: "recovered", duration: 3, retryCount: 1, cardLayout: "dock" });
+	});
+});

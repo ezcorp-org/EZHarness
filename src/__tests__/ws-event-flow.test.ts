@@ -5,6 +5,9 @@ import {
   resetMockAgent,
 } from "./helpers/mock-pi-ai";
 import type { AgentEvents } from "../types";
+import { sandboxBindings } from "../db/schema";
+
+let bindingQueries = 0;
 
 afterAll(() => {
   resetMockAgent();
@@ -33,7 +36,7 @@ mock.module("../db/queries/runs", () => ({
 }));
 
 mock.module("../db/queries/projects", () => ({
-  getProject: async () => undefined,
+  getProject: async (id: string) => ({ id, path: "/tmp", variables: {} }),
 }));
 
 mock.module("../db/queries/settings", () => ({
@@ -103,12 +106,15 @@ mock.module("../extensions/permissions", () => ({
 // Re-establish mocks before each test in case a concurrent test file's
 // restoreModuleMocks() overwrites our mocks during parallel execution.
 beforeEach(() => {
+  bindingQueries = 0;
   // Restore pristine globals that may have been replaced by other test files
   if ((globalThis as any).__pristineFetch) globalThis.fetch = (globalThis as any).__pristineFetch;
   if ((globalThis as any).__pristineWebSocket) globalThis.WebSocket = (globalThis as any).__pristineWebSocket;
   mock.module("../db/connection", () => ({
     getDb: () => ({
-      select: () => ({ from: () => ({ where: async () => [] }) }),
+      select: () => ({ from: (table: unknown) => ({ where: () => Object.assign(Promise.resolve([]), {
+        limit: async () => { if (table === sandboxBindings) bindingQueries++; return []; },
+      }) }) }),
       insert: () => ({ values: async () => ({}) }),
       update: () => ({ set: () => ({ where: async () => ({}) }) }),
       delete: () => ({ where: async () => ({}) }),
@@ -119,7 +125,7 @@ beforeEach(() => {
     closeDb: async () => {},
   }));
   mock.module("../db/queries/conversations", () => ({
-    getConversation: async () => null,
+    getConversation: async (id: string) => ({ id, projectId: "proj-1", parentConversationId: null }),
     getConversationPath: async () => [],
     getLatestLeaf: async () => null,
     resolveSystemPrompt: async () => undefined,
@@ -143,7 +149,7 @@ beforeEach(() => {
     isListingInstalled: async () => false,
   }));
   mock.module("../db/queries/projects", () => ({
-    getProject: async () => undefined,
+    getProject: async (id: string) => ({ id, path: "/tmp", variables: {} }),
   }));
   mock.module("../db/queries/agent-configs", () => ({
     listAgentConfigs: async () => [],
@@ -296,6 +302,7 @@ describe("WebSocket event flow (end-to-end)", () => {
 
       // Run streamChat
       await exec.streamChat("conv-ws-1", "Hi there", {});
+      expect(bindingQueries).toBeGreaterThan(0);
 
       const msgs = await msgsPromise;
 

@@ -1,4 +1,4 @@
-import { eq, sql } from "drizzle-orm";
+import { and, eq, sql } from "drizzle-orm";
 import { getDb, type DbTransaction } from "../connection";
 import { projects } from "../schema";
 import { upsertProjectMemberInTransaction } from "./project-members";
@@ -7,6 +7,7 @@ import { SELF_PROJECT_ID } from "../seed-self-project";
 
 export type Project = typeof projects.$inferSelect;
 export type NewProject = { name: string; path: string; icon?: string | null; variables?: Record<string, unknown> };
+const visibleProject = eq(projects.purpose, "user");
 
 export type ProjectCreationParticipant = (transaction: MigrationDb, projectId: string, ownerId: string) => Promise<void>;
 let projectCreationParticipant: ProjectCreationParticipant | null = null;
@@ -24,11 +25,12 @@ export async function listProjects(): Promise<Project[]> {
   return getDb()
     .select()
     .from(projects)
+    .where(visibleProject)
     .orderBy(sql`CASE WHEN ${projects.id} = ${SELF_PROJECT_ID} THEN 0 ELSE 1 END`, projects.createdAt);
 }
 
 export async function getProject(id: string): Promise<Project | undefined> {
-  const rows = await getDb().select().from(projects).where(eq(projects.id, id));
+  const rows = await getDb().select().from(projects).where(and(eq(projects.id, id), visibleProject));
   return rows[0];
 }
 
@@ -40,9 +42,9 @@ export async function getProject(id: string): Promise<Project | undefined> {
  * non-admin who just created a project can rename and delete it.
  *
  * `ownerUserId` is OPTIONAL rather than required, deliberately. Several
- * callers genuinely have no user — the `/api/__test/seed` fixture route and
- * ~30 backend tests build projects with no principal at all — and forcing a
- * placeholder id on them would either invent a member or need a sentinel
+ * callers genuinely have no user — backend tests build projects with no
+ * principal at all. Forcing a placeholder id on them would invent a member
+ * or need a sentinel
  * user. Omitting it is SAFE rather than a hole: a project with no members is
  * still mutable through the instance-admin override, and `migrate()`'s
  * ownerless backfill attributes it to the first admin on the next boot. The
@@ -60,6 +62,7 @@ export async function createProject(
     id: crypto.randomUUID(),
     name: data.name,
     path: data.path,
+    purpose: "user" as const,
     icon: data.icon ?? null,
     variables: data.variables ?? {},
     createdAt: now,
@@ -98,7 +101,7 @@ export async function deleteProject(id: string): Promise<boolean> {
 }
 
 export async function getProjectByName(name: string): Promise<Project | undefined> {
-  const rows = await getDb().select().from(projects).where(eq(projects.name, name));
+  const rows = await getDb().select().from(projects).where(and(eq(projects.name, name), visibleProject));
   return rows[0];
 }
 
@@ -113,6 +116,6 @@ export async function getProjectByName(name: string): Promise<Project | undefine
  */
 export async function getProjectByPath(path: string): Promise<Project | undefined> {
   if (!path) return undefined;
-  const rows = await getDb().select().from(projects).where(eq(projects.path, path));
+  const rows = await getDb().select().from(projects).where(and(eq(projects.path, path), visibleProject));
   return rows[0];
 }

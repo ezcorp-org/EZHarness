@@ -84,19 +84,21 @@ export async function issueTestWebhookReceiverTls(dnsNames: readonly string[] = 
 
 export async function startTestWebhookReceiver(options: TestWebhookReceiverOptions = {}): Promise<TestWebhookReceiver> {
   const tls = options.tls ?? await issueTestWebhookReceiverTls(options.dnsNames);
-  const requests: ReceivedNotification[] = [];
-  const delivered = new Set<string>();
-  let status = 200;
-  let hook: ((request: ReceivedNotification) => Promise<void>) | null = null;
-  // A request counts only in the reset generation it arrived in: a hook that outlives its test must not add
-  // to the next test's counts (W4H-35, ci 39956956620 root 2: a late key made N7 see two logical deliveries).
-  let generation = 0;
+  const freshState = (): {
+    requests: ReceivedNotification[];
+    delivered: Set<string>;
+    status: number;
+    hook: ((request: ReceivedNotification) => Promise<void>) | null;
+  } => ({ requests: [], delivered: new Set<string>(), status: 200, hook: null });
+  let state = freshState();
   const server = Bun.serve({
     hostname: options.hostname ?? "127.0.0.1",
     port: options.port ?? 0,
     tls: { cert: tls.cert, key: tls.key },
     async fetch(request) {
-      const arrivedIn = generation;
+      // A timed-out sender can leave this handler pending across reset().
+      // Its eventual response belongs to the state that accepted it.
+      const current = state;
       const body = await request.text();
       const header = (name: string) => request.headers.get(name);
       const received: ReceivedNotification = {
@@ -108,23 +110,23 @@ export async function startTestWebhookReceiver(options: TestWebhookReceiverOptio
         signatureValid: verify(options.secret, header("x-ezcorp-timestamp"), body, header("x-ezcorp-signature")),
         timestampValid: Math.abs((options.now ?? Date.now)() / 1000 - Number(header("x-ezcorp-timestamp"))) <= (options.toleranceS ?? FACTORY_NOTIFICATION_SIGNATURE_TOLERANCE_S),
       };
-      if (arrivedIn === generation) requests.push(received);
-      if (hook) await hook(received);
+      current.requests.push(received);
+      if (current.hook) await current.hook(received);
       // A bad signature or a stale timestamp is refused before deduplication: a replay never counts.
       if (received.signatureValid === false || !received.timestampValid) return new Response(null, { status: 401 });
       // Without a key a receiver cannot deduplicate, so every such request is its own logical delivery.
-      if (status >= 200 && status < 300 && arrivedIn === generation) delivered.add(received.idempotencyKey ?? `no-key-${requests.length}`);
-      return new Response(null, { status, ...(status >= 300 && status < 400 ? { headers: { location: "https://127.0.0.1:1/" } } : {}) });
+      if (current.status >= 200 && current.status < 300) current.delivered.add(received.idempotencyKey ?? `no-key-${current.requests.length}`);
+      return new Response(null, { status: current.status, ...(current.status >= 300 && current.status < 400 ? { headers: { location: "https://127.0.0.1:1/" } } : {}) });
     },
   });
   return {
     url: `https://${options.hostname === "0.0.0.0" ? "127.0.0.1" : options.hostname ?? "127.0.0.1"}:${server.port}/factory/notifications`,
     ca: tls.ca,
-    requests,
-    logical: () => delivered,
-    answer(next) { status = next; },
-    onRequest(next) { hook = next; },
-    reset() { generation += 1; requests.length = 0; delivered.clear(); status = 200; hook = null; },
+    get requests() { return state.requests; },
+    logical: () => state.delivered,
+    answer(next) { state.status = next; },
+    onRequest(next) { state.hook = next; },
+    reset() { state = freshState(); },
     async stop() { server.stop(true); },
   };
 }

@@ -54,6 +54,7 @@ vi.mock("$server/db/queries/settings", () => ({
 // PI_SKIP_INIT, which is set just above (top-level assignment is NOT
 // hoisted, so the env must run before the import).
 import { getUserCount } from "$server/db/queries/users";
+import { attachBearerAuth } from "$lib/server/security/bearer-auth";
 const { handle } = await import("../hooks.server");
 
 // ── Helpers ──────────────────────────────────────────────────────────
@@ -167,6 +168,34 @@ describe("hooks.server.ts — setup redirect branch", () => {
     const res = (await handle({ event, resolve } as any)) as Response;
     expect(resolve).toHaveBeenCalledTimes(1);
     expect(res.status).toBe(200);
+  });
+
+  test("DB unavailable outside test mode → 503 without resolving the route", async () => {
+    vi.mocked(getUserCount).mockRejectedValue(new Error("DB down"));
+    const previous = process.env.PI_SKIP_INIT;
+    delete process.env.PI_SKIP_INIT;
+    try {
+      const event = makeEvent("/api/conversations");
+      const resolve = vi.fn();
+      const response = (await handle({ event, resolve } as any)) as Response;
+      expect(response.status).toBe(503);
+      expect(await response.json()).toEqual({ error: "Service unavailable" });
+      expect(resolve).not.toHaveBeenCalled();
+    } finally {
+      process.env.PI_SKIP_INIT = previous;
+    }
+  });
+
+  test("missing socket address stays undefined at the Bearer verifier", async () => {
+    vi.mocked(getUserCount).mockResolvedValue(1);
+    const event = makeEvent("/api/conversations");
+    event.getClientAddress = () => { throw new Error("prerender has no peer"); };
+    const response = (await handle({ event, resolve: vi.fn() } as any)) as Response;
+    expect(response.status).toBe(401);
+    expect(vi.mocked(attachBearerAuth)).toHaveBeenCalledWith(
+      expect.objectContaining({ remoteAddress: undefined }),
+      null,
+    );
   });
 
   test("browser request to /projects/abc with no session and one user → 302 redirect to /login", async () => {

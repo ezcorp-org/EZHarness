@@ -91,7 +91,7 @@ vi.mock("$server/db/queries/settings", () => ({
   getSetting: vi.fn(async () => undefined),
 }));
 
-const { handle, __failedBearerLimiter, __FAILED_BEARER_LIMIT } = await import(
+const { handle, __rateLimiter, __failedBearerLimiter, __FAILED_BEARER_LIMIT } = await import(
   "../hooks.server"
 );
 
@@ -151,8 +151,17 @@ const PROTECTED = "/api/conversations"; // not in PUBLIC_PATHS, not rate-limited
 
 describe("hooks.server.ts — failed-Bearer per-IP rate limit", () => {
   beforeEach(() => {
+    __rateLimiter.reset();
     __failedBearerLimiter.reset();
     attachBearerAuth.mockClear();
+  });
+
+  test("authenticated users still receive the per-user route limit after Bearer auth", async () => {
+    const route = "/api/agent-configs/generate"; // reviewed 5/min user route
+    for (let i = 0; i < 5; i++) {
+      expect(await run(makeEvent(route, { method: "POST", authHeader: "Bearer ezk_valid" }))).toBe(200);
+    }
+    expect(await run(makeEvent(route, { method: "POST", authHeader: "Bearer ezk_valid" }))).toBe(429);
   });
 
   test("(a) repeated FAILED Bearer attempts from one IP get 429 after the limit", async () => {

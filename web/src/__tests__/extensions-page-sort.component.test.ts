@@ -111,7 +111,7 @@ describe("Extensions page — sortable list", () => {
 	test("default render orders cards A–Z by name", async () => {
 		restoreFetch = listFetch(unsorted);
 		const { container, findByText } = render(ExtensionsPage, {
-			props: { data: { bundledExtensions: [], installedExtensions: unsorted } },
+			props: { data: { canSetUpIncus: false, bundledExtensions: [], installedExtensions: unsorted } },
 		});
 
 		await findByText("Alpha");
@@ -121,7 +121,7 @@ describe("Extensions page — sortable list", () => {
 	test("changing sort to name-desc reorders cards Z–A", async () => {
 		restoreFetch = listFetch(unsorted);
 		const { container, getByTestId, findByText } = render(ExtensionsPage, {
-			props: { data: { bundledExtensions: [], installedExtensions: unsorted } },
+			props: { data: { canSetUpIncus: false, bundledExtensions: [], installedExtensions: unsorted } },
 		});
 		await findByText("Alpha");
 
@@ -132,7 +132,7 @@ describe("Extensions page — sortable list", () => {
 	test("changing sort to recent reorders cards by updatedAt DESC", async () => {
 		restoreFetch = listFetch(unsorted);
 		const { container, getByTestId, findByText } = render(ExtensionsPage, {
-			props: { data: { bundledExtensions: [], installedExtensions: unsorted } },
+			props: { data: { canSetUpIncus: false, bundledExtensions: [], installedExtensions: unsorted } },
 		});
 		await findByText("Alpha");
 

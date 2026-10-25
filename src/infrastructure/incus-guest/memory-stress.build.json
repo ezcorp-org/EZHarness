@@ -1,0 +1,100 @@
+{
+  "schemaVersion": 1,
+  "source": {
+    "path": "src/infrastructure/incus-guest/memory-stress.c",
+    "sha256": "731b241f0aaa2ce03f2472423efadcddbb171ca6a64a9d9765e3ab19db5a5567"
+  },
+  "artifact": {
+    "path": "src/infrastructure/incus-guest/memory-stress.x86_64.bin",
+    "sha256": "be1051effa23cd55790a7ad070eded71f3702fe22c54fb8f56e0cd97c28c5247",
+    "bytes": 59704,
+    "architecture": "x86_64",
+    "abi": "linux-musl-static"
+  },
+  "compiler": {
+    "path": "/nix/store/ckb9d3j1dswz7myyp5w770qfkm5x2fii-x86_64-unknown-linux-musl-gcc-15.2.0/bin/x86_64-unknown-linux-musl-gcc",
+    "sha256": "2926b37b6f4e8a74ef86a88db8a55642c6e12102bee7901e94cd51d4d9e1ba46",
+    "version": "15.2.0",
+    "flags": [
+      "-static",
+      "-Os",
+      "-fno-ident",
+      "-Wl,--build-id=none",
+      "-Wall",
+      "-Wextra",
+      "-Werror"
+    ],
+    "wrapper": {
+      "path": "/nix/store/8x3g3yrvi197bbw1g1cpmwll4b648nz4-musl-static-x86_64-unknown-linux-musl-1.2.5-dev/bin/musl-gcc",
+      "sha256": "dc869d1a77625d0e3f4bba59a791ebf8c2ac28950e45df96dd2b5a7d6f1d7a25"
+    },
+    "specs": {
+      "path": "/nix/store/8x3g3yrvi197bbw1g1cpmwll4b648nz4-musl-static-x86_64-unknown-linux-musl-1.2.5-dev/lib/musl-gcc.specs",
+      "sha256": "5e610a8f580e0abd517a3a7a89aecacdb2c6e93f6c44ef165ab5f42f706956cf"
+    }
+  },
+  "toolchain": [
+    {
+      "path": "/nix/store/ckb9d3j1dswz7myyp5w770qfkm5x2fii-x86_64-unknown-linux-musl-gcc-15.2.0/bin/x86_64-unknown-linux-musl-gcc",
+      "sha256": "2926b37b6f4e8a74ef86a88db8a55642c6e12102bee7901e94cd51d4d9e1ba46"
+    },
+    {
+      "path": "/nix/store/8x3g3yrvi197bbw1g1cpmwll4b648nz4-musl-static-x86_64-unknown-linux-musl-1.2.5-dev/lib/musl-gcc.specs",
+      "sha256": "5e610a8f580e0abd517a3a7a89aecacdb2c6e93f6c44ef165ab5f42f706956cf"
+    },
+    {
+      "path": "/nix/store/0h1zjaczdqkl5a45js8pzbq6jp7wq4yr-x86_64-unknown-linux-musl-binutils-wrapper-2.46/bin/x86_64-unknown-linux-musl-ld",
+      "sha256": "bec623c74aa35ef5c84f847649848b89cf1fb44e49e617680df487cf3362bd68"
+    }
+  ],
+  "linkerInputs": [
+    {
+      "path": "/nix/store/v7xisy8873yfr6mnc66l6jp4ygihmqx8-musl-static-x86_64-unknown-linux-musl-1.2.5/lib/Scrt1.o",
+      "sha256": "9794f294661dcb15619d96dabd74a65d30b7e5f57dcd71b58d97b716d2a7d22d"
+    },
+    {
+      "path": "/nix/store/v7xisy8873yfr6mnc66l6jp4ygihmqx8-musl-static-x86_64-unknown-linux-musl-1.2.5/lib/crti.o",
+      "sha256": "0ce8f93d0c76352e29c3bd087a461cac7421ba52050293c9a1bbba07444b155a"
+    },
+    {
+      "path": "/nix/store/ckb9d3j1dswz7myyp5w770qfkm5x2fii-x86_64-unknown-linux-musl-gcc-15.2.0/lib/gcc/x86_64-unknown-linux-musl/15.2.0/crtbeginS.o",
+      "sha256": "acec4e3aa9667ddeff3f8b72f30d17b1ddaee18a7b5e91e72843ed3c44e7a2ee"
+    },
+    {
+      "path": "/nix/store/ckb9d3j1dswz7myyp5w770qfkm5x2fii-x86_64-unknown-linux-musl-gcc-15.2.0/lib/gcc/x86_64-unknown-linux-musl/15.2.0/libgcc.a",
+      "sha256": "c13b32c622ed2b7c2f4a1618c37c64af97c7df82ac9637f1a6ade69a1e3ff725"
+    },
+    {
+      "path": "/nix/store/v7xisy8873yfr6mnc66l6jp4ygihmqx8-musl-static-x86_64-unknown-linux-musl-1.2.5/lib/libc.a",
+      "sha256": "a64b357bf509c80fac91ec2f3fb932d6c7c7c23d8973dc977b7aee391ba86a7f"
+    },
+    {
+      "path": "/nix/store/ckb9d3j1dswz7myyp5w770qfkm5x2fii-x86_64-unknown-linux-musl-gcc-15.2.0/lib/gcc/x86_64-unknown-linux-musl/15.2.0/libgcc.a",
+      "sha256": "c13b32c622ed2b7c2f4a1618c37c64af97c7df82ac9637f1a6ade69a1e3ff725"
+    },
+    {
+      "path": "/nix/store/v7xisy8873yfr6mnc66l6jp4ygihmqx8-musl-static-x86_64-unknown-linux-musl-1.2.5/lib/libc.a",
+      "sha256": "a64b357bf509c80fac91ec2f3fb932d6c7c7c23d8973dc977b7aee391ba86a7f"
+    },
+    {
+      "path": "/nix/store/ckb9d3j1dswz7myyp5w770qfkm5x2fii-x86_64-unknown-linux-musl-gcc-15.2.0/lib/gcc/x86_64-unknown-linux-musl/15.2.0/crtendS.o",
+      "sha256": "5c42d26eaa4a7974a6f62ba0bc85f770d9abf870cd2f7b670fb68367dcfdf467"
+    },
+    {
+      "path": "/nix/store/v7xisy8873yfr6mnc66l6jp4ygihmqx8-musl-static-x86_64-unknown-linux-musl-1.2.5/lib/crtn.o",
+      "sha256": "458b02dafac7ab07bc4eb15476db552d80ab8a0d10027d651856ef013cfc445b"
+    }
+  ],
+  "lock": {
+    "mode": "MCL_CURRENT",
+    "controlCeilingBytes": 1048576,
+    "payloadLocked": false
+  },
+  "runtime": {
+    "compilerRequired": false
+  },
+  "libraries": {
+    "musl": "1.2.5",
+    "binutils": "2.46"
+  }
+}

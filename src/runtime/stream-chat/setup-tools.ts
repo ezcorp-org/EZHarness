@@ -29,6 +29,7 @@ import {
   parseShadowThresholds,
 } from "../routing/shadow";
 import { getSetting } from "../../db/queries/settings";
+import { getProject } from "../../db/queries/projects";
 import { getPermissionMode, type PermissionMode } from "../tools/permissions";
 import { withPermissionGate, type PermissionWrapDeps } from "../tools/permission-wrap";
 import { getCredential } from "../../providers/credentials";
@@ -38,6 +39,9 @@ import { ExtensionRegistry } from "../../extensions/registry";
 import type { AgentRun, TeamMember, TeamMemberOverrides, TeamToolScope } from "../../types";
 import type { StreamChatContext } from "./context";
 import type { StreamChatHost, PendingPermissionInfo } from "./host";
+import type { WorkspaceTarget } from "../workspaces/target";
+import { resolveProjectWorkspaceTarget } from "../workspaces/project-target";
+import { resolveProviderProjectBuiltinTools } from "./provider-project-tools";
 
 const log = logger.child("executor.streamChat.setup");
 
@@ -87,6 +91,10 @@ export interface SetupToolsOptions {
   /** Gateway-bound attempt: model and authority arrive from the factory, never host credentials. */
   factoryExecution?: FactoryExecutionContext;
   projectId?: string;
+  /** Authenticated host run-start identity; never a model parameter. */
+  workspacePrincipal?: import("../workspaces/target").SandboxWorkspacePrincipal;
+  /** Host-selected workspace route. Request payloads must not populate it. */
+  workspaceTarget?: WorkspaceTarget;
   /** Absolute directory the built-in file/shell tools root at INSTEAD of the
    *  project path. Set (host-validated) by the spawn-assignment handler for
    *  extension-dispatched sub-agents that must operate in a specific checkout
@@ -343,6 +351,7 @@ export async function wireRunWorkflowIfEligible(args: {
   convRecord: SetupToolsConvRecord | null;
   orchestrationDepth?: number;
   projectId?: string;
+  workspaceTarget?: WorkspaceTarget;
   pendingPermissions?: Map<string, PendingPermissionInfo>;
   permissionDeps: PermissionWrapDeps;
 }): Promise<void> {
@@ -364,6 +373,7 @@ export async function wireRunWorkflowIfEligible(args: {
       userId: convRecord.userId,
       permissionDeps: args.permissionDeps,
       ...(args.projectId ? { projectId: args.projectId } : {}),
+      ...(args.workspaceTarget ? { workspaceTarget: args.workspaceTarget } : {}),
       ...(args.pendingPermissions ? { pendingPermissions: args.pendingPermissions } : {}),
     });
   } catch (workflowWireErr) {
@@ -447,6 +457,7 @@ export function buildExtensionToolExecutor(
   options: SetupToolsOptions,
 ): ToolExecutor {
   const toolExec = new ToolExecutor(registry, host.permissionEngine, { bus: host.bus });
+  if (options.workspaceTarget) toolExec.setWorkspaceTarget(options.workspaceTarget);
   wireHostPendingPermissions(toolExec, host);
   if (host.stateMediator) toolExec.setStateMediator(host.stateMediator);
   toolExec.setExecutor(host.executor);
@@ -1047,7 +1058,21 @@ export async function setupTools(
     const byId = new Map<string, typeof allPastAttachments[number]>();
     for (const a of allPastAttachments) byId.set(a.id, a);
     for (const a of currentTurn) byId.set(a.id, a);
-    return buildAttachmentHandleResolver(toResolvableAttachments(Array.from(byId.values())));
+    let attachmentTarget = options.workspaceTarget;
+    if (options.projectId) {
+      const project = await getProject(options.projectId);
+      if (!project) throw new Error("Project workspace is unavailable for attachment handles");
+      attachmentTarget = await resolveProjectWorkspaceTarget(
+        project, "attachment handle", options.workspaceTarget, options.workingDir,
+      );
+    }
+    if (!attachmentTarget) {
+      throw new Error("Attachment resolution requires an explicit workspace target");
+    }
+    return buildAttachmentHandleResolver(
+      toResolvableAttachments(Array.from(byId.values())),
+      attachmentTarget,
+    );
   })();
 
   // Grounding notes produced by the deterministic-preprocess runner (2c
@@ -1131,6 +1156,7 @@ export async function setupTools(
 
     // 2. Tool loading (builtin + extensions + mentions — all non-fatal)
     (async () => {
+      let resolvedWorkspaceTarget = options.workspaceTarget;
       // Bus-driven override — only set when the user explicitly switches
       // mode mid-run. A `let` on purpose, and `permissionDeps` reads it
       // through a GETTER: the subscription below reassigns it long after
@@ -1172,6 +1198,16 @@ export async function setupTools(
       if (options.projectId) {
         try {
           {
+            const { projectRequiresSandbox } = await import("../workspace/target");
+            const legacySandboxBound = await projectRequiresSandbox(options.projectId);
+            if (!legacySandboxBound) {
+              const project = await getProject(options.projectId);
+              if (!project) throw new Error("Project workspace is unavailable");
+              resolvedWorkspaceTarget = await resolveProjectWorkspaceTarget(
+                project, "built-in tools", options.workspaceTarget, options.workingDir,
+              );
+              host.executor.bindWorkspaceTarget(run.id, resolvedWorkspaceTarget);
+            }
             // Secure-preview spawn trigger (Phase 3b): thread the
             // conversation owner's id + the live port-watcher into the shell
             // tool so a recognized dev-server command runs under the
@@ -1179,7 +1215,10 @@ export async function setupTools(
             // wired when we have an owning user; the launch itself is
             // fail-safe (refuses cleanly on a static-mode host).
             const previewUserId = convRecord?.userId ?? null;
-            const previewWiring = previewUserId
+            const workspaceUserId = options.workspacePrincipal?.userId ?? previewUserId
+              ?? (resolvedWorkspaceTarget?.kind === "sandbox"
+                ? await (await import("../../db/queries/conversations")).resolveConversationOwnerUserId(conversationId) : null);
+            const previewWiring = resolvedWorkspaceTarget?.kind === "local" && previewUserId && !legacySandboxBound
               ? await (async (): Promise<import("../tools").ShellPreviewWiring> => {
                   const [{ launchPreviewDevServer }, { getPreviewPortWatcher }] = await Promise.all([
                     import("../preview/preview-spawn-orchestration"),
@@ -1197,7 +1236,9 @@ export async function setupTools(
             // Workspace selection is host-owned persisted policy. In
             // particular, caller-provided `workingDir` cannot turn a sandbox
             // project back into a host checkout.
-            const toolDefs = await resolveProjectBuiltinTools(options.projectId, options.workingDir, previewWiring, previewUserId ? { userId: previewUserId, conversationId } : undefined);
+            const toolDefs = legacySandboxBound
+              ? await resolveProjectBuiltinTools(options.projectId, options.workingDir, previewWiring, previewUserId ? { userId: previewUserId, conversationId } : undefined)
+              : await resolveProviderProjectBuiltinTools(options.projectId, resolvedWorkspaceTarget!, previewWiring, workspaceUserId ? { userId: workspaceUserId, conversationId } : undefined);
             for (const def of toolDefs) ctx.builtinToolDefsMap.set(def.name, def);
 
             const wrappedTools: AgentTool[] = toolDefs.map((def) =>
@@ -1241,6 +1282,7 @@ export async function setupTools(
           });
           if (extTools.length > 0) {
             const toolExec = new ToolExecutor(registry, host.permissionEngine, { bus: host.bus });
+            if (resolvedWorkspaceTarget) toolExec.setWorkspaceTarget(resolvedWorkspaceTarget);
             wireHostPendingPermissions(toolExec, host);
             if (host.stateMediator) toolExec.setStateMediator(host.stateMediator);
             toolExec.setExecutor(host.executor);
@@ -1414,6 +1456,7 @@ export async function setupTools(
           convRecord,
           orchestrationDepth: options.orchestrationDepth,
           projectId: options.projectId,
+          ...(resolvedWorkspaceTarget ? { workspaceTarget: resolvedWorkspaceTarget } : {}),
           pendingPermissions: host.pendingPermissions,
           permissionDeps,
         });
@@ -1446,6 +1489,7 @@ export async function setupTools(
         if (convExtIds.length > 0) {
           const registry = ExtensionRegistry.getInstance();
           const toolExec = new ToolExecutor(registry, host.permissionEngine, { bus: host.bus });
+          if (resolvedWorkspaceTarget) toolExec.setWorkspaceTarget(resolvedWorkspaceTarget);
           wireHostPendingPermissions(toolExec, host);
           if (host.stateMediator) toolExec.setStateMediator(host.stateMediator);
           toolExec.setExecutor(host.executor);
@@ -1616,6 +1660,7 @@ export async function setupTools(
           if (modeExtIds.length > 0) {
             const registry = ExtensionRegistry.getInstance();
             const toolExec = new ToolExecutor(registry, host.permissionEngine, { bus: host.bus });
+            if (resolvedWorkspaceTarget) toolExec.setWorkspaceTarget(resolvedWorkspaceTarget);
             wireHostPendingPermissions(toolExec, host);
             if (host.stateMediator) toolExec.setStateMediator(host.stateMediator);
             toolExec.setExecutor(host.executor);
@@ -1848,6 +1893,7 @@ export async function setupTools(
                   stateMediator: host.stateMediator,
                   spawnQuota: host.spawnQuota,
                   userId: convRecord?.userId ?? undefined,
+                  workspaceTarget: resolvedWorkspaceTarget,
                 });
               }
             } catch (orchWireErr) {
@@ -1886,6 +1932,7 @@ export async function setupTools(
                 await addConversationExtensions(conversationId, [{ extensionId: scratchpadExt.id }]);
                 const registry = ExtensionRegistry.getInstance();
                 const toolExec = new ToolExecutor(registry, host.permissionEngine, { bus: host.bus });
+                if (resolvedWorkspaceTarget) toolExec.setWorkspaceTarget(resolvedWorkspaceTarget);
                 wireHostPendingPermissions(toolExec, host);
                 if (host.stateMediator) toolExec.setStateMediator(host.stateMediator);
                 toolExec.setExecutor(host.executor);
@@ -1967,6 +2014,7 @@ export async function setupTools(
                 stateMediator: host.stateMediator,
                 spawnQuota: host.spawnQuota,
                 userId: convRecord?.userId ?? undefined,
+                workspaceTarget: resolvedWorkspaceTarget,
               });
             }
             })();
