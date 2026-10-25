@@ -29,7 +29,7 @@ pre-creates the bind mounts, brings the stack up and waits for it to report
 ready:
 
 ```bash
-git clone <repo-url> && cd ez-corp-ai
+git clone <repo-url> ez-corp-ai && cd ez-corp-ai
 bash scripts/setup-podman.sh
 ```
 
@@ -57,7 +57,7 @@ is published. `--check` reports without changing anything. See
 The manual steps it automates, for the record or for Docker:
 
 ```bash
-git clone <repo-url> && cd ez-corp-ai
+git clone <repo-url> ez-corp-ai && cd ez-corp-ai
 cp .env.prod.example .env.prod && chmod 600 .env.prod
 
 # Fill the four required values in .env.prod:
@@ -94,6 +94,9 @@ For HTTPS, backups, external Postgres, and auto-updates, see the **[production g
 > [Running the production stack under rootless Podman](docs/deployment.md#running-the-production-stack-under-rootless-podman).
 
 > **Pre-built image (future):** once a release is published to a container registry, you can skip the build by setting `EZCORP_IMAGE=ghcr.io/<owner>/<image>:<tag>` in `.env.prod`. The `image:` line in `compose.prod.yml` already honors that override.
+
+> **On Windows?** Run the stack in Ubuntu on WSL2. See
+> [Running on Windows with WSL2 and Ubuntu](docs/windows-wsl2.md).
 
 ## Dev mode (Linux only)
 
