@@ -1,4 +1,5 @@
 <script lang="ts">
+  import ModalBackdrop from "$lib/components/ui/ModalBackdrop.svelte";
 	import { parseMcpHeaders } from "$lib/extensions/mcp-headers.js";
 	import { onMount, onDestroy, untrack } from "svelte";
   import { goto } from "$app/navigation";
@@ -789,11 +790,11 @@
 
 {#if disableTarget}
 	{@const ext = disableTarget}
-	<!-- svelte-ignore a11y_no_static_element_interactions -->
-	<div
-		class="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4"
+	<ModalBackdrop
+		dim={50}
+		class="flex items-center justify-center p-4"
 		onkeydown={(e) => { if (e.key === "Escape" && !disabling) disableTarget = null; }}
-		onclick={(e) => { if (e.target === e.currentTarget && !disabling) disableTarget = null; }}
+		onclose={() => { if (!disabling) disableTarget = null; }}
 		role="dialog"
 		aria-modal="true"
 		aria-labelledby="disable-critical-title"
@@ -829,5 +830,5 @@
 				</button>
 			</div>
 		</div>
-	</div>
+	</ModalBackdrop>
 {/if}

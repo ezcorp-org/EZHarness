@@ -1,6 +1,7 @@
 import type { Page } from "@playwright/test";
 import type { FactoryDefinition, FactoryDraftDetails, FactoryDraftSummary, FactoryVersionDetails, FactoryVersionSummary } from "@ezcorp/factory-sdk/types";
 import { expect, test, captureEvidence } from "./fixtures/test-base.js";
+import { backdropLook, expectFullViewportBackdrop } from "./fixtures/backdrop.js";
 import { makeProject } from "./fixtures/data.js";
 import { factoryGraphProblems } from "./fixtures/factory-layout.js";
 
@@ -440,6 +441,14 @@ test.describe("factory authoring console", () => {
 		await start.click();
 		await expect(dialog.getByRole("alert")).toHaveText("Run input must be a JSON object of port names.");
 		await dialog.getByRole("button", { name: "Cancel" }).click();
+		await expect(dialog).toBeHidden();
+		// The dialog sits on a ModalBackdrop in its `console` look, layer 70. A click on the backdrop closes it.
+		await open.click();
+		const backdrop = dialog.locator("..");
+		await expectFullViewportBackdrop(backdrop);
+		expect(await backdropLook(backdrop)).toMatchObject({ zIndex: "70", background: "rgba(4, 8, 18, 0.72)" });
+		await captureEvidence(page, testInfo, "factory-run-start-backdrop");
+		await page.mouse.click(4, 4);
 		await expect(dialog).toBeHidden();
 		await open.click();
 		await dialog.getByRole("button", { name: "Close start run" }).click();

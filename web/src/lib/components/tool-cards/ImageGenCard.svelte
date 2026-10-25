@@ -28,6 +28,7 @@
 -->
 
 <script lang="ts">
+	import ModalBackdrop from "$lib/components/ui/ModalBackdrop.svelte";
 	import type { ToolCallState } from "$lib/stores.svelte.js";
 	import { slide } from "svelte/transition";
 	import CopyButton from "./CopyButton.svelte";
@@ -168,10 +169,6 @@
 			e.preventDefault();
 			prev();
 		}
-	}
-
-	function handleBackdropClick(e: MouseEvent): void {
-		if (e.target === e.currentTarget) closeLightbox();
 	}
 
 	// ── Inline edit affordance ─────────────────────────────────────
@@ -432,17 +429,16 @@
 </div>
 
 {#if lightboxOpen}
-	<!-- svelte-ignore a11y_click_events_have_key_events -->
-	<!-- svelte-ignore a11y_no_static_element_interactions -->
-	<div
-		class="lightbox-backdrop"
+	<ModalBackdrop
+		variant="lightbox"
+		z={100}
 		role="dialog"
 		aria-modal="true"
 		aria-label={`Image ${lightboxIndex + 1} of ${images.length}`}
 		data-testid="image-gen-lightbox"
 		data-active-index={lightboxIndex}
 		tabindex={-1}
-		onclick={handleBackdropClick}
+		onclose={closeLightbox}
 	>
 		<button
 			type="button"
@@ -493,7 +489,7 @@
 				{lightboxIndex + 1} / {images.length}
 			</div>
 		{/if}
-	</div>
+	</ModalBackdrop>
 {/if}
 
 <style>
@@ -569,19 +565,6 @@
 	.thumb-edit-btn:focus-visible {
 		outline: 2px solid var(--color-accent, white);
 		outline-offset: 2px;
-	}
-
-	.lightbox-backdrop {
-		position: fixed;
-		inset: 0;
-		z-index: 100;
-		display: flex;
-		align-items: center;
-		justify-content: center;
-		padding: 2rem;
-		background: rgba(0, 0, 0, 0.85);
-		backdrop-filter: blur(4px);
-		cursor: zoom-out;
 	}
 	.lightbox-img {
 		max-width: 100%;

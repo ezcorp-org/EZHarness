@@ -1,4 +1,5 @@
 <script lang="ts">
+	import ModalBackdrop from "$lib/components/ui/ModalBackdrop.svelte";
 	import { loadCustomShortcuts, formatShortcut } from "$lib/shortcuts.js";
 	import { createFocusTrap } from "$lib/focus-trap.js";
 
@@ -41,19 +42,11 @@
 		};
 	});
 
-	function handleBackdropClick(e: MouseEvent) {
-		if (e.target === e.currentTarget) onclose();
-	}
 </script>
 
 {#if open}
 	<!-- Escape is handled in capture phase above, so child handlers cannot strand the dialog. -->
-	<!-- svelte-ignore a11y_click_events_have_key_events -->
-	<!-- svelte-ignore a11y_no_static_element_interactions -->
-	<div
-		class="fixed inset-0 z-50 flex items-center justify-center bg-black/50"
-		onclick={handleBackdropClick}
-	>
+	<ModalBackdrop dim={50} class="flex items-center justify-center" {onclose}>
 		<div
 			bind:this={dialogEl}
 			class="bg-[var(--color-surface)] border border-[var(--color-border)] rounded-xl shadow-2xl max-w-md w-full mx-4"
@@ -94,5 +87,5 @@
 				</p>
 			</div>
 		</div>
-	</div>
+	</ModalBackdrop>
 {/if}

@@ -19,6 +19,7 @@ import type {
 	FactoryRunSummary,
 } from "@ezcorp/factory-sdk/types";
 import { expect, test, captureEvidence } from "./fixtures/test-base.js";
+import { backdropLook, expectFullViewportBackdrop } from "./fixtures/backdrop.js";
 import { makeProject } from "./fixtures/data.js";
 import { factoryLayoutOverflow } from "./fixtures/factory-layout.js";
 
@@ -372,6 +373,11 @@ test.describe("factory live console", () => {
 		const refused = page.getByRole("dialog", { name: /Quarantine @ezcorp\/image-renderer/ });
 		await expect(refused.getByRole("alert")).toContainText("The quarantined package cannot take the quarantine transition.");
 		await expect(refused.getByRole("button", { name: /Commit/ })).toBeDisabled();
+		// The review sits on a ModalBackdrop in its `console` look, layer 80 (above the console's own dialogs at 70).
+		const backdrop = refused.locator("..");
+		await expectFullViewportBackdrop(backdrop);
+		expect(await backdropLook(backdrop)).toMatchObject({ zIndex: "80", background: "rgba(4, 8, 18, 0.72)" });
+		await captureEvidence(page, testInfo, "factory-package-refused-review-backdrop");
 		await page.keyboard.press("Escape");
 		await refused.getByRole("button", { name: "Cancel" }).click();
 		// The mock tier composes no factory application, so the tenant is unknown and the

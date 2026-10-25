@@ -1,4 +1,5 @@
 import { test, expect } from "./fixtures/test-base.js";
+import { backdropLook, expectFullViewportBackdrop } from "./fixtures/backdrop.js";
 import { makeProject, makeConversation, makeMessage } from "./fixtures/data.js";
 
 /**
@@ -144,6 +145,9 @@ test.describe("chat image rendering", () => {
 		await page.locator('img[data-chat-image="1"]').first().click();
 		const lightbox = page.getByTestId("image-lightbox");
 		await expect(lightbox).toBeVisible();
+		// The lightbox is a ModalBackdrop in its `lightbox` look: the same wash, blur, cursor and layer as before.
+		await expectFullViewportBackdrop(lightbox);
+		expect(await backdropLook(lightbox)).toEqual({ zIndex: "100", background: "rgba(0, 0, 0, 0.85)", backdropFilter: "blur(4px)", cursor: "zoom-out" });
 
 		// Click the backdrop (not the inner image) to dismiss.
 		const box = await lightbox.boundingBox();

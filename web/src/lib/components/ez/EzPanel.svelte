@@ -52,6 +52,7 @@
 	 * drop into the regular chat surface for search, fork, share, etc. —
 	 * the panel is a *view* into the same conversation, not a fork of it.
 	 */
+	import ModalBackdrop from "$lib/components/ui/ModalBackdrop.svelte";
 	import { onMount, onDestroy } from "svelte";
 	import { ezPanelState, closeEzPanel, consumePendingPrompt } from "$lib/ez/panel-store.svelte.js";
 	import { getOrCreateEzConversation, clearEzConversation } from "$lib/ez/api.js";
@@ -711,13 +712,15 @@
 							{#if toolsFetched && !toolsError}<span class="ez-panel__tools-count">{loadedTools.length}</span>{/if}
 						</button>
 						{#if toolsOpen}
-							<button
-								type="button"
-								class="ez-panel__tools-backdrop"
-								aria-label="Close tools list"
-								data-testid="ez-panel-tools-backdrop"
-								onclick={() => (toolsOpen = false)}
-							></button>
+							<ModalBackdrop z={40}>
+								<button
+									type="button"
+									class="ez-panel__tools-backdrop"
+									aria-label="Close tools list"
+									data-testid="ez-panel-tools-backdrop"
+									onclick={() => (toolsOpen = false)}
+								></button>
+							</ModalBackdrop>
 							<div class="ez-panel__tools-popover" data-testid="ez-panel-tools-popover">
 								{#if toolsError}
 									<p class="ez-panel__tools-empty">Couldn't load the tool list.</p>
@@ -909,9 +912,9 @@
 	.ez-panel__tools-btn { display: inline-flex; align-items: center; gap: 0.2rem; }
 	.ez-panel__tools-count { font-variant-numeric: tabular-nums; }
 	.ez-panel__tools-backdrop {
-		position: fixed;
-		inset: 0;
-		z-index: 40;
+		display: block;
+		width: 100%;
+		height: 100%;
 		background: transparent;
 		border: none;
 		padding: 0;

@@ -25,6 +25,7 @@
 </script>
 
 <script lang="ts">
+	import ModalBackdrop from "$lib/components/ui/ModalBackdrop.svelte";
 	import type { Snippet } from "svelte";
 	import { createFocusTrap } from "$lib/focus-trap.js";
 
@@ -198,15 +199,13 @@
 </script>
 
 {#if visible}
-	<!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
-	<div
-		class="fixed inset-0"
-		style:z-index={zIndex}
+	<ModalBackdrop
+		z={zIndex}
 		role="dialog"
 		aria-modal="true"
 		aria-label={ariaLabel || undefined}
 		data-testid="swipe-drawer"
-		bind:this={overlayEl}
+		bind:element={overlayEl}
 	>
 		{#if showBackdrop}
 			<!-- svelte-ignore a11y_click_events_have_key_events -->
@@ -238,5 +237,5 @@
 		>
 			{@render children()}
 		</div>
-	</div>
+	</ModalBackdrop>
 {/if}

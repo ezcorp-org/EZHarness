@@ -28,6 +28,7 @@
   for follow-up if gesture polish is needed.
 -->
 <script lang="ts">
+	import ModalBackdrop from "$lib/components/ui/ModalBackdrop.svelte";
 	import type { Snippet } from "svelte";
 	import { createFocusTrap } from "$lib/focus-trap";
 
@@ -110,13 +111,12 @@
 </script>
 
 {#if visible}
-	<div
-		class="fixed inset-0 z-50"
+	<ModalBackdrop
 		role="dialog"
 		aria-modal="true"
 		aria-label={ariaLabel}
 		data-testid="bottom-sheet"
-		bind:this={overlayEl}
+		bind:element={overlayEl}
 	>
 		<!-- Close only once `entering` (one rAF after mount): when a sheet
 		     opens on an input's focus, the tail of that same tap/click lands
@@ -149,5 +149,5 @@
 			</div>
 			{@render children()}
 		</div>
-	</div>
+	</ModalBackdrop>
 {/if}

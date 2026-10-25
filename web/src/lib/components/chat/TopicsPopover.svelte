@@ -9,6 +9,7 @@
 	 * Rendered inside ChatHeader's `relative` Topics-button wrapper; owns no
 	 * fetch/state — ChatThread drives everything through props.
 	 */
+	import ModalBackdrop from "$lib/components/ui/ModalBackdrop.svelte";
 	import {
 		type Topic,
 		type ContextType,
@@ -64,8 +65,7 @@
 	}
 </script>
 
-<!-- svelte-ignore a11y_no_static_element_interactions -->
-<div data-testid="topics-backdrop" class="fixed inset-0 z-40" onclick={onclose} onkeydown={() => {}}></div>
+<ModalBackdrop data-testid="topics-backdrop" z={40} {onclose} onkeydown={() => {}} />
 <!-- `fixed` below md keeps the popover pinned to the viewport edge (the badge
      sits far from the right edge on mobile); `absolute` from md anchors it
      under the button — identical rationale to the tools popover. -->

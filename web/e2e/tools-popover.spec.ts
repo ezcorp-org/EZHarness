@@ -120,11 +120,12 @@ test("command palette stays above an open tools trigger", async ({ page, mockApi
 		const target = document.elementFromPoint(x, y);
 		return {
 			isToolsToggle: !!target?.closest('button[aria-label^="Loaded tools"]'),
-			className: target?.getAttribute("class") ?? "",
+			// The palette's ModalBackdrop sets its layer as an inline z-index, so read the computed one.
+			zIndex: target ? getComputedStyle(target).zIndex : "",
 		};
 	}, { x: box.x + box.width / 2, y: box.y + box.height / 2 });
 	expect(layer.isToolsToggle).toBe(false);
-	expect(layer.className).toContain("z-50");
+	expect(layer.zIndex).toBe("50");
 });
 
 test("shows empty state when no tools loaded", async ({ page, mockApi }) => {

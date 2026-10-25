@@ -17,6 +17,7 @@
  * topic-extract-result.
  */
 import { test, expect, captureEvidence } from "./fixtures/test-base.js";
+import { expectFullViewportBackdrop } from "./fixtures/backdrop.js";
 import { makeProject, makeConversation, makeMessage } from "./fixtures/data.js";
 import { expectReadable, expectWarningTinted, useLightTheme } from "./fixtures/readable.js";
 import type { Page } from "@playwright/test";
@@ -187,6 +188,7 @@ test.describe("Topic Contexts", () => {
 			popover.getByTestId(`topic-pill-${TOPIC_SESSION.id}`),
 		).toBeVisible();
 		expect(rec.postTopicsCalls.length).toBe(1);
+		await expectFullViewportBackdrop(page.getByTestId("topics-backdrop"), { onTop: false });
 		await captureEvidence(page, testInfo, "topics-popover");
 
 		// Close the popover (its full-screen backdrop would otherwise intercept

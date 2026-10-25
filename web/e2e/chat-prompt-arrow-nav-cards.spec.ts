@@ -1,5 +1,6 @@
 import type { Page } from "@playwright/test";
 import { test, expect, captureEvidence } from "./fixtures/test-base.js";
+import { backdropLook, expectFullViewportBackdrop } from "./fixtures/backdrop.js";
 import { setupApiMocks } from "./fixtures/api-mocks.js";
 import { makeProject, makeConversation, makeMessage } from "./fixtures/data.js";
 
@@ -353,6 +354,9 @@ test.describe("chat prompt arrow-key navigation around cards", () => {
 		const lightbox = page.getByTestId("image-gen-lightbox");
 		await expect(lightbox).toBeVisible();
 		await expect(lightbox).toHaveAttribute("data-active-index", "0");
+		// The lightbox is a ModalBackdrop in its `lightbox` look: the same wash, blur, cursor and layer as before.
+		await expectFullViewportBackdrop(lightbox);
+		expect(await backdropLook(lightbox)).toEqual({ zIndex: "100", background: "rgba(0, 0, 0, 0.85)", backdropFilter: "blur(4px)", cursor: "zoom-out" });
 
 		await captureEvidence(page, testInfo, "chat-card-lightbox-owns-arrows");
 

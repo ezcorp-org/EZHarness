@@ -19,6 +19,7 @@
 	 * `initialSelected` so re-opening the picker on an edit form
 	 * reflects the agent's currently-attached extensions.
 	 */
+	import ModalBackdrop from "$lib/components/ui/ModalBackdrop.svelte";
 	import { onMount } from "svelte";
 	import { fuzzyScore } from "$lib/fuzzy-match.js";
 	import BottomSheet from "$lib/components/BottomSheet.svelte";
@@ -412,19 +413,15 @@
 		</div>
 	</BottomSheet>
 {:else if open}
-	<!-- svelte-ignore a11y_click_events_have_key_events -->
-	<!-- svelte-ignore a11y_no_static_element_interactions -->
-	<div
-		class="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4"
+	<ModalBackdrop
+		dim={50}
+		class="flex items-center justify-center p-4"
 		role="dialog"
 		aria-modal="true"
 		aria-label="Attach extensions"
-		tabindex="-1"
+		tabindex={-1}
 		data-testid="extension-attach-picker"
-		onclick={(e) => {
-			// Click on backdrop (not panel) closes.
-			if (e.target === e.currentTarget) onclose();
-		}}
+		{onclose}
 	>
 		<div
 			class="flex max-h-[85vh] w-full max-w-3xl flex-col rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] shadow-xl"
@@ -432,5 +429,5 @@
 		>
 			{@render pickerBody()}
 		</div>
-	</div>
+	</ModalBackdrop>
 {/if}

@@ -1,4 +1,5 @@
 <script lang="ts">
+	import ModalBackdrop from "$lib/components/ui/ModalBackdrop.svelte";
 	import { AlertTriangle, CheckCircle2, History, KeyRound, Package, PackagePlus, RefreshCw, ShieldOff, Signature, Trash2, X } from "lucide-svelte";
 	import type {
 		FactoryAction,
@@ -394,7 +395,7 @@
 </section>
 
 {#if review}
-	<div class="modal-backdrop" role="presentation" onclick={event => event.target === event.currentTarget && (review = null)}>
+	<ModalBackdrop variant="console" z={80} class="px-4 py-[8vh]" role="presentation" onclose={() => (review = null)}>
 		<div class="review-dialog" role="dialog" aria-modal="true" aria-labelledby="review-title">
 			<header>
 				<div><p class="eyebrow">Review before committing</p><h2 id="review-title">{transitionLabel(review.item, review.transition)} {review.item.reference.package}</h2></div>
@@ -419,7 +420,7 @@
 				<button class={review.transition === "publish" ? "button-primary" : "button-danger"} disabled={!review.impact.allowed || busy} onclick={confirmReview}>Commit at revision {review.impact.currentRevision}</button>
 			</footer>
 		</div>
-	</div>
+	</ModalBackdrop>
 {/if}
 
 <style>
@@ -504,7 +505,6 @@
 	.purge .form-grid { border-bottom: 0; }
 	.purge-result { margin: 0; padding: 0 14px 14px; font-size: 12px; }
 	code { font-family: var(--font-mono); font-size: 10px; }
-	.modal-backdrop { position: fixed; inset: 0; z-index: 80; display: grid; overflow: auto; place-items: start center; background: rgb(4 8 18 / .72); padding: 8vh 16px; }
 	.review-dialog { width: min(620px, 100%); border: 1px solid var(--color-border-strong); border-top: 4px solid var(--color-amber-500); border-radius: 4px; background: var(--color-surface); box-shadow: var(--shadow-2xl); }
 	.review-dialog header { display: flex; align-items: center; justify-content: space-between; gap: 12px; border-bottom: 1px solid var(--color-border); padding: 14px 18px; }
 	.review-dialog h2 { margin: 3px 0 0; font-size: 18px; overflow-wrap: anywhere; }

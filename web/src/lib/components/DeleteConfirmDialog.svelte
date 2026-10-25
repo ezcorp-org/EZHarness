@@ -1,4 +1,5 @@
 <script lang="ts">
+	import ModalBackdrop from "$lib/components/ui/ModalBackdrop.svelte";
 	let {
 		open = false,
 		conversationTitle,
@@ -15,17 +16,14 @@
 		if (e.key === "Escape") oncancel();
 	}
 
-	function handleBackdropClick(e: MouseEvent) {
-		if (e.target === e.currentTarget) oncancel();
-	}
 </script>
 
 {#if open}
-	<!-- svelte-ignore a11y_no_static_element_interactions -->
-	<div
-		class="fixed inset-0 z-50 flex items-center justify-center bg-black/50"
+	<ModalBackdrop
+		dim={50}
+		class="flex items-center justify-center"
 		onkeydown={handleKeydown}
-		onclick={handleBackdropClick}
+		onclose={oncancel}
 		role="dialog"
 		aria-modal="true"
 		aria-labelledby="delete-dialog-title"
@@ -51,5 +49,5 @@
 				</button>
 			</div>
 		</div>
-	</div>
+	</ModalBackdrop>
 {/if}

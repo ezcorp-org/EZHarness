@@ -56,6 +56,7 @@
  * fixed the same defect on the /extensions card grid.
  */
 import { test, expect } from "./fixtures/test-base.js";
+import { expectFullViewportBackdrop } from "./fixtures/backdrop.js";
 import type { Page } from "@playwright/test";
 import { captureEvidence } from "./fixtures/evidence.js";
 import { makeProject, makeAgent, makeAgentConfig, makeExtension } from "./fixtures/data.js";
@@ -242,6 +243,8 @@ test.describe("card grids at a 393px viewport (#209)", () => {
 
 		const card = page.getByTestId("extension-attach-picker-card");
 		await expect(card).toBeVisible();
+		// Below the breakpoint the picker is a bottom sheet; either way its layer is a ModalBackdrop over the viewport.
+		await expectFullViewportBackdrop(page.getByTestId("bottom-sheet").or(page.getByTestId("extension-attach-picker")).first());
 		await card.scrollIntoViewIfNeeded();
 
 		// The picker's own scroll pane is the scrollport here, not `<main>` —
