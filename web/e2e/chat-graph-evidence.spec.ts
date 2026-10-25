@@ -176,6 +176,11 @@ test.describe("Chat DAG graph visual evidence", () => {
 		await expect(page.getByText("Execution Timeline")).toBeVisible();
 		await expect(page.getByText(LABEL_TOOL_WITH_DURATION, { exact: true })).toBeVisible();
 		await expect(page.getByText(LABEL_TOOL_WITHOUT_DURATION, { exact: true })).toBeVisible();
+		// Each bar row is label, bar, duration. No bar ever carried token counts, so the empty token column that
+		// only took width from the bars is gone.
+		const row = page.getByRole("button").filter({ hasText: LABEL_TOOL_WITH_DURATION }).locator(":scope > div");
+		await expect(row.locator(":scope > *")).toHaveCount(3);
+		await expect(row.locator(":scope > span").last()).toHaveText("840ms");
 		await captureEvidence(page, testInfo, "chat-graph-waterfall-timeline");
 	});
 });
