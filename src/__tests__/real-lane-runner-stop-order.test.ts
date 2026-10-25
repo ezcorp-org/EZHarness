@@ -9,7 +9,8 @@
  * actually waits for it. This test plays Playwright: it starts the script in a new group with a fake `bun` that
  * keeps the runner and the app alive and records every signal, sends SIGTERM to the group, and reads the order.
  */
-import { expect, test } from "bun:test";
+import { afterEach, expect, test } from "bun:test";
+import { existsSync } from "node:fs";
 import { chmod, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
@@ -40,8 +41,42 @@ if (role) {
 }
 `;
 
+interface Lane {
+  pid: number;
+  exited: Promise<number>;
+  stdout: Promise<string>;
+  events: () => Promise<string[]>;
+  /** Set by the cleanup below, so a wait in a test that already failed stops polling. */
+  stopped: boolean;
+}
+
+/** Every lane a test started, with its scratch folder; afterEach stops what is left and removes the folder. */
+const lanes: Array<{ lane: Lane; directory: string }> = [];
+
+const runnerPidOf = async (lane: Lane) => Number((await lane.events()).find((event) => event.startsWith("runner-pid:"))?.slice("runner-pid:".length));
+
+/**
+ * The cleanup runs after every test, also one that the pool's per-test timeout ended: a failing run must not
+ * leave its servers behind, neither the group nor a runner that left the group.
+ */
+afterEach(async () => {
+  for (const { lane, directory } of lanes.splice(0)) {
+    lane.stopped = true;
+    const runnerPid = await runnerPidOf(lane);
+    for (const target of [-lane.pid, ...(runnerPid ? [runnerPid] : [])]) {
+      try {
+        process.kill(target, "SIGKILL");
+      } catch (error) {
+        // Already gone, which is the normal end.
+        expect((error as NodeJS.ErrnoException).code).toBe("ESRCH");
+      }
+    }
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
 /** Start the lane script the way Playwright does (its own process group) and wait until both servers are up. */
-async function startLane(run: (lane: { pid: number; exited: Promise<number>; stdout: Promise<string>; events: () => Promise<string[]> }) => Promise<void>) {
+async function startLane(): Promise<Lane> {
   const directory = await mkdtemp(join(tmpdir(), "real-lane-stop-"));
   const record = join(directory, "events.log");
   await writeFile(join(directory, "bun"), FAKE_BUN);
@@ -53,51 +88,41 @@ async function startLane(run: (lane: { pid: number; exited: Promise<number>; std
     stderr: "pipe",
     detached: true,
   });
-  const events = async () => (await readFile(record, "utf8").catch(() => "")).trim().split("\n").filter(Boolean);
-  try {
-    await until(async () => (await events()).includes("app-started") && (await events()).includes("runner-started"));
-    await run({ pid: child.pid, exited: child.exited, stdout: new Response(child.stdout).text(), events });
-  } finally {
-    // A failing run must not leave its servers behind: the group, and the runner if it left the group.
-    const runnerPid = Number((await events()).find((event) => event.startsWith("runner-pid:"))?.slice("runner-pid:".length));
-    for (const target of [-child.pid, ...(runnerPid ? [runnerPid] : [])]) {
-      try {
-        process.kill(target, "SIGKILL");
-      } catch (error) {
-        // Already gone, which is the normal end.
-        expect((error as NodeJS.ErrnoException).code).toBe("ESRCH");
-      }
-    }
-    await rm(directory, { recursive: true, force: true });
-  }
+  const lane: Lane = {
+    pid: child.pid,
+    exited: child.exited,
+    stdout: new Response(child.stdout).text(),
+    events: async () => (await readFile(record, "utf8").catch(() => "")).trim().split("\n").filter(Boolean),
+    stopped: false,
+  };
+  lanes.push({ lane, directory });
+  await until(async () => lane.stopped || ((await lane.events()).includes("app-started") && (await lane.events()).includes("runner-started")));
+  return lane;
 }
 
 test("a group SIGTERM stops the app first, and the runner only after the app has exited", async () => {
-  await startLane(async (lane) => {
-    process.kill(-lane.pid, "SIGTERM");
-    const [, stdout] = await Promise.all([lane.exited, lane.stdout]);
-    // The lane's own log names the two stops in order, for a CI run log to show.
-    expect(stdout.split("\n").filter((line) => line.startsWith("real lane: "))).toEqual(["real lane: app stopped", "real lane: runner stopped"]);
-    await until(async () => (await lane.events()).includes("runner-exit"));
-    const order = await lane.events();
-    expect(order.indexOf("app-exit")).toBeGreaterThan(-1);
-    // The runner is stopped once, and only after the app has finished draining.
-    expect(order.filter((event) => event === "runner-term")).toHaveLength(1);
-    expect(order.indexOf("runner-term")).toBeGreaterThan(order.indexOf("app-exit"));
-  });
+  const lane = await startLane();
+  process.kill(-lane.pid, "SIGTERM");
+  const [, stdout] = await Promise.all([lane.exited, lane.stdout]);
+  // The lane's own log names the two stops in order, for a CI run log to show.
+  expect(stdout.split("\n").filter((line) => line.startsWith("real lane: "))).toEqual(["real lane: app stopped", "real lane: runner stopped"]);
+  await until(async () => lane.stopped || (await lane.events()).includes("runner-exit"));
+  const order = await lane.events();
+  expect(order.indexOf("app-exit")).toBeGreaterThan(-1);
+  // The runner is stopped once, and only after the app has finished draining.
+  expect(order.filter((event) => event === "runner-term")).toHaveLength(1);
+  expect(order.indexOf("runner-term")).toBeGreaterThan(order.indexOf("app-exit"));
 }, 30_000);
 
 test("a group SIGKILL, where cleanup() cannot run, still stops the runner instead of leaving it behind", async () => {
-  await startLane(async (lane) => {
-    const runnerPid = Number((await lane.events()).find((event) => event.startsWith("runner-pid:"))!.slice("runner-pid:".length));
-    process.kill(-lane.pid, "SIGKILL");
-    await lane.exited;
-    const alive = () => { try { process.kill(runnerPid, 0); return true; } catch { return false; } };
-    // Poll a bounded number of times, so a runner that is left behind fails this test (and its cleanup runs)
-    // instead of hanging it.
-    for (let poll = 0; poll < 250 && alive(); poll++) await Bun.sleep(20);
-    expect(alive()).toBe(false);
-  });
+  const lane = await startLane();
+  const runnerPid = await runnerPidOf(lane);
+  process.kill(-lane.pid, "SIGKILL");
+  await lane.exited;
+  // Wait for the runner process itself to go; a runner left behind never goes, and the per-test timeout is the
+  // only limit that fails it. The cleanup above then stops it.
+  await until(async () => lane.stopped || !existsSync(`/proc/${runnerPid}`));
+  expect(existsSync(`/proc/${runnerPid}`)).toBe(false);
 }, 30_000);
 
 test("a host without setsid or setpriv refuses by name instead of stopping the runner with the app", async () => {
