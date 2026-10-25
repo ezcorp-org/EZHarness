@@ -14,7 +14,10 @@
  *      duplicate onto the fallback tray.
  *   3. Idempotency: a replayed request (same toolCallId) updates in place.
  */
-import { describe, test, expect, beforeEach, vi } from "vitest";
+import { describe, test, expect, beforeEach, afterEach, vi } from "vitest";
+import { tick } from "svelte";
+import { cleanup, render } from "@testing-library/svelte";
+import PendingPermissionTray from "$lib/components/tool-cards/PendingPermissionTray.svelte";
 
 let capturedSubscriber: ((evt: { type: string; data: unknown }) => void) | null = null;
 
@@ -54,6 +57,17 @@ function emit(type: string, data: unknown) {
 	if (!capturedSubscriber) throw new Error("subscriber not captured — initStores not called?");
 	capturedSubscriber({ type, data });
 }
+
+function requestPermission(toolCallId: string, conversationId = "conv-no-run") {
+	emit("tool:permission_request", {
+		conversationId,
+		toolCallId,
+		toolName: "writeFile",
+		input: { path: `/workspace/${toolCallId}` },
+	});
+}
+
+afterEach(cleanup);
 
 describe("stores.svelte.ts — fallback permission tray (B3)", () => {
 	beforeEach(() => {
@@ -116,5 +130,40 @@ describe("stores.svelte.ts — fallback permission tray (B3)", () => {
 		emit("tool:permission_request", payload);
 		emit("tool:permission_request", payload);
 		expect(store.pendingPermissions).toHaveLength(1);
+	});
+
+	test.each(["tool:complete", "tool:error"])("%s removes the matching fallback card after another page resolves it", async (type) => {
+		requestPermission("resolved-prompt");
+		requestPermission("unrelated-prompt");
+		const view = render(PendingPermissionTray);
+		expect(view.getAllByRole("button", { name: /^Allow$/ })).toHaveLength(2);
+
+		emit(type, {
+			conversationId: "conv-no-run",
+			invocationId: "resolved-prompt",
+			toolName: "writeFile",
+			output: { content: [{ type: "text", text: "written" }] },
+			success: type === "tool:complete",
+			error: "permission declined elsewhere",
+			duration: 1,
+		});
+		await tick();
+
+		expect(store.pendingPermissions.map((entry) => entry.id)).toEqual(["unrelated-prompt"]);
+		expect(view.getAllByRole("button", { name: /^Allow$/ })).toHaveLength(1);
+		expect(view.getAllByRole("button", { name: /^Deny$/ })).toHaveLength(1);
+	});
+
+	test.each(["tool:complete", "tool:error"])("%s cannot dismiss another conversation or an unidentified prompt", (type) => {
+		requestPermission("same-id");
+		for (const data of [
+			{ conversationId: "another-conversation", invocationId: "same-id" },
+			{ conversationId: "conv-no-run", invocationId: "another-id" },
+			{ conversationId: "conv-no-run" },
+			{ invocationId: "same-id" },
+		]) {
+			emit(type, { ...data, toolName: "writeFile", output: {}, error: "declined", duration: 1 });
+			expect(store.pendingPermissions.map((entry) => entry.id)).toEqual(["same-id"]);
+		}
 	});
 });

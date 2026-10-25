@@ -9723,3 +9723,14 @@ Independent review `52293da3` passed the exact frozen source and evidence. Norma
 The actual native sequence emits the preview before later saved/reset/complete frames. A normal tool-history snapshot removed the live inline notification because it has no persisted tool row. The fix retains only completed, valid host preview records. A client-only choice marker prevents an Ignore or successful Expose from asking again after remount. It keeps the validated Open URL. No API, DB, permission, persistence, or auto-consent change.
 
 Verification: 49 component/store tests pass. Every added executable production line is covered. The touched store functions have measured risk scores at or below 21 (limit 30). Svelte/types reports zero errors and warnings; scoped Biome passes. The real Chromium @evidence route test uses the actual provider fixture and normal history GET: original store RED (card count 0), fixed store GREEN (one card, exact Expose request and Open link). The mocked browser clock advances only the existing five-second history throttle; it does not alter any authority proof. The scoped production build passes with the Nix runtime library path. The first missing-library environment failure is retained separately. Evidence stays in `.cache/preview-refresh-proof-v1`; no live app, guest, or API calls.
+## 2026-10-24: Clear resolved permission prompts across pages
+
+- [x] Reproduce two real browser contexts with the actual global SSE owner filter, WS client, store and permission tray: approving in one leaves two stale prompts in the other.
+- [x] Add a failing real-store/component regression for completion/error, conversation matching and unrelated pending prompts.
+- [x] Reuse the existing dismissal helper from matching terminal tool events; preserve server scope and permission authority.
+- [ ] Pass the two-context GREEN replay, focused tests, owned frozen installs, canonical types/lint, changed coverage and CRAP.
+- [ ] Complete independent review and normal-hook commit.
+
+Plan review: root assigned only the global handlers and focused regression; no new events, API, persistence, live actions or overlap with the preview fix.
+
+Review before commit: actual-store RED2/7 becomes GREEN7/7; related scoped coverage41PASS. Same two-context real Chromium loop is RED3stale prompts vs1unrelated expected, then GREEN with completion/error/wrong-owner/unrelated controls. Canonical @evidence Playwright1PASS including web build, screenshot35e7 visually checked; canonical web check0errors0warnings, Biome3/diffcheckPASS. Owned root/web frozen installsPASS; all9locks unchanged. Changed ratchets compare committed HEAD, so precommit0candidate output is not claimed as coverage/CRAP PASS; run them after reviewed normal-hook commit before integration.

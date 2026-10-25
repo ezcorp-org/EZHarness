@@ -53,6 +53,7 @@ export { extractToolOutput };
 
 export interface ToolCallState {
 	id?: string;
+	conversationId?: string;
 	toolName: string;
 	status: 'running' | 'complete' | 'error';
 	input?: unknown;
@@ -616,8 +617,9 @@ export function registerPendingPermission(toolCall: ToolCallState): void {
 }
 
 /** Remove a resolved (or superseded) prompt from the fallback tray. */
-export function dismissPendingPermission(toolCallId: string): void {
-	store.pendingPermissions = store.pendingPermissions.filter((p) => p.id !== toolCallId);
+export function dismissPendingPermission(toolCallId: string, conversationId?: string): void {
+	store.pendingPermissions = store.pendingPermissions.filter((p) => p.id !== toolCallId
+		|| (conversationId !== undefined && p.conversationId !== conversationId));
 }
 
 /** Put a parked approval on the pending-decisions tray. Idempotent by
@@ -1186,6 +1188,7 @@ export function initStores() {
 		const { conversationId, toolName, output, duration, success: completeSuccess, source: completeSource, invocationId: completeInvId, cardType: completeCardType, cardLayout: completeCardLayout } = event.data as {
 			conversationId: string; toolName: string; output: unknown; duration: number; success?: boolean; source?: string; invocationId?: string; cardType?: string; cardLayout?: string;
 		};
+		if (completeInvId && conversationId) dismissPendingPermission(completeInvId, conversationId);
 		const safeCompleteLayout = completeCardLayout === 'dock' ? 'dock' as const : completeCardLayout === 'inline' ? 'inline' as const : undefined;
 		if (completeSource === 'inline' && completeInvId) {
 			if (completeSuccess === false) {
@@ -1240,6 +1243,7 @@ export function initStores() {
 		const { conversationId, toolName, error: toolError, duration, source: errorSource, invocationId: errorInvId, cardType: errorCardType, cardLayout: errorCardLayout } = event.data as {
 			conversationId: string; toolName: string; error: string; duration: number; source?: string; invocationId?: string; cardType?: string; cardLayout?: string;
 		};
+		if (errorInvId && conversationId) dismissPendingPermission(errorInvId, conversationId);
 		const safeErrorLayout = errorCardLayout === 'dock' ? 'dock' as const : errorCardLayout === 'inline' ? 'inline' as const : undefined;
 		if (errorSource === 'inline' && errorInvId) {
 			inlineToolStore.updateFromEvent(errorInvId, 'tool:error', { error: toolError, duration, ...(errorCardType ? { cardType: errorCardType } : {}), ...(safeErrorLayout ? { cardLayout: safeErrorLayout } : {}) });
@@ -1363,6 +1367,7 @@ export function initStores() {
 			console.warn("[permission] No active run for conversation", conversationId, "— routing tool", permToolName, "to the fallback permission tray");
 			registerPendingPermission({
 				id: toolCallId,
+				conversationId,
 				toolName: permToolName,
 				status: 'running',
 				input: permInput,

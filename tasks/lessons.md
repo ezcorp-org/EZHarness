@@ -3136,3 +3136,7 @@ smokes under the lock, detached-job wake-ups) are not repeated.
 - Replay the actual event-to-hydration chain and render the reactive store. Rendering a copied card object can miss removal from the real store.
 
 - Preserve existing task and lesson history. Check files before writing; append a task section instead of replacing the file.
+## 2026-10-24: Permission prompts across browser pages
+
+- A local approval callback clears only its own browser store. Verify that matching terminal tool events clear fallback prompts in another page, while unrelated conversations and pending requests remain. Keep server event authorization unchanged.
+- Testing Library role options differ from Playwright. Use anchored accessible-name patterns for exact component queries, and run the canonical web type check.
