@@ -239,7 +239,6 @@ export interface WaterfallBar {
 	 */
 	duration: number;
 	status: TimelineStatus;
-	tokens?: { input: number; output: number };
 	input?: unknown;
 	output?: unknown;
 	error?: string;
