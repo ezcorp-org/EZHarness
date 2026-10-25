@@ -30,13 +30,15 @@ stop_preview() {
       sleep 0.1
     done
     wait "$preview_pid" 2>/dev/null || true
+    echo "real lane: app stopped"
     preview_pid=""
   fi
 }
 cleanup() {
   trap - EXIT INT TERM
   stop_preview
-  if [[ -n "$runner_pid" ]]; then kill -TERM "$runner_pid" 2>/dev/null || true; wait "$runner_pid" 2>/dev/null || true; fi
+  # The runner leads its own process group (setsid below), so stop that group here, after the app.
+  if [[ -n "$runner_pid" ]]; then kill -TERM -- "-$runner_pid" 2>/dev/null || true; wait "$runner_pid" 2>/dev/null || true; echo "real lane: runner stopped"; fi
   if [[ -n "$restart_file" ]]; then rm -f -- "$restart_file" "$restart_ack_file" "$restart_pid_file"; fi
   rm -rf "$run_root"
 }
@@ -50,7 +52,12 @@ export EZCORP_EXTENSION_RUNNER_SOCKET="$EZ_EXTENSION_RUNNER_SOCKET"
 bun -e 'import {randomBytes} from "node:crypto"; await Bun.write(process.env.EZ_EXTENSION_RUNNER_TOKEN_FILE, randomBytes(32).toString("hex"));'
 EZCORP_EXTENSION_RUNNER_TOKEN="$(cat "$EZ_EXTENSION_RUNNER_TOKEN_FILE")"
 export EZCORP_EXTENSION_RUNNER_TOKEN
-bash scripts/start-extension-runner-e2e.sh &
+# The runner runs in its own session and process group. Playwright stops this webServer by signalling its
+# whole group; a runner inside that group would stop at the same moment as the app, and an app build still
+# open to it would fail with "socket hang up". Outside the group, only cleanup() stops it, after the app.
+# --pdeathsig: if this script is killed outright (SIGKILL, so cleanup() never runs), the runner is still
+# stopped instead of being left behind.
+setsid setpriv --pdeathsig TERM bash scripts/start-extension-runner-e2e.sh &
 runner_pid=$!
 export EZ_TEST_RUNNER_PID="$runner_pid"
 bun -e '
