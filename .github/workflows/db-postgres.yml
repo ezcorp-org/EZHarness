@@ -38,7 +38,11 @@
 # C11 required check `Factory assurance and release` names a real producer set
 # rather than hiding inside a bundled job. GitHub Actions cannot share one
 # `services:` block between jobs and has no YAML anchors, so the PostgreSQL
-# service declaration below is necessarily repeated once.
+# service declaration below is necessarily repeated in each job.
+#
+# The storage step is its own two-shard job, `factory-storage`: as one step in
+# External Postgres it took 300-650 s of that job's 900 s budget, and the
+# slowest hosted runners passed the limit.
 
 name: db-postgres
 
@@ -88,10 +92,6 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: ./.github/actions/setup
-      # W4H-12: the storage step runs a real Podman guest (factory-host-launch). The runner starts guests
-      # with --pull=never, so this job provisions it like every other Podman-guest job: the pinned image,
-      # conmon, cgroup delegation and the user session (scripts/podman-guest-job-registration.test.ts).
-      - run: bash scripts/setup-extension-runner-ci.sh --install
 
       # Targeted, single-file run (safe per scripts/test.sh — only the
       # unbounded root glob deadlocks). The file's PGlite suite runs too and
@@ -169,6 +169,44 @@ jobs:
           retention-days: 3
           if-no-files-found: error
 
+  # The real storage and private-service suites in two parallel shards. Each shard holds about half of the
+  # measured hosted time (about 150-340 s per shard); put a new suite in the shard that takes less.
+  factory-storage:
+    name: Factory storage and private services
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2]
+
+    services:
+      postgres:
+        image: docker.io/pgvector/pgvector@sha256:9a169499888c9d75ad14d0401be64839d2c325f32e399098261589faff93d65c
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: ezcorp_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    env:
+      DATABASE_URL: postgres://postgres:postgres@localhost:5432/ezcorp_test
+      FACTORY_TEST_POSTGRES_URL: postgres://postgres:postgres@localhost:5432/ezcorp_test
+
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: ./.github/actions/setup
+      # W4H-12: the storage step runs a real Podman guest (factory-host-launch). The runner starts guests
+      # with --pull=never, so this job provisions it like every other Podman-guest job: the pinned image,
+      # conmon, cgroup delegation and the user session (scripts/podman-guest-job-registration.test.ts).
+      - run: bash scripts/setup-extension-runner-ci.sh --install
+
       # Reuse the strict local Compose provisioner: it creates job-local
       # credentials below a private runtime directory, starts SeaweedFS, and
       # seeds versioned tenant buckets without exposing credential values.
@@ -181,68 +219,81 @@ jobs:
       # Explicit files preserve each real storage and private-service proof.
       - name: Run factory storage and private services on Postgres and S3
         shell: bash
-        run: >-
-          FACTORY_TEST_POSTGRES_URL="$DATABASE_URL" bun test --timeout 30000
-          --coverage --coverage-reporter=lcov --coverage-dir=coverage-factory-storage
-          ./tests/postgres/factory-artifacts.test.ts
-          ./tests/postgres/factory-storage-cleanup.test.ts
-          ./tests/postgres/factory-artifact-access.test.ts
-          ./tests/postgres/factory-artifact-materials.test.ts
-          ./tests/postgres/factory-guest-material-broker.test.ts
-          ./tests/postgres/factory-lazy-input.test.ts
-          ./tests/postgres/factory-lazy-commands.test.ts
-          ./tests/postgres/factory-boot.test.ts
-          ./tests/postgres/factory-run-lifecycle-s3.test.ts
-          ./tests/postgres/factory-run-inputs.test.ts
-          ./tests/postgres/factory-console.test.ts
-          ./tests/postgres/factory-definitions.test.ts
-          ./tests/postgres/factory-private-service.test.ts
-          ./tests/postgres/factory-package-preparation.test.ts
-          ./tests/postgres/factory-executions.test.ts
-          ./tests/postgres/factory-attempt-queue.test.ts
-          ./tests/postgres/factory-budgets.test.ts
-          ./tests/postgres/factory-encryption-s3.test.ts
-          ./tests/postgres/factory-inbox.test.ts
-          ./tests/postgres/factory-project-creation.test.ts
-          ./tests/postgres/factory-installation-bootstrap.test.ts
-          ./tests/postgres/factory-records.test.ts
-          ./tests/postgres/factory-tenant-projects.test.ts
-          ./tests/postgres/factory-host-launch.test.ts
-          ./tests/postgres/factory-execution-gateway.test.ts
-          ./tests/postgres/factory-guest-model-journal.test.ts
-          ./tests/postgres/factory-usage-epoch.test.ts
-          ./tests/postgres/factory-guest-model-route.test.ts
-          ./tests/postgres/factory-service-credentials.test.ts
-          ./tests/postgres/factory-grants.test.ts
-          ./tests/postgres/factory-task-stops.test.ts
-          ./tests/postgres/factory-task-stop-dispatch-refused-migration.test.ts
-          ./tests/postgres/factory-stop-lock-order.test.ts
-          ./tests/postgres/factory-release-stop-migration.test.ts
-          ./tests/postgres/factory-release-stop-race.test.ts
-          ./tests/postgres/factory-admission-stop.test.ts
-          ./tests/postgres/factory-usage-basis-migration.test.ts
-          ./tests/postgres/factory-package-fence.test.ts
-          ./tests/postgres/factory-migration-restart.test.ts
-          ./tests/postgres/factory-schema.test.ts
-          ./tests/postgres/migrate-lock.test.ts
-          ./tests/postgres/factory-retention.test.ts
-          ./tests/postgres/factory-checkpoint.test.ts
-          ./tests/postgres/factory-restore.test.ts
-          ./tests/postgres/factory-key-rotation.test.ts
-          ./tests/postgres/factory-pool-checkpoint.test.ts
-          ./tests/postgres/factory-wal-backup.test.ts
-          ./tests/postgres/factory-installation-metrics.test.ts
-          ./tests/postgres/factory-metrics-scrape.test.ts
-          ./tests/postgres/factory-notification-sender.test.ts
-          ./tests/postgres/factory-pool-metrics.test.ts
+        env:
+          SHARD: ${{ matrix.shard }}
+        run: |
+          case "$SHARD" in
+            1)
+              suites=(
+                ./tests/postgres/factory-storage-cleanup.test.ts
+                ./tests/postgres/factory-lazy-input.test.ts
+                ./tests/postgres/factory-run-lifecycle-s3.test.ts
+                ./tests/postgres/factory-run-inputs.test.ts
+                ./tests/postgres/factory-console.test.ts
+                ./tests/postgres/factory-definitions.test.ts
+                ./tests/postgres/factory-private-service.test.ts
+                ./tests/postgres/factory-package-preparation.test.ts
+                ./tests/postgres/factory-executions.test.ts
+                ./tests/postgres/factory-attempt-queue.test.ts
+                ./tests/postgres/factory-budgets.test.ts
+                ./tests/postgres/factory-encryption-s3.test.ts
+                ./tests/postgres/factory-project-creation.test.ts
+                ./tests/postgres/factory-host-launch.test.ts
+                ./tests/postgres/factory-usage-epoch.test.ts
+                ./tests/postgres/factory-guest-model-route.test.ts
+                ./tests/postgres/factory-task-stops.test.ts
+                ./tests/postgres/factory-release-stop-race.test.ts
+                ./tests/postgres/factory-admission-stop.test.ts
+                ./tests/postgres/factory-package-fence.test.ts
+                ./tests/postgres/factory-migration-restart.test.ts
+                ./tests/postgres/factory-schema.test.ts
+                ./tests/postgres/factory-retention.test.ts
+                ./tests/postgres/factory-pool-checkpoint.test.ts
+                ./tests/postgres/factory-wal-backup.test.ts
+                ./tests/postgres/factory-metrics-scrape.test.ts
+              )
+              ;;
+            2)
+              suites=(
+                ./tests/postgres/factory-artifacts.test.ts
+                ./tests/postgres/factory-artifact-access.test.ts
+                ./tests/postgres/factory-artifact-materials.test.ts
+                ./tests/postgres/factory-guest-material-broker.test.ts
+                ./tests/postgres/factory-lazy-commands.test.ts
+                ./tests/postgres/factory-boot.test.ts
+                ./tests/postgres/factory-inbox.test.ts
+                ./tests/postgres/factory-installation-bootstrap.test.ts
+                ./tests/postgres/factory-records.test.ts
+                ./tests/postgres/factory-tenant-projects.test.ts
+                ./tests/postgres/factory-execution-gateway.test.ts
+                ./tests/postgres/factory-guest-model-journal.test.ts
+                ./tests/postgres/factory-service-credentials.test.ts
+                ./tests/postgres/factory-grants.test.ts
+                ./tests/postgres/factory-task-stop-dispatch-refused-migration.test.ts
+                ./tests/postgres/factory-stop-lock-order.test.ts
+                ./tests/postgres/factory-release-stop-migration.test.ts
+                ./tests/postgres/factory-usage-basis-migration.test.ts
+                ./tests/postgres/migrate-lock.test.ts
+                ./tests/postgres/factory-checkpoint.test.ts
+                ./tests/postgres/factory-restore.test.ts
+                ./tests/postgres/factory-key-rotation.test.ts
+                ./tests/postgres/factory-installation-metrics.test.ts
+                ./tests/postgres/factory-notification-sender.test.ts
+                ./tests/postgres/factory-pool-metrics.test.ts
+              )
+              ;;
+            *) echo "unknown storage shard: $SHARD" >&2; exit 1 ;;
+          esac
+          FACTORY_TEST_POSTGRES_URL="$DATABASE_URL" bun test --timeout 30000 \
+            --coverage --coverage-reporter=lcov --coverage-dir=coverage-factory-storage "${suites[@]}"
 
       # The coverage gate downloads every lcov-cov-* artifact into ONE folder; a unique name keeps this file (W4H-15).
       - name: Name the LCOV for the merged coverage download
-        run: mv coverage-factory-storage/lcov.info coverage-factory-storage/lcov_factory_storage.info
+        run: mv coverage-factory-storage/lcov.info "coverage-factory-storage/lcov_factory_storage_${{ matrix.shard }}.info"
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: lcov-cov-factory-storage
-          path: coverage-factory-storage/lcov_factory_storage.info
+          name: lcov-cov-factory-storage-${{ matrix.shard }}
+          path: coverage-factory-storage/lcov_factory_storage_${{ matrix.shard }}.info
           retention-days: 3
           if-no-files-found: error
 

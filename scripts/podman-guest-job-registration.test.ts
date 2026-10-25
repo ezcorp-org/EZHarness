@@ -114,22 +114,22 @@ describe("Podman-guest tests run only where the runner is provisioned (W4H-12)",
 
   test("the committed workflow with the setup moved after the guest step, or only in a comment, is red by name", () => {
     const committed = workflows.find(({ file }) => file === "db-postgres.yml")!;
-    const job = committed.jobs["external-postgres"]!;
+    const job = committed.jobs["factory-storage"]!;
     const steps = job.steps ?? [];
     const setup = steps.findIndex(runsRunnerSetup);
     expect(setup).toBeGreaterThan(-1);
-    const red = [`db-postgres.yml external-postgres (External Postgres (Bun.sql)): Run factory storage and private services on Postgres and S3: runs a Podman-guest test before '${RUNNER_SETUP}'`];
+    const red = [`db-postgres.yml factory-storage (Factory storage and private services): Run factory storage and private services on Postgres and S3: runs a Podman-guest test before '${RUNNER_SETUP}'`];
     const moved = [...steps.filter((_, index) => index !== setup), steps[setup]!];
-    expect(unpreparedGuestSteps([{ ...committed, jobs: { "external-postgres": { ...job, steps: moved } } }])).toEqual(red);
+    expect(unpreparedGuestSteps([{ ...committed, jobs: { "factory-storage": { ...job, steps: moved } } }])).toEqual(red);
     const commented = steps.map((step, index) => (index === setup ? { ...step, run: `# ${RUNNER_SETUP}\necho provisioned` } : step));
-    expect(unpreparedGuestSteps([{ ...committed, jobs: { "external-postgres": { ...job, steps: commented } } }])).toEqual(red);
+    expect(unpreparedGuestSteps([{ ...committed, jobs: { "factory-storage": { ...job, steps: commented } } }])).toEqual(red);
   });
 
   test("the guard sees the step that failed in hosted run 37383355593", () => {
     // Not vacuous: the storage step names factory-host-launch, whose helper starts a real guest.
     expect(startsPodmanGuest("tests/postgres/factory-host-launch.test.ts")).toBe(true);
     expect(podmanGuestSteps(workflows).map((step) => step.where)).toContain(
-      "db-postgres.yml external-postgres (External Postgres (Bun.sql)): Run factory storage and private services on Postgres and S3",
+      "db-postgres.yml factory-storage (Factory storage and private services): Run factory storage and private services on Postgres and S3",
     );
   });
 
