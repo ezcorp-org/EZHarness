@@ -1,7 +1,7 @@
 /**
  * Caller-executed tools — the two surfaces a user actually sees.
  *
- *   1. The composer's 🔧 Tools popover grows a "Caller tools" section listing
+ *   1. The composer's Tools popover grows a "Caller tools" section listing
  *      what the connected client device declared, with the same per-tool and
  *      master toggles every extension gets. Unchecking one is a REAL
  *      revocation: the map is persisted under the literal key `caller` and the
@@ -109,6 +109,27 @@ test.describe("Caller-executed tools — composer surface", () => {
 		await expect(page.getByTestId("conv-tool-caller-capture_screen")).toBeChecked();
 
 		await captureEvidence(page, testInfo, "caller-tools-dropdown");
+	});
+
+	test("the Tools chip leads with a line icon like its sibling chips, never an emoji glyph @evidence", async ({
+		page,
+		mockApi,
+	}, testInfo) => {
+		await mockApi({ projects: [proj], conversations: [conv], extensions: [] });
+		await mockCallerTools(page);
+		await page.goto("/project/proj-1/chat/conv-1");
+
+		const trigger = page.getByTestId("conversation-tools-trigger");
+		await expect(trigger).toBeVisible();
+		// An emoji needs an emoji font; on a machine without one it renders as an empty box.
+		expect(await trigger.textContent()).not.toMatch(/\p{Extended_Pictographic}/u);
+		// The leading icon is an inline stroke SVG, the same source as the Model and Mode chips.
+		const icon = trigger.locator(":scope > svg").first();
+		await expect(icon).toHaveAttribute("aria-hidden", "true");
+		await expect(icon).toHaveAttribute("stroke", "currentColor");
+		await expect(trigger.locator(":scope > *").first()).toHaveJSProperty("tagName", "svg");
+		await expect(trigger).toContainText("Tools");
+		await captureEvidence(page, testInfo, "conversation-tools-chip-icon");
 	});
 
 	test("unchecking a caller tool persists the narrowed map under the `caller` key", async ({

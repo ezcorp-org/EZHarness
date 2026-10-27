@@ -22,6 +22,7 @@
 	 */
 	import { onMount, tick } from "svelte";
 	import Tooltip from "$lib/components/Tooltip.svelte";
+	import WrenchIcon from "$lib/components/WrenchIcon.svelte";
 	import type { Mode } from "$lib/api";
 	import {
 		isAllTools,
@@ -258,7 +259,7 @@
 		class="flex items-center gap-1 rounded-full border border-[var(--color-border)] bg-[var(--color-surface-secondary)] px-2.5 py-1 text-xs text-[var(--color-text-secondary)] transition-colors hover:border-[var(--color-text-muted)] hover:text-[var(--color-text-primary)]"
 		title="Scope which tools are active for this conversation"
 	>
-		<span aria-hidden="true">🔧</span>
+		<WrenchIcon />
 		<span>Tools</span>
 		{#if sections.length > 0}
 			<span

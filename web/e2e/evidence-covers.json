@@ -132,7 +132,8 @@
     "web/src/lib/components/ConversationToolsSelector.svelte",
     "web/src/lib/components/ChatInput.svelte",
     "web/src/lib/components/tool-cards/PermissionGate.svelte",
-    "web/src/lib/components/tool-cards/utils.ts"
+    "web/src/lib/components/tool-cards/utils.ts",
+    "web/src/lib/components/WrenchIcon.svelte"
   ],
   "web/e2e/card-grid-mobile-overflow.spec.ts": [
     "web/src/lib/components/AgentCard.svelte",
@@ -205,7 +206,8 @@
     "web/src/lib/components/SuggestionPopover.svelte",
     "web/src/lib/components/ChatInput.svelte",
     "web/src/lib/components/InlineToolForm.svelte",
-    "web/src/lib/components/ToolPicker.svelte"
+    "web/src/lib/components/ToolPicker.svelte",
+    "web/src/lib/components/WrenchIcon.svelte"
   ],
   "web/e2e/conversation-list-sidebar-nav.spec.ts": [
     "web/src/lib/components/ConversationList.svelte",
@@ -281,7 +283,9 @@
     "web/src/lib/components/settings/ModesSection.svelte",
     "web/src/lib/components/ModeFormModal.svelte",
     "web/src/routes/(app)/settings/personalization/+page.svelte",
-    "web/src/routes/(app)/project/[id]/chat/+page.svelte"
+    "web/src/routes/(app)/project/[id]/chat/+page.svelte",
+    "web/src/lib/components/ez/EzPanel.svelte",
+    "web/src/lib/components/WrenchIcon.svelte"
   ],
   "web/e2e/feature-index-scan.spec.ts": [
     "web/src/lib/components/FeatureIndex.svelte",

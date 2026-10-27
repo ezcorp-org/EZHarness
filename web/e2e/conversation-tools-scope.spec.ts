@@ -1,7 +1,7 @@
 /**
  * Phase 4 (D) — per-conversation tool scoping from the chat composer.
  *
- * Picks a mode with an attached extension, opens the 🔧 Tools popover,
+ * Picks a mode with an attached extension, opens the Tools popover,
  * deselects a tool (→ PUT /api/conversations/[id] with the narrowed map),
  * and asserts the narrowed map persists (the in-memory mock now mutates the
  * conversation so a reload's GET reflects it). Reset clears the override

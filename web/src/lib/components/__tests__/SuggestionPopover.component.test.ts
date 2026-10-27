@@ -140,15 +140,22 @@ describe("SuggestionPopover", () => {
 			SuggestionPopover,
 			makeProps({ tools: [clash("open-meteo"), clash("weather-api"), EXT_TOOL] }),
 		);
-		const labels = getAllByTestId("suggestion-tool-chip").map((c) => c.textContent?.trim());
-		expect(labels).toContain("🔧 open-meteo · weather-now");
-		expect(labels).toContain("🔧 weather-api · weather-now");
-		expect(labels).toContain("🔧 analyzer · scan");
+		const labels = getAllByTestId("suggestion-tool-chip-label").map((c) => c.textContent);
+		expect(labels).toEqual(["open-meteo · weather-now", "weather-api · weather-now", "analyzer · scan"]);
+		// The tools glyph is a separate aria-hidden SVG, never emoji text (which needs an emoji font).
+		for (const chip of getAllByTestId("suggestion-tool-chip")) {
+			const icons = chip.querySelectorAll('svg[data-icon="wrench"]');
+			expect(icons).toHaveLength(1);
+			expect(icons[0]).toHaveAttribute("aria-hidden", "true");
+			expect(chip.textContent).not.toMatch(/\p{Extended_Pictographic}/u);
+		}
 	});
 
-	test("built-in chip label is extension-prefixed too (no 🔧 glyph)", () => {
+	test("built-in chip label is extension-prefixed too (informational, no icon)", () => {
 		const { getByTestId } = render(SuggestionPopover, makeProps({ tools: [BUILTIN_TOOL] }));
-		expect(getByTestId("suggestion-tool-chip").textContent?.trim()).toBe("ez · task_create");
+		const chip = getByTestId("suggestion-tool-chip");
+		expect(chip.textContent?.trim()).toBe("ez · task_create");
+		expect(chip.querySelector("svg")).toBeNull();
 	});
 
 	test("both chip variants carry data-tool + data-extension", () => {

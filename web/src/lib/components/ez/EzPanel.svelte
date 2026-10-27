@@ -70,6 +70,7 @@
 	} from "$lib/stores.svelte.js";
 	import { inlineToolStore } from "$lib/inline-tool-store.svelte.js";
 	import ChatInput from "$lib/components/ChatInput.svelte";
+	import WrenchIcon from "$lib/components/WrenchIcon.svelte";
 	import ChatMessage from "$lib/components/ChatMessage.svelte";
 	import { buildHistoricalBlocks } from "$lib/content-blocks.js";
 	import { hydrateToolCallsFromApiData, type MessagesWithToolCallsResponse } from "$lib/chat/page-handlers/load-messages.js";
@@ -707,7 +708,7 @@
 							data-testid="ez-panel-tools"
 							onclick={() => void toggleTools()}
 						>
-							<span aria-hidden="true">🔧</span>
+							<WrenchIcon class="h-4 w-4" />
 							{#if toolsFetched && !toolsError}<span class="ez-panel__tools-count">{loadedTools.length}</span>{/if}
 						</button>
 						{#if toolsOpen}
