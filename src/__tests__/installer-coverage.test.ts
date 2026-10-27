@@ -320,22 +320,28 @@ async function withLiveGitHub403(env: BoundaryEnv, body: (live: ReturnType<typeo
   }
 }
 
-/** The import fetched live GitHub, so its 403 failed the import the way the CI run failed. */
-async function expectLiveGitHub403(live: ReturnType<typeof mock>): Promise<void> {
-  await expect(importExtensionSource(sourceActor, PINNED_GITHUB_SOURCE)).rejects.toMatchObject({ code: "source_fetch_failed", message: "Source server returned 403" });
-  expect(live).toHaveBeenCalledTimes(1);
-  expect(stagingCalls().workspace).not.toHaveBeenCalled();
+/** Import the pinned source under `env`; report how it ended, how often live GitHub was fetched, and what was staged. */
+async function importOutcome(env: BoundaryEnv): Promise<{ error?: { code: unknown; message: unknown }; liveFetches: number; staged: number }> {
+  let outcome!: { error?: { code: unknown; message: unknown }; liveFetches: number; staged: number };
+  await withLiveGitHub403(env, async (live) => {
+    const error = await importExtensionSource(sourceActor, PINNED_GITHUB_SOURCE).then(() => undefined, (cause: { code?: unknown; message?: unknown }) => ({ code: cause.code, message: cause.message }));
+    outcome = { ...(error ? { error } : {}), liveFetches: live.mock.calls.length, staged: stagingCalls().workspace.mock.calls.length };
+  });
+  return outcome;
 }
 
+/** The import fetched live GitHub once, and its 403 failed the import the way the CI run failed. */
+const LIVE_GITHUB_403 = { error: { code: "source_fetch_failed", message: "Source server returned 403" }, liveFetches: 1, staged: 0 };
+
 test("without the e2e boundary a GitHub import fetches GitHub, so a GitHub 403 fails it (the CI red)", async () => {
-  await withLiveGitHub403({ ...E2E_HARNESS, PI_E2E_ISOLATE_PROVIDERS: undefined }, expectLiveGitHub403);
+  expect(await importOutcome({ ...E2E_HARNESS, PI_E2E_ISOLATE_PROVIDERS: undefined })).toEqual(LIVE_GITHUB_403);
 });
 
 // The recording is reachable only inside the fail-closed test surface: the opt-in alone never selects it.
 test("a production config never serves the recording, even with PI_E2E_ISOLATE_PROVIDERS set", async () => {
-  await withLiveGitHub403({ ...E2E_HARNESS, NODE_ENV: "production" }, expectLiveGitHub403);
-  await withLiveGitHub403({ ...E2E_HARNESS, EZCORP_ALLOW_TEST_SURFACE: undefined }, expectLiveGitHub403);
-  await withLiveGitHub403({ ...E2E_HARNESS, PI_E2E_REAL: undefined }, expectLiveGitHub403);
+  expect(await importOutcome({ ...E2E_HARNESS, NODE_ENV: "production" })).toEqual(LIVE_GITHUB_403);
+  expect(await importOutcome({ ...E2E_HARNESS, EZCORP_ALLOW_TEST_SURFACE: undefined })).toEqual(LIVE_GITHUB_403);
+  expect(await importOutcome({ ...E2E_HARNESS, PI_E2E_REAL: undefined })).toEqual(LIVE_GITHUB_403);
 });
 
 test("under the e2e boundary the same import stages the recorded commit and never fetches GitHub", async () => {
