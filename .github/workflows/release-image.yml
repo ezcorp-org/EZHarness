@@ -17,7 +17,7 @@ permissions:
 jobs:
   build-and-push:
     name: Verify then publish Docker image to GHCR
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     # Includes the same bounded candidate-image lifecycle suite as CI.
     timeout-minutes: 180
     steps:

@@ -25,7 +25,7 @@ export function shippedIsolationJobIssues(workflow: string): string[] {
   if (build && checked && build[1] !== checked[1]) issues.push("the guard runs on another image than the one the job built");
   if (build && checked && runs.findIndex((run) => run.startsWith("bun scripts/check-factory-image-shipped-config.ts")) < runs.findIndex((run) => run.startsWith("podman build"))) issues.push("the guard runs before the build");
   if (!(job.steps ?? []).some((step) => step.uses === "./.github/actions/setup")) issues.push("the job does not install the pinned Bun and dependencies");
-  if (job["runs-on"] !== "ubuntu-latest") issues.push("the job does not run on a hosted runner");
+  if (job["runs-on"] !== "ubuntu-24.04") issues.push("the job does not run on the pinned hosted runner image");
   if (!Number.isSafeInteger(job["timeout-minutes"]) || (job["timeout-minutes"] as number) > 60) issues.push("the job has no bound of at most 60 minutes");
   return issues;
 }
@@ -47,7 +47,7 @@ describe("the shipped-isolation job", () => {
     const job = workflow.slice(workflow.indexOf(`  ${JOB}:\n`));
     const mutate = (from: string, to: string) => workflow.replace(job, job.replace(from, to));
     expect(shippedIsolationJobIssues(mutate("uses: ./.github/actions/setup", "uses: ./.github/actions/other"))).toContain("the job does not install the pinned Bun and dependencies");
-    expect(shippedIsolationJobIssues(mutate("runs-on: ubuntu-latest", "runs-on: [self-hosted]"))).toContain("the job does not run on a hosted runner");
+    expect(shippedIsolationJobIssues(mutate("runs-on: ubuntu-24.04", "runs-on: [self-hosted]"))).toContain("the job does not run on the pinned hosted runner image");
     expect(shippedIsolationJobIssues(mutate("timeout-minutes: 45", "timeout-minutes: 600"))).toContain("the job has no bound of at most 60 minutes");
   });
 });

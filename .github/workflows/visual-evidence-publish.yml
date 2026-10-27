@@ -39,7 +39,7 @@ permissions:
 jobs:
   publish:
     name: Publish visual evidence
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 10
     # Only act on a SUCCESSFUL ci run that was triggered by a pull request.
     if: >-
