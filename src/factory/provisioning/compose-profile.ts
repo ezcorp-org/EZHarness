@@ -14,15 +14,17 @@
  */
 import { resolve } from "node:path";
 import type { FactoryDeploymentHandle, FactoryDeploymentTarget, FactoryInstallationBundle } from "./deployment";
+import { FACTORY_HOST_SERVICE_BASE_ENVIRONMENT } from "./deployment";
 import type { FactoryFleetHostBundle, FactoryFleetHostPaths, FactoryFleetHostRuntime } from "./host";
 import type { FactoryInstallationContext, FactoryStepResources } from "./installation";
 import { factoryPrivatePath, removeFactoryPrivateDirectory, replaceFactoryPrivateFile } from "./secret-files";
 import { factoryReadinessFresh } from "./readiness-check";
 import { FactoryProvisioningError } from "./steps";
-import type { FactoryInstallationBuilds, FactoryUpgradeComponent, FactoryUpgradeTarget } from "./fleet-upgrade";
+import type { FactoryUpgradeComponent, FactoryUpgradeDeployer } from "./fleet-upgrade";
 
 export interface FactoryCommandResult { readonly code: number; readonly stdout: string; readonly stderr: string }
-export type FactoryCommandExecutor = (command: readonly string[], options?: { readonly env?: Readonly<Record<string, string>>; readonly cwd?: string }) => Promise<FactoryCommandResult>;
+/** `stdin`, when given, is the child's whole standard input: the one way a secret document reaches a command (never argv). */
+export type FactoryCommandExecutor = (command: readonly string[], options?: { readonly env?: Readonly<Record<string, string>>; readonly cwd?: string; readonly stdin?: Uint8Array }) => Promise<FactoryCommandResult>;
 
 export interface FactoryComposeCommand {
   /** e.g. `["docker", "compose"]`. */
@@ -292,7 +294,7 @@ export class FactoryComposeHostTarget implements FactoryFleetHostRuntime {
   async apply(bundle: FactoryFleetHostBundle): Promise<void> {
     const { paths } = bundle;
     const poolEnv = resolve(paths.runtimeDirectory, "pool.env");
-    await replaceFactoryPrivateFile(poolEnv, envFile({ HOME: "/tmp" }));
+    await replaceFactoryPrivateFile(poolEnv, envFile(FACTORY_HOST_SERVICE_BASE_ENVIRONMENT.pool));
     await replaceFactoryPrivateFile(resolve(paths.runtimeDirectory, "compose.env"), envFile({
       EZCORP_FACTORY_PROJECT: factoryComposeHostProject(paths.context.fleetId),
       EZCORP_FACTORY_POOL_IMAGE: bundle.build.image,
@@ -388,7 +390,7 @@ export function parseComposePs(stdout: string): readonly ComposePsEntry[] {
 
 /** The real executor: spawn, capture, never throw on a non-zero exit. */
 export const factorySpawnExecutor: FactoryCommandExecutor = async (command, options = {}) => {
-  const child = Bun.spawn([...command], { env: { ...process.env, ...options.env }, cwd: options.cwd, stdout: "pipe", stderr: "pipe", stdin: "ignore" });
+  const child = Bun.spawn([...command], { env: { ...process.env, ...options.env }, cwd: options.cwd, stdout: "pipe", stderr: "pipe", stdin: options.stdin ?? "ignore" });
   const [stdout, stderr, code] = await Promise.all([new Response(child.stdout).text(), new Response(child.stderr).text(), child.exited]);
   return { code, stdout, stderr };
 };
@@ -406,19 +408,10 @@ export const FACTORY_COMPOSE_UPGRADE_SERVICES: Readonly<Record<Exclude<FactoryUp
  * host's shared pool and supervisor onto the build, once for the whole fleet:
  * a later installation in the same wave finds it already there.
  */
-export class FactoryComposeUpgradeTarget implements FactoryUpgradeTarget {
-  constructor(
-    private readonly bundle: (installation: FactoryInstallationContext) => Promise<FactoryInstallationBundle>,
-    private readonly target: FactoryComposeTarget,
-    private readonly host: { useBuild(build: { readonly image: string; readonly revision: string; readonly release: string }): Promise<void> },
-  ) {}
-
-  async apply(installation: FactoryInstallationContext, component: FactoryUpgradeComponent, builds: FactoryInstallationBuilds): Promise<void> {
-    if (component === "host") { await this.host.useBuild({ image: builds.host.image, revision: builds.host.revision, release: builds.host.releaseDirectory }); return; }
-    await this.target.recreate(await this.bundle(installation), FACTORY_COMPOSE_UPGRADE_SERVICES[component]);
-  }
-
-  async ready(installation: FactoryInstallationContext): Promise<void> {
-    await this.target.ready(await this.bundle(installation));
-  }
+/** The Compose profile's own upgrade moves: recreate only the component's services, then prove the installation ready. */
+export function factoryComposeUpgradeDeployer(target: Pick<FactoryComposeTarget, "recreate" | "ready">): FactoryUpgradeDeployer<FactoryInstallationBundle> {
+  return Object.freeze({
+    component: (bundle: FactoryInstallationBundle, component: Exclude<FactoryUpgradeComponent, "host">) => target.recreate(bundle, FACTORY_COMPOSE_UPGRADE_SERVICES[component]),
+    ready: (bundle: FactoryInstallationBundle) => target.ready(bundle),
+  });
 }

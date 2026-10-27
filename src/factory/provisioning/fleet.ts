@@ -15,22 +15,24 @@
 import { resolve } from "node:path";
 import { parseFactoryStartupConfig, type FactoryStartupConfig, type FactoryStartupRunnerProfile } from "../startup-config";
 import { openBunSql } from "../../db/bun-sql-pipelining";
-import { FactoryComposeHostTarget, FactoryComposeTarget, FactoryComposeUpgradeTarget, factorySpawnExecutor, type FactoryCommandExecutor, type FactoryComposeCommand } from "./compose-profile";
-import { FactoryFleetUpgrades, type FactoryBuild } from "./fleet-upgrade";
+import { factorySpawnExecutor, type FactoryCommandExecutor, type FactoryComposeCommand } from "./compose-profile";
+import { factoryFleetHostSettings, factoryFleetProfile } from "./fleet-profile";
+import { FactoryFleetUpgrades, FactoryProfileUpgradeTarget, type FactoryBuild } from "./fleet-upgrade";
 import { FactoryDatabaseStep } from "./database";
-import { FactoryDeploymentStep, factoryDeploymentHandle, factoryInstallationPorts, factoryInstallationReleaseBlock, type FactoryDeploymentRelease, type FactoryDeploymentSettings, type FactoryDeploymentTarget } from "./deployment";
+import { FactoryDeploymentStep, factoryDeploymentHandle, factoryInstallationReleaseBlock, type FactoryDeploymentRelease, type FactoryDeploymentSettings, type FactoryDeploymentTarget } from "./deployment";
 import { FactoryFleetHost, type FactoryFleetHostRuntime } from "./host";
 import { FactoryIngressStep, factoryHttpsIngressProbe } from "./ingress";
 import type { FactoryInstallationContext } from "./installation";
 import { FactoryInvitationStep } from "./invitation";
 import { LocalFactoryProvisioner } from "./local";
-import { ensureFactoryPlatformMaterial, factoryPlatformPaths, factoryPodmanIngressReloader, stopFactoryPlatform, type FactoryPlatformPaths } from "./platform";
+import { ensureFactoryPlatformMaterial, factoryPlatformPaths, stopFactoryPlatform, type FactoryPlatformPaths, type FactoryPlatformSettings } from "./platform";
 import { readFactoryPrivatePath } from "./secret-files";
 import { FactorySecretsStep } from "./secrets";
 import { FactorySeededStorageIssuer, FactoryStorageStep, factoryDatabaseStorageClaims, factoryS3ScopeProbe, type FactoryStorageCredentialIssuer } from "./storage";
 import { FactoryProvisioningError, type FactoryInstallationPhase } from "./steps";
 import { FactoryTemporalStep, factoryTemporalCertificateIssuer } from "./temporal";
 import { factoryTemporalAccessProbe, factoryTemporalNamespaceAdmin } from "./temporal-client";
+import { factoryImagePinned } from "./image-pin";
 
 export const FACTORY_FLEET_SCHEMA = "factory.fleet.v1";
 
@@ -40,10 +42,61 @@ export interface FactoryFleetStorageDomain {
   readonly issuer: { readonly kind: "seeded"; readonly serverIdentityPath: string };
 }
 
+/**
+ * The fleet's attempt resource profile (C12 "Attempt resource profiles"). The
+ * pool is shared by the fleet, so every installation inherits this profile.
+ * Under `gpu`, the fleet host is the one GPU host the pool offers, and the
+ * private profile file declares its devices (`gpu-host-profiles.ts`).
+ */
+export type FactoryFleetResources =
+  | { readonly profile: "cpu-only"; readonly cpuCapacity: number }
+  | { readonly profile: "gpu"; readonly cpuCapacity: number; readonly gpuProfilesPath: string };
+
+/**
+ * The hosted profile's cluster (C12 rows "Kubernetes deployment target" and
+ * "Shared-service readiness and address", W4H-35). The cluster is named by a
+ * private kubeconfig file, never by its content. `services` is how a pod sees
+ * the fleet's database, stores and Temporal; the provisioner itself keeps using
+ * the fleet's own addresses.
+ */
+export interface FactoryFleetKubernetes {
+  readonly kubectl: string;
+  readonly kubeconfigPath: string;
+  readonly systemNamespace: string;
+  readonly runAsUser: number;
+  readonly runtimeSocketPath: string;
+  /** The supervisor's runner root: the same path on the node and in the pod (its guests' bind mounts resolve on the node). */
+  readonly runnerRoot: string;
+  /** The nodes' addresses, for the tenant network policy: the supervisor runs on the host network. */
+  readonly nodeCidrs: readonly string[];
+  /** Where the supervisor DaemonSet runs; under a `gpu` resource profile, the GPU nodes, so it may not be empty. */
+  readonly nodeSelector: Readonly<Record<string, string>>;
+  /**
+   * The supervisor's runtime groups (C12 row "Supervisor runner root and runtime socket (hosted prerequisites)"): the node's
+   * container-runtime socket's group, given to the supervisor pod alone as supplementalGroups. Optional; 1 to 8 distinct positive ids.
+   */
+  readonly runtimeGroups?: readonly number[];
+  /**
+   * The platform Prometheus's namespace, the only source allowed to reach a `/metrics` port (C11). Optional (C12 "Kubernetes
+   * deployment target"): absent, no PodMonitor, PrometheusRule, metrics ingress rule or hosted supervisor metrics listener is rendered.
+   */
+  readonly monitoring?: { readonly namespace: string };
+  readonly ingress: { readonly listenPort: number; readonly nodePort: number };
+  readonly egressCidrs: readonly string[];
+  readonly egressPorts: readonly number[];
+  readonly services: {
+    readonly databaseHost: string; readonly databasePort: number;
+    readonly ordinaryEndpoint: string; readonly archiveEndpoint: string;
+    readonly temporalAddress: string; readonly temporalHttpEndpoint: string;
+  };
+}
+
 export interface FactoryFleetSettings {
   readonly schemaVersion: typeof FACTORY_FLEET_SCHEMA;
   readonly fleetId: string;
   readonly profile: "compose" | "kubernetes";
+  /** Present exactly when `profile` is `kubernetes`. */
+  readonly kubernetes?: FactoryFleetKubernetes;
   readonly roots: { readonly operator: string; readonly secrets: string; readonly runtime: string };
   readonly control: { readonly databaseUrlPath: string };
   readonly database: { readonly adminUrlPath: string; readonly serviceHost: string; readonly servicePort: number };
@@ -51,9 +104,9 @@ export interface FactoryFleetSettings {
   /** `port`: the gateway's gRPC route; `httpPort`: its read-only HTTP route for W15's checkpoint barrier. */
   readonly temporal: { readonly port: number; readonly httpPort: number; readonly serverName: string };
   readonly ingress: { readonly address: string; readonly port: number; readonly domain: string };
+  readonly resources: FactoryFleetResources;
   readonly installations: {
     readonly portBase: number;
-    readonly cpuCapacity: number;
     readonly interpreterCompatibility: string;
     readonly runnerProfiles: { readonly brokerAudience: string; readonly profiles: readonly FactoryStartupRunnerProfile[] };
     /** Where every installation may release; the deployer writes it into each startup document. */
@@ -70,15 +123,92 @@ function port(value: unknown): value is number { return Number.isSafeInteger(val
 function url(value: unknown): value is string { try { return typeof value === "string" && ["http:", "https:"].includes(new URL(value).protocol); } catch { return false; } }
 function keys(value: unknown, expected: string): boolean { return typeof value === "object" && value !== null && !Array.isArray(value) && Object.keys(value).sort().join(",") === expected; }
 
+/** Every `required` key and only `optional` ones besides (comma lists): the optional keys a value carries join the required set. */
+function keysWithOptional(value: unknown, required: string, optional: readonly string[]): boolean {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) return false;
+  const present = optional.filter((key) => Object.hasOwn(value, key));
+  return keys(value, [...required.split(","), ...present].sort().join(","));
+}
+
 function storageDomainValid(entry: FactoryFleetStorageDomain | undefined): boolean {
   return keys(entry, "endpoint,issuer,prefix") && url(entry!.endpoint) && /^[a-z][a-z0-9-]{0,62}$/.test(entry!.prefix)
     && keys(entry!.issuer, "kind,serverIdentityPath") && entry!.issuer.kind === "seeded" && absolute(entry!.issuer.serverIdentityPath);
+}
+
+const NAMESPACE = /^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/;
+const CIDR = /^(?:\d{1,3}\.){3}\d{1,3}\/\d{1,2}$/;
+function servicesValid(value: unknown): boolean {
+  const services = value as FactoryFleetKubernetes["services"];
+  return keys(value, "archiveEndpoint,databaseHost,databasePort,ordinaryEndpoint,temporalAddress,temporalHttpEndpoint") && typeof services.databaseHost === "string" && services.databaseHost.length > 0
+    && port(services.databasePort) && url(services.ordinaryEndpoint) && url(services.archiveEndpoint) && /^[A-Za-z0-9.-]+:\d{2,5}$/.test(services.temporalAddress) && url(services.temporalHttpEndpoint);
+}
+
+/** 1 to 8 distinct positive group ids. */
+function runtimeGroupsValid(groups: unknown): boolean {
+  return Array.isArray(groups) && groups.length > 0 && groups.length <= 8 && new Set(groups).size === groups.length
+    && groups.every((group) => Number.isSafeInteger(group) && (group as number) > 0);
+}
+
+/** Present exactly for the hosted profile, every field well formed; a GPU fleet names the nodes its supervisor runs on. */
+function kubernetesValid({ profile, kubernetes, resources }: FactoryFleetSettings): boolean {
+  if (profile !== "kubernetes") return kubernetes === undefined;
+  const k = kubernetes as FactoryFleetKubernetes | undefined;
+  const nodeSelector = k?.nodeSelector as unknown;
+  const runtimeGroups = k?.runtimeGroups as unknown;
+  return keysWithOptional(k, "egressCidrs,egressPorts,ingress,kubeconfigPath,kubectl,nodeCidrs,nodeSelector,runAsUser,runnerRoot,runtimeSocketPath,services,systemNamespace", ["monitoring", "runtimeGroups"])
+    && (runtimeGroups === undefined || runtimeGroupsValid(runtimeGroups))
+    && absolute(k!.kubectl) && absolute(k!.kubeconfigPath) && absolute(k!.runtimeSocketPath) && absolute(k!.runnerRoot) && NAMESPACE.test(k!.systemNamespace)
+    && (k!.monitoring === undefined || (keys(k!.monitoring, "namespace") && NAMESPACE.test(k!.monitoring.namespace)))
+    && Array.isArray(k!.nodeCidrs)
+    && Number.isSafeInteger(k!.runAsUser) && k!.runAsUser > 0
+    && typeof nodeSelector === "object" && nodeSelector !== null && !Array.isArray(nodeSelector) && Object.values(nodeSelector).every((value) => typeof value === "string")
+    && (resources?.profile !== "gpu" || Object.keys(nodeSelector).length > 0)
+    && keys(k!.ingress, "listenPort,nodePort") && port(k!.ingress.listenPort) && Number.isSafeInteger(k!.ingress.nodePort) && k!.ingress.nodePort >= 30_000 && k!.ingress.nodePort <= 32_767
+    && Array.isArray(k!.egressCidrs)
+    && Array.isArray(k!.egressPorts) && k!.egressPorts.every((value) => Number.isSafeInteger(value) && value >= 1 && value <= 65_535)
+    && servicesValid(k!.services);
+}
+
+/** An offending settings entry as the refusal shows it: a string quoted, anything else as JSON, either cut to 48 characters. */
+function boundedEntry(value: unknown): string {
+  const text = typeof value === "string" ? value : JSON.stringify(value) ?? String(value);
+  const cut = text.length > 48 ? `${text.slice(0, 48)}…` : text;
+  return typeof value === "string" ? JSON.stringify(cut) : cut;
+}
+
+/**
+ * Each malformed entry of the hosted profile's CIDR lists, by field, index, and bounded entry (C12 row "Shared-service
+ * readiness and address (hosted)"): one IPv4 CIDR per entry. The lists' presence is kubernetesValid's.
+ */
+function kubernetesCidrFindings({ profile, kubernetes }: FactoryFleetSettings): string[] {
+  if (profile !== "kubernetes" || typeof kubernetes !== "object" || kubernetes === null) return [];
+  return (["nodeCidrs", "egressCidrs"] as const).flatMap((list) => {
+    const entries = (kubernetes as unknown as Record<string, unknown>)[list];
+    return Array.isArray(entries)
+      ? entries.flatMap((entry, index) => typeof entry === "string" && CIDR.test(entry) ? [] : [`kubernetes.${list}[${index}] ${boundedEntry(entry)}`])
+      : [];
+  });
+}
+
+/** A runner profile that asks for a whole GPU host. */
+function asksForGpuHost(profile: unknown): boolean {
+  const resources = (profile as { allocation?: { resources?: unknown } } | null)?.allocation?.resources;
+  return typeof resources === "object" && resources !== null && Object.hasOwn(resources, "gpu-host");
+}
+
+/** The profile's own shape, and under `cpu-only` no runner profile that asks for a GPU host. */
+function resourcesValid({ resources, installations }: FactoryFleetSettings): boolean {
+  const capacity = Number.isSafeInteger(resources?.cpuCapacity) && resources.cpuCapacity > 0;
+  if (resources?.profile === "gpu") return keys(resources, "cpuCapacity,gpuProfilesPath,profile") && capacity && absolute(resources.gpuProfilesPath);
+  const profiles = (installations as { runnerProfiles?: { profiles?: unknown } } | undefined)?.runnerProfiles?.profiles;
+  return keys(resources, "cpuCapacity,profile") && resources.profile === "cpu-only" && capacity && !(Array.isArray(profiles) && profiles.some(asksForGpuHost));
 }
 
 /** Each field after the document's own shape, in the order an operator reads the error. */
 const FLEET_FIELD_CHECKS: readonly (readonly [string, (settings: FactoryFleetSettings) => boolean])[] = [
   ["fleetId", (settings) => typeof settings.fleetId === "string" && /^[a-z][a-z0-9-]{0,30}[a-z0-9]$/.test(settings.fleetId)],
   ["profile", (settings) => settings.profile === "compose" || settings.profile === "kubernetes"],
+  ["kubernetes", (settings) => kubernetesValid(settings)],
   ["roots", ({ roots }) => keys(roots, "operator,runtime,secrets") && absolute(roots.operator) && absolute(roots.secrets) && absolute(roots.runtime)],
   ["control", ({ control }) => keys(control, "databaseUrlPath") && absolute(control.databaseUrlPath)],
   ["database", ({ database }) => keys(database, "adminUrlPath,serviceHost,servicePort") && absolute(database.adminUrlPath) && typeof database.serviceHost === "string" && port(database.servicePort)],
@@ -87,9 +217,10 @@ const FLEET_FIELD_CHECKS: readonly (readonly [string, (settings: FactoryFleetSet
   ["storage", ({ storage }) => keys(storage, "archive,failureDomain,ordinary") && typeof storage.failureDomain === "string" && storage.failureDomain.length > 0],
   ["temporal", ({ temporal }) => keys(temporal, "httpPort,port,serverName") && port(temporal.port) && port(temporal.httpPort) && temporal.httpPort !== temporal.port && typeof temporal.serverName === "string"],
   ["ingress", ({ ingress }) => keys(ingress, "address,domain,port") && /^(?:\d{1,3}\.){3}\d{1,3}$/.test(ingress.address) && port(ingress.port) && /^[a-z0-9.-]{1,200}$/.test(ingress.domain)],
+  ["resources", (settings) => resourcesValid(settings)],
   ["installations", ({ installations }) => installationKeys(installations) && port(installations.portBase)
-    && Number.isSafeInteger(installations.cpuCapacity) && installations.cpuCapacity > 0 && typeof installations.interpreterCompatibility === "string"],
-  ["image", ({ image }) => keys(image, "reference,revision") && /^[^@\s]+@sha256:[a-f0-9]{64}$/.test(image.reference) && /^[a-f0-9]{40}$/.test(image.revision)],
+    && typeof installations.interpreterCompatibility === "string"],
+  ["image", ({ image }) => keys(image, "reference,revision") && factoryImagePinned(image.reference) && /^[a-f0-9]{40}$/.test(image.revision)],
   ["release", ({ release }) => keys(release, "bun,directory,path") && absolute(release.directory) && absolute(release.bun) && typeof release.path === "string"],
 ];
 
@@ -97,7 +228,7 @@ const FLEET_FIELD_CHECKS: readonly (readonly [string, (settings: FactoryFleetSet
 function installationKeys(installations: unknown): boolean {
   if (!installations || typeof installations !== "object" || Array.isArray(installations)) return false;
   const present = Object.keys(installations);
-  const required = ["cpuCapacity", "interpreterCompatibility", "portBase", "runnerProfiles"];
+  const required = ["interpreterCompatibility", "portBase", "runnerProfiles"];
   return required.every((key) => present.includes(key)) && present.every((key) => required.includes(key) || key === "release" || key === "modelProvider");
 }
 
@@ -111,8 +242,10 @@ function fleetSettingsInvalid(invalid: readonly string[]): FactoryProvisioningEr
  */
 export function parseFactoryFleetSettings(value: unknown): FactoryFleetSettings {
   const settings = value as FactoryFleetSettings;
-  if (!keys(value, "control,database,fleetId,image,ingress,installations,profile,release,roots,schemaVersion,storage,temporal") || settings.schemaVersion !== FACTORY_FLEET_SCHEMA) throw fleetSettingsInvalid(["document"]);
-  const invalid = FLEET_FIELD_CHECKS.filter(([, valid]) => !valid(settings)).map(([field]) => field);
+  const fields = "control,database,fleetId,image,ingress,installations,profile,release,resources,roots,schemaVersion,storage,temporal";
+  const withKubernetes = "control,database,fleetId,image,ingress,installations,kubernetes,profile,release,resources,roots,schemaVersion,storage,temporal";
+  if ((!keys(value, fields) && !keys(value, withKubernetes)) || settings.schemaVersion !== FACTORY_FLEET_SCHEMA) throw fleetSettingsInvalid(["document"]);
+  const invalid = [...FLEET_FIELD_CHECKS.filter(([, valid]) => !valid(settings)).map(([field]) => field), ...kubernetesCidrFindings(settings)];
   if (invalid.length > 0) throw fleetSettingsInvalid(invalid);
   // The runner profiles, and the release block the deployer will write, must be exactly what the startup document admits.
   parseFactoryFleetRunnerProfiles(settings.installations.runnerProfiles, settings.installations.modelProvider);
@@ -208,6 +341,8 @@ export interface FactoryComposedFleet {
   readonly provisioner: LocalFactoryProvisioner;
   readonly upgrades: FactoryFleetUpgrades;
   readonly platform: FactoryPlatformPaths;
+  /** How the operator's `platform` and `up` start the fleet's platform: the profile decides where its ingress runs. */
+  readonly platformSettings: FactoryPlatformSettings;
   readonly settings: FactoryFleetSettings;
   readonly database: FactoryDatabaseStep;
   readonly deployment: FactoryDeploymentStep;
@@ -255,28 +390,18 @@ export async function composeFactoryProvisioner(settings: FactoryFleetSettings, 
   const secrets = new FactorySecretsStep({ registry: { conflicts: (tenantId, digests) => provisioner!.ledger.digestConflicts(tenantId, digests) }, grantableRoots: () => ["/var/lib/ezcorp/projects"] });
   const upgradeSql = openBunSql(controlUrl, { max: 2 });
   let upgrades: FactoryFleetUpgrades | undefined;
-  const hostTarget = runtime.hostTarget ?? new FactoryComposeHostTarget({
-    compose: runtime.compose, templatePath: resolve(settings.release.directory, "deploy/factory/compose/host.yml"), execute,
-    supervisor: { bun: settings.release.bun, releaseDirectory: settings.release.directory, path: settings.release.path },
-    databasePort: settings.database.servicePort, uid: runtime.uid, gid: runtime.gid,
-  });
+  // What differs between the two deployment profiles, and only that (`fleet-profile.ts`).
+  const profile = await factoryFleetProfile(settings, { execute, compose: runtime.compose, uid: runtime.uid, gid: runtime.gid, ingressRoot: platform.ingress.root });
+  const hostTarget = runtime.hostTarget ?? profile.hostTarget;
   host = new FactoryFleetHost({
-    settings: {
-      fleetId: settings.fleetId, secretsRoot: settings.roots.secrets, operatorRoot: settings.roots.operator, runtimeRoot: settings.roots.runtime,
-      portBase: settings.installations.portBase, cpuCapacity: settings.installations.cpuCapacity,
-      database: { host: settings.database.serviceHost, port: settings.database.servicePort },
-      build: { image: settings.image.reference, revision: settings.image.revision, release: settings.release.directory },
-    },
+    settings: factoryFleetHostSettings(settings, profile),
     runtime: hostTarget, database: hostDatabase,
     locked: (work) => provisioner!.ledger.lockedOn(`factory-host:${settings.fleetId}`, work),
   });
   const fleetHost = host;
   const deploymentSettings: FactoryDeploymentSettings = {
     network: {
-      databaseHost: settings.database.serviceHost, databasePort: settings.database.servicePort,
-      ordinaryEndpoint: settings.storage.ordinary.endpoint, archiveEndpoint: settings.storage.archive.endpoint,
-      temporalAddress: `127.0.0.1:${settings.temporal.port}`, temporalServerName: settings.temporal.serverName,
-      temporalHttpEndpoint: `https://127.0.0.1:${settings.temporal.httpPort}`,
+      ...profile.network, temporalServerName: settings.temporal.serverName,
       publicOrigin: (installation) => factoryInstallationPublicOrigin(settings, installation),
       portBase: settings.installations.portBase,
     },
@@ -289,20 +414,16 @@ export async function composeFactoryProvisioner(settings: FactoryFleetSettings, 
     interpreterCompatibility: settings.installations.interpreterCompatibility,
     builds: (installation) => upgrades!.builds(installation.tenantId),
   };
-  const storagePorts = [settings.storage.ordinary.endpoint, settings.storage.archive.endpoint].map((endpointUrl) => Number(new URL(endpointUrl).port));
-  const composeTarget = new FactoryComposeTarget({
-    compose: runtime.compose, templatePath: resolve(settings.release.directory, "deploy/factory/compose/installation.yml"), execute,
-    databasePort: settings.database.servicePort, storagePorts, temporalPort: settings.temporal.port, temporalHttpPort: settings.temporal.httpPort, uid: runtime.uid, gid: runtime.gid,
-  });
-  const target = runtime.target ?? composeTarget;
+  const target = runtime.target ?? profile.target;
   const deployment = new FactoryDeploymentStep({ settings: deploymentSettings, target, host: fleetHost });
   const ingress = new FactoryIngressStep({
-    paths: { root: platform.ingress.root, mountedRoot: "/etc/ezcorp-ingress", listenAddress: settings.ingress.address, listenPort: settings.ingress.port },
+    paths: { root: platform.ingress.root, mountedRoot: "/etc/ezcorp-ingress", listenAddress: profile.ingress.listenAddress, listenPort: profile.ingress.listenPort },
     authority: { certificatePath: platform.ingress.caCertificatePath, keyPath: platform.ingress.caKeyPath },
     exclusive: (work) => provisioner!.ledger.lockedOn(`factory-ingress:${settings.fleetId}`, work),
-    reloader: factoryPodmanIngressReloader(settings.fleetId, execute),
+    reloader: profile.ingress.reloader,
     probe: factoryHttpsIngressProbe(settings.ingress.address, settings.ingress.port, await secretText(platform.ingress.caCertificatePath) + "\n"),
-    upstreamPort: (installation) => factoryInstallationPorts(installation.tenantId, settings.installations.portBase).harness,
+    upstreamPort: profile.ingress.upstreamPort,
+    ...(profile.ingress.upstreamHost === undefined ? {} : { upstreamHost: profile.ingress.upstreamHost }),
   });
   const invitation = new FactoryInvitationStep();
   provisioner = new LocalFactoryProvisioner({
@@ -311,7 +432,7 @@ export async function composeFactoryProvisioner(settings: FactoryFleetSettings, 
   });
   const composed = provisioner;
   await composed.setup();
-  upgrades = new FactoryFleetUpgrades(upgradeSql, new FactoryComposeUpgradeTarget((installation) => deployment.bundle(installation), composeTarget, fleetHost), (tenantId) => composed.installation(tenantId));
+  upgrades = new FactoryFleetUpgrades(upgradeSql, new FactoryProfileUpgradeTarget((installation) => deployment.bundle(installation), profile.upgrades, fleetHost), (tenantId) => composed.installation(tenantId));
   await upgrades.setup();
   await upgrades.register(factoryFleetDefaultBuild(settings));
   const fleetUpgrades = upgrades;
@@ -319,13 +440,17 @@ export async function composeFactoryProvisioner(settings: FactoryFleetSettings, 
   const services: FactoryFleetServices = Object.freeze({
     stoppable: () => tenants((phase) => !FACTORY_GONE_PHASES.includes(phase)),
     startable: () => tenants((phase) => FACTORY_DEPLOYED_PHASES.includes(phase)),
-    stopInstallation: async (tenantId: string) => composeTarget.stop(factoryDeploymentHandle(await composed.installation(tenantId), settings.roots.runtime)),
-    startInstallation: async (tenantId: string) => composeTarget.start(await deployment.bundle(await composed.installation(tenantId))),
+    stopInstallation: async (tenantId: string) => profile.target.stop(factoryDeploymentHandle(await composed.installation(tenantId), settings.roots.runtime)),
+    startInstallation: async (tenantId: string) => profile.target.start(await deployment.bundle(await composed.installation(tenantId))),
     stopHost: () => fleetHost.stop(),
     startHost: () => fleetHost.start(),
     stopPlatform: () => stopFactoryPlatform({ fleetId: settings.fleetId, repositoryRoot: settings.release.directory }, platform, runtime.compose, execute),
   });
-  return Object.freeze({ provisioner: composed, upgrades: fleetUpgrades, services, platform, settings, database, deployment, ingress, deploymentSettings, host: fleetHost, platformServes: async () => (await temporalAdmin.owner("temporal-system")) !== undefined, close: async () => { await composed.close(); await database.close(); await hostDatabase.close(); await upgradeSql.close(); } });
+  const platformSettings: FactoryPlatformSettings = Object.freeze({
+    fleetId: settings.fleetId, operatorRoot: settings.roots.operator, repositoryRoot: settings.release.directory,
+    temporalPort: settings.temporal.port, temporalHttpPort: settings.temporal.httpPort, ...profile.platform,
+  });
+  return Object.freeze({ provisioner: composed, upgrades: fleetUpgrades, services, platform, platformSettings, settings, database, deployment, ingress, deploymentSettings, host: fleetHost, platformServes: async () => (await temporalAdmin.owner("temporal-system")) !== undefined, close: async () => { await composed.close(); await database.close(); await hostDatabase.close(); await upgradeSql.close(); } });
 }
 
 export { factoryPlatformPaths };

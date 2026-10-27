@@ -37,12 +37,13 @@ import { factoryInstallationPorts, type FactoryInstallationPorts } from "./ports
 export { FACTORY_FLEET_PORT_OFFSETS, factoryInstallationPorts, type FactoryInstallationPorts } from "./ports";
 import { FACTORY_HOST_KEY_ID, FACTORY_MESH_FILES, FACTORY_MESH_TOKEN_KEY_ID, FACTORY_PRIVATE_SERVICE_AUDIENCE, ensureFactoryMesh, factoryMeshIdentities, rotateFactoryMesh } from "./mesh";
 import { FACTORY_GUEST_BROKER_AUDIENCE } from "../runner/guest-broker-contract";
-import { FACTORY_APPLICATION_SECRET_FILES, FACTORY_KEY_FILES, factoryMasterKeyId } from "./secrets";
+import { FACTORY_APPLICATION_SECRET_FILES, FACTORY_KEY_FILES, readFactoryCurrentMasterKey } from "./secrets";
 import { factoryPrivatePath, openFactoryPrivateDirectory, readFactoryPrivateBytes, readFactoryPrivateJson, removeFactoryPrivateDirectory, removeFactoryPrivateFile, replaceFactoryPrivateFile } from "./secret-files";
 import { readdir } from "node:fs/promises";
 import { FactoryProvisioningError } from "./steps";
 import { factoryTemporalOwnerMarker } from "./temporal";
 import type { FactoryInstallationBuilds } from "./fleet-upgrade";
+import { factoryImagePinned } from "./image-pin";
 
 export const FACTORY_CONTAINER_SERVICES = ["gateway", "harness", "orchestrator"] as const;
 export const FACTORY_DEPLOYED_SERVICES = FACTORY_CONTAINER_SERVICES;
@@ -55,6 +56,13 @@ export const FACTORY_CONTAINER_PATHS = Object.freeze({
   data: "/var/lib/ezcorp",
   projects: "/var/lib/ezcorp/projects",
 });
+
+/**
+ * The harness data directories, under the data directory, that must exist before the harness boots: its project root and HOME
+ * (boot.ts resolves them and refuses an unresolvable one) and the app state it mounts at /app/.ezcorp. One list for both
+ * profiles: Compose makes them on the host, the hosted pod's init makes them on the harness-data claim.
+ */
+export const FACTORY_HARNESS_DATA_DIRECTORIES: readonly string[] = Object.freeze(["projects", "home", "app-state"]);
 
 export const FACTORY_DEFAULT_DATABASE_POOL_MAX = Object.freeze({ harness: 4, gateway: 2 });
 
@@ -73,6 +81,18 @@ export const FACTORY_SERVICE_BASE_ENVIRONMENT: Readonly<Record<FactoryDeployedSe
   harness: Object.freeze({ HOME: `${FACTORY_CONTAINER_PATHS.data}/home` }),
 });
 
+/**
+ * The fleet host's shared services' environment before their own settings. The
+ * image's user has no home directory, so each one's HOME is its own writable
+ * /tmp; without it the podman-remote client the supervisor runs cannot start
+ * (C12 row "Supervisor container runtime (hosted)"). The Compose host's pool and
+ * both hosted system workloads read it here.
+ */
+export const FACTORY_HOST_SERVICE_BASE_ENVIRONMENT = Object.freeze({
+  pool: Object.freeze({ HOME: "/tmp" }),
+  supervisor: Object.freeze({ HOME: "/tmp" }),
+});
+
 /** How services reach the fleet's shared infrastructure, as seen from inside a service. */
 export interface FactoryDeploymentNetwork {
   readonly databaseHost: string;
@@ -86,6 +106,14 @@ export interface FactoryDeploymentNetwork {
   /** The public origin a browser uses for this installation, e.g. `https://tenant-01.fleet.test:30443`. */
   readonly publicOrigin: (installation: FactoryInstallationContext) => string;
   readonly portBase: number;
+  /**
+   * The hosted profile (C12 row "Shared-service readiness and address"): the
+   * shared pool's and supervisor's service addresses as an installation pod
+   * dials them. Present, the startup document verifies both as the host
+   * certificate's name and reads their readiness from their routes, since a
+   * pod cannot mount the files they write. Absent: loopback and files (Compose).
+   */
+  readonly hostAddresses?: { readonly pool: string; readonly supervisor: string };
 }
 
 export interface FactoryDeploymentImage {
@@ -238,7 +266,7 @@ const readinessPath = (writer: "pool" | "orchestration" | "supervisor") => `${FA
  * build the URL the harness and the gateway connect with.
  */
 export async function renderFactoryInstallationBundle(installation: FactoryInstallationContext, settings: FactoryDeploymentSettings): Promise<FactoryInstallationBundle> {
-  if (!/^[^@\s]+@sha256:[a-f0-9]{64}$/.test(settings.image.reference)) throw new FactoryProvisioningError("deployment_image_unpinned", "The deployment image must be pinned by digest.");
+  if (!factoryImagePinned(settings.image.reference)) throw new FactoryProvisioningError("deployment_image_unpinned", "The deployment image must be pinned by digest.");
   const ports = factoryInstallationPorts(installation.tenantId, settings.network.portBase);
   const identities = factoryMeshIdentities(installation);
   const { runtimeDirectory, readinessDirectory } = factoryDeploymentHandle(installation, settings.runtimeRoot);
@@ -255,7 +283,10 @@ export async function renderFactoryInstallationBundle(installation: FactoryInsta
   const harnessTls = clientTls(FACTORY_MESH_FILES.harnessCertificate, FACTORY_MESH_FILES.harnessKey);
   // The shared pool and supervisor present the host's server certificate; the harness trusts the host authority for them alone.
   const hostTls = { ...harnessTls, caPath: secretPath(FACTORY_HOST_FILES.caCertificate) };
-  const masterKeyId = factoryMasterKeyId(installation);
+  // The key the wrap file is under: after a rotation, the orchestrator receives that version under the same delivered name.
+  const masterKey = await readFactoryCurrentMasterKey(installation);
+  const masterKeyId = masterKey.id;
+  const hosted = settings.network.hostAddresses;
   const release = factoryInstallationReleaseBlock(settings.release, { tenantId: installation.tenantId, ordinaryEndpoint: settings.network.ordinaryEndpoint });
 
   // C11 M4: each tenant process serves /metrics on its own port, presenting nothing; the fleet's evaluator presents the token.
@@ -266,8 +297,7 @@ export async function renderFactoryInstallationBundle(installation: FactoryInsta
     temporalNamespace: installation.temporalNamespace,
     orphanSweepIntervalMs: 30_000,
     orchestrationReadinessFilePath: readinessPath("orchestration"),
-    poolReadinessFilePath: readinessPath("pool"),
-    supervisorReadinessFilePath: readinessPath("supervisor"),
+    ...(hosted === undefined ? { poolReadinessFilePath: readinessPath("pool"), supervisorReadinessFilePath: readinessPath("supervisor") } : { hostReadiness: "network" }),
     readinessHeartbeatMs: 5_000,
     readinessRetry: { delayMs: 2_000, windowMs: 300_000 },
     gateway: { hostname: "127.0.0.1", port: ports.gateway, tls: harnessTls },
@@ -275,9 +305,9 @@ export async function renderFactoryInstallationBundle(installation: FactoryInsta
       hostname: "0.0.0.0", port: ports.privateService, certificateIdentity: identities.orchestrator, tls: serverTls,
       tokens: { issuer: identities.issuer, audience: FACTORY_PRIVATE_SERVICE_AUDIENCE, publicKeyPaths: { [FACTORY_MESH_TOKEN_KEY_ID]: secretPath(FACTORY_MESH_FILES.tokenPublicKey) } },
     },
-    pool: { baseUrl: `https://127.0.0.1:${host.ports.pool}`, serviceTokenPath: secretPath(FACTORY_MESH_FILES.harnessPoolToken), tls: hostTls },
+    pool: { baseUrl: hosted?.pool ?? `https://127.0.0.1:${host.ports.pool}`, ...(hosted === undefined ? {} : { serverName: "localhost" }), serviceTokenPath: secretPath(FACTORY_MESH_FILES.harnessPoolToken), tls: hostTls },
     hostLaunch: {
-      baseUrl: `https://127.0.0.1:${host.ports.supervisor}`, serverName: "localhost",
+      baseUrl: hosted?.supervisor ?? `https://127.0.0.1:${host.ports.supervisor}`, serverName: "localhost",
       attemptTokenSecretPath: secretPath(FACTORY_MESH_FILES.attemptTokenSecret),
       tls: { ...hostTls, serviceTokenPath: secretPath(FACTORY_MESH_FILES.harnessPoolToken) },
     },
@@ -377,7 +407,7 @@ export async function renderFactoryInstallationBundle(installation: FactoryInsta
     orchestrator: { service: "orchestrator", directory: factoryDeliveryDirectory(installation, "orchestrator"), files: {
       ...mesh(FACTORY_MESH_FILES.caCertificate, FACTORY_MESH_FILES.orchestratorCertificate, FACTORY_MESH_FILES.orchestratorKey, FACTORY_MESH_FILES.orchestratorToken,
         "temporal-ca.crt", "temporal-client.crt", "temporal-client.key", "temporal-token", FACTORY_KEY_FILES.wraps),
-      [FACTORY_KEY_FILES.master]: { source: factoryPrivatePath(installation.operatorDirectory, FACTORY_KEY_FILES.master) },
+      [FACTORY_KEY_FILES.master]: { source: masterKey.path },
       "orchestrator.json": { document: orchestrator },
       ...scrapeToken,
     } },
@@ -444,7 +474,7 @@ export async function writeFactoryDeliveries(bundle: FactoryInstallationBundle):
     } finally { await directory.close(); }
   }
   // The harness boots only with its projects root and home present (`boot.ts` refuses an unresolvable project root).
-  for (const directory of [bundle.runtimeDirectory, bundle.readinessDirectory, resolve(bundle.readinessDirectory, "orchestration"), bundle.dataDirectory, resolve(bundle.dataDirectory, "projects"), resolve(bundle.dataDirectory, "home"), resolve(bundle.dataDirectory, "app-state")]) {
+  for (const directory of [bundle.runtimeDirectory, bundle.readinessDirectory, resolve(bundle.readinessDirectory, "orchestration"), bundle.dataDirectory, ...FACTORY_HARNESS_DATA_DIRECTORIES.map((name) => resolve(bundle.dataDirectory, name))]) {
     const handle = await openFactoryPrivateDirectory(directory);
     await handle.close();
   }

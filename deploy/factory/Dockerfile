@@ -11,8 +11,11 @@
 # The host supervisor is NOT run from this image in the Compose profile. C05
 # places it outside every container as a host systemd unit, and it runs from the
 # same source revision checked out on the host. In the Kubernetes profile the
-# supervisor DaemonSet runs this image with the container runtime socket; no
-# other workload receives that socket.
+# supervisor DaemonSet runs this image with the node's Podman API socket; no
+# other workload receives that socket. Its runner drives guests through the
+# `podman` CLI, so the image carries the static podman-remote client of the
+# Podman 5.x release the nodes run (C12 row "Supervisor container runtime"),
+# downloaded by URL and checked by sha256 (the release's published shasums).
 #
 # Every base image is pinned by digest. `docs/factory-deployment.md` names the
 # lock, and `scripts/check-factory-deployment-locks.ts` (run in CI) refuses an image without one.
@@ -49,6 +52,11 @@ RUN rm -rf web/.svelte-kit/output/client/_app/immutable/*.map coverage .git
 # the tree is made world-readable (and directories traversable) here; nothing
 # in it is a secret, and nothing in it is writable by the services.
 RUN chmod -R a+rX,go-w /app
+# The hosted supervisor's podman-remote client, pinned by sha256 (scripts/check-factory-deployment-locks.ts refuses a download without one).
+ADD --checksum=sha256:01b5ac597de2f7d55a7d52ba82c8e59df9e90355c5331849d6b7dbecf2345e7e https://github.com/containers/podman/releases/download/v5.8.7/podman-remote-static-linux_amd64.tar.gz /tmp/podman-remote.tar.gz
+RUN tar -xzf /tmp/podman-remote.tar.gz -C /tmp bin/podman-remote-static-linux_amd64 \
+  && install -m 0755 /tmp/bin/podman-remote-static-linux_amd64 /usr/local/bin/podman \
+  && rm -rf /tmp/podman-remote.tar.gz /tmp/bin
 
 FROM ${BUN_RUNTIME_IMAGE}
 ARG REVISION=unknown
@@ -60,6 +68,7 @@ ENV BUN_RUNTIME_TRANSPILER_CACHE_PATH=0 \
 LABEL org.opencontainers.image.title="ezcorp-factory" \
       org.opencontainers.image.revision=${REVISION}
 COPY --from=node /usr/local/bin/node /usr/local/bin/node
+COPY --from=builder /usr/local/bin/podman /usr/local/bin/podman
 COPY --from=builder /app /app
 WORKDIR /app
 # The Compose profile runs every service with the host user's own uid

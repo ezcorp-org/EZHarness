@@ -78,12 +78,30 @@ export function createFactoryPoolReadinessWriter(options: FactoryPoolReadinessOp
 }
 
 /**
- * Reads only a fresh ready record for the exact pool identity, and fails
- * closed with the one indistinguishable error otherwise. A live record for
- * another pool is the one case worth an operator's attention (a misrouted
- * installation), so it is reported to the operator-side log — never to the
- * caller, whose error stays the same as for a pool that is down.
+ * Judges one pool readiness record, from the file or from the pool's own
+ * readiness route (the hosted profile, W4H-35): only a fresh ready record for
+ * the exact pool identity passes, and every refusal is the one
+ * indistinguishable error. A live record for another pool is the one case worth
+ * an operator's attention (a misrouted installation), so it is reported to the
+ * operator-side log, naming where it was read, and never to the caller.
  */
+export function verifyFactoryPoolReadiness(
+  state: unknown,
+  expected: { readonly poolId: string; readonly readinessHeartbeatMs?: number; readonly source: string },
+  now: number,
+  report: (message: string) => void = (message) => console.warn(message),
+): FactoryPoolReadiness {
+  const heartbeatMs = expected.readinessHeartbeatMs ?? 5_000;
+  const record = state as FactoryPoolReadiness;
+  if (typeof state !== "object" || state === null || !validState(record) || record.lifecycle !== "ready" || !Number.isSafeInteger(now) || now < record.observedAtMs || now - record.observedAtMs > heartbeatMs * 3) throw new FactoryPoolReadinessError();
+  if (record.poolId !== expected.poolId) {
+    report(`[factory-pool-readiness] the record at ${expected.source} names pool ${record.poolId}; this installation names ${expected.poolId}`);
+    throw new FactoryPoolReadinessError();
+  }
+  return record;
+}
+
+/** Reads the pool's record from its file and judges it with `verifyFactoryPoolReadiness`. */
 export async function readFactoryPoolReadiness(options: FactoryPoolReadinessOptions, clock: () => number = Date.now, report: (message: string) => void = (message) => console.warn(message)): Promise<FactoryPoolReadiness> {
   try {
     const expected = optionsSnapshot(options);
@@ -91,13 +109,6 @@ export async function readFactoryPoolReadiness(options: FactoryPoolReadinessOpti
     let bytes: Uint8Array;
     try { bytes = await readPrivateBounded(directory, basename(expected.readinessFilePath), MAX_READINESS_BYTES); }
     finally { await directory.close(); }
-    const state = JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(bytes)) as FactoryPoolReadiness;
-    const now = clock();
-    if (!validState(state) || state.lifecycle !== "ready" || !Number.isSafeInteger(now) || now < state.observedAtMs || now - state.observedAtMs > expected.readinessHeartbeatMs * 3) throw new FactoryPoolReadinessError();
-    if (state.poolId !== expected.poolId) {
-      report(`[factory-pool-readiness] the record at ${expected.readinessFilePath} names pool ${state.poolId}; this installation names ${expected.poolId}`);
-      throw new FactoryPoolReadinessError();
-    }
-    return state;
+    return verifyFactoryPoolReadiness(JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(bytes)), { poolId: expected.poolId, readinessHeartbeatMs: expected.readinessHeartbeatMs, source: expected.readinessFilePath }, clock(), report);
   } catch { throw new FactoryPoolReadinessError(); }
 }

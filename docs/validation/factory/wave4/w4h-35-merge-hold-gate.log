@@ -1,0 +1,11 @@
+COORD_WORD=0703aa70 w4h-35-hold 2026-10-23T05:53:00Z
+lock condition: read1 mem=15.6 lock=free gated=0 holders=0 yield=no | read2 mem=15.5 lock=free gated=0 holders=0 yield=no
+gated-flock w4h-35-hold: in-lock refusal bound GATED_FLOCK_MAX_REQUEUE=3 (the default) 2026-10-23T05:54:00Z
+gated-flock w4h-35-hold: start gate mem>=12GiB+3GiB margin 2026-10-23T05:54:00Z
+resource-gate 2026-10-23T05:54:00Z w4h-35-hold outside-lock disk=190G memAvailable=15GiB swapFreeKiB=9606296/21368256 floors disk>=104G mem>=15GiB mem+swap>=18350080KiB (swap component 2621440KiB)
+gated-flock w4h-35-hold: gate green outside the lock, queue for the lock (try 1) 2026-10-23T05:54:00Z
+own-pg: w4h-35-hold-pg (docker.io/pgvector/pgvector@sha256:9a169499888c9d75ad14d0401be64839d2c325f32e399098261589faff93d65c 4b4956e2ab1f, server 15.19) on 127.0.0.1:45473
+hold base: HEAD^1 802d46288ab9f15310a5d54bd038b14075789286 tree eaf82fcfdbea57aba9925c3ad3bd0a766dd77a3f; 063b3d16e tree eaf82fcfdbea57aba9925c3ad3bd0a766dd77a3f
+gate-leg 0-findings form: PASS (hold-w4f.sh exit 0) 2026-10-23T06:51:06Z
+gated-flock w4h-35-hold: bun pin repo=/home/dev/work/EZCorp/EZHarness-worktrees/composable-factory-platform/.worktrees/w00-integration ok bun 1.4.2 /tmp/factory-tools/bun-1.4.2/bun-linux-x64 node v24.14.1 /tmp/factory-tools/node-24.14.1/bin
+gated-flock w4h-35-hold: command exit 0 2026-10-23T06:51:07Z

@@ -45,6 +45,9 @@
  * successful observation is older than the staleness bound, the published
  * record degrades.
  */
+import { stat } from "node:fs/promises";
+import { connect, isIP } from "node:net";
+import { FACTORY_NODE_ADDRESS } from "../provisioning/kubernetes-paths";
 import { createPrivateKey } from "node:crypto";
 import { dirname, join, resolve } from "node:path";
 import { FACTORY_HOST_PREPARATIONS_FOLDER, factoryHostPreparationRecords } from "./host-launch-supervisor";
@@ -56,12 +59,13 @@ import { createFactoryGuestBrokerClient } from "./guest-broker-client";
 import { isFactoryGuestModelPayload, type FactoryGuestBroker } from "./guest-model-broker";
 import { isFactoryHostPeerTenants, type FactoryHostPeerTenants } from "./host-peer-tenants";
 import { FactoryHostBrokerUnavailableError, factoryHostBrokerUnavailable, startFactoryHostServices } from "./supervisor-services";
-import { FactoryHostTombstones } from "./host-tombstones";
+import { FACTORY_HOST_TOMBSTONES_FILE, FactoryHostTombstones } from "./host-tombstones";
 import { loadFactoryStopHostKeys } from "../stop-host-keys";
 import { serveFactoryReadyMetrics, startDeclaredFactoryMetrics, wellFormedFactoryMetricsEndpoint, type FactoryMetricsEndpoint, type FactoryMetricsListener } from "../observability/metrics-listener";
 import { createFactorySupervisorPoolClient } from "./supervisor-pool-client";
 import {
   createFactoryServiceReadinessWriter,
+  FACTORY_CONTAINER_RUNTIME_ROLE,
   factorySupervisorReadinessOptions,
   type FactoryServiceReadinessUpdate,
   type FactoryServiceReadinessWriter,
@@ -85,6 +89,8 @@ const MAX_KEY_BYTES = 64 * 1024;
  */
 export interface FactorySupervisorEndpoint {
   readonly baseUrl: string;
+  /** The name the endpoint's certificate is verified as, when it is dialled by another (a hosted service name, W4H-35). */
+  readonly serverName?: string;
   readonly serviceTokenPath: string;
   readonly tls: { readonly caPath: string; readonly certificatePath: string; readonly privateKeyPath: string };
 }
@@ -98,6 +104,11 @@ export interface FactorySupervisorProcessConfig {
   readonly hostKeyId: string;
   /** The container runner's artifact store root on this host. */
   readonly runnerRoot: string;
+  /**
+   * Where the supervisor keeps its durable state, its tombstones and its preparation records (C12 row "Supervisor durable state
+   * (hosted)"). Absent: the host key's own folder, as on the Compose host. Hosted: a prepared directory under the runner root.
+   */
+  readonly stateDirectory?: string;
   readonly readinessFilePath: string;
   readonly readinessHeartbeatMs?: number;
   /** Where this supervisor serves `/metrics` (C11 M4); absent, it serves none. */
@@ -181,13 +192,63 @@ export interface FactorySupervisorProcessDependencies {
    * lifecycle — bind after the first good probe, degrade when the bind fails,
    * release on stop — without a real certificate and a real port.
    */
-  readonly startServices: (config: FactorySupervisorProcessConfig, runner: FactoryHostRunner) => Promise<{ stop(): void }>;
+  /** `readiness` is this host's latest published record, which the listener serves on its readiness path (W4H-35). */
+  readonly startServices: (config: FactorySupervisorProcessConfig, runtime: FactoryHostRuntime, readiness: () => unknown) => Promise<{ stop(): void }>;
   readonly wait: (milliseconds: number, signal: AbortSignal) => Promise<void>;
   readonly now: () => number;
+  /**
+   * Whether this host's container runtime answers (C12 row "Container runtime readiness (hosted)"): by default
+   * `factoryContainerRuntimeReachable`, a real `GET /_ping`. When it does not, the runtime role is held by name
+   * (`container_runtime_unreachable`) and the runner is never probed.
+   */
+  readonly runtimeReachable?: () => Promise<boolean>;
   /** Serves the ready gauge on a declared endpoint (C11 M4). */
-  readonly metrics?: (endpoint: FactoryMetricsEndpoint, ready: () => boolean) => Promise<FactoryMetricsListener>;
+  readonly metrics?: (endpoint: FactoryMetricsEndpoint, ready: () => boolean, heldRoles: () => readonly string[]) => Promise<FactoryMetricsListener>;
   /** Names a fault the supervisor survives, by code only. */
   readonly report?: (code: string) => void;
+}
+
+/**
+ * C12 row "Container runtime readiness (hosted)" (W4H-35 run 12): the runtime is judged by a real connection, never by whether
+ * the socket file exists. A `CONTAINER_HOST` unix socket is reachable only when it answers `GET /_ping` with HTTP 200 within
+ * `timeoutMs`: an absent socket, one this user may not open, another answer, or silence is unreachable. No `CONTAINER_HOST`, or
+ * another scheme, is not this check's to judge (the Compose host's local Podman).
+ */
+export function factoryContainerRuntimeReachable(env: Readonly<Record<string, string | undefined>> = process.env, timeoutMs = 2_000): Promise<boolean> {
+  const host = env.CONTAINER_HOST;
+  if (host === undefined || !host.startsWith("unix://")) return Promise.resolve(true);
+  return new Promise((settle) => {
+    let answer = "";
+    let settled = false;
+    const socket = connect({ path: host.slice("unix://".length) });
+    const done = (reachable: boolean) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      socket.destroy();
+      settle(reachable);
+    };
+    const ok = () => /^HTTP\/1\.[01] 200 /.test(answer);
+    const timer = setTimeout(() => done(false), timeoutMs);
+    socket.once("error", () => done(false));
+    socket.once("connect", () => socket.write("GET /_ping HTTP/1.0\r\nHost: podman\r\n\r\n"));
+    socket.on("data", (chunk: Buffer) => { answer += chunk.toString("latin1"); if (answer.includes("\r\n")) done(ok()); });
+    socket.once("end", () => done(ok()));
+  });
+}
+
+/**
+ * The supervisor's metrics endpoint with its bind resolved (C11 M4, W4H-35): a document that names the node-address marker binds to
+ * the node's own IP from the environment (the DaemonSet's downward-API variable). An absent, empty, malformed or unspecified
+ * (0.0.0.0, ::) value is refused by name, `factory_node_address_unavailable`; any other hostname is used as written.
+ */
+export function factorySupervisorMetricsEndpoint(endpoint: FactoryMetricsEndpoint, env: Readonly<Record<string, string | undefined>> = process.env): FactoryMetricsEndpoint {
+  if (endpoint.hostname !== FACTORY_NODE_ADDRESS.marker) return endpoint;
+  const address = env[FACTORY_NODE_ADDRESS.env] ?? "";
+  if (isIP(address) === 0 || address === "0.0.0.0" || address === "::") {
+    throw Object.assign(new Error(`factory supervisor: ${FACTORY_NODE_ADDRESS.env} is not the node's own IP address`), { code: "factory_node_address_unavailable" });
+  }
+  return { ...endpoint, hostname: address };
 }
 
 export interface FactorySupervisorMainDependencies {
@@ -254,17 +315,18 @@ function guestBrokersSection(value: unknown): boolean {
 function endpointSection(value: unknown): boolean {
   if (!record(value)) return false;
   const required = ["baseUrl", "serviceTokenPath", "tls"];
-  if (required.some((key) => !Object.hasOwn(value, key)) || Object.keys(value).some((key) => !required.includes(key))) return false;
-  return text(value.baseUrl) && text(value.serviceTokenPath) && tlsSection(value.tls);
+  if (required.some((key) => !Object.hasOwn(value, key)) || Object.keys(value).some((key) => !required.includes(key) && key !== "serverName")) return false;
+  return text(value.baseUrl) && text(value.serviceTokenPath) && tlsSection(value.tls) && (value.serverName === undefined || text(value.serverName));
 }
 
 /** Strict parser. The document names paths and identities, never a key value. */
 export function parseFactorySupervisorProcessConfig(value: unknown): FactorySupervisorProcessConfig {
   const required = ["schemaVersion", "installationId", "hostId", "hostKeyPath", "hostKeyId", "runnerRoot", "readinessFilePath"];
-  const allowed = new Set([...required, "readinessHeartbeatMs", "services", "metrics"]);
+  const allowed = new Set([...required, "readinessHeartbeatMs", "services", "stateDirectory", "metrics"]);
   if (!record(value) || required.some((key) => !Object.hasOwn(value, key)) || Object.keys(value).some((key) => !allowed.has(key))
     || value.schemaVersion !== CONFIG_SCHEMA
     || !text(value.installationId) || !text(value.hostId) || !text(value.hostKeyPath) || !text(value.hostKeyId)
+    || (value.stateDirectory !== undefined && !(text(value.stateDirectory) && value.stateDirectory.startsWith("/")))
     || !text(value.runnerRoot) || !text(value.readinessFilePath)
     || (value.readinessHeartbeatMs !== undefined && !integer(value.readinessHeartbeatMs, 1_000, 60_000))
     || (value.services !== undefined && !serviceSection(value.services))
@@ -300,6 +362,15 @@ export type FactoryHostRunner = Runner & {
 };
 
 export type FactoryHostRunnerLoader = () => Promise<new (options: { root: string }) => FactoryHostRunner>;
+
+/**
+ * The runner as the host services see it (C12 row "Container runtime readiness (hosted)"): present once the runtime role runs,
+ * and the code the role is held by until then. The services bind before the runner is ready and build their routes from it later.
+ */
+export interface FactoryHostRuntime {
+  readonly runner: () => FactoryHostRunner | undefined;
+  readonly held: () => string | undefined;
+}
 
 /** What `provisionToolchain` hands a runner: the bundled SDK and the pinned TypeScript toolchain. */
 type FactoryRunnerToolchain = { readonly sdkFiles: WorkspaceFiles; readonly toolchainFiles: WorkspaceFiles };
@@ -386,6 +457,15 @@ export function factoryHostRunnerProbe(loadRunner: FactoryHostRunnerLoader = loa
 }
 
 /**
+ * C12 row "Supervisor durable state (hosted)": the one state directory and the two things the supervisor keeps there. The process
+ * opens its tombstones and preparation records from these paths, and the hosted profile's test judges the same paths.
+ */
+export function factorySupervisorStatePaths(config: Pick<FactorySupervisorProcessConfig, "hostKeyPath" | "stateDirectory">): { readonly directory: string; readonly tombstones: string; readonly preparations: string } {
+  const directory = config.stateDirectory ?? dirname(config.hostKeyPath);
+  return Object.freeze({ directory, tombstones: join(directory, FACTORY_HOST_TOMBSTONES_FILE), preparations: join(directory, FACTORY_HOST_PREPARATIONS_FOLDER) });
+}
+
+/**
  * Bind the host services from the configured material.
  *
  * The certificate, key, and CA are read through the same bounded private reader
@@ -394,7 +474,8 @@ export function factoryHostRunnerProbe(loadRunner: FactoryHostRunnerLoader = loa
  */
 export async function startFactoryConfiguredHostServices(
   config: FactorySupervisorProcessConfig,
-  runner: FactoryHostRunner,
+  runtime: FactoryHostRuntime,
+  readiness: () => unknown = () => undefined,
 ): Promise<{ stop(): void }> {
   const services = config.services;
   if (services === undefined) throw new Error("factory supervisor host services are not configured");
@@ -412,22 +493,25 @@ export async function startFactoryConfiguredHostServices(
   // Built before the listener binds for the same reason.
   const broker = await createFactoryConfiguredGuestBroker(services.guestBrokers);
   const signingKey = { hostId: config.hostId, privateKeyPath: config.hostKeyPath, keyIdPath: services.hostKeyIdPath };
-  // The host's durable tombstones, beside its key, loaded before the listener binds (W02d R8, coordinator ruling (A)):
+  // The host's durable tombstones, in its state folder (factorySupervisorStatePaths), loaded before the listener binds (W02d R8, coordinator ruling (A)):
   // a worker stopped here without ever running stays refused across a restart.
   const retainedKeys = services.retainedHostKeys === undefined ? []
     : await loadFactoryStopHostKeys(services.retainedHostKeys.map((key) => ({ hostId: config.hostId, ...key })));
-  const tombstones = await FactoryHostTombstones.open(signingKey, { retainedKeys });
+  const state = factorySupervisorStatePaths(config);
+  const tombstones = await FactoryHostTombstones.open(signingKey, { retainedKeys, directory: state.directory });
   return startFactoryHostServices({
     hostId: config.hostId,
     peerTenants: services.peerTenants,
-    runner,
+    runner: runtime.runner,
+    runtimeHeld: runtime.held,
     signingKey,
     tombstones,
-    // Beside the host key, like the tombstones: a preparation survives a restart (W4H-26).
-    preparationRecords: factoryHostPreparationRecords(join(dirname(config.hostKeyPath), FACTORY_HOST_PREPARATIONS_FOLDER)),
+    // In the state directory, with the tombstones: a preparation survives a restart (W4H-26; C12 "Supervisor durable state (hosted)").
+    preparationRecords: factoryHostPreparationRecords(state.preparations),
     tls: { ca: utf8(ca), cert: utf8(cert), key: utf8(key) },
     hostname: services.hostname,
     port: services.port,
+    readiness,
     ...(pool === undefined ? {} : { pool }),
     broker,
   });
@@ -484,7 +568,7 @@ export async function createFactoryConfiguredGuestBroker(endpoints: Readonly<Rec
 }
 
 function endpointTransport(endpoint: FactorySupervisorEndpoint) {
-  return { baseUrl: endpoint.baseUrl, tls: { ...endpoint.tls, serviceTokenPath: endpoint.serviceTokenPath } };
+  return { baseUrl: endpoint.baseUrl, ...(endpoint.serverName === undefined ? {} : { serverName: endpoint.serverName }), tls: { ...endpoint.tls, serviceTokenPath: endpoint.serviceTokenPath } };
 }
 
 export const factorySupervisorProductionDependencies: FactorySupervisorProcessDependencies = {
@@ -508,7 +592,7 @@ export const factorySupervisorProductionDependencies: FactorySupervisorProcessDe
     timer.unref?.();
     signal.addEventListener("abort", done, { once: true });
   }),
-  metrics: (endpoint, ready) => serveFactoryReadyMetrics(endpoint, "supervisor", ready),
+  metrics: (endpoint, ready, heldRoles) => serveFactoryReadyMetrics(endpoint, "supervisor", ready, undefined, heldRoles),
   report: (code) => { console.error(`[factory-supervisor] ${code}`); },
 };
 
@@ -523,7 +607,10 @@ interface SupervisorObservation {
   servicesConfigured: boolean;
   /** When every required fact was last observed TRUE. Zero means never. */
   observedAtMs: number;
+  /** Why the observation failed for the host itself (its key): degrades the record. */
   errorCode?: string;
+  /** Why the runtime role is held: never degrades the record (C12 row "Container runtime readiness (hosted)"). */
+  runtimeCode?: string;
 }
 
 /**
@@ -540,7 +627,7 @@ async function observeHost(
   runnerProbe: FactoryHostRunnerProbe,
   timeoutMs: number,
   signal: AbortSignal,
-): Promise<Pick<SupervisorObservation, "hostKeyReady" | "runnerReady" | "errorCode">> {
+): Promise<Pick<SupervisorObservation, "hostKeyReady" | "runnerReady" | "errorCode" | "runtimeCode">> {
   let hostKeyReady = false;
   const controller = new AbortController();
   const stop = () => { controller.abort(signal.reason ?? new Error("factory supervisor observation stopped")); };
@@ -548,16 +635,17 @@ async function observeHost(
   try {
     await dependencies.loadHostKey(config.hostKeyPath);
     hostKeyReady = true;
+    if (!(await (dependencies.runtimeReachable ?? factoryContainerRuntimeReachable)())) return { hostKeyReady, runnerReady: false, runtimeCode: "container_runtime_unreachable" };
     const bounded = await Promise.race([
       runnerProbe.probe(config).then(() => "observed" as const),
       dependencies.wait(timeoutMs, controller.signal).then(() => "elapsed" as const),
     ]);
     // A wait that ended because the process is stopping is not a timed-out probe.
-    if (bounded === "elapsed" && !signal.aborted) return { hostKeyReady, runnerReady: false, errorCode: "runner_probe_timeout" };
-    if (bounded === "elapsed") return { hostKeyReady, runnerReady: false, errorCode: "runner_unavailable" };
+    if (bounded === "elapsed" && !signal.aborted) return { hostKeyReady, runnerReady: false, runtimeCode: "runner_probe_timeout" };
+    if (bounded === "elapsed") return { hostKeyReady, runnerReady: false, runtimeCode: "runner_unavailable" };
     return { hostKeyReady, runnerReady: true };
   } catch {
-    return { hostKeyReady, runnerReady: false, errorCode: hostKeyReady ? "runner_unavailable" : "host_key_unavailable" };
+    return hostKeyReady ? { hostKeyReady, runnerReady: false, runtimeCode: "runner_unavailable" } : { hostKeyReady, runnerReady: false, errorCode: "host_key_unavailable" };
   } finally {
     controller.abort(new Error("factory supervisor observation finished"));
     signal.removeEventListener("abort", stop);
@@ -572,6 +660,11 @@ async function observeHost(
  * must be able to tell those apart, so `starting` means no observation has been
  * attempted and never carries a reason.
  */
+/** Why the runtime role is held now, or undefined while it runs: one answer for the record and the host services. */
+function runtimeHeldCode(observation: Pick<SupervisorObservation, "runnerReady" | "runtimeCode">): string | undefined {
+  return observation.runnerReady ? undefined : observation.runtimeCode ?? "runner_unavailable";
+}
+
 export function factorySupervisorRecord(
   observation: SupervisorObservation,
   nowMs: number,
@@ -579,17 +672,21 @@ export function factorySupervisorRecord(
 ): FactoryServiceReadinessUpdate {
   const facts = { hostKeyReady: observation.hostKeyReady, runnerReady: observation.runnerReady, hostServicesReady: observation.hostServicesReady };
   if (!observation.attempted) return { lifecycle: "starting", facts };
-  if (observation.errorCode !== undefined) return { lifecycle: "degraded", facts, errorCode: observation.errorCode };
+  // The runtime is a product role, held by name in the product's one held-role entry; it never decides the lifecycle (C12 row
+  // "Container runtime readiness (hosted)"), so the pod stays Ready while the role waits for a reachable runtime.
+  const held = runtimeHeldCode(observation);
+  const role = held === undefined ? {} : { held: [{ ...FACTORY_CONTAINER_RUNTIME_ROLE, reason: held }] };
+  if (observation.errorCode !== undefined) return { lifecycle: "degraded", facts, errorCode: observation.errorCode, ...role };
   // A host that says it publishes launch and stop, and does not, is the exact
   // false readiness that lets a product open admission for guests nobody can
   // start. Configured-and-unbound degrades; configured-at-all is what makes the
   // fact required, so a host that publishes none is unaffected.
-  if (observation.servicesConfigured && !observation.hostServicesReady) return { lifecycle: "degraded", facts, errorCode: "host_services_unavailable" };
+  if (observation.servicesConfigured && !observation.hostServicesReady) return { lifecycle: "degraded", facts, errorCode: "host_services_unavailable", ...role };
   // Both facts were observed true. A heartbeat never keeps asserting a fact
   // nobody is still checking, so an observation that ages out degrades even
   // though the last thing it saw was good.
-  if (nowMs - observation.observedAtMs > stalenessMs) return { lifecycle: "degraded", facts, errorCode: "observation_stale" };
-  return { lifecycle: "ready", facts };
+  if (nowMs - observation.observedAtMs > stalenessMs) return { lifecycle: "degraded", facts, errorCode: "observation_stale", ...role };
+  return { lifecycle: "ready", facts, ...role };
 }
 
 /**
@@ -620,12 +717,22 @@ export async function runConfiguredFactorySupervisor(
   const observation: SupervisorObservation = { attempted: false, hostKeyReady: false, runnerReady: false, hostServicesReady: false, servicesConfigured, observedAtMs: 0 };
   const runnerProbe = dependencies.createRunnerProbe();
   let services: { stop(): void } | undefined;
-  await readiness.write({ lifecycle: "starting", facts: { hostKeyReady: false, runnerReady: false, hostServicesReady: false } });
-  // The gauge is the record's own verdict, computed when scraped, and 0 once this run is stopping.
+  // The latest record, served on the host services' readiness path to installations that cannot mount its file (W4H-35).
+  let latest: unknown;
+  const publish = async (update: FactoryServiceReadinessUpdate) => { latest = await readiness.write(update); };
+  // What the host services see of the runner: it once the role runs, and the held code until then.
+  const runtime: FactoryHostRuntime = Object.freeze({
+    runner: () => (observation.runnerReady ? runnerProbe.instance() : undefined),
+    held: () => runtimeHeldCode(observation),
+  });
+  await publish({ lifecycle: "starting", facts: { hostKeyReady: false, runnerReady: false, hostServicesReady: false } });
+  // The gauge is the record's own verdict, computed when scraped, and 0 once this run is stopping. The held roles are the same
+  // record's held entries (C11 FactoryServiceRoleHeld, W4H-35): one source for both families.
   let running = true;
-  const metrics = await startDeclaredFactoryMetrics(config.metrics,
+  const record = () => factorySupervisorRecord(observation, dependencies.now(), stalenessMs);
+  const metrics = await startDeclaredFactoryMetrics(config.metrics === undefined ? undefined : factorySupervisorMetricsEndpoint(config.metrics),
     (endpoint) => (dependencies.metrics ?? factorySupervisorProductionDependencies.metrics!)(endpoint,
-      () => running && factorySupervisorRecord(observation, dependencies.now(), stalenessMs).lifecycle === "ready"),
+      () => running && record().lifecycle === "ready", () => (record().held ?? []).map((entry) => entry.role)),
     dependencies.report ?? factorySupervisorProductionDependencies.report!);
 
   const observing = (async () => {
@@ -636,14 +743,14 @@ export async function runConfiguredFactorySupervisor(
       observation.hostKeyReady = seen.hostKeyReady;
       observation.runnerReady = seen.runnerReady;
       observation.errorCode = seen.errorCode;
-      // The listener is bound once, after the runner has answered, and it stays
-      // bound: rebinding on every heartbeat would drop live connections, and
-      // binding before the first good probe would publish a host that accepts
-      // launches its runner cannot serve.
-      const runner = runnerProbe.instance();
-      if (servicesConfigured && services === undefined && seen.runnerReady && runner !== undefined) {
+      observation.runtimeCode = seen.runtimeCode;
+      // The listener is bound once the host key is loaded, before and independently of the runner (C12 row "Container
+      // runtime readiness (hosted)"), and it stays bound: rebinding on every heartbeat would drop live connections. Until the
+      // runtime role runs, every runner-backed route answers 503 with the held code, so no launch reaches a runner that
+      // cannot serve it.
+      if (servicesConfigured && services === undefined && seen.hostKeyReady) {
         try {
-          services = await dependencies.startServices(config, runner);
+          services = await dependencies.startServices(config, runtime, () => latest);
         } catch {
           // Named, not swallowed: the record degrades with this code and the
           // next heartbeat tries again, because a port held by a dying sibling
@@ -652,14 +759,14 @@ export async function runConfiguredFactorySupervisor(
         }
       }
       observation.hostServicesReady = services !== undefined;
-      if (seen.hostKeyReady && seen.runnerReady && (!servicesConfigured || observation.hostServicesReady)) observation.observedAtMs = dependencies.now();
+      if (seen.hostKeyReady && (!servicesConfigured || observation.hostServicesReady)) observation.observedAtMs = dependencies.now();
       await dependencies.wait(heartbeatMs, signal);
     }
   })();
 
   const publishing = (async () => {
     while (!signal.aborted) {
-      await readiness.write(factorySupervisorRecord(observation, dependencies.now(), stalenessMs));
+      await publish(factorySupervisorRecord(observation, dependencies.now(), stalenessMs));
       await dependencies.wait(heartbeatMs, signal);
     }
   })();
@@ -678,7 +785,7 @@ export async function runConfiguredFactorySupervisor(
     services?.stop();
     services = undefined;
     await runnerProbe.close();
-    await readiness.write({ lifecycle: "stopped", facts: { hostKeyReady: false, runnerReady: false, hostServicesReady: false } });
+    await publish({ lifecycle: "stopped", facts: { hostKeyReady: false, runnerReady: false, hostServicesReady: false } });
   }
 }
 

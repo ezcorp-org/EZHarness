@@ -6,9 +6,9 @@ import { createGatewayTransport, GatewayStatusError } from "@ezcorp/factory-tran
 import { factoryAttemptLaunchIntentToWire } from "./attempt-wire";
 import { FACTORY_HOST_LAUNCH_PATH } from "./host-launch-service";
 import { FACTORY_HOST_STOP_PATH } from "./host-stop-service";
-import { createPublicKey, generateKeyPairSync } from "node:crypto";
+import { createPublicKey, generateKeyPairSync, randomBytes } from "node:crypto";
 import { chmod, readFile, rm, writeFile } from "node:fs/promises";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { readFactoryServiceReadiness, factorySupervisorReadinessOptions } from "../service-readiness";
 import {
   createFactoryConfiguredGuestBroker,
@@ -16,7 +16,10 @@ import {
   factorySupervisorRecord,
   FACTORY_SUPERVISOR_FACT_STALENESS_HEARTBEATS,
   FACTORY_SUPERVISOR_PROBE_TIMEOUT_HEARTBEATS,
+  factorySupervisorMetricsEndpoint,
+  factorySupervisorStatePaths,
   parseFactorySupervisorProcessConfig,
+  factoryContainerRuntimeReachable,
   factoryHostRunnerProbe,
   factoryProvisionedRunnerLoader,
   runConfiguredFactorySupervisor,
@@ -27,6 +30,7 @@ import {
   productionMainDependencies,
   type FactorySupervisorProcessConfig,
   type FactorySupervisorProcessDependencies,
+  type FactoryHostRuntime,
 } from "./supervisor-process";
 import { makeFactoryTempPrivateRoot } from "../../__tests__/helpers/factory-private-root";
 
@@ -135,7 +139,8 @@ function dependencies(overrides: Partial<FactorySupervisorProcessDependencies> =
  */
 function stopOnPublished(published: string[], until: (records: readonly string[]) => boolean): FactorySupervisorProcessDependencies["createReadiness"] {
   return () => ({ write: async (update) => {
-    published.push(`${update.lifecycle}:${update.errorCode ?? ""}`);
+    // A held role rides a record as its held entry (C12 row "Container runtime readiness (hosted)"): its reason after the lifecycle.
+    published.push(`${update.lifecycle}:${update.errorCode ?? ""}${update.held === undefined ? "" : `:held=${update.held.map((entry) => entry.reason).join(",")}`}`);
     if (until(published)) abortController?.abort();
     return { ...update } as never;
   } });
@@ -171,12 +176,31 @@ describe("parseFactorySupervisorProcessConfig", () => {
       { ...config(root), readinessFilePath: "" },
       { ...config(root), readinessHeartbeatMs: 999 },
       { ...config(root), surprise: 1 },
+      { ...config(root), stateDirectory: "" },
+      { ...config(root), stateDirectory: "relative/state" },
     ]) {
       expect(() => parseFactorySupervisorProcessConfig(bad)).toThrow("factory supervisor config is invalid");
     }
     const missing = { ...config(root) } as Record<string, unknown>;
     delete missing.hostKeyId;
     expect(() => parseFactorySupervisorProcessConfig(missing)).toThrow("factory supervisor config is invalid");
+  });
+
+  // C12 row "Supervisor durable state (hosted)": one state folder holds the tombstones and the preparation records.
+  test("the durable state sits beside the host key unless the document names an absolute state folder", async () => {
+    const root = await privateRoot();
+    const local = parseFactorySupervisorProcessConfig(config(root));
+    expect(factorySupervisorStatePaths(local)).toEqual({
+      directory: dirname(local.hostKeyPath),
+      tombstones: join(dirname(local.hostKeyPath), "host-worker-tombstones.jsonl"),
+      preparations: join(dirname(local.hostKeyPath), "host-preparations"),
+    });
+    const hosted = parseFactorySupervisorProcessConfig({ ...config(root), stateDirectory: "/srv/ezcorp-runner/supervisor-state" });
+    expect(factorySupervisorStatePaths(hosted)).toEqual({
+      directory: "/srv/ezcorp-runner/supervisor-state",
+      tombstones: "/srv/ezcorp-runner/supervisor-state/host-worker-tombstones.jsonl",
+      preparations: "/srv/ezcorp-runner/supervisor-state/host-preparations",
+    });
   });
 });
 
@@ -221,13 +245,16 @@ describe("factorySupervisorRecord", () => {
     expect(aged).toEqual({ lifecycle: "degraded", facts, errorCode: "observation_stale" });
   });
 
-  test("a failed observation names the failing fact", () => {
-    expect(factorySupervisorRecord({ attempted: true, hostKeyReady: true, runnerReady: false, ...unpublished, observedAtMs: 0, errorCode: "runner_unavailable" }, 1_000, 500))
-      .toEqual({ lifecycle: "degraded", facts: { hostKeyReady: true, runnerReady: false, hostServicesReady: false }, errorCode: "runner_unavailable" });
+  // C12 row "Container runtime readiness (hosted)" (W4H-35 run 12): a runtime the supervisor cannot reach or prepare holds its
+  // role by name and keeps the lifecycle; only the host itself (its key) degrades the record.
+  test("a failed runtime holds the role by name on a ready record; a failed host key degrades", () => {
+    const held = { hostKeyReady: true, runnerReady: false, hostServicesReady: false };
+    for (const code of ["runner_unavailable", "runner_probe_timeout", "container_runtime_unreachable"]) {
+      expect(factorySupervisorRecord({ attempted: true, ...held, ...unpublished, observedAtMs: 900, runtimeCode: code }, 1_000, 500))
+        .toEqual({ lifecycle: "ready", facts: held, held: [{ role: "container-runtime", workPackage: "W16", reason: code }] });
+    }
     expect(factorySupervisorRecord({ attempted: true, ...none, ...unpublished, observedAtMs: 0, errorCode: "host_key_unavailable" }, 1_000, 500))
-      .toEqual({ lifecycle: "degraded", facts: none, errorCode: "host_key_unavailable" });
-    expect(factorySupervisorRecord({ attempted: true, hostKeyReady: true, runnerReady: false, ...unpublished, observedAtMs: 0, errorCode: "runner_probe_timeout" }, 1_000, 500))
-      .toEqual({ lifecycle: "degraded", facts: { hostKeyReady: true, runnerReady: false, hostServicesReady: false }, errorCode: "runner_probe_timeout" });
+      .toEqual({ lifecycle: "degraded", facts: none, errorCode: "host_key_unavailable", held: [{ role: "container-runtime", workPackage: "W16", reason: "runner_unavailable" }] });
   });
 
   test("the cadence ratios leave the reader two missed writes of margin", () => {
@@ -317,6 +344,86 @@ describe("runConfiguredFactorySupervisor", () => {
     expect(reports).toEqual(["factory_metrics_token_unreadable"]);
   });
 
+  // Merge of W4H-34 (the ready gauge, C11 M4) and W4H-35 (the held runtime role, C12 "Container runtime readiness (hosted)", D1):
+  // with the runtime unreachable the record is ready and carries the held entry, and the gauge, the record's own verdict, reads ready.
+  // No metric repeats the held role here; FactoryServiceRoleHeld (a later commit) is its alert.
+  test("a held runtime role keeps the record ready with its held entry, and the ready gauge reads ready (merge W4H-34 x W4H-35)", async () => {
+    const root = await privateRoot();
+    await writeHostKey(root);
+    const metrics = { hostname: "127.0.0.1", port: 9469, scrapeTokenPath: join(root, "metrics-token") };
+    const path = await writeConfig(root, { metrics } as never);
+    abortController = new AbortController();
+    const readings: Array<[string, boolean, unknown]> = [];
+    let ready: () => boolean = () => false;
+    await runConfiguredFactorySupervisor(path, abortController.signal, dependencies({
+      runtimeReachable: async () => false,
+      metrics: async (_endpoint, isReady) => { ready = isReady; return { url: "http://127.0.0.1:9469", stop: async () => {} }; },
+      createReadiness: () => ({ write: async (update) => {
+        readings.push([update.lifecycle, ready(), update.held]);
+        if (update.lifecycle === "ready") abortController?.abort();
+        return { ...update } as never;
+      } }),
+    }));
+    expect(readings).toContainEqual(["ready", true, [{ role: "container-runtime", workPackage: "W16", reason: "container_runtime_unreachable" }]]);
+  });
+
+  // C11 M4 on the hosted profile (W4H-35, D-A): the document names the node-address marker; the supervisor binds to the node's own
+  // address from its environment, and refuses an empty or malformed value by name. Never 0.0.0.0.
+  test("the node-address marker resolves to the node's own IP from the environment, and nothing else is accepted", () => {
+    const endpoint = { hostname: "node-address", port: 9468, scrapeTokenPath: "/run/ezcorp/host-identity/host-metrics-scrape.token" };
+    expect(factorySupervisorMetricsEndpoint(endpoint, { FACTORY_NODE_IP: "172.18.0.2" })).toEqual({ ...endpoint, hostname: "172.18.0.2" });
+    expect(factorySupervisorMetricsEndpoint(endpoint, { FACTORY_NODE_IP: "fd00::2" }).hostname).toBe("fd00::2");
+    for (const value of [undefined, "", "node-1.local", "0.0.0.0", "999.1.1.1"]) {
+      expect(() => factorySupervisorMetricsEndpoint(endpoint, { FACTORY_NODE_IP: value })).toThrow(expect.objectContaining({ code: "factory_node_address_unavailable" }));
+    }
+    const compose = { ...endpoint, hostname: "127.0.0.1" };
+    expect(factorySupervisorMetricsEndpoint(compose, {})).toEqual(compose);
+  });
+
+  // C11 M4 (W4H-35, D-A, M1): in both forms the supervisor's production endpoint refuses a scrape without the token and serves one
+  // with it; the hosted form binds the address the node-address marker resolves to (here the test host's loopback).
+  test("the supervisor's metrics refuse a scrape without the token and serve one with it, on Compose and on the resolved node address", async () => {
+    const root = await privateRoot();
+    const tokenPath = join(root, "metrics-token");
+    const token = randomBytes(24).toString("hex");
+    await writeFile(tokenPath, `${token}\n`, { mode: 0o600 });
+    for (const endpoint of [
+      { hostname: "127.0.0.1", port: 0, scrapeTokenPath: tokenPath },
+      factorySupervisorMetricsEndpoint({ hostname: "node-address", port: 0, scrapeTokenPath: tokenPath }, { FACTORY_NODE_IP: "127.0.0.1" }),
+    ]) {
+      const served = await factorySupervisorProductionDependencies.metrics!(endpoint, () => true, () => ["container-runtime"]);
+      try {
+        expect((await fetch(`${served.url}/metrics`)).status).toBe(401);
+        expect((await fetch(`${served.url}/metrics`, { headers: { authorization: "Bearer wrong-token-fixture" } })).status).toBe(401);
+        const ok = await fetch(`${served.url}/metrics`, { headers: { authorization: `Bearer ${token}` } });
+        expect(ok.status).toBe(200);
+        expect(await ok.text()).toContain('factory_service_role_held{role="container-runtime"} 1');
+      } finally { await served.stop(); }
+    }
+  });
+
+  // C11 FactoryServiceRoleHeld (W4H-35): the metrics endpoint reads the held roles from the same record as the ready gauge.
+  test("the metrics endpoint's held roles are the record's held entries: the runtime role while unreachable, none once it answers", async () => {
+    const root = await privateRoot();
+    await writeHostKey(root);
+    const metrics = { hostname: "127.0.0.1", port: 9470, scrapeTokenPath: join(root, "metrics-token") };
+    const path = await writeConfig(root, { metrics } as never);
+    for (const [reachable, expected] of [[false, ["container-runtime"]], [true, []]] as const) {
+      abortController = new AbortController();
+      let held: () => readonly string[] = () => ["unread"];
+      const seen: (readonly string[])[] = [];
+      await runConfiguredFactorySupervisor(path, abortController.signal, dependencies({
+        runtimeReachable: async () => reachable,
+        metrics: async (_endpoint, _ready, heldRoles) => { held = heldRoles; return { url: "http://127.0.0.1:9470", stop: async () => {} }; },
+        createReadiness: () => ({ write: async (update) => {
+          if (update.lifecycle === "ready") { seen.push(held()); abortController?.abort(); }
+          return { ...update } as never;
+        } }),
+      }));
+      expect(seen).toEqual([expected]);
+    }
+  });
+
   test("bounds the probe and names a timeout as its own failure", async () => {
     const root = await privateRoot();
     await writeHostKey(root);
@@ -359,20 +466,58 @@ describe("runConfiguredFactorySupervisor", () => {
     const published: string[] = [];
     const until = (record: string) => stopOnPublished(published, (records) => records.includes(record));
 
-    // No host key on disk: the first fact fails.
+    // No host key on disk: the first fact fails, and the host itself degrades.
     abortController = new AbortController();
-    await runConfiguredFactorySupervisor(path, abortController.signal, dependencies({ loadHostKey: slowHostKey, createReadiness: until("degraded:host_key_unavailable") }, BACKSTOP_CADENCE_WAITS));
-    expect(published.some((entry) => entry === "degraded:host_key_unavailable")).toBe(true);
+    await runConfiguredFactorySupervisor(path, abortController.signal, dependencies({ loadHostKey: slowHostKey, createReadiness: until("degraded:host_key_unavailable:held=runner_unavailable") }, BACKSTOP_CADENCE_WAITS));
+    expect(published.some((entry) => entry === "degraded:host_key_unavailable:held=runner_unavailable")).toBe(true);
 
+    // A runner that cannot be prepared holds the runtime role by name; the record stays ready (W4H-35 run 12).
     published.length = 0;
     abortController = new AbortController();
     await writeHostKey(root);
     await runConfiguredFactorySupervisor(path, abortController.signal, dependencies({
       loadHostKey: slowHostKey,
       createRunnerProbe: () => ({ probe: async () => { throw new Error("podman is not answering"); }, instance: () => undefined, close: async () => {} }),
-      createReadiness: until("degraded:runner_unavailable"),
+      createReadiness: until("ready::held=runner_unavailable"),
     }, BACKSTOP_CADENCE_WAITS));
-    expect(published.some((entry) => entry === "degraded:runner_unavailable")).toBe(true);
+    expect(published.some((entry) => entry === "ready::held=runner_unavailable")).toBe(true);
+
+    // A runtime that does not answer (C12 row "Container runtime readiness (hosted)"): held by name, and the runner is never probed.
+    published.length = 0;
+    abortController = new AbortController();
+    let probed = false;
+    await runConfiguredFactorySupervisor(path, abortController.signal, dependencies({
+      loadHostKey: slowHostKey,
+      runtimeReachable: async () => false,
+      createRunnerProbe: () => ({ probe: async () => { probed = true; }, instance: () => undefined, close: async () => {} }),
+      createReadiness: until("ready::held=container_runtime_unreachable"),
+    }, BACKSTOP_CADENCE_WAITS));
+    expect(published.some((entry) => entry === "ready::held=container_runtime_unreachable")).toBe(true);
+    expect(probed).toBe(false);
+  });
+
+  // C12 row "Container runtime readiness (hosted)" (W4H-35 run 12): the runtime is judged by a real connection to its API, not by
+  // whether the socket file exists. Run 10's rootless node had the socket and still no way in.
+  test("the container runtime is reachable only when its socket answers GET /_ping with 200 within the bound (W4H-35 run 12)", async () => {
+    const root = await privateRoot();
+    const serve = (name: string, answer: string | undefined) => Bun.listen({ unix: join(root, name), socket: { data(socket) { if (answer !== undefined) { socket.write(answer); socket.end(); } } } });
+    const ok = serve("ok.sock", "HTTP/1.1 200 OK\r\nContent-Length: 2\r\n\r\nOK");
+    const refused = serve("error.sock", "HTTP/1.1 500 Internal Server Error\r\n\r\n");
+    const silent = serve("silent.sock", undefined);
+    const locked = serve("locked.sock", "HTTP/1.1 200 OK\r\n\r\nOK");
+    await chmod(join(root, "locked.sock"), 0o000);
+    try {
+      const host = (name: string) => ({ CONTAINER_HOST: `unix://${join(root, name)}` });
+      expect(await factoryContainerRuntimeReachable({})).toBe(true);
+      expect(await factoryContainerRuntimeReachable({ CONTAINER_HOST: "tcp://10.0.0.1:8080" })).toBe(true);
+      expect(await factoryContainerRuntimeReachable(host("ok.sock"))).toBe(true);
+      expect(await factoryContainerRuntimeReachable(host("error.sock"))).toBe(false);
+      expect(await factoryContainerRuntimeReachable(host("locked.sock"))).toBe(false);
+      expect(await factoryContainerRuntimeReachable(host("absent.sock"))).toBe(false);
+      const started = Date.now();
+      expect(await factoryContainerRuntimeReachable(host("silent.sock"), 200)).toBe(false);
+      expect(Date.now() - started).toBeLessThan(2_000);
+    } finally { for (const listener of [ok, refused, silent, locked]) listener.stop(true); }
   });
 
   test("takes no observation at all when the signal has already aborted, and still records why", async () => {
@@ -718,6 +863,11 @@ describe("the host services this supervisor publishes", () => {
     for (const broken of [{ ...endpoint, baseUrl: "" }, { ...endpoint, serviceTokenPath: "" }, { ...endpoint, tls: { caPath: "a", certificatePath: "b" } }, { ...endpoint, extra: "x" }, "not a record"]) {
       refused({ guestBrokers: { ...brokers, "tenant-03": broken } });
     }
+    // A hosted endpoint is dialled by its service name and names the certificate it verifies (W4H-35).
+    const named = { ...endpoint, baseUrl: "https://harness.ezcorp-factory-w16-tenant-01.svc.cluster.local:8701", serverName: "localhost" };
+    expect(parseFactorySupervisorProcessConfig(config(root, { services: { ...complete, pool: named, guestBrokers: { "tenant-01": named } } } as never)).services).toMatchObject({ pool: named, guestBrokers: { "tenant-01": named } });
+    refused({ pool: { ...named, serverName: "" } });
+    refused({ guestBrokers: { "tenant-01": { ...named, serverName: 7 } } });
   });
 
   test("binds once after the first good probe, publishes the fact, and releases on stop", async () => {
@@ -728,11 +878,12 @@ describe("the host services this supervisor publishes", () => {
     const published: Array<{ lifecycle: string; hostServicesReady: boolean }> = [];
     let started = 0;
     let stopped = 0;
+    let served: (() => unknown) | undefined;
     const runner = { async initialize() {}, async close() {} } as never;
 
     await runConfiguredFactorySupervisor(path, abortController.signal, dependencies({
       createRunnerProbe: () => ({ probe: async () => {}, instance: () => runner, close: async () => {} }),
-      startServices: async () => { started += 1; return { stop: () => { stopped += 1; } }; },
+      startServices: async (_config, _runner, readiness) => { started += 1; served = readiness; return { stop: () => { stopped += 1; } }; },
       // Stop on the fact under test, not on a heartbeat count: the observer does
       // real file I/O and the publisher does not, so a count shared by both
       // loops can run out before the observer has bound anything. Three ready
@@ -750,6 +901,8 @@ describe("the host services this supervisor publishes", () => {
     expect(stopped).toBe(1);
     expect(published.some((entry) => entry.lifecycle === "ready" && entry.hostServicesReady)).toBe(true);
     expect(published.at(-1)).toEqual({ lifecycle: "stopped", hostServicesReady: false });
+    // The listener serves this host's own latest record: the hosted profile's readiness route (W4H-35).
+    expect(served?.()).toMatchObject({ lifecycle: "stopped", facts: { hostServicesReady: false } });
   });
 
   test("a bind that fails degrades by name and is retried on the next heartbeat", async () => {
@@ -777,26 +930,28 @@ describe("the host services this supervisor publishes", () => {
     expect(published.some((entry) => entry === "ready:")).toBe(true);
   });
 
-  test("a runner that never answers never publishes a host service", async () => {
+  // C12 row "Container runtime readiness (hosted)" (W4H-35 run 12): the listener binds before, and independently of, the runner;
+  // the services see the runtime held, by its code, so every runner-backed route refuses by name until the role runs.
+  test("a runner that never answers still binds the host services once, and they see the runtime held by name", async () => {
     const root = await privateRoot();
     await writeHostKey(root);
     const path = await writeConfig(root, { services: services(root) } as never);
     abortController = new AbortController();
     const published: string[] = [];
     let started = 0;
+    let seen: FactoryHostRuntime | undefined;
 
     await runConfiguredFactorySupervisor(path, abortController.signal, dependencies({
       loadHostKey: slowHostKey,
       createRunnerProbe: () => ({ probe: async () => { throw new Error("isolation_unavailable"); }, instance: () => undefined, close: async () => {} }),
-      startServices: async () => { started += 1; return { stop: () => {} }; },
-      // Two published failures: the runner was observed twice and refused both times.
-      createReadiness: stopOnPublished(published, (records) => records.filter((entry) => entry === "degraded:runner_unavailable").length === 2),
+      startServices: async (_config, runtime) => { started += 1; seen = runtime; return { stop: () => {} }; },
+      createReadiness: stopOnPublished(published, (records) => records.filter((entry) => entry === "ready::held=runner_unavailable").length === 2),
     }, BACKSTOP_CADENCE_WAITS));
 
-    // A host that accepted a launch its runner cannot serve would report a start
-    // it never made.
-    expect(published.filter((entry) => entry === "degraded:runner_unavailable").length).toBe(2);
-    expect(started).toBe(0);
+    expect(started).toBe(1);
+    expect(published.filter((entry) => entry === "ready::held=runner_unavailable").length).toBe(2);
+    expect(seen!.runner()).toBeUndefined();
+    expect(seen!.held()).toBe("runner_unavailable");
   });
 
   test("a host that publishes no services stays ready on its own two facts", async () => {
@@ -908,7 +1063,7 @@ describe("the host services this supervisor publishes", () => {
     const port = probe.port;
     probe.stop(true);
     const parsed = parseFactorySupervisorProcessConfig(config(root, { services: { ...services(root), port } } as never));
-    const listener = await startFactoryConfiguredHostServices(parsed, { async initialize() {}, async close() {} } as never);
+    const listener = await startFactoryConfiguredHostServices(parsed, { runner: () => ({ async initialize() {}, async close() {} } as never), held: () => undefined });
     try {
       expect(listener).toBeDefined();
     } finally {
@@ -952,7 +1107,7 @@ describe("the host services this supervisor publishes", () => {
         },
       },
     } as never));
-    const listener = await startFactoryConfiguredHostServices(parsed, { async initialize() {}, async close() {} } as never);
+    const listener = await startFactoryConfiguredHostServices(parsed, { runner: () => ({ async initialize() {}, async close() {} } as never), held: () => undefined });
     try {
       expect(listener).toBeDefined();
     } finally {
@@ -985,7 +1140,7 @@ const runner = {
   async start() { throw new Error("this runtime starts nothing"); },
   async inspect(id) { return { id, state: "unknown", diagnostics: [] }; },
 };
-const listener = await startFactoryConfiguredHostServices(config, runner);
+const listener = await startFactoryConfiguredHostServices(config, { runner: () => runner, held: () => undefined });
 process.on("SIGTERM", () => { listener.stop(); process.exit(0); });
 console.log("bound");
 `, { mode: 0o600 });

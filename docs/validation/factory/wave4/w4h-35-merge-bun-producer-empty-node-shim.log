@@ -1,0 +1,7 @@
+bun test v1.4.2 (744846f84)
+
+ 1 pass
+ 0 fail
+ 3 expect() calls
+Ran 1 test across 1 file. [457.00ms]
+kept 1 requested LCOV source records → /home/dev/work/EZCorp/EZHarness-worktrees/composable-factory-platform/.worktrees/w00-integration/coverage/w4h-35-w16-k8s-profiles-3698c8e84-on-802d46288/bun-empty-node-shim/lcov.info

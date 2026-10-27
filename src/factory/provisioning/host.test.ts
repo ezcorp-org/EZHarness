@@ -3,6 +3,11 @@ import { createPrivateKey, createPublicKey, createVerify, X509Certificate } from
 import { chmod, mkdir, readdir, readFile, stat } from "node:fs/promises";
 import { join } from "node:path";
 import { factoryRejection, makeFactoryPrivateRoot, makeFactoryTestInstallation, removeFactoryPrivateRoot, writeModeFile } from "../../__tests__/helpers/factory-private-root";
+import { judgePrivatePaths, podTemplate, privatePathUses } from "../../__tests__/helpers/kubernetes-private-paths";
+import { FACTORY_CONTAINER_PATHS } from "./deployment";
+import { FACTORY_KUBERNETES_SUPERVISOR_PATHS } from "./kubernetes-paths";
+import { renderFactoryKubernetesSystem } from "./kubernetes-profile";
+import { factorySupervisorStatePaths, parseFactorySupervisorProcessConfig } from "../runner/supervisor-process";
 import { factoryDatabasePairs } from "./database";
 import {
   FACTORY_HOST_FILES,
@@ -14,11 +19,13 @@ import {
   type FactoryFleetHostBundle,
   type FactoryFleetHostPaths,
   type FactoryFleetHostRuntime,
+  type FactoryHostedSettings,
 } from "./host";
 import type { FactoryInstallationContext, FactoryStepResources } from "./installation";
 import { FACTORY_GUEST_BROKER_AUDIENCE, FACTORY_GUEST_BROKER_SCOPE } from "../runner/guest-broker-contract";
 import { FACTORY_HOST_KEY_ID, FACTORY_MESH_FILES, FACTORY_POOL_AUDIENCE } from "./mesh";
 import { factoryInstallationPorts } from "./ports";
+import type { FactoryFleetResources } from "./fleet";
 import { FactoryProvisioningError } from "./steps";
 
 const SLOW = 60_000;
@@ -70,11 +77,11 @@ function processLock() {
   };
 }
 
-function makeHost(overrides: { readonly now?: () => number } = {}): FactoryFleetHost {
+function makeHost(overrides: { readonly now?: () => number; readonly resources?: FactoryFleetResources; readonly hosted?: FactoryHostedSettings } = {}): FactoryFleetHost {
   return new FactoryFleetHost({
     settings: {
       fleetId: "w16", secretsRoot: join(root, "secrets"), operatorRoot: join(root, "operator"), runtimeRoot: join(root, "runtime"),
-      portBase: 31_000, cpuCapacity: 3, database: { host: "127.0.0.1", port: 55_432 }, build: BUILD,
+      portBase: 31_000, resources: overrides.resources ?? { profile: "cpu-only", cpuCapacity: 3 }, ...(overrides.hosted === undefined ? {} : { hosted: overrides.hosted }), database: { host: "127.0.0.1", port: 55_432 }, build: BUILD,
     },
     runtime, database, locked: processLock(), ...(overrides.now ? { now: overrides.now } : { now: () => now }),
   });
@@ -207,6 +214,128 @@ describe("ensureMaterial", () => {
   }, SLOW);
 });
 
+describe("resource profile", () => {
+  const GPU_FILE = "gpu-host-profiles.json";
+  const gpuDocument = (hostId: string) => `${JSON.stringify({ schemaVersion: "factory.gpu-host-profiles.v1", hosts: [{ hostId, tier: "trusted-local", devices: ["/dev/kfd", "/dev/dri/renderD128"], cdiDevices: [] }] })}\n`;
+  async function gpuHost(hostId: string): Promise<{ readonly host: FactoryFleetHost; readonly source: string }> {
+    await mkdir(join(root, "operator"), { recursive: true, mode: 0o700 });
+    const source = join(root, "operator", GPU_FILE);
+    await writeModeFile(source, gpuDocument(hostId));
+    return { host: makeHost({ resources: { profile: "gpu", cpuCapacity: 2, gpuProfilesPath: source } }), source };
+  }
+  const poolResources = (bundle: FactoryFleetHostBundle) => (bundle.pool as { resources: unknown }).resources;
+
+  test("cpu-only: the pool offers CPU only, no GPU host, no profile file, and the delivery carries none", async () => {
+    await host.admit(await installation("tenant-01"));
+    const bundle = runtime.bundles.at(-1)!;
+    expect(poolResources(bundle)).toEqual({ capacities: { cpu: 3 }, gpuHosts: [], hosts: ["host.w16"] });
+    expect(Object.keys(bundle.deliveries.pool)).not.toContain(GPU_FILE);
+    expect(await readdir(host.paths.poolDelivery)).not.toContain(GPU_FILE);
+  }, SLOW);
+
+  test("gpu: the fleet host is the one GPU host, and its validated profile file is delivered to the pool only, 0600", async () => {
+    const { host: gpu, source } = await gpuHost("host.w16");
+    await gpu.admit(await installation("tenant-01"));
+    const bundle = runtime.bundles.at(-1)!;
+    expect(poolResources(bundle)).toEqual({ capacities: { cpu: 2 }, gpuHosts: ["host.w16"], gpuProfilesPath: `/run/ezcorp/secrets/${GPU_FILE}` });
+    const delivered = join(gpu.paths.poolDelivery, GPU_FILE);
+    expect(await text(delivered)).toBe(await text(source));
+    expect((await stat(delivered)).mode & 0o777).toBe(0o600);
+    expect(await readdir(gpu.paths.supervisorDelivery)).not.toContain(GPU_FILE);
+    const supervisors = (bundle.pool as { identities: { supervisors: Record<string, { hostIds: string[] }> } }).identities.supervisors;
+    expect(supervisors["supervisor.w16"]!.hostIds).toEqual(["host.w16"]);
+  }, SLOW);
+
+  test("gpu: a profile file for another host is refused by name before anything is applied", async () => {
+    const { host: gpu } = await gpuHost("gpu-elsewhere");
+    const error = await factoryRejection(gpu.admit(await installation("tenant-01")));
+    expect(error.code).toBe("host_gpu_profiles_invalid");
+    expect(error.message).toContain("gpu_profile_unknown_host");
+    expect(runtime.calls.filter((call) => call.startsWith("apply:"))).toEqual([]);
+  }, SLOW);
+
+  test("gpu: a missing profile file is refused by name", async () => {
+    const gpu = makeHost({ resources: { profile: "gpu", cpuCapacity: 2, gpuProfilesPath: join(root, "operator", "absent.json") } });
+    const error = await factoryRejection(gpu.admit(await installation("tenant-01")));
+    expect(error.code).toBe("host_gpu_profiles_invalid");
+    expect(error.message).toContain("gpu_profiles_unreadable");
+  }, SLOW);
+});
+
+describe("the hosted supervisor document (W4H-35)", () => {
+  // C11 M4 on the hosted profile (W4H-35, D-A and N1): with monitoring, the supervisor binds its /metrics to the node's own address
+  // (the marker its process resolves) and reads the token from its delivered private copy; without monitoring it has no listener.
+  test("with monitoring, the supervisor's metrics bind the node address and read the delivered token; without, it has no metrics listener", async () => {
+    for (const monitored of [true, false]) {
+      const hosted = makeHost({ hosted: { systemNamespace: "ezcorp-factory-w16", runnerRoot: "/srv/ezcorp-runner", monitored } });
+      await hosted.admit(await installation("tenant-01"));
+      const supervisor = runtime.bundles.at(-1)!.supervisor as { metrics?: unknown };
+      if (monitored) {
+        expect(supervisor.metrics).toEqual({ hostname: "node-address", port: runtime.bundles.at(-1)!.identity.ports.supervisorMetrics, scrapeTokenPath: `/run/ezcorp/host-identity/${FACTORY_HOST_FILES.metricsScrapeToken}` });
+      } else {
+        expect(Object.hasOwn(supervisor, "metrics")).toBe(false);
+      }
+    }
+  });
+
+  test("names the DaemonSet's container paths, listens on every address, and dials the pool and each harness by service name, verified as localhost", async () => {
+    const hosted = makeHost({ hosted: { systemNamespace: "ezcorp-factory-w16", runnerRoot: "/srv/ezcorp-runner", monitored: false } });
+    await hosted.admit(await installation("tenant-01"));
+    const supervisor = runtime.bundles.at(-1)!.supervisor as {
+      hostKeyPath: string; readinessFilePath: string; runnerRoot: string;
+      services: { hostname: string; hostKeyIdPath: string; tls: Record<string, string>; pool: { baseUrl: string; serverName: string; serviceTokenPath: string }; guestBrokers: Record<string, { baseUrl: string; serverName: string; tls: Record<string, string> }> };
+    };
+    expect([supervisor.hostKeyPath, supervisor.readinessFilePath, supervisor.runnerRoot]).toEqual([`/run/ezcorp/host-identity/${FACTORY_HOST_FILES.hostKey}`, "/run/ezcorp/readiness/supervisor/supervisor.json", "/srv/ezcorp-runner"]);
+    expect(supervisor.services.hostname).toBe("0.0.0.0");
+    expect(Object.values(supervisor.services.tls).every((path) => path.startsWith("/run/ezcorp/host-identity/"))).toBe(true);
+    expect([supervisor.services.pool.baseUrl, supervisor.services.pool.serverName]).toEqual(["https://factory-pool.ezcorp-factory-w16.svc.cluster.local:32002", "localhost"]);
+    const route = supervisor.services.guestBrokers["tenant-01"]!;
+    expect([route.baseUrl, route.serverName]).toEqual([`https://harness.ezcorp-factory-w16-tenant-01.svc.cluster.local:${factoryInstallationPorts("tenant-01", 31_000).guestBroker}`, "localhost"]);
+    expect(Object.values(route.tls).every((path) => path.startsWith("/run/ezcorp/host-identity/"))).toBe(true);
+  }, SLOW);
+
+  // C12 row "Private paths of a hosted container (hosted)", kind proof run 11: the pool and the supervisor stopped writing their
+  // readiness records into the kubelet's root-owned emptyDir. Every path their own documents name is judged against the rendered
+  // DaemonSet and pool Deployment, with the product's own walk, after the pods' real init commands ran.
+  test("every path the pool and the supervisor read or write privately is reached through an owned private directory on their rendered mounts", async () => {
+    const hosted = makeHost({ hosted: { systemNamespace: "ezcorp-factory-w16", runnerRoot: "/srv/ezcorp-runner", monitored: true } });
+    await hosted.admit(await installation("tenant-01"));
+    const bundle = runtime.bundles.at(-1)!;
+    const roots = [FACTORY_CONTAINER_PATHS.secrets, FACTORY_CONTAINER_PATHS.readiness, FACTORY_KUBERNETES_SUPERVISOR_PATHS.secrets, FACTORY_KUBERNETES_SUPERVISOR_PATHS.readinessDirectory];
+    const system = renderFactoryKubernetesSystem({
+      fleetId: "w16", systemNamespace: "ezcorp-factory-w16", monitoringNamespace: "monitoring", egressCidrs: ["10.0.0.0/24"], egressPorts: [5432], runAsUser: 10_001,
+      runtimeSocketPath: "/run/podman/podman.sock", runnerRoot: "/srv/ezcorp-runner", nodeCidrs: [], nodeSelector: {},
+    }, `registry.test/ezcorp@sha256:${"a".repeat(64)}`, bundle.identity.ports);
+    const uid = process.getuid!();
+    const pool = await judgePrivatePaths(podTemplate(system, "Deployment", "factory-pool"), { pool: privatePathUses(bundle.pool, roots) }, roots, uid);
+    const supervisor = await judgePrivatePaths(podTemplate(system, "DaemonSet", "factory-supervisor"), { supervisor: privatePathUses(bundle.supervisor, roots) }, roots, uid);
+    expect([...pool, ...supervisor].filter((line) => !line.endsWith(": ok"))).toEqual([]);
+    expect(pool).toContain("pool w /run/ezcorp/readiness/pool/pool.json: ok");
+    expect(supervisor).toContain("supervisor w /run/ezcorp/readiness/supervisor/supervisor.json: ok");
+    expect(pool.length + supervisor.length).toBeGreaterThan(12);
+  }, SLOW);
+
+  // C12 row "Supervisor durable state (hosted)" (item 7): the paths the supervisor WRITES at runtime and must keep across a restart
+  // (its tombstones, its preparation records) come from the process's own function on the hosted document, and are judged as durable
+  // writes against the rendered DaemonSet: never on a read-only mount, never on an in-memory volume.
+  test("the hosted supervisor's durable state sits in an owned, writable, durable directory under the runner root (item 7)", async () => {
+    const hosted = makeHost({ hosted: { systemNamespace: "ezcorp-factory-w16", runnerRoot: "/srv/ezcorp-runner", monitored: false } });
+    await hosted.admit(await installation("tenant-01"));
+    const bundle = runtime.bundles.at(-1)!;
+    const state = factorySupervisorStatePaths(parseFactorySupervisorProcessConfig(bundle.supervisor));
+    const system = renderFactoryKubernetesSystem({
+      fleetId: "w16", systemNamespace: "ezcorp-factory-w16", monitoringNamespace: "monitoring", egressCidrs: ["10.0.0.0/24"], egressPorts: [5432], runAsUser: 10_001,
+      runtimeSocketPath: "/run/podman/podman.sock", runnerRoot: "/srv/ezcorp-runner", nodeCidrs: [], nodeSelector: {},
+    }, `registry.test/ezcorp@sha256:${"a".repeat(64)}`, bundle.identity.ports);
+    const uses = [{ path: state.tombstones, write: true, durable: true }, { path: `${state.preparations}/host-preparation-x.json`, write: true, durable: true }];
+    const lines = await judgePrivatePaths(podTemplate(system, "DaemonSet", "factory-supervisor"), { supervisor: uses }, [], process.getuid!());
+    expect(lines).toEqual([
+      "supervisor w /srv/ezcorp-runner/supervisor-state/host-worker-tombstones.jsonl: ok",
+      "supervisor w /srv/ezcorp-runner/supervisor-state/host-preparations/host-preparation-x.json: ok",
+    ]);
+  }, SLOW);
+});
+
 describe("admission", () => {
   test("admit mints the installation's own pool token, adds it to both services' trust, publishes, and waits ready", async () => {
     const one = await installation("tenant-01");
@@ -237,6 +366,8 @@ describe("admission", () => {
     expect(supervisor.hostId).toBe("host.w16");
     expect(supervisor.services.peerTenants).toEqual({ "harness.tenant-01": "tenant-01", "harness.tenant-02": "tenant-02" });
     expect(Object.hasOwn(supervisor.services, "allowedPeers")).toBe(false);
+    // Compose keeps the durable state beside the host key (C12 row "Supervisor durable state (hosted)"): no state folder is named.
+    expect(Object.hasOwn(supervisor, "stateDirectory")).toBe(false);
     expect(supervisor.services.port).toBe(32_003);
     // One guest-broker route per admitted installation, keyed by its tenant, at its own port; the trust bundle holds each installation's authority.
     const brokerEndpoint = (port: number) => ({

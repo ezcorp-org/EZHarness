@@ -1,6 +1,7 @@
 import type { FactoryPrivateRequest, FactoryPrivateResponse } from "../private-https";
 import { POOL_QUEUE_FULL_HTTP_STATUS, POOL_QUEUE_FULL_REASON, type PoolDecision } from "./ledger";
 import { authenticatePoolPrincipal, type PoolAdmissionIdentityConfig, type PoolAdmissionRequest, type PoolAdmissionService, type PoolLeaseFenceInput, type PoolReimageInput, type PoolStopInput } from "./service";
+import type { FactoryPoolReadiness } from "./readiness";
 import type { PoolTokenVerifierOptions } from "./service-token";
 import { decodeReservationPath, encodeWireJson, parseWireJson, POOL_HTTP_BYTES_LIMIT, wireCounter, wireExact, wireIsoDate, wireRecord, wireResources, wireText } from "./wire";
 
@@ -8,7 +9,16 @@ export interface PoolAdmissionRouteOptions {
   readonly identities: PoolAdmissionIdentityConfig;
   readonly tokens: PoolTokenVerifierOptions;
   readonly service: PoolAdmissionService;
+  /**
+   * The pool's own latest readiness record, for the hosted profile, whose
+   * installations cannot mount the file the pool writes (W4H-35). Absent, or
+   * before the first record, the route answers 503.
+   */
+  readonly readiness?: () => FactoryPoolReadiness | undefined;
 }
+
+/** The pool's own readiness record, for the hosted profile (W4H-35). */
+export const FACTORY_POOL_READINESS_PATH = "/v1/pool/readiness";
 
 class PoolRouteError extends Error {
   constructor(readonly status: number, readonly code: string) { super(code); }
@@ -135,8 +145,14 @@ async function recoveryRoute(service: PoolAdmissionService, request: FactoryPriv
 }
 
 /** The route table itself, matched in the order the paths were written. */
-async function poolRoute(service: PoolAdmissionService, request: FactoryPrivateRequest, principal: PoolPrincipal, url: URL): Promise<FactoryPrivateResponse> {
+async function poolRoute(options: Pick<PoolAdmissionRouteOptions, "service" | "readiness">, request: FactoryPrivateRequest, principal: PoolPrincipal, url: URL): Promise<FactoryPrivateResponse> {
+  const service = options.service;
   const parts = url.pathname.split("/").filter(Boolean);
+  if (request.method === "GET" && url.pathname === FACTORY_POOL_READINESS_PATH) {
+    if (request.body.byteLength !== 0) fail(400, "invalid_request");
+    const record = options.readiness?.();
+    return record === undefined ? json(503, { error: "unavailable" }) : json(200, record);
+  }
   if (request.method === "POST" && url.pathname === "/v1/pool/requests") {
     const body = payload(request, ["reservationId", "grantRevision", "grantScope", "resources", "admissionDeadline", "priority", "readySequence", "nodeId"]);
     return decision(await service.request(principal, requestInput(body)));
@@ -166,6 +182,7 @@ export function createPoolAdmissionRouteHandler(options: PoolAdmissionRouteOptio
     }),
     tokens: Object.freeze({ ...options.tokens, publicKeys: Object.freeze({ ...options.tokens.publicKeys }) }),
     service: options.service,
+    ...(options.readiness === undefined ? {} : { readiness: options.readiness }),
   });
   return async request => {
     try {
@@ -173,7 +190,7 @@ export function createPoolAdmissionRouteHandler(options: PoolAdmissionRouteOptio
       if (request.headers["x-ezcorp-factory-version"] !== "1") fail(400, "invalid_request");
       const url = new URL(request.path, "https://pool.local");
       if (url.origin !== "https://pool.local" || url.search || url.hash) fail(400, "invalid_request");
-      return await poolRoute(snapshot.service, request, principal, url);
+      return await poolRoute(snapshot, request, principal, url);
     } catch (error) {
       try { return serviceError(error); }
       catch { return { status: 500, body: Buffer.from('{"error":"response_too_large"}') }; }

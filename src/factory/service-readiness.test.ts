@@ -6,8 +6,10 @@ import {
   FACTORY_SUPERVISOR_READINESS_SCHEMA,
   FactoryServiceReadinessError,
   createFactoryServiceReadinessWriter,
+  factorySupervisorReadinessExpectation,
   factorySupervisorReadinessOptions,
   readFactoryServiceReadiness,
+  verifyFactoryServiceReadiness,
   type FactoryServiceReadinessOptions,
 } from "./service-readiness";
 import { makeFactoryTempPrivateRoot } from "../__tests__/helpers/factory-private-root";
@@ -173,5 +175,68 @@ describe("owned and shared services", () => {
     const published = await createFactoryServiceReadinessWriter(scope, () => 5_000).write(ready);
     expect("installationId" in published).toBe(false);
     await expect(readFactoryServiceReadiness({ ...scope, installationId: "installation-01" }, () => 5_000)).rejects.toBeInstanceOf(FactoryServiceReadinessError);
+  });
+});
+
+describe("verifyFactoryServiceReadiness (a record from the network, W4H-35)", () => {
+  const expectation = factorySupervisorReadinessExpectation({ hostId: "host-01", readinessHeartbeatMs: 1_000 });
+  const record = { schemaVersion: FACTORY_SUPERVISOR_READINESS_SCHEMA, service: "host-supervisor", instanceId: "host-01", lifecycle: "ready", observedAtMs: 10_000, facts: { hostKeyReady: true, runnerReady: true, hostServicesReady: true } };
+
+  test("the expectation is the file options without a path", () => {
+    const { readinessFilePath, ...rest } = factorySupervisorReadinessOptions({ hostId: "host-01", readinessFilePath: "/run/s.json", readinessHeartbeatMs: 1_000 });
+    expect(readinessFilePath).toBe("/run/s.json");
+    expect(rest).toEqual(expectation);
+    expect(factorySupervisorReadinessExpectation({ hostId: "h" }).readinessHeartbeatMs).toBeUndefined();
+  });
+
+  test("accepts exactly a fresh ready record for the exact host, as the file reader does", () => {
+    expect(verifyFactoryServiceReadiness(record, expectation, 12_000)).toEqual(record as never);
+    expect(Object.isFrozen(verifyFactoryServiceReadiness(record, expectation, 12_000))).toBe(true);
+    for (const [value, now] of [
+      [record, 13_001], [record, 9_999], [{ ...record, instanceId: "host-02" }, 12_000], [{ ...record, lifecycle: "degraded", errorCode: "x" }, 12_000],
+      [{ ...record, installationId: "inst-1" }, 12_000], [{ ...record, facts: { hostKeyReady: true } }, 12_000], ["ready", 12_000], [null, 12_000], [record, Number.NaN],
+    ] as const) {
+      const error = (() => { try { verifyFactoryServiceReadiness(value, expectation, now); } catch (thrown) { return thrown as FactoryServiceReadinessError; } throw new Error("expected a refusal"); })();
+      expect(error).toBeInstanceOf(FactoryServiceReadinessError);
+      expect(error.code).toBe("host-supervisor");
+    }
+    expect(() => verifyFactoryServiceReadiness(record, { ...expectation, factNames: [] }, 12_000)).toThrow(FactoryServiceReadinessError);
+  });
+
+  // C12 row "Container runtime readiness (hosted)" (W4H-35 run 12): the held role rides the record in the product's one held-role
+  // entry shape; a ready record holds runnerReady false only together with the container-runtime entry, and nothing else says so.
+  test("a ready record holds runnerReady false only with the container-runtime held entry; any other held shape is refused (W4H-35 run 12)", () => {
+    const facts = { hostKeyReady: true, runnerReady: false, hostServicesReady: true };
+    const entry = { role: "container-runtime", workPackage: "W16", reason: "container_runtime_unreachable" };
+    const held = { ...record, facts, held: [entry] };
+    expect(verifyFactoryServiceReadiness(held, expectation, 12_000)).toEqual(held as never);
+    expect(Object.hasOwn(held, "warnings")).toBe(false);
+    const degraded = { ...held, lifecycle: "degraded", errorCode: "observation_stale" };
+    expect(() => verifyFactoryServiceReadiness(degraded, expectation, 12_000)).toThrow(FactoryServiceReadinessError);
+    for (const value of [
+      { ...record, facts }, { ...held, held: undefined }, { ...held, held: [] }, { ...held, held: [entry, entry] },
+      { ...record, held: [entry] }, { ...held, held: [{ ...entry, role: "other-role" }] }, { ...held, held: [{ ...entry, workPackage: "W17" }] },
+      { ...held, held: [{ ...entry, reason: "Bad Reason" }] }, { ...held, held: [{ ...entry, host: "host-01" }] }, { ...held, held: [{ role: entry.role, workPackage: entry.workPackage }] },
+      { ...held, held: {} }, { ...held, held: ["x"] }, { ...held, held: Array.from({ length: 9 }, () => entry) },
+      { ...held, warnings: [{ role: "containerRuntime", code: "container_runtime_unreachable" }] }, { ...held, roles: { containerRuntime: "held" } },
+    ]) expect(() => verifyFactoryServiceReadiness(JSON.parse(JSON.stringify(value)), expectation, 12_000)).toThrow(FactoryServiceReadinessError);
+    // A service whose expectation declares no held fact can never carry a held entry.
+    expect(() => verifyFactoryServiceReadiness(held, { ...expectation, heldFacts: {} }, 12_000)).toThrow(FactoryServiceReadinessError);
+    // An expectation that declares a held fact it does not carry is refused as an expectation.
+    expect(() => verifyFactoryServiceReadiness(held, { ...expectation, heldFacts: { unknownFact: { role: "x", workPackage: "W16" } } }, 12_000)).toThrow(FactoryServiceReadinessError);
+  });
+});
+
+describe("the writer publishes a record's held entries (W4H-35 run 12)", () => {
+  test("the held entry is written and read back by the file reader; a ready record without it is refused", async () => {
+    const root = await privateRoot();
+    const writer = createFactoryServiceReadinessWriter(options(root), () => 1_000);
+    const entry = { role: "container-runtime", workPackage: "W16", reason: "runner_unavailable" };
+    const facts = { ...ready.facts, runnerReady: false };
+    const written = await writer.write({ lifecycle: "ready", facts, held: [entry] });
+    expect(written.held).toEqual([entry]);
+    expect(JSON.parse(await readFile(options(root).readinessFilePath, "utf8")).held).toEqual([entry]);
+    expect((await readFactoryServiceReadiness(options(root), () => 1_500)).held).toEqual([entry]);
+    await expect(writer.write({ lifecycle: "ready", facts })).rejects.toThrow(FactoryServiceReadinessError);
   });
 });

@@ -483,6 +483,26 @@ describe("rotation through the provisioner", () => {
     expect(events.filter((event) => event.event === "step.rotated").map((event) => event.step)).toEqual(["deployment", "invitation", "temporal"]);
   });
 
+  test("the master key rotates as step 4, re-delivers to the running services, and a superseded version is revoked on record (W4H-35)", async () => {
+    const run = provisioner();
+    await run.provision(request("tenant-75"));
+    const from = stepsOf("tenant-75").length;
+    const rotated = await run.rotateMasterKey("tenant-75", { actor: "cli:operator" });
+    const secrets = rotated.steps.find((entry) => entry.step === "secrets")!.resources;
+    expect(secrets.masterKeyId).toMatch(/-v2$/);
+    expect(secrets.masterKeyFilePath).toBe(join(names("tenant-75").operatorDirectory, "master-v2.key"));
+    expect(rotations("tenant-75", from)).toEqual(["deployment:redeliver"]);
+    expect((await factoryRejection(run.revokeMasterKey("tenant-75", 2))).code).toBe("master_key_revocation_current");
+    await run.revokeMasterKey("tenant-75", 1, { actor: "cli:operator" });
+    await run.revokeMasterKey("tenant-75", 1);
+    expect(await Bun.file(join(names("tenant-75").operatorDirectory, "master.key")).exists()).toBe(false);
+    const events = await run.ledger.events("tenant-75");
+    expect(events.filter((event) => event.event === "operation.rotate").map((event) => [event.detail.step, event.detail.key, event.detail.actor])).toEqual([["secrets", "master", "cli:operator"]]);
+    expect(events.filter((event) => event.event === "step.master_key_revoked").map((event) => event.detail.version)).toEqual(["1", "1"]);
+    expect(events.filter((event) => event.event === "step.revocation_failed").map((event) => event.detail.code)).toEqual(["master_key_revocation_current"]);
+    expect(await run.rotateMasterKey("tenant-75").then((summary) => summary.steps.find((entry) => entry.step === "secrets")!.resources.masterKeyId)).toMatch(/-v3$/);
+  });
+
   test("before step 5 exists, a rotated credential is not re-delivered", async () => {
     const run = provisioner();
     await run.provision(request("tenant-57"), { through: "secrets" });
@@ -884,7 +904,8 @@ describe("fleet composition", () => {
       storage: { ordinary: { endpoint: "http://127.0.0.1:18333", prefix: "ordinary", issuer: { kind: "seeded", serverIdentityPath: ordinary } }, archive: { endpoint: "http://127.0.0.1:18334", prefix: "archive", issuer: { kind: "seeded", serverIdentityPath: archive } }, failureDomain: "same-host-not-independent" },
       temporal: { port: 32001, httpPort: 32004, serverName: "temporal.local" },
       ingress: { address: "127.0.0.1", port: 32005, domain: `${fleetId}.factory.test` },
-      installations: { portBase: 31000, cpuCapacity: 2, interpreterCompatibility: "factory-kernel.v1", runnerProfiles: (await import("../../src/__tests__/helpers/factory-private-root")).FACTORY_TEST_RUNNER_PROFILES },
+      resources: { profile: "cpu-only", cpuCapacity: 2 },
+      installations: { portBase: 31000, interpreterCompatibility: "factory-kernel.v1", runnerProfiles: (await import("../../src/__tests__/helpers/factory-private-root")).FACTORY_TEST_RUNNER_PROFILES },
       image: { reference: `localhost/ezcorp-factory@sha256:${"a".repeat(64)}`, revision: "b".repeat(40) },
       release: { directory: join(import.meta.dir, "../.."), bun: process.execPath, path: "/usr/bin:/bin" },
     });
@@ -949,7 +970,7 @@ describe("the operator entry", () => {
     await writeModeFile(join(storage, "ordinary.json"), identities);
     await writeModeFile(join(storage, "archive.json"), identities);
     const localFleet = `lf${randomBytes(3).toString("hex")}`;
-    const options = { fleetId: localFleet, root: join(root, "local-fleet"), image: `localhost/ezcorp-factory@sha256:${"c".repeat(64)}`, revision: "d".repeat(40), portBase: 31000, adminUrl: url!, storageSecretsDirectory: storage, releaseDirectory: join(import.meta.dir, "../.."), bun: process.execPath, runnerProfiles: FACTORY_TEST_RUNNER_PROFILES,
+    const options = { fleetId: localFleet, root: join(root, "local-fleet"), image: `localhost/ezcorp-factory@sha256:${"c".repeat(64)}`, revision: "d".repeat(40), portBase: 31000, resources: { profile: "cpu-only" as const, cpuCapacity: 2 }, adminUrl: url!, storageSecretsDirectory: storage, releaseDirectory: join(import.meta.dir, "../.."), bun: process.execPath, runnerProfiles: FACTORY_TEST_RUNNER_PROFILES,
       modelProvider: { provider: "openai", model: "gpt-6-luna", credentialKind: "oauth" } as const };
     const first = await writeFactoryLocalFleet(options);
     const second = await writeFactoryLocalFleet(options);
@@ -1031,7 +1052,7 @@ describe("the fleet host: one shared pool and supervisor, and no residue on the 
     testPools?.push(hostPoolStep);
     host = new FactoryFleetHost({
       settings: {
-        fleetId: fleet, ...roots, portBase: 31_000, cpuCapacity: 2, database: { host: "127.0.0.1", port: 5432 },
+        fleetId: fleet, ...roots, portBase: 31_000, resources: { profile: "cpu-only", cpuCapacity: 2 }, database: { host: "127.0.0.1", port: 5432 },
         build: { image: `localhost/ezcorp-factory@sha256:${"a".repeat(64)}`, revision: "b".repeat(40), release: "/release" },
       },
       runtime,

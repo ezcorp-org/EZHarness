@@ -25,13 +25,14 @@
  */
 import { FACTORY_REQUIRED_SERVICES, type FactoryBootConfig, type FactoryService } from "./boot";
 import { readFactoryOrchestrationReadiness } from "./orchestration-readiness";
-import { readFactoryPoolReadiness } from "./pool/readiness";
-import { factorySupervisorReadinessOptions, readFactoryServiceReadiness } from "./service-readiness";
+import { FactoryPoolReadinessError, readFactoryPoolReadiness, verifyFactoryPoolReadiness } from "./pool/readiness";
+import { FactoryServiceReadinessError, type FactoryServiceReadinessRecord, factorySupervisorReadinessExpectation, factorySupervisorReadinessOptions, readFactoryServiceReadiness, verifyFactoryServiceReadiness } from "./service-readiness";
+import type { FactoryHeldRoleEntry } from "./runtime-workers";
 
 export interface FactoryServiceProbe {
   readonly service: FactoryService;
-  /** Resolves when the service is genuinely live. Throws or rejects otherwise. */
-  probe(signal: AbortSignal): Promise<void>;
+  /** Resolves when the service is genuinely live, with the roles it holds (if any). Throws or rejects otherwise. */
+  probe(signal: AbortSignal): Promise<void | readonly FactoryHeldRoleEntry[]>;
 }
 
 export interface FactoryServiceProbeResult {
@@ -39,6 +40,8 @@ export interface FactoryServiceProbeResult {
   readonly available: boolean;
   /** A code or short reason. Never a credential, a URL with a secret, or a stack. */
   readonly detail: string;
+  /** The roles a live shared service holds (C12 row "Container runtime readiness (hosted)"); absent when none. */
+  readonly held?: readonly FactoryHeldRoleEntry[];
 }
 
 export class FactoryServiceProbeError extends Error {
@@ -81,7 +84,7 @@ export interface FactoryProbeOptions {
 }
 
 /** Run one probe under its own deadline, abandoning it (and aborting its signal) when the deadline passes. */
-async function probeWithin(probe: FactoryServiceProbe, signal: AbortSignal, deadlineMs: number): Promise<void> {
+async function probeWithin(probe: FactoryServiceProbe, signal: AbortSignal, deadlineMs: number): Promise<void | readonly FactoryHeldRoleEntry[]> {
   const deadline = new AbortController();
   const timeout = new FactoryServiceProbeError(`${probe.service.replaceAll("-", "_")}_probe_timeout`);
   let timer: ReturnType<typeof setTimeout> | undefined;
@@ -89,7 +92,7 @@ async function probeWithin(probe: FactoryServiceProbe, signal: AbortSignal, dead
     timer = setTimeout(() => { deadline.abort(timeout); reject(timeout); }, deadlineMs);
   });
   try {
-    await Promise.race([probe.probe(AbortSignal.any([signal, deadline.signal])), expired]);
+    return await Promise.race([probe.probe(AbortSignal.any([signal, deadline.signal])), expired]);
   } finally {
     clearTimeout(timer);
   }
@@ -119,8 +122,8 @@ export async function probeFactoryServices(
     const started = performance.now();
     let result: FactoryServiceProbeResult;
     try {
-      await probeWithin(probe, signal, deadlineMs);
-      result = { service: probe.service, available: true, detail: "ready" };
+      const held = await probeWithin(probe, signal, deadlineMs);
+      result = { service: probe.service, available: true, detail: "ready", ...(held && held.length > 0 ? { held } : {}) };
     } catch (error) {
       result = { service: probe.service, available: false, detail: factoryProbeDetail(error) };
     }
@@ -136,6 +139,11 @@ export function availableFactoryServices(results: readonly FactoryServiceProbeRe
   return FACTORY_REQUIRED_SERVICES.filter((service) => proven.has(service));
 }
 
+/** The roles the live required services hold, in probe order: they join the installation's own held roles. */
+export function heldFactoryServiceRoles(results: readonly FactoryServiceProbeResult[]): readonly FactoryHeldRoleEntry[] {
+  return results.flatMap((result) => (result.available ? result.held ?? [] : []));
+}
+
 /** The named reasons for every service that did not prove itself. */
 export function unavailableFactoryServices(results: readonly FactoryServiceProbeResult[]): readonly string[] {
   return results.filter((result) => !result.available).map((result) => `${result.service}: ${result.detail}`);
@@ -147,10 +155,17 @@ export interface FactoryProbeIdentity {
   readonly poolId: string;
   readonly temporalNamespace: string;
   readonly orchestrationReadinessFilePath: string;
-  readonly poolReadinessFilePath: string;
-  readonly supervisorReadinessFilePath: string;
+  /** Absent in the hosted profile, which reads the record from the pool's route. */
+  readonly poolReadinessFilePath?: string;
+  /** Absent in the hosted profile, which reads the record from the supervisor's route. */
+  readonly supervisorReadinessFilePath?: string;
   readonly hostId: string;
   readonly readinessHeartbeatMs?: number;
+}
+
+/** A shared host service's readiness route (the hosted profile, W4H-35): it returns the record as published. */
+export interface FactoryReadinessSource {
+  read(signal: AbortSignal): Promise<unknown>;
 }
 
 /** A byte round-trip through the store the product will actually use. The signal aborts a request that never answers. */
@@ -169,7 +184,7 @@ export interface FactorySupervisorProbeTarget {
   preflight(signal: AbortSignal): Promise<void>;
 }
 
-function probeOf(service: FactoryService, run: (signal: AbortSignal) => Promise<void>): FactoryServiceProbe {
+function probeOf(service: FactoryService, run: (signal: AbortSignal) => Promise<void | readonly FactoryHeldRoleEntry[]>): FactoryServiceProbe {
   return Object.freeze({ service, probe: run });
 }
 
@@ -199,7 +214,7 @@ export function factoryOrchestrationProbes(identity: FactoryProbeIdentity): read
   return Object.freeze([probeOf("orchestration", read), probeOf("temporal", read)]);
 }
 
-export function factoryPoolProbe(identity: FactoryProbeIdentity): FactoryServiceProbe {
+export function factoryPoolProbe(identity: FactoryProbeIdentity & { readonly poolReadinessFilePath: string }): FactoryServiceProbe {
   return probeOf("pool-admission", async () => {
     // The pool is shared by every installation on its host: match the pool this installation names.
     await readFactoryPoolReadiness({
@@ -243,15 +258,25 @@ export function factorySupervisorProbe(target: FactorySupervisorProbeTarget): Fa
  * C01 forbids it holding host identity, so the only honest signal is the record
  * the supervisor publishes about itself.
  */
-export function factorySupervisorReadinessProbe(identity: FactoryProbeIdentity): FactoryServiceProbe {
+export function factorySupervisorReadinessProbe(identity: FactoryProbeIdentity & { readonly supervisorReadinessFilePath: string }): FactoryServiceProbe {
   return probeOf("host-supervisor", async () => {
     // The supervisor is shared by every installation on its host: match the host this installation names.
-    await readFactoryServiceReadiness(factorySupervisorReadinessOptions({
+    const record = await readFactoryServiceReadiness(factorySupervisorReadinessOptions({
       hostId: identity.hostId,
       readinessFilePath: identity.supervisorReadinessFilePath,
       ...(identity.readinessHeartbeatMs === undefined ? {} : { readinessHeartbeatMs: identity.readinessHeartbeatMs }),
     }));
+    return supervisorHeld(identity.hostId, record);
   });
+}
+
+/**
+ * C12 row "Container runtime readiness (hosted)" (W4H-35 run 12): a ready supervisor record whose runtime role is held stays the
+ * available required service it is; its held entries, each naming this host, join the installation's `roles.held`. One place for
+ * both probes, the file's and the route's.
+ */
+function supervisorHeld(hostId: string, record: FactoryServiceReadinessRecord): readonly FactoryHeldRoleEntry[] {
+  return (record.held ?? []).map((entry) => ({ ...entry, host: hostId }));
 }
 
 /**
@@ -265,5 +290,27 @@ export function factorySupervisorReadinessProbe(identity: FactoryProbeIdentity):
 export function factorySandboxProbe(config: Pick<FactoryBootConfig, "requireSandbox">): FactoryServiceProbe {
   return probeOf("required-sandbox", async () => {
     if (config.requireSandbox !== true) throw new FactoryServiceProbeError("required_sandbox_not_enforced");
+  });
+}
+
+/**
+ * The hosted profile's pool probe: the record comes from the pool's own
+ * readiness route and is judged exactly as the file is. A route that fails is
+ * the same refusal as a record that is not ready.
+ */
+export function factoryPoolNetworkProbe(identity: Pick<FactoryProbeIdentity, "poolId" | "readinessHeartbeatMs">, source: FactoryReadinessSource, clock: () => number = Date.now): FactoryServiceProbe {
+  return probeOf("pool-admission", async (signal) => {
+    let record: unknown;
+    try { record = await source.read(signal); } catch { throw new FactoryPoolReadinessError(); }
+    verifyFactoryPoolReadiness(record, { poolId: identity.poolId, ...(identity.readinessHeartbeatMs === undefined ? {} : { readinessHeartbeatMs: identity.readinessHeartbeatMs }), source: "the pool's readiness route" }, clock());
+  });
+}
+
+/** The hosted profile's supervisor probe: its record from its own route, over the host launch transport. */
+export function factorySupervisorNetworkProbe(identity: Pick<FactoryProbeIdentity, "hostId" | "readinessHeartbeatMs">, source: FactoryReadinessSource, clock: () => number = Date.now): FactoryServiceProbe {
+  return probeOf("host-supervisor", async (signal) => {
+    let record: unknown;
+    try { record = await source.read(signal); } catch { throw new FactoryServiceReadinessError("host-supervisor"); }
+    return supervisorHeld(identity.hostId, verifyFactoryServiceReadiness(record, factorySupervisorReadinessExpectation(identity), clock()));
   });
 }

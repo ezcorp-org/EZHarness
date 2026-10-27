@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import { chmod, readFile, rm, symlink, writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import { createFactoryPoolReadinessWriter, FACTORY_POOL_READINESS_SCHEMA, FactoryPoolReadinessError, readFactoryPoolReadiness } from "./readiness";
+import { createFactoryPoolReadinessWriter, FACTORY_POOL_READINESS_SCHEMA, FactoryPoolReadinessError, readFactoryPoolReadiness, verifyFactoryPoolReadiness } from "./readiness";
 import { makeFactoryTempPrivateRoot } from "../../__tests__/helpers/factory-private-root";
 
 const directories: string[] = [];
@@ -84,5 +84,20 @@ describe("factory pool readiness", () => {
       const refused = await readFactoryPoolReadiness({ poolId: "p", readinessFilePath: path }, () => 6).catch((error: unknown) => error);
       expect((refused as FactoryPoolReadinessError).code).toBe("factory_pool_unavailable");
     }
+  });
+
+  test("a record from the network is judged exactly as one read from the file (W4H-35 hosted readiness)", () => {
+    const ready = { schemaVersion: FACTORY_POOL_READINESS_SCHEMA, poolId: "pool-a", lifecycle: "ready", observedAtMs: 1_000, databaseReady: true, schemaReady: true, listenerReady: true };
+    const reports: string[] = [];
+    const report = (message: string) => reports.push(message);
+    expect(verifyFactoryPoolReadiness(ready, { poolId: "pool-a", source: "https://pool" }, 2_000, report)).toEqual(ready as never);
+    expect(verifyFactoryPoolReadiness(ready, { poolId: "pool-a", source: "https://pool", readinessHeartbeatMs: 1_000 }, 4_000, report)).toEqual(ready as never);
+    for (const [state, now] of [
+      [ready, 16_001], [ready, 999], [{ ...ready, lifecycle: "degraded", listenerReady: false, errorCode: "pool_down" }, 2_000], [{ ...ready, extra: 1 }, 2_000],
+      ["ready", 2_000], [null, 2_000], [{ ...ready, schemaVersion: "factory.pool-readiness.v1" }, 2_000], [ready, Number.NaN],
+    ] as const) expect(() => verifyFactoryPoolReadiness(state, { poolId: "pool-a", source: "https://pool" }, now, report)).toThrow(FactoryPoolReadinessError);
+    expect(reports).toEqual([]);
+    expect(() => verifyFactoryPoolReadiness({ ...ready, poolId: "pool-b" }, { poolId: "pool-a", source: "https://pool" }, 2_000, report)).toThrow(FactoryPoolReadinessError);
+    expect(reports).toEqual(["[factory-pool-readiness] the record at https://pool names pool pool-b; this installation names pool-a"]);
   });
 });

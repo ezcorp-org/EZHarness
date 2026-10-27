@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
-import { webBinding, webBindingRequest } from "./stack-documents";
+import { factoryPoolResources } from "../../src/factory/provisioning/host";
+import { GRAPH_PROOF_RESOURCES, HOST_ID, poolDocument, webBinding, webBindingRequest, type StackLayout } from "./stack-documents";
 
 const picked = () => 41_234;
 
@@ -32,4 +33,18 @@ describe("the proof web server's binding", () => {
       .toEqual({ host: "100.77.117.56", port: 39_323, origin: "http://100.77.117.56:39323" });
     expect(webBindingRequest({ PROOF_WEB_HOST: "", PROOF_WEB_PORT: "" })).toEqual({});
   });
+});
+
+const layout = { root: "/run/w19a", poolDatabase: "pool_w19a", poolUrl: "postgres://pool_role:x@127.0.0.1:5432/pool_w19a", ports: { pool: 41_002 } } as unknown as StackLayout;
+
+test("the graph proof's pool runs the fleet's cpu-only resource profile: the fleet host's own resources, no GPU host (W4H-35 G10)", () => {
+  expect(GRAPH_PROOF_RESOURCES).toEqual({ profile: "cpu-only", cpuCapacity: 4 });
+  expect(poolDocument(layout).resources).toEqual(factoryPoolResources(GRAPH_PROOF_RESOURCES, HOST_ID));
+  expect(poolDocument(layout).resources).toEqual({ capacities: { cpu: 4 }, gpuHosts: [], hosts: [HOST_ID] });
+});
+
+test("the pool document follows the profile it is given, so a hand-written resource block cannot stand in for it", () => {
+  const gpu = { profile: "gpu", cpuCapacity: 2, gpuProfilesPath: "/srv/operator/gpu-host-profiles.json" } as const;
+  expect(poolDocument(layout, gpu).resources).toEqual(factoryPoolResources(gpu, HOST_ID));
+  expect(poolDocument(layout, gpu).resources.gpuHosts).toEqual([HOST_ID]);
 });

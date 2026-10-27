@@ -133,4 +133,17 @@ describe("shared pool admission routes", () => {
     expect((await handler(request("GET", "/v1/pool/requests/missing"))).status).toBe(204);
     identities.tenants["tenant-one"] = original;
   });
+
+  test("GET /v1/pool/readiness answers the pool's own latest record to an authenticated caller only, 503 before any (W4H-35)", async () => {
+    const record = { schemaVersion: "factory.pool-readiness.v2", poolId: "pool-a", lifecycle: "ready", observedAtMs: 1, databaseReady: true, schemaReady: true, listenerReady: true };
+    let current: unknown;
+    const withReadiness = createPoolAdmissionRouteHandler({ ...options, readiness: () => current as never });
+    expect(await response(withReadiness(request("GET", "/v1/pool/readiness")))).toEqual({ status: 503, body: { error: "unavailable" } });
+    current = record;
+    expect(await response(withReadiness(request("GET", "/v1/pool/readiness")))).toEqual({ status: 200, body: record });
+    expect(await response(withReadiness(request("GET", "/v1/pool/readiness", undefined, { headers: { "x-ezcorp-factory-version": "1" } })))).toEqual({ status: 401, body: { error: "unauthorized" } });
+    expect((await withReadiness(request("POST", "/v1/pool/readiness", {}))).status).toBe(404);
+    expect((await withReadiness(request("GET", "/v1/pool/readiness", { x: 1 }))).status).toBe(400);
+    expect(await response(handler(request("GET", "/v1/pool/readiness")))).toEqual({ status: 503, body: { error: "unavailable" } });
+  });
 });

@@ -75,6 +75,15 @@ describe("renderFactoryIngressConfig", () => {
     expect(config).not.toContain("return 503");
   });
 
+  test("a hosted route forwards to its installation's harness service; a Compose route keeps loopback (W4H-35)", () => {
+    const config = renderFactoryIngressConfig(PATHS, [route({ state: "serving", upstreamHost: "harness.ezcorp-factory-fleet-a-tenant-01.svc.cluster.local", upstreamPort: 80 })]);
+    expect(config).toContain("    proxy_pass http://harness.ezcorp-factory-fleet-a-tenant-01.svc.cluster.local:80;");
+    expect(config).toContain(`    proxy_set_header X-EZCorp-Ingress-Proof "${"a".repeat(64)}";`);
+    for (const upstreamHost of ["Harness.example", "harness;\n  return 200", "", "a".repeat(254)]) {
+      expect(refusalCode(() => renderFactoryIngressConfig(PATHS, [route({ upstreamHost })]))).toBe("ingress_route_invalid");
+    }
+  });
+
   test("every route refuses a request whose TLS server name differs from its Host with 421", () => {
     const config = renderFactoryIngressConfig(PATHS, [route(), route({ tenantId: "tenant-02", hostname: "tenant-02.factory.example", installationId: "inst-tenant-02", state: "serving" })]);
     expect(config.match(/ {2}if \(\$ssl_server_name != \$host\) \{ return 421; \}/g)?.length).toBe(2);
@@ -257,6 +266,16 @@ describe("FactoryIngressStep", () => {
     expect(await config()).toContain("proxy_pass http://127.0.0.1:40020;");
     expect(await config()).not.toContain("proxy_pass http://127.0.0.1:40010;");
     await step().teardown(second);
+  });
+
+  test("a hosted step records each route's upstream service host beside its port (W4H-35)", async () => {
+    const hosted = step({ upstreamPort: () => 80, upstreamHost: (target) => `harness.ezcorp-factory-${target.fleetId}-${target.tenantId}.svc.cluster.local` });
+    await hosted.ensure(installation);
+    await hosted.serve(installation);
+    const [stored] = await readFactoryIngressRoutes(paths);
+    expect([stored!.upstreamHost, stored!.upstreamPort]).toEqual([`harness.ezcorp-factory-${installation.fleetId}-tenant-01.svc.cluster.local`, 80]);
+    expect(await config()).toContain(`proxy_pass http://harness.ezcorp-factory-${installation.fleetId}-tenant-01.svc.cluster.local:80;`);
+    await hosted.teardown(installation);
   });
 
   test("teardown unbinds the hostname, deletes its certificate and key, and runs twice", async () => {

@@ -1,0 +1,465 @@
+src/factory/runner/supervisor-process.ts:48:8 lint/correctness/noUnusedImports  FIXABLE  ━━━━━━━━━━━
+
+  ! This import is unused.
+  
+    46 │  * record degrades.
+    47 │  */
+  > 48 │ import { stat } from "node:fs/promises";
+       │        ^^^^^^^^
+    49 │ import { connect, isIP } from "node:net";
+    50 │ import { FACTORY_NODE_ADDRESS } from "../provisioning/kubernetes-paths";
+  
+  i Unused imports might be the result of an incomplete refactoring.
+  
+  i Unsafe fix: Remove the unused imports.
+  
+      1     │ - /**
+      2     │ - ·*·The·host·supervisor·process·entry,·and·the·readiness·it·publishes.
+      3     │ - ·*
+      4     │ - ·*·C09·lists·the·host·supervisor·among·the·services·that·must·be·live·before
+      5     │ - ·*·product·admission·opens,·and·nothing·published·that·fact:·the·orchestration
+      6     │ - ·*·and·pool·processes·each·write·a·readiness·record·and·the·supervisor·wrote
+      7     │ - ·*·none,·so·the·seventh·probe·had·no·producer·and·a·flag-on·installation·could
+      8     │ - ·*·never·reach·`ready`.
+      9     │ - ·*
+     10     │ - ·*·What·this·process·holds·is·exactly·what·C01·allows·it·to·hold:·its·own·host
+     11     │ - ·*·identity·and·its·own·signing·key.·No·tenant·identity,·no·product·database,·no
+     12     │ - ·*·object-store·credential.·It·observes·two·facts·about·itself·and·publishes
+     13     │ - ·*·them·—·the·host·key·loads,·and·the·container·runner·answers·—·and·it
+     14     │ - ·*·republishes·on·a·heartbeat·so·a·stopped·supervisor·stops·reading·as·ready
+     15     │ - ·*·within·three·windows.
+     16     │ - ·*
+     17     │ - ·*·It·is·shaped·like·the·other·two·host·process·entries·(`pool/process.ts`,
+     18     │ - ·*·`orchestration-process.ts`):·a·strict·config·parser,·an·abort-aware·loop,·and
+     19     │ - ·*·a·`finally`·that·records·why·it·stopped.
+     20     │ - ·*
+     21     │ - ·*·##·The·cadence·contract,·and·why·there·are·two·loops
+     22     │ - ·*
+     23     │ - ·*·The·heartbeat·write·and·the·runner·observation·run·on·SEPARATE·loops,·and
+     24     │ - ·*·that·separation·is·the·whole·design.·The·first·version·awaited·the·Podman
+     25     │ - ·*·probe·between·writes,·so·the·interval·between·two·records·was
+     26     │ - ·*·`probeLatency·+·heartbeatMs`·while·the·reader·accepts·a·record·only·within
+     27     │ - ·*·`heartbeatMs·*·3`.·The·probe·creates·a·container,·so·on·a·loaded·host·it
+     28     │ - ·*·could·exceed·the·window·on·its·own·and·every·record·arrived·already·stale·—
+     29     │ - ·*·a·live·supervisor·that·reads·as·dead,·intermittently,·depending·on·how·busy
+     30     │ - ·*·the·box·is.
+     31     │ - ·*
+     32     │ - ·*·All·four·numbers·are·multiples·of·one·configured·heartbeat,·so·the·margins
+     33     │ - ·*·are·stateable·rather·than·coincidental:
+     34     │ - ·*
+     35     │ - ·*·|·Interval·|·Value·|·Why·|
+     36     │ - ·*·|·---·|·---·|·---·|
+     37     │ - ·*·|·Heartbeat·write·|·`heartbeatMs`·|·never·waits·for·a·probe·|
+     38     │ - ·*·|·Reader·freshness·window·|·`heartbeatMs·*·3`·|·tolerates·two·missed·writes·|
+     39     │ - ·*·|·Probe·bound·|·`heartbeatMs·*·4`·|·a·probe·may·legitimately·outlast·a·write·|
+     40     │ - ·*·|·Facts·go·stale·|·`heartbeatMs·*·5`·|·the·bound·plus·one·full·cycle·|
+     41     │ - ·*
+     42     │ - ·*·The·record·therefore·always·says·what·was·last·actually·OBSERVED:·a·probe
+     43     │ - ·*·that·hangs·does·not·delay·the·heartbeat,·and·it·does·not·let·the·heartbeat
+     44     │ - ·*·keep·asserting·a·fact·nobody·is·still·checking·either·—·once·the·last
+     45     │ - ·*·successful·observation·is·older·than·the·staleness·bound,·the·published
+     46     │ - ·*·record·degrades.
+     47     │ - ·*/
+     48     │ - import·{·stat·}·from·"node:fs/promises";
+          1 │ + 
+     49   2 │   import { connect, isIP } from "node:net";
+     50   3 │   import { FACTORY_NODE_ADDRESS } from "../provisioning/kubernetes-paths";
+  
+
+src/factory/service-probes.ts:35:39 lint/suspicious/noConfusingVoidType  FIXABLE  ━━━━━━━━━━━━━━━━━━
+
+  ! void is confusing inside a union type.
+  
+    33 │   readonly service: FactoryService;
+    34 │   /** Resolves when the service is genuinely live, with the roles it holds (if any). Throws or rejects otherwise. */
+  > 35 │   probe(signal: AbortSignal): Promise<void | readonly FactoryHeldRoleEntry[]>;
+       │                                       ^^^^
+    36 │ }
+    37 │ 
+  
+  i Unsafe fix: Use undefined instead.
+  
+     33  33 │     readonly service: FactoryService;
+     34  34 │     /** Resolves when the service is genuinely live, with the roles it holds (if any). Throws or rejects otherwise. */
+     35     │ - ··probe(signal:·AbortSignal):·Promise<void·|·readonly·FactoryHeldRoleEntry[]>;
+         35 │ + ··probe(signal:·AbortSignal):·Promise<undefined·|·readonly·FactoryHeldRoleEntry[]>;
+     36  36 │   }
+     37  37 │   
+  
+
+src/factory/service-probes.ts:87:106 lint/suspicious/noConfusingVoidType  FIXABLE  ━━━━━━━━━━━━━━━━━
+
+  ! void is confusing inside a union type.
+  
+    86 │ /** Run one probe under its own deadline, abandoning it (and aborting its signal) when the deadline passes. */
+  > 87 │ async function probeWithin(probe: FactoryServiceProbe, signal: AbortSignal, deadlineMs: number): Promise<void | readonly FactoryHeldRoleEntry[]> {
+       │                                                                                                          ^^^^
+    88 │   const deadline = new AbortController();
+    89 │   const timeout = new FactoryServiceProbeError(`${probe.service.replaceAll("-", "_")}_probe_timeout`);
+  
+  i Unsafe fix: Use undefined instead.
+  
+     85  85 │   
+     86  86 │   /** Run one probe under its own deadline, abandoning it (and aborting its signal) when the deadline passes. */
+     87     │ - async·function·probeWithin(probe:·FactoryServiceProbe,·signal:·AbortSignal,·deadlineMs:·number):·Promise<void·|·readonly·FactoryHeldRoleEntry[]>·{
+         87 │ + async·function·probeWithin(probe:·FactoryServiceProbe,·signal:·AbortSignal,·deadlineMs:·number):·Promise<undefined·|·readonly·FactoryHeldRoleEntry[]>·{
+     88  88 │     const deadline = new AbortController();
+     89  89 │     const timeout = new FactoryServiceProbeError(`${probe.service.replaceAll("-", "_")}_probe_timeout`);
+  
+
+src/factory/service-probes.ts:187:81 lint/suspicious/noConfusingVoidType  FIXABLE  ━━━━━━━━━━━━━━━━━
+
+  ! void is confusing inside a union type.
+  
+    185 │ }
+    186 │ 
+  > 187 │ function probeOf(service: FactoryService, run: (signal: AbortSignal) => Promise<void | readonly FactoryHeldRoleEntry[]>): FactoryServiceProbe {
+        │                                                                                 ^^^^
+    188 │   return Object.freeze({ service, probe: run });
+    189 │ }
+  
+  i Unsafe fix: Use undefined instead.
+  
+    185 185 │   }
+    186 186 │   
+    187     │ - function·probeOf(service:·FactoryService,·run:·(signal:·AbortSignal)·=>·Promise<void·|·readonly·FactoryHeldRoleEntry[]>):·FactoryServiceProbe·{
+        187 │ + function·probeOf(service:·FactoryService,·run:·(signal:·AbortSignal)·=>·Promise<undefined·|·readonly·FactoryHeldRoleEntry[]>):·FactoryServiceProbe·{
+    188 188 │     return Object.freeze({ service, probe: run });
+    189 189 │   }
+  
+
+Checked 82 files in 43ms. No fixes applied.
+Found 4 warnings.
+── Tests (staged) ─────────────────────────────────
+  bun: scripts/check-factory-deployment-locks.test.ts
+bun test v1.4.2 (744846f84)
+
+ 14 pass
+ 0 fail
+ 23 expect() calls
+Ran 14 tests across 1 file. [358.00ms]
+  bun: scripts/factory-fleet-init-local.test.ts
+bun test v1.4.2 (744846f84)
+
+ 5 pass
+ 0 fail
+ 32 expect() calls
+Ran 5 tests across 1 file. [396.00ms]
+  bun: scripts/factory-graph-proof/stack-documents.test.ts
+bun test v1.4.2 (744846f84)
+
+ 7 pass
+ 0 fail
+ 20 expect() calls
+Ran 7 tests across 1 file. [381.00ms]
+  bun: scripts/factory-node-entries-registration.test.ts
+bun test v1.4.2 (744846f84)
+
+ 3 pass
+ 0 fail
+ 5 expect() calls
+Ran 3 tests across 1 file. [636.00ms]
+  bun: scripts/setup-factory-storage.test.ts
+bun test v1.4.2 (744846f84)
+
+ 4 pass
+ 0 fail
+ 74 expect() calls
+Ran 4 tests across 1 file. [600.00ms]
+  bun: src/factory/host-launch-client.test.ts
+bun test v1.4.2 (744846f84)
+
+ 4 pass
+ 0 fail
+ 22 expect() calls
+Ran 4 tests across 1 file. [381.00ms]
+  bun: src/factory/installation-startup.test.ts
+bun test v1.4.2 (744846f84)
+
+ 60 pass
+ 0 fail
+ 399 expect() calls
+Ran 60 tests across 1 file. [6.74s]
+  bun: src/factory/observability/alert-evaluator.integration.test.ts
+bun test v1.4.2 (744846f84)
+
+ 5 pass
+ 0 fail
+ 76 expect() calls
+Ran 5 tests across 1 file. [83.83s]
+  bun: src/factory/observability/alert-rules.test.ts
+bun test v1.4.2 (744846f84)
+
+ 12 pass
+ 0 fail
+ 186 expect() calls
+Ran 12 tests across 1 file. [373.00ms]
+  bun: src/factory/observability/metric-registry.test.ts
+bun test v1.4.2 (744846f84)
+
+ 13 pass
+ 0 fail
+ 245 expect() calls
+Ran 13 tests across 1 file. [362.00ms]
+  bun: src/factory/observability/metrics-listener.test.ts
+bun test v1.4.2 (744846f84)
+
+ 17 pass
+ 0 fail
+ 62 expect() calls
+Ran 17 tests across 1 file. [590.00ms]
+  bun: src/factory/pool/gpu-host-profiles.test.ts
+bun test v1.4.2 (744846f84)
+
+ 7 pass
+ 0 fail
+ 46 expect() calls
+Ran 7 tests across 1 file. [382.00ms]
+  bun: src/factory/pool/process.test.ts
+bun test v1.4.2 (744846f84)
+
+ 14 pass
+ 0 fail
+ 83 expect() calls
+Ran 14 tests across 1 file. [1.64s]
+  bun: src/factory/pool/readiness.test.ts
+bun test v1.4.2 (744846f84)
+
+ 6 pass
+ 0 fail
+ 43 expect() calls
+Ran 6 tests across 1 file. [461.00ms]
+  bun: src/factory/pool/service-routes.test.ts
+bun test v1.4.2 (744846f84)
+
+ 7 pass
+ 0 fail
+ 42 expect() calls
+Ran 7 tests across 1 file. [406.00ms]
+  bun: src/factory/private-files.test.ts
+bun test v1.4.2 (744846f84)
+
+ 26 pass
+ 0 fail
+ 58 expect() calls
+Ran 26 tests across 1 file. [437.00ms]
+  bun: src/factory/provisioning/compose-profile.test.ts
+bun test v1.4.2 (744846f84)
+
+ 57 pass
+ 0 fail
+ 235 expect() calls
+Ran 57 tests across 1 file. [501.00ms]
+  bun: src/factory/provisioning/deployment.test.ts
+bun test v1.4.2 (744846f84)
+
+ 54 pass
+ 0 fail
+ 355 expect() calls
+Ran 54 tests across 1 file. [1.57s]
+  bun: src/factory/provisioning/fleet-cli.test.ts
+bun test v1.4.2 (744846f84)
+
+ 12 pass
+ 0 fail
+ 80 expect() calls
+Ran 12 tests across 1 file. [376.00ms]
+  bun: src/factory/provisioning/fleet-profile.test.ts
+bun test v1.4.2 (744846f84)
+
+ 7 pass
+ 0 fail
+ 29 expect() calls
+Ran 7 tests across 1 file. [385.00ms]
+  bun: src/factory/provisioning/fleet.test.ts
+bun test v1.4.2 (744846f84)
+
+ 20 pass
+ 0 fail
+ 230 expect() calls
+Ran 20 tests across 1 file. [401.00ms]
+  bun: src/factory/provisioning/host.test.ts
+bun test v1.4.2 (744846f84)
+
+ 34 pass
+ 0 fail
+ 178 expect() calls
+Ran 34 tests across 1 file. [4.87s]
+  bun: src/factory/provisioning/image-pin.test.ts
+bun test v1.4.2 (744846f84)
+
+ 1 pass
+ 0 fail
+ 13 expect() calls
+Ran 1 test across 1 file. [358.00ms]
+  bun: src/factory/provisioning/ingress.test.ts
+bun test v1.4.2 (744846f84)
+
+ 42 pass
+ 0 fail
+ 141 expect() calls
+Ran 42 tests across 1 file. [5.09s]
+  bun: src/factory/provisioning/kubernetes-paths.test.ts
+bun test v1.4.2 (744846f84)
+
+ 2 pass
+ 0 fail
+ 3 expect() calls
+Ran 2 tests across 1 file. [349.00ms]
+  bun: src/factory/provisioning/kubernetes-profile.test.ts
+bun test v1.4.2 (744846f84)
+
+ 39 pass
+ 0 fail
+ 231 expect() calls
+Ran 39 tests across 1 file. [477.00ms]
+  bun: src/factory/provisioning/kubernetes-target.test.ts
+bun test v1.4.2 (744846f84)
+
+ 23 pass
+ 0 fail
+ 78 expect() calls
+Ran 23 tests across 1 file. [417.00ms]
+  bun: src/factory/provisioning/platform.test.ts
+bun test v1.4.2 (744846f84)
+
+ 30 pass
+ 0 fail
+ 115 expect() calls
+Ran 30 tests across 1 file. [1305.00ms]
+  bun: src/factory/provisioning/secrets.test.ts
+bun test v1.4.2 (744846f84)
+
+ 59 pass
+ 0 fail
+ 161 expect() calls
+Ran 59 tests across 1 file. [680.00ms]
+  bun: src/factory/readiness-route-client.test.ts
+bun test v1.4.2 (744846f84)
+
+ 4 pass
+ 0 fail
+ 7 expect() calls
+Ran 4 tests across 1 file. [590.00ms]
+  bun: src/factory/recovery-composition.test.ts
+bun test v1.4.2 (744846f84)
+
+ 10 pass
+ 0 fail
+ 43 expect() calls
+Ran 10 tests across 1 file. [396.00ms]
+  bun: src/factory/restore-composition.test.ts
+bun test v1.4.2 (744846f84)
+
+ 3 pass
+ 0 fail
+ 17 expect() calls
+Ran 3 tests across 1 file. [389.00ms]
+  bun: src/factory/runner/host-launch-service.test.ts
+bun test v1.4.2 (744846f84)
+
+ 23 pass
+ 0 fail
+ 72 expect() calls
+Ran 23 tests across 1 file. [447.00ms]
+  bun: src/factory/runner/host-tombstones.test.ts
+bun test v1.4.2 (744846f84)
+
+ 24 pass
+ 0 fail
+ 52 expect() calls
+Ran 24 tests across 1 file. [2.12s]
+  bun: src/factory/runner/supervisor-process.test.ts
+bun test v1.4.2 (744846f84)
+
+ 52 pass
+ 0 fail
+ 256 expect() calls
+Ran 52 tests across 1 file. [3.69s]
+  bun: src/factory/runner/supervisor-services.test.ts
+bun test v1.4.2 (744846f84)
+
+src/factory/runner/supervisor-services.test.ts:
+[factory-host-launch] {"path":"/v1/host/launches","status":401,"error":"unauthorized","detail":"unauthorized"}
+[factory-host-launch] {"path":"/v1/host/unknown","status":401,"error":"unauthorized","detail":"unauthorized"}
+[factory-host-launch] {"path":"/v1/host/launches","status":400,"error":"invalid_intent","detail":"invalid_intent"}
+[factory-host-launch] {"path":"/v1/host/attachments","status":400,"error":"invalid_intent","detail":"invalid_intent"}
+[factory-host-launch] {"path":"/v1/host/results","status":400,"error":"invalid_intent","detail":"invalid_intent"}
+[factory-host-launch] {"path":"/v1/host/launches","status":400,"error":"invalid_intent","detail":"invalid_intent"}
+[factory-host-launch] {"path":"/v1/host/launches","status":400,"error":"invalid_intent","detail":"invalid_intent"}
+[factory-host-launch] {"path":"/v1/host/unknown","status":404,"error":"not_found","detail":"not_found"}
+[factory-host-launch] {"path":"/v1/host/launches","status":400,"error":"invalid_intent","detail":"invalid_intent"}
+[factory-host-launch] {"path":"/v1/host/launches","status":422,"error":"device_unavailable","detail":"Device /dev/dri/renderD200 granted to worker factory_3dafcfaa6218343276ff42263fe100bab5e2b0475a8d98b9 is not present on host host-services.","attemptId":"attempt-1","workerId":"factory_3dafcfaa6218343276ff42263fe100bab5e2b0475a8d98b9"}
+[factory-host-launch] {"path":"/v1/host/results","status":409,"error":"attempt_uncertain","detail":"This host is not running that attempt.","attemptId":"attempt-1","workerId":"factory_3dafcfaa6218343276ff42263fe100bab5e2b0475a8d98b9"}
+[factory-host-launch] {"path":"/v1/host/launches","status":403,"error":"forbidden_tenant","detail":"forbidden_tenant","attemptId":"attempt-1","workerId":"factory_3dafcfaa6218343276ff42263fe100bab5e2b0475a8d98b9"}
+[factory-host-launch] {"path":"/v1/host/launches","status":409,"error":"worker_stopped","detail":"Worker factory_3dafcfaa6218343276ff42263fe100bab5e2b0475a8d98b9 was stopped on host host-services before it ever ran; it is not started or attached.","attemptId":"attempt-1","workerId":"factory_3dafcfaa6218343276ff42263fe100bab5e2b0475a8d98b9"}
+[factory-host-launch] {"path":"/v1/host/attachments","status":409,"error":"worker_stopped","detail":"Worker factory_3dafcfaa6218343276ff42263fe100bab5e2b0475a8d98b9 was stopped on host host-services before it ever ran; it is not started or attached.","attemptId":"attempt-1","workerId":"factory_3dafcfaa6218343276ff42263fe100bab5e2b0475a8d98b9"}
+[factory-host-launch] {"path":"/v1/host/launches","status":409,"error":"worker_stopped","detail":"Worker factory_3dafcfaa6218343276ff42263fe100bab5e2b0475a8d98b9 was stopped on host host-services before it ever ran; it is not started or attached.","attemptId":"attempt-1","workerId":"factory_3dafcfaa6218343276ff42263fe100bab5e2b0475a8d98b9"}
+
+ 31 pass
+ 0 fail
+ 116 expect() calls
+Ran 31 tests across 1 file. [31.74s]
+  bun: src/factory/runtime-composition.test.ts
+bun test v1.4.2 (744846f84)
+
+ 37 pass
+ 0 fail
+ 131 expect() calls
+Ran 37 tests across 1 file. [722.00ms]
+  bun: src/factory/runtime-workers.test.ts
+bun test v1.4.2 (744846f84)
+
+ 26 pass
+ 0 fail
+ 137 expect() calls
+Ran 26 tests across 1 file. [360.00ms]
+  bun: src/factory/service-probes.test.ts
+bun test v1.4.2 (744846f84)
+
+src/factory/service-probes.test.ts:
+[factory-pool-readiness] the record at /tmp/w09-probes-vvSYvL/pool.json names pool pool-01; this installation names pool-02
+[factory-pool-readiness] the record at /tmp/w09-probes-Ga8r1c/pool.json names pool pool.host-a; this installation names pool.host-b
+[factory-pool-readiness] the record at the pool's readiness route names pool pool.host-b; this installation names pool.host-a
+
+ 25 pass
+ 0 fail
+ 66 expect() calls
+Ran 25 tests across 1 file. [612.00ms]
+  bun: src/factory/service-readiness.test.ts
+bun test v1.4.2 (744846f84)
+
+ 14 pass
+ 0 fail
+ 95 expect() calls
+Ran 14 tests across 1 file. [496.00ms]
+  bun: src/factory/startup-config.test.ts
+bun test v1.4.2 (744846f84)
+
+ 69 pass
+ 0 fail
+ 330 expect() calls
+Ran 69 tests across 1 file. [424.00ms]
+  bun: src/__tests__/readiness.test.ts
+bun test v1.4.2 (744846f84)
+
+ 11 pass
+ 0 fail
+ 29 expect() calls
+Ran 11 tests across 1 file. [363.00ms]
+  bun: tests/postgres/factory-metrics-scrape.test.ts
+bun test v1.4.2 (744846f84)
+
+ 1 pass
+ 0 fail
+ 316 expect() calls
+Ran 1 test across 1 file. [5.48s]
+  bun: tests/postgres/factory-provisioning.test.ts
+bun test v1.4.2 (744846f84)
+
+ 65 pass
+ 0 fail
+ 386 expect() calls
+Ran 65 tests across 1 file. [26.95s]
+[detached HEAD b701cf0e2] merge: wp/w4h-35-w16-k8s-profiles 3698c8e84 into integ/w00 (the Kubernetes hosted profile, GPU and CPU-only resource profiles and the wrapped-key material (W4H-35))
+db-url: exported for 2 pg files; 42 unit files ran with it; the hold's unit legs re-run them without

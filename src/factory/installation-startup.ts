@@ -54,7 +54,7 @@ import { FactoryRecords } from "./records";
 import { createFactoryProviderBroker, factoryProviderReadiness, factoryProviderReadinessRecord, type FactoryProviderPin } from "../providers/factory-broker";
 import type { FactoryBroker } from "../runtime/factory-execution";
 import { FactoryTransitionArtifacts } from "./transition-artifacts";
-import { loadFactoryStartupConfig, type FactoryStartupConfig } from "./startup-config";
+import { factoryStartupPoolTransport, loadFactoryStartupConfig, type FactoryStartupConfig } from "./startup-config";
 import { factoryInstallationStores, type FactoryInstallationStores } from "./installation-stores";
 import { composeFactoryAttemptDispatch, factoryPackageReadiness, type FactoryHostPhysicalStopper } from "./attempt-composition";
 import { factoryPackagePreparationDriver } from "./package-preparation";
@@ -79,6 +79,7 @@ import { composeFactoryRecoveryRoles } from "./recovery-composition";
 import type { FactoryKeyCompositionDependencies } from "./key-composition";
 import type { FactoryRestore, FactoryRestoreFence } from "./restore";
 import { FactoryRunTransitionProjector } from "./run-transition-projector";
+import { factoryHostReadinessSources } from "./readiness-route-client";
 
 export class FactoryInstallationStartupError extends Error {
   constructor(readonly code: "factory-startup-config-missing" | "factory-startup-blobs-missing" | "factory-startup-unreachable", message: string) {
@@ -155,7 +156,7 @@ export interface FactoryInstallationStartOptions {
   /** Seams a later package supplies. Each absent one holds its role by name. */
   readonly seams?: FactoryRuntimeDependencies["seams"];
   /** Overridden in tests so the pool client is not a real network dependency. */
-  readonly dependencies?: Partial<Pick<FactoryRuntimeDependencies, "storage" | "gateway" | "workers" | "extraProbes">>;
+  readonly dependencies?: Partial<Pick<FactoryRuntimeDependencies, "storage" | "gateway" | "workers" | "extraProbes" | "hostReadiness">>;
   /** Overridden in tests so the product store is not a real S3 dependency. */
   readonly blobs?: BlobStore;
   /** Overridden in tests so provider readiness is not a real credential lookup. */
@@ -680,6 +681,11 @@ export async function startFactoryInstallation(options: FactoryInstallationStart
     : undefined;
   const storage = supplied.storage ?? factoryStorageProbeTarget(blobs);
   const gateway = supplied.gateway ?? factoryGatewayProbeTarget(config);
+  // A hosted document reads the shared pool's and supervisor's records from their routes (W4H-35). Sources that
+  // cannot be built are reported and left out, so both probes are unavailable rather than read from a file.
+  const hostReadiness = supplied.hostReadiness ?? (config.hostReadiness === "network"
+    ? await factoryHostReadinessSources(config).catch((error: unknown) => { host.report("host-readiness-sources", error); return undefined; })
+    : undefined);
 
   const dependencies: FactoryRuntimeDependencies = {
     database: host.database,
@@ -711,6 +717,7 @@ export async function startFactoryInstallation(options: FactoryInstallationStart
     // read a second way.
     orphanSweepIntervalMs: (await import("../extensions/host-maintenance-daemon")).getSweepIntervalMs(),
     ...(supplied.extraProbes === undefined ? {} : { extraProbes: supplied.extraProbes }),
+    ...(hostReadiness === undefined ? {} : { hostReadiness }),
     ...(provider === undefined ? {} : { providerReadiness: provider.readiness }),
     ...(composed?.guestBroker === undefined ? {} : { guestBrokerReadiness: composed.guestBroker }),
     report: host.report,
@@ -814,16 +821,7 @@ async function installationCollaborators(
   // lease when one of them is rotated.
   let pool: PoolAdmissionClient | undefined;
   try {
-    pool = await createPoolAdmissionClient({
-      tenantId: config.tenantId,
-      baseUrl: config.pool.baseUrl,
-      tls: {
-        caPath: config.pool.tls.caPath,
-        certificatePath: config.pool.tls.certificatePath,
-        privateKeyPath: config.pool.tls.privateKeyPath,
-        serviceTokenPath: config.pool.serviceTokenPath,
-      },
-    });
+    pool = await createPoolAdmissionClient({ tenantId: config.tenantId, ...factoryStartupPoolTransport(config.pool) });
   } catch (error) {
     host.report("pool-admission-client", error);
     pool = undefined;

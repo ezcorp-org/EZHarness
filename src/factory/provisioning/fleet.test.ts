@@ -41,12 +41,11 @@ describe("parseFactoryFleetSettings", () => {
     expect(parsed).toEqual(VALID);
     expect(parsed).not.toBe(VALID);
     expect(Object.isFrozen(parsed)).toBe(true);
-    expect(parseFactoryFleetSettings({ ...VALID, profile: "kubernetes" }).profile).toBe("kubernetes");
   });
 
   test("accepts boundary values", () => {
     for (const [path, value] of [
-      ["fleetId", "ab"], ["fleetId", `a${"b".repeat(30)}c`], ["database.servicePort", 1_024], ["database.servicePort", 65_535], ["installations.cpuCapacity", 1],
+      ["fleetId", "ab"], ["fleetId", `a${"b".repeat(30)}c`], ["database.servicePort", 1_024], ["database.servicePort", 65_535], ["resources.cpuCapacity", 1],
       ["storage.ordinary.endpoint", "https://storage.example:9000"], ["ingress.domain", "a"], ["storage.archive.prefix", "a"],
     ] as const) {
       expect(parseFactoryFleetSettings(withField(path, value))).toBeDefined();
@@ -54,7 +53,7 @@ describe("parseFactoryFleetSettings", () => {
   });
 
   test("a document of the wrong shape is refused as a whole", () => {
-    for (const value of [null, "fleet", [], {}, { ...VALID, schemaVersion: "factory.fleet.v2" }, { ...VALID, extra: true }, withField("release", undefined, true)]) {
+    for (const value of [null, "fleet", [], {}, { ...VALID, schemaVersion: "factory.fleet.v2" }, { ...VALID, extra: true }, withField("release", undefined, true), withField("resources", undefined, true)]) {
       const error = refusal(value);
       expect(error.code).toBe("fleet_settings_invalid");
       expect(error.message).toBe("Fleet settings are invalid: document.");
@@ -76,7 +75,9 @@ describe("parseFactoryFleetSettings", () => {
       // The read-only HTTP route needs its own port: a missing, invalid, or shared one is refused.
       ["temporal.httpPort", undefined, "temporal"], ["temporal.httpPort", 80, "temporal"], ["temporal.httpPort", "57244", "temporal"], ["temporal.httpPort", 57_233, "temporal"],
       ["ingress.address", "localhost", "ingress"], ["ingress.port", 443.5, "ingress"], ["ingress.domain", "Factory.example", "ingress"],
-      ["installations.portBase", 1_000, "installations"], ["installations.cpuCapacity", 0, "installations"], ["installations.cpuCapacity", 1.5, "installations"], ["installations.interpreterCompatibility", 1, "installations"],
+      ["installations.portBase", 1_000, "installations"], ["installations.cpuCapacity", 4, "installations"],
+      ["resources.cpuCapacity", 0, "resources"], ["resources.cpuCapacity", 1.5, "resources"], ["resources.profile", "gpus", "resources"], ["resources.gpuProfilesPath", "/srv/operator/gpu.json", "resources"],
+      ["resources", { profile: "gpu", cpuCapacity: 2 }, "resources"], ["resources", { profile: "gpu", cpuCapacity: 2, gpuProfilesPath: "gpu.json" }, "resources"], ["resources", null, "resources"], ["installations.interpreterCompatibility", 1, "installations"],
       ["image.reference", "registry.test/ezcorp:latest", "image"], ["image.revision", "abc", "image"],
       ["release.directory", "release", "release"], ["release.bun", "bun", "release"], ["release.path", ["/usr/bin"], "release"],
     ];
@@ -85,6 +86,87 @@ describe("parseFactoryFleetSettings", () => {
       expect(error.code).toBe("fleet_settings_invalid");
       expect(error.message).toBe(`Fleet settings are invalid: ${field}.`);
     }
+  });
+
+  test("the resource profile is a fleet setting: cpu-only, or gpu with a private profile file", () => {
+    const gpu = { profile: "gpu", cpuCapacity: 2, gpuProfilesPath: "/srv/operator/gpu-host-profiles.json" };
+    expect(parseFactoryFleetSettings(withField("resources", gpu)).resources).toEqual(gpu as never);
+    expect(parseFactoryFleetSettings(VALID).resources).toEqual({ profile: "cpu-only", cpuCapacity: 4 });
+  });
+
+  test("a runner profile that asks for a GPU host is refused under cpu-only and accepted under gpu", () => {
+    const [cpu] = FACTORY_TEST_RUNNER_PROFILES.profiles;
+    const runnerProfiles = { ...FACTORY_TEST_RUNNER_PROFILES, profiles: [cpu, { ...cpu, runner: { ...cpu!.runner, export: "gpu" }, resourceClass: "gpu", allocation: { ...cpu!.allocation, resources: { "gpu-host": 1 } } }] };
+    const value = withField("installations.runnerProfiles", runnerProfiles) as Record<string, unknown>;
+    const error = refusal(value);
+    expect(error.code).toBe("fleet_settings_invalid");
+    expect(error.message).toBe("Fleet settings are invalid: resources.");
+    value.resources = { profile: "gpu", cpuCapacity: 2, gpuProfilesPath: "/srv/operator/gpu-host-profiles.json" };
+    expect(parseFactoryFleetSettings(value).installations.runnerProfiles.profiles).toHaveLength(2);
+  });
+
+  test("the hosted profile names its cluster by reference and how its pods see the fleet's services (W4H-35)", () => {
+    const kubernetes = {
+      kubectl: "/nix/store/kubectl/bin/kubectl", kubeconfigPath: "/srv/operator/kubeconfig", systemNamespace: "ezcorp-factory-fleet-a", monitoring: { namespace: "monitoring" },
+      runAsUser: 10_001, runtimeSocketPath: "/run/podman/podman.sock", runnerRoot: "/srv/ezcorp-runner", nodeCidrs: ["10.89.1.0/24"], nodeSelector: {}, ingress: { listenPort: 8443, nodePort: 30443 },
+      egressCidrs: ["10.89.0.0/24"], egressPorts: [5432, 8333, 32001],
+      services: { databaseHost: "10.89.0.2", databasePort: 5432, ordinaryEndpoint: "http://10.89.0.3:8333", archiveEndpoint: "http://10.89.0.4:8333", temporalAddress: "10.89.0.5:7233", temporalHttpEndpoint: "https://10.89.0.5:7244" },
+    };
+    const hosted = { ...VALID, profile: "kubernetes", kubernetes };
+    expect(parseFactoryFleetSettings(hosted).kubernetes).toEqual(kubernetes);
+    expect(refusal({ ...VALID, profile: "kubernetes" }).message).toBe("Fleet settings are invalid: kubernetes.");
+    expect(refusal({ ...VALID, kubernetes }).message).toBe("Fleet settings are invalid: kubernetes.");
+    for (const [field, value] of [
+      ["runnerRoot", "runner"], ["nodeCidrs", "10.89.1.0/24"], ["egressCidrs", "10.0.0.0/24"],
+      ["kubectl", "kubectl"], ["kubeconfigPath", ""], ["systemNamespace", "Bad_Name"], ["runAsUser", 0], ["runtimeSocketPath", "podman.sock"], ["nodeSelector", []],
+      ["ingress", { listenPort: 80, nodePort: 30443 }], ["ingress", { listenPort: 8443, nodePort: 1 }], ["egressPorts", [0]],
+      ["services", { ...kubernetes.services, databasePort: "5432" }], ["services", { ...kubernetes.services, ordinaryEndpoint: "s3://x" }], ["extra", 1],
+    ] as const) expect(refusal({ ...hosted, kubernetes: { ...kubernetes, [field]: value } }).message).toBe("Fleet settings are invalid: kubernetes.");
+    // A malformed CIDR entry is named by its field, index, and bounded entry; every bad entry at once (W4H-35 kind proof run 5).
+    const dualStack = "fc00:f853:ccd:e793::/6410.89.5.0/24";
+    expect(refusal({ ...hosted, kubernetes: { ...kubernetes, nodeCidrs: ["10.89.1.0/24", dualStack] } }).message)
+      .toBe(`Fleet settings are invalid: kubernetes.nodeCidrs[1] "${dualStack}".`);
+    expect(refusal({ ...hosted, kubernetes: { ...kubernetes, nodeCidrs: ["10.89.1.0"], egressCidrs: ["10.89.0.0/24", 7, "fc00::/64"] } }).message)
+      .toBe('Fleet settings are invalid: kubernetes.nodeCidrs[0] "10.89.1.0", kubernetes.egressCidrs[1] 7, kubernetes.egressCidrs[2] "fc00::/64".');
+    const long = `${"9".repeat(200)}/24`;
+    const bounded = refusal({ ...hosted, kubernetes: { ...kubernetes, egressCidrs: [long] } }).message;
+    expect(bounded).toStartWith('Fleet settings are invalid: kubernetes.egressCidrs[0] "999');
+    expect(bounded.length).toBeLessThan(140);
+    // A GPU fleet's supervisor runs only on the nodes it declares.
+    const gpu = { profile: "gpu", cpuCapacity: 2, gpuProfilesPath: "/srv/operator/gpu-host-profiles.json" };
+    expect(refusal({ ...hosted, resources: gpu }).message).toBe("Fleet settings are invalid: kubernetes.");
+    expect(parseFactoryFleetSettings({ ...hosted, resources: gpu, kubernetes: { ...kubernetes, nodeSelector: { "ezcorp.io/gpu": "true" } } }).kubernetes!.nodeSelector).toEqual({ "ezcorp.io/gpu": "true" });
+  });
+
+  // The hosted fleet both W4H-35 kubernetes tests below vary.
+  const kubernetes = {
+    kubectl: "/nix/store/kubectl/bin/kubectl", kubeconfigPath: "/srv/operator/kubeconfig", systemNamespace: "ezcorp-factory-fleet-a", monitoring: { namespace: "monitoring" },
+    runAsUser: 10_001, runtimeSocketPath: "/run/podman/podman.sock", runnerRoot: "/srv/ezcorp-runner", nodeCidrs: ["10.89.1.0/24"], nodeSelector: {}, ingress: { listenPort: 8443, nodePort: 30443 },
+    egressCidrs: ["10.89.0.0/24"], egressPorts: [5432],
+    services: { databaseHost: "10.89.0.2", databasePort: 5432, ordinaryEndpoint: "http://10.89.0.3:8333", archiveEndpoint: "http://10.89.0.4:8333", temporalAddress: "10.89.0.5:7233", temporalHttpEndpoint: "https://10.89.0.5:7244" },
+  };
+  const hosted = { ...VALID, profile: "kubernetes", kubernetes };
+
+  // C12 row "Supervisor runner root and runtime socket (hosted prerequisites)": the supervisor's runtime group (the node socket's
+  // group) is a setting, optional, 1 to 8 distinct positive group ids; a bad one is refused as the kubernetes block.
+  test("the hosted supervisor's runtime groups are optional distinct positive group ids (W4H-35 run 12)", () => {
+    expect(parseFactoryFleetSettings(hosted).kubernetes!.runtimeGroups).toBeUndefined();
+    expect(parseFactoryFleetSettings({ ...hosted, kubernetes: { ...kubernetes, runtimeGroups: [985, 990] } }).kubernetes!.runtimeGroups).toEqual([985, 990]);
+    for (const runtimeGroups of [[], [0], [-1], [1.5], ["985"], [985, 985], [1, 2, 3, 4, 5, 6, 7, 8, 9], "985", null]) {
+      expect(refusal({ ...hosted, kubernetes: { ...kubernetes, runtimeGroups } }).message).toBe("Fleet settings are invalid: kubernetes.");
+    }
+  });
+
+  // C12 "Kubernetes deployment target" (W4H-35, D-C): monitoring is optional; when present it is exactly { namespace } with a valid
+  // namespace name, and it may stand together with runtimeGroups.
+  test("kubernetes.monitoring is optional, exactly { namespace } with a namespace name when present (W4H-35)", () => {
+    const { monitoring: _monitoring, ...withoutMonitoring } = kubernetes;
+    expect(parseFactoryFleetSettings({ ...hosted, kubernetes: withoutMonitoring }).kubernetes!.monitoring).toBeUndefined();
+    expect(parseFactoryFleetSettings({ ...hosted, kubernetes: { ...kubernetes, runtimeGroups: [985] } }).kubernetes!.monitoring).toEqual({ namespace: "monitoring" });
+    for (const monitoring of [{}, { namespace: "" }, { namespace: "Bad_Name" }, { namespace: "monitoring", extra: 1 }, "monitoring", null]) {
+      expect(refusal({ ...hosted, kubernetes: { ...kubernetes, monitoring } }).message).toBe("Fleet settings are invalid: kubernetes.");
+    }
+    expect(refusal({ ...hosted, kubernetes: { ...kubernetes, surprise: 1 } }).message).toBe("Fleet settings are invalid: kubernetes.");
   });
 
   test("a missing storage section names both domains and the section", () => {

@@ -3,8 +3,8 @@ import { basename, dirname, resolve } from "node:path";
 import { createSecureContext } from "node:tls";
 import { fileURLToPath } from "node:url";
 import { openBunSql } from "../../db/bun-sql-pipelining";
-import { privateDirectory, readPrivateBounded } from "../private-files";
-import { type FactoryPoolReadinessWriter, createFactoryPoolReadinessWriter } from "./readiness";
+import { factoryPrivateReadReason, privateDirectory, readPrivateBounded } from "../private-files";
+import { type FactoryPoolReadiness, type FactoryPoolReadinessUpdate, type FactoryPoolReadinessWriter, createFactoryPoolReadinessWriter } from "./readiness";
 import type { PoolResourceClass, PoolSql } from "./ledger";
 import { loadFactoryGpuHostProfiles, type FactoryGpuHostProfiles } from "./gpu-host-profiles";
 import { PoolAdmissionService, type PoolAdmissionIdentityConfig } from "./service";
@@ -262,9 +262,15 @@ function servePoolMetrics(config: FactoryPoolProcessConfig, database: PoolDataba
 /** Runs the existing pool service from one private, reference-only config. */
 export async function runConfiguredFactoryPoolProcess(configPath: string, signal: AbortSignal, dependencies: FactoryPoolProcessDependencies = productionDependencies): Promise<void> {
   let config: FactoryPoolProcessConfig;
-  try { config = parseFactoryPoolProcessConfig(JSON.parse(utf8(await readPrivatePath(configPath, MAX_CONFIG_BYTES)))); }
-  catch { throw new Error("factory pool config is unavailable"); }
+  let bytes: Uint8Array;
+  try { bytes = await readPrivatePath(configPath, MAX_CONFIG_BYTES); }
+  catch (error) { throw new Error(`factory pool config is unreadable (${factoryPrivateReadReason(error)})`); }
+  try { config = parseFactoryPoolProcessConfig(JSON.parse(utf8(bytes))); }
+  catch { throw new Error("factory pool config is invalid"); }
   const readiness = dependencies.readiness(config);
+  // The latest record, served on the pool's readiness route to installations that cannot mount its file (hosted profile, W4H-35).
+  let latest: FactoryPoolReadiness | undefined;
+  const publish = async (update: FactoryPoolReadinessUpdate) => { latest = await readiness.write(update); };
   const heartbeatMs = config.readinessHeartbeatMs ?? 5_000;
   let database: PoolDatabase | undefined;
   let listener: PoolListener | undefined;
@@ -273,13 +279,13 @@ export async function runConfiguredFactoryPoolProcess(configPath: string, signal
   let schemaReady = false;
   let failureCode: string | undefined;
   let phase = "configuration_unavailable";
-  await readiness.write({ lifecycle: "starting", databaseReady, schemaReady, listenerReady: false });
+  await publish({ lifecycle: "starting", databaseReady, schemaReady, listenerReady: false });
   try {
     const material = await loadMaterial(config);
     phase = "database_unavailable";
     database = dependencies.connect(material.databaseUrl);
     await verifyDatabase(database, config); databaseReady = true;
-    await readiness.write({ lifecycle: "starting", databaseReady, schemaReady, listenerReady: false });
+    await publish({ lifecycle: "starting", databaseReady, schemaReady, listenerReady: false });
     await bindPoolIdentity(database, config);
     phase = "schema_unavailable";
     const service = new PoolAdmissionService(database);
@@ -290,18 +296,18 @@ export async function runConfiguredFactoryPoolProcess(configPath: string, signal
     const profiles = config.resources.gpuProfilesPath === undefined ? undefined : await loadFactoryGpuHostProfiles(config.resources.gpuProfilesPath, config.resources.gpuHosts);
     phase = "schema_unavailable";
     await configureResources(database, service, config, profiles); schemaReady = true;
-    await readiness.write({ lifecycle: "starting", databaseReady, schemaReady, listenerReady: false });
+    await publish({ lifecycle: "starting", databaseReady, schemaReady, listenerReady: false });
     if (signal.aborted) return;
     phase = "listener_unavailable";
-    listener = await dependencies.start({ hostname: config.hostname, port: config.port, tls: material.tls, identities: config.identities, tokens: { issuer: config.tokens.issuer, audience: config.tokens.audience, publicKeys: material.publicKeys }, service });
-    await readiness.write({ lifecycle: "ready", databaseReady, schemaReady, listenerReady: true });
+    listener = await dependencies.start({ hostname: config.hostname, port: config.port, tls: material.tls, readiness: () => latest, identities: config.identities, tokens: { issuer: config.tokens.issuer, audience: config.tokens.audience, publicKeys: material.publicKeys }, service });
+    await publish({ lifecycle: "ready", databaseReady, schemaReady, listenerReady: true });
     metrics = await servePoolMetrics(config, database, dependencies);
     while (!signal.aborted) {
       await (dependencies.wait ?? waitForHeartbeat)(heartbeatMs, signal);
       if (signal.aborted) break;
       try { await verifyDatabase(database, config); }
       catch { databaseReady = false; failureCode = "database_unavailable"; throw new Error(); }
-      await readiness.write({ lifecycle: "ready", databaseReady, schemaReady, listenerReady: true });
+      await publish({ lifecycle: "ready", databaseReady, schemaReady, listenerReady: true });
     }
   } catch {
     failureCode ??= phase;
@@ -309,8 +315,8 @@ export async function runConfiguredFactoryPoolProcess(configPath: string, signal
     await metrics?.stop();
     try { listener?.stop(); } catch { failureCode ??= "listener_close_failed"; }
     try { await database?.close(); } catch { failureCode ??= "database_close_failed"; }
-    if (failureCode === undefined) await readiness.write({ lifecycle: "stopped", databaseReady: false, schemaReady: false, listenerReady: false });
-    else await readiness.write({ lifecycle: "degraded", databaseReady: false, schemaReady, listenerReady: false, errorCode: failureCode });
+    if (failureCode === undefined) await publish({ lifecycle: "stopped", databaseReady: false, schemaReady: false, listenerReady: false });
+    else await publish({ lifecycle: "degraded", databaseReady: false, schemaReady, listenerReady: false, errorCode: failureCode });
   }
   if (failureCode !== undefined) throw new Error(`factory pool process failed: ${failureCode}`);
 }
