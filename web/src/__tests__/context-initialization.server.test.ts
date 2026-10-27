@@ -18,14 +18,44 @@
  * `await` of distance, not a guarantee, so the defect is fixed at its source:
  * the latch is the in-flight promise itself, and a failed attempt clears it.
  *
- * Only `$server/db/connection` is replaced here. `context.ts` itself is the
- * real module, and the assertions are about what a caller observes, not about
- * how initialization is implemented.
+ * Only `$server/db/connection`, the shutdown hooks (so that a start which
+ * opens the database installs no signal handler in the test worker) and the
+ * server graph are replaced here. `context.ts` itself is the real module, and the
+ * assertions are about what a caller observes, not about how initialization is
+ * implemented.
+ *
+ * The server graph (executor, extensions, workflows) loads lazily, after the
+ * database opens. It used to load when the module was imported: about a
+ * thousand modules, 6 to 9 s on a loaded host, against a 10 s hook budget.
  */
-import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 let initDbCalls = 0;
 let initDbBehaviour: () => Promise<void> = async () => {};
+
+/**
+ * How many times the server graph started to load. The context loads it through `$lib/server/context-deps`; the
+ * executor is its heaviest root, and the one an eager import reaches first. `vi.doMock` registers both again for
+ * every test, because a hoisted `vi.mock` factory runs once per file and `vi.resetModules()` does not re-run it.
+ */
+let serverGraphLoads = 0;
+
+function trackServerGraph(): void {
+  serverGraphLoads = 0;
+  vi.doMock("$lib/server/context-deps", () => {
+    serverGraphLoads++;
+    throw new Error("server graph unavailable");
+  });
+  vi.doMock("$server/runtime/executor", () => {
+    serverGraphLoads++;
+    return { AgentExecutor: class {} };
+  });
+}
+
+vi.mock("$lib/server/shutdown", () => ({
+  installShutdownHandlers: () => {},
+  registerTeardown: () => {},
+}));
 
 vi.mock("$server/db/connection", () => ({
   initDb: () => {
@@ -54,16 +84,9 @@ async function freshContext() {
 }
 
 describe("ensureInitialized", () => {
-  // The first import of the real context loads and transforms the whole server graph it imports: 3.6 s on an idle
-  // host and 6 to 9 s beside a CPU hog, against each test's 5 s budget (W4G-10). No test here measures that load, so
-  // it is paid once, before them; each test still re-imports a fresh module after vi.resetModules(), which then takes
-  // 50 to 200 ms.
-  beforeAll(async () => {
-    await import("$lib/server/context");
-  });
-
   beforeEach(() => {
     initDbCalls = 0;
+    trackServerGraph();
     initDbBehaviour = async () => {};
   });
 
@@ -134,5 +157,47 @@ describe("ensureInitialized", () => {
     gate.reject(new Error("database unavailable"));
     expect(await Promise.all(observed)).toEqual(["rejected", "rejected", "rejected"]);
     expect(initDbCalls).toBe(1);
+  });
+
+  it("loads no server graph to import the module or to fail at the database", async () => {
+    initDbBehaviour = async () => { throw new Error("database unavailable"); };
+    const context = await freshContext();
+
+    await expect(context.ensureInitialized()).rejects.toThrow("database unavailable");
+    expect(serverGraphLoads).toBe(0);
+  });
+
+  it("loads the server graph once the database opens, and retries a graph that fails to load", async () => {
+    const context = await freshContext();
+
+    await expect(context.ensureInitialized()).rejects.toThrow();
+    expect(initDbCalls).toBe(1);
+    expect(serverGraphLoads).toBe(1);
+    expect(() => context.getExecutor()).toThrow(/not initialized/);
+
+    await expect(context.ensureInitialized()).rejects.toThrow();
+    expect(initDbCalls).toBe(2);
+  });
+
+  it("reloads the workflow cache from the server graph, extension entries first", async () => {
+    const tagged = (name: string, source: string) => ({ definition: { name }, source });
+    vi.doMock("$lib/server/context-deps", () => ({
+      serverGraph: {
+        ExtensionRegistry: { getInstance: () => ({}) },
+        loadReleaseWorkflowEntries: async () => [tagged("ext:deploy", "extension")],
+        loadYamlWorkflows: async () => [{ name: "nightly" }],
+        systemCachedWorkflow: (definition: { name: string }, source: string) => tagged(definition.name, source),
+        loadDbCachedWorkflows: async () => [tagged("ext:deploy", "db")],
+      },
+    }));
+    const context = await freshContext();
+
+    await context.reloadWorkflows();
+    expect(context.getCachedWorkflows().map((entry) => [entry.definition.name, entry.source])).toEqual([
+      ["ext:deploy", "extension"],
+      ["nightly", "yaml"],
+      ["ext:deploy", "db"],
+    ]);
+    expect(initDbCalls).toBe(0);
   });
 });

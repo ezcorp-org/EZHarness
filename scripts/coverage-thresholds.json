@@ -18,6 +18,7 @@
   "src/integrations/github-user/broker.ts": 100,
   "src/integrations/github-user/config.ts": 100,
   "src/integrations/github-user/transport.ts": 100,
+  "web/src/lib/server/context-deps.ts": 100,
   "web/src/lib/components/GithubSandboxImport.svelte": 100,
   "web/src/lib/components/PersonalPrCard.svelte": 100,
   "web/src/lib/personal-pr.ts": 100,

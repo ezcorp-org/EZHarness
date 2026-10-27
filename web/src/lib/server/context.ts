@@ -1,60 +1,31 @@
-import { loadAgents } from "$server/runtime/loader";
-import { EventBus } from "$server/runtime/events";
-import { registerPreviewBus } from "$server/runtime/preview/preview-bus-registry";
-import { registerBriefingRuntime } from "$server/runtime/briefing/runtime-registry";
-import { registerGithubProjectsEmit } from "$server/integrations/github-projects/bus-registry";
-import { registerWorkflowRuntime } from "$server/runtime/workflow/runtime-registry";
-import { ensureBriefingAgentConfig } from "$server/runtime/briefing/agent-config";
-import { registerBriefingHubPage } from "$server/runtime/briefing/hub-page";
-import { registerWorkflowApprovalsHubPage } from "$server/runtime/workflow-approvals-hub-page";
-import { triggerBriefingRunNow } from "$lib/server/briefing-run-now";
-import { AgentExecutor } from "$server/runtime/executor";
-import { WorkflowExecutor } from "$server/runtime/workflow-executor";
-import { loadYamlWorkflows } from "$server/runtime/workflow-loader";
-import { loadReleaseWorkflowEntries } from "$server/runtime/workflow-release-assets";
+import type { AgentExecutor } from "$server/runtime/executor";
+import type { EventBus } from "$server/runtime/events";
+import type { WorkflowExecutor } from "$server/runtime/workflow-executor";
+import type { CachedWorkflow } from "$server/runtime/workflow-scope";
+import type { ExtensionStateMediator } from "$server/extensions/state-mediator";
+import type { LifecycleHookDispatcher } from "$server/extensions/lifecycle-dispatcher";
+import type { EventSubscriptionDispatcher } from "$server/extensions/event-subscription-dispatcher";
+import type { CommandRegistry } from "$server/runtime/commands/registry";
+import type { GoalHost } from "$server/runtime/goal-host";
+import type { AgentEvents, WorkflowDefinition } from "$server/types";
 import { initDb, closeDb, getDb, recoverFromDriverDesync } from "$server/db/connection";
-import { warmKiloCatalog } from "$server/providers/kilo";
 import { validateEnv } from "$server/env-validation";
-import { loadDbCachedWorkflows } from "$server/db/queries/workflows";
-import { systemCachedWorkflow, type CachedWorkflow } from "$server/runtime/workflow-scope";
-import { makeNestedWorkflowResolver } from "$server/runtime/nested-workflow-resolver";
-import { terminalizeOrphanedWorkflowRuns } from "$server/db/queries/workflow-runs";
-import { startBackups, stopBackups } from "$server/db/backup";
 import {
   installShutdownHandlers,
   registerTeardown,
 } from "$lib/server/shutdown";
-import {
-  ensureBundledExtensions,
-} from "$server/extensions/bundled";
-import { ExtensionRegistry } from "$server/extensions/registry";
-import { ToolExecutor } from "$server/extensions/tool-executor";
-import {
-  flushPermissionAuditForShutdown,
-  getPermissionEngine,
-} from "$server/extensions/permission-engine";
-import { reconcileExtensionLifecycle, recoverExtensionLifecycle } from "$server/extensions/extension-lifecycle-service";
-import { startExtensionDeliveryRuntime, stopExtensionDeliveryRuntime } from "$server/extensions/delivery-runtime";
-import {
-  ExtensionStateMediator,
-  setStateMediator as setStateMediatorSingleton,
-} from "$server/extensions/state-mediator";
-import {
-  LifecycleHookDispatcher,
-} from "$server/extensions/lifecycle-dispatcher";
-import { EventSubscriptionDispatcher } from "$server/extensions/event-subscription-dispatcher";
-import { getConversationExtensionIds } from "$server/db/queries/conversation-extensions";
-import {
-  createCommandRegistry,
-  type CommandRegistry,
-} from "$server/runtime/commands/registry";
-import { listUserCommands } from "$server/db/queries/user-commands";
-import { initGoalHost, parseGoalEnabled, type GoalHost } from "$server/runtime/goal-host";
-import type { AgentEvents, WorkflowDefinition } from "$server/types";
 import { resolve, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import { homedir } from "node:os";
 import { existsSync } from "node:fs";
+
+/**
+ * The server graph `initialize()` builds from: executor, extensions, workflows, briefing, goal host. It loads on
+ * the first initialization, after the database opens, and not when this module is imported. Importing it eagerly
+ * made every importer of this module load and transform about a thousand modules first (6 to 9 s on a loaded
+ * host), and a caller that only reads an accessor, or whose start fails at the database, never needs any of it.
+ */
+const loadServerGraph = async () => (await import("$lib/server/context-deps")).serverGraph;
 
 const __dirname = typeof import.meta.dir === "string"
   ? import.meta.dir
@@ -144,6 +115,17 @@ async function initialize(): Promise<void> {
   registerTeardown("pglite-close", async () => {
     await closeDb();
   });
+  // Loaded here, once the database is open and its closer is registered, so that importing this module stays cheap.
+  const {
+    loadAgents, EventBus, registerPreviewBus, registerBriefingRuntime, registerGithubProjectsEmit,
+    registerWorkflowRuntime, ensureBriefingAgentConfig, registerBriefingHubPage, registerWorkflowApprovalsHubPage,
+    triggerBriefingRunNow, AgentExecutor, WorkflowExecutor, warmKiloCatalog, makeNestedWorkflowResolver,
+    terminalizeOrphanedWorkflowRuns, startBackups, stopBackups, ensureBundledExtensions, ExtensionRegistry,
+    ToolExecutor, flushPermissionAuditForShutdown, getPermissionEngine, reconcileExtensionLifecycle,
+    recoverExtensionLifecycle, startExtensionDeliveryRuntime, stopExtensionDeliveryRuntime, ExtensionStateMediator,
+    setStateMediatorSingleton, LifecycleHookDispatcher, EventSubscriptionDispatcher, getConversationExtensionIds,
+    createCommandRegistry, listUserCommands, initGoalHost, parseGoalEnabled,
+  } = await loadServerGraph();
   // Register immediately after the DB closer. Shutdown is LIFO, so every
   // later decision producer stops first; this then awaits pending folded
   // permission-audit writes while PGlite is still open.
@@ -576,6 +558,8 @@ export function getCachedWorkflows(): CachedWorkflow[] {
  * their names always carry a `:` and host names never do.
  */
 async function buildWorkflowCache(): Promise<CachedWorkflow[]> {
+  const { ExtensionRegistry, loadReleaseWorkflowEntries, loadYamlWorkflows, loadDbCachedWorkflows, systemCachedWorkflow } =
+    await loadServerGraph();
   const extensionWorkflows = await loadReleaseWorkflowEntries(ExtensionRegistry.getInstance());
   const yamlWorkflows = await loadYamlWorkflows(agentsDir);
   const dbWorkflows = await loadDbCachedWorkflows();
