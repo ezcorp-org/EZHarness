@@ -60,7 +60,7 @@
 #           shards and gated in nothing — gate_host_failures printed them as
 #           "TOLERATED" and the build exited 0 on a red assertion. Measured,
 #           not assumed: all 27 pass 3/3 under isolated `bun test ./<f>
-#           --timeout 30000`, so per the header rules the whole scoped set
+#           --timeout $EZ_POOL_TEST_TIMEOUT_MS`, so per the header rules the whole scoped set
 #           belongs in P. Among them were the fail-closed /api/__test/** gate
 #           suites (test-surface, test-surface-bypass) and snippet-sanitize.
 #           A genuinely env-dependent future web suite must be excluded HERE
@@ -126,6 +126,9 @@ factory_orchestrator_test_files() {
 # (pinned_bun_binary). A fake `bun` that a test puts first on PATH cannot answer it.
 # shellcheck source=scripts/lib/lane-bun.sh
 . "${BASH_SOURCE[0]%/*}/lane-bun.sh"
+# The pool's per-test budget, EZ_POOL_TEST_TIMEOUT_MS (one definition, shared with scripts/test.sh).
+# shellcheck source=scripts/lib/watchdog.sh
+. "${BASH_SOURCE[0]%/*}/watchdog.sh"
 if ! LANE_BOUND_TEST_FILES=$(pinned=$(pinned_bun_binary) && "$pinned" "${BASH_SOURCE[0]%/*}/../check-factory-lanes.ts" --bound-tests) \
   || [ -z "$LANE_BOUND_TEST_FILES" ]; then
   echo "test-file-sets: the lane manifest (scripts/check-factory-lanes.ts --bound-tests) gave no list; stopping before any test set is built" >&2
@@ -752,9 +755,9 @@ gate_host_failures() {
       # back to the plain run: the exit code still gates identically,
       # nothing soft-passes.
       if command -v timeout >/dev/null 2>&1; then
-        RETRY_OUT=$(timeout -k 30 300 bun test --timeout 30000 "./$f" 2>&1)
+        RETRY_OUT=$(timeout -k 30 300 bun test --timeout "$EZ_POOL_TEST_TIMEOUT_MS" "./$f" 2>&1)
       else
-        RETRY_OUT=$(bun test --timeout 30000 "./$f" 2>&1)
+        RETRY_OUT=$(bun test --timeout "$EZ_POOL_TEST_TIMEOUT_MS" "./$f" 2>&1)
       fi
       RETRY_CODE=$?
       set -e
@@ -849,10 +852,10 @@ recover_missing_coverage() {
     for ((attempt = 1; attempt <= COVERAGE_RECOVERY_ATTEMPTS; attempt++)); do
       set +e
       if command -v timeout >/dev/null 2>&1; then
-        timeout -k 30 300 bun test --timeout 30000 --coverage --coverage-reporter=lcov \
+        timeout -k 30 300 bun test --timeout "$EZ_POOL_TEST_TIMEOUT_MS" --coverage --coverage-reporter=lcov \
           --coverage-dir="$dir" "./$f" >/dev/null 2>&1
       else
-        bun test --timeout 30000 --coverage --coverage-reporter=lcov \
+        bun test --timeout "$EZ_POOL_TEST_TIMEOUT_MS" --coverage --coverage-reporter=lcov \
           --coverage-dir="$dir" "./$f" >/dev/null 2>&1
       fi
       set -e

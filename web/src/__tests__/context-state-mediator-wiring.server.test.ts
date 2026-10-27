@@ -230,7 +230,7 @@ describe("ensureInitialized — state-mediator lookup feeds pageIds from MANIFES
 	//
 	// A timeout is the right dial here rather than a smaller test: what is
 	// being asserted is precisely that BOOT wires the mediator, so there is
-	// no smaller unit to reach for. 30s matches the DB-backed convention on
-	// the bun side (`--timeout 30000`) and still fails a genuine hang.
+	// no smaller unit to reach for. 30s matches the bun pool's per-test budget
+	// (EZ_POOL_TEST_TIMEOUT_MS, scripts/lib/watchdog.sh) and still fails a genuine hang.
 	30_000);
 });

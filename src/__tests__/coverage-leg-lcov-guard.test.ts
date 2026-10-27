@@ -242,7 +242,7 @@ describe("test-coverage.sh: leg covdirs come from the registry", () => {
 
 // ── one per-test timeout for every producer ─────────────────────────────────
 /**
- * The host pool passed `--timeout 30000`; the four bun package/suggest legs
+ * The host pool passed a 30 s `--timeout`; the four bun package/suggest legs
  * and the node/vitest leg passed nothing, so they ran on their runners' 5s
  * DEFAULT (`bun test --help`: "default is 5000"; vitest's `testTimeout`
  * default is also 5000 and web/vitest.config.ts sets no override). Same file,
@@ -287,13 +287,13 @@ describe("test-coverage.sh: every producer shares one per-test timeout", () => {
   });
 
   test("the retry sweep in the shared lib uses the same number", async () => {
-    const naked = bunTestCommands(await lib).filter((l) => !/--timeout[= ]30000/.test(l));
+    const naked = bunTestCommands(await lib).filter((l) => !l.includes('--timeout "$EZ_POOL_TEST_TIMEOUT_MS"'));
     expect(naked, `un-timed bun test invocation(s) in ${SETS_LIB}`).toEqual([]);
   });
 
   test("the canonical Vitest launcher gets an explicit timeout too", async () => {
     const src = await Bun.file(VITEST_RUNNER).text();
-    expect(src).toContain("--testTimeout=30000");
+    expect(src).toContain('"--testTimeout=$EZ_POOL_TEST_TIMEOUT_MS"');
     // …and no config override silently reinstates the 5s default underneath it.
     const vitestConfig = await Bun.file(join(WEB_ROOT, "vitest.config.ts")).text();
     expect(vitestConfig).not.toMatch(/testTimeout\s*:/);
@@ -301,9 +301,8 @@ describe("test-coverage.sh: every producer shares one per-test timeout", () => {
 
   test("both spellings derive from ONE number, so the runners can't drift apart", async () => {
     const src = await runner;
-    const ms = src.match(/^TEST_TIMEOUT_MS=(\d+)$/m);
-    expect(ms, "TEST_TIMEOUT_MS must be a single literal both flags are built from").not.toBeNull();
-    expect(Number(ms?.[1])).toBe(30000); // matches scripts/test.sh + security-coverage.sh
+    // The number is the pool's own (scripts/lib/watchdog.sh), so this runner and scripts/test.sh share it too.
+    expect(src).toMatch(/^TEST_TIMEOUT_MS="\$EZ_POOL_TEST_TIMEOUT_MS"$/m);
     expect(src).toContain('TEST_TIMEOUT_FLAG="--timeout $TEST_TIMEOUT_MS"');
   });
 });

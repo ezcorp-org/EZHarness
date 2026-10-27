@@ -187,7 +187,7 @@ describe("Podman-guest tests run only where the runner is provisioned (W4H-12)",
   });
 
   test("a step names its test files by ./path, in any position of a multi-line command", () => {
-    expect(namedTestFiles('FACTORY_TEST_POSTGRES_URL="$DATABASE_URL" bun test --timeout 30000 ./tests/postgres/a.test.ts\n./tests/postgres/b.test.ts')).toEqual(["tests/postgres/a.test.ts", "tests/postgres/b.test.ts"]);
+    expect(namedTestFiles('FACTORY_TEST_POSTGRES_URL="$DATABASE_URL" bun test --timeout "$EZ_POOL_TEST_TIMEOUT_MS" ./tests/postgres/a.test.ts\n./tests/postgres/b.test.ts')).toEqual(["tests/postgres/a.test.ts", "tests/postgres/b.test.ts"]);
     expect(namedTestFiles("bun test src/__tests__/c.test.ts ./packages/@ezcorp/x/tests/d.test.ts")).toEqual(["packages/@ezcorp/x/tests/d.test.ts"]);
     expect(namedTestFiles("bash scripts/test-coverage.sh")).toEqual([]);
   });

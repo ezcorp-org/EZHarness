@@ -6,15 +6,16 @@ tmp=$(mktemp -d "${TMPDIR:-/tmp}/factory-pool-coverage.XXXXXX")
 trap 'rm -rf "$tmp"' EXIT
 mkdir -p "$out" "$tmp/bun-ledger" "$tmp/bun-postgres-ledger" "$tmp/bun-service" "$tmp/bun-token" "$tmp/bun-http" "$tmp/bun-postgres-http" "$tmp/bun-process" "$tmp/node-v8"
 cd "$repo_root"
-bun test --timeout 30000 --coverage --coverage-reporter=lcov --coverage-dir="$tmp/bun-ledger" ./src/factory/pool/ledger.integration.test.ts
-bun test --timeout 30000 --coverage --coverage-reporter=lcov --coverage-dir="$tmp/bun-postgres-ledger" ./tests/postgres/factory-pool.test.ts
-bun test --timeout 30000 --coverage --coverage-reporter=lcov --coverage-dir="$tmp/bun-service" ./tests/postgres/factory-pool-service.test.ts
-bun test --timeout 30000 --coverage --coverage-reporter=lcov --coverage-dir="$tmp/bun-token" ./src/factory/pool/service-token.test.ts
-bun test --timeout 30000 --coverage --coverage-reporter=lcov --coverage-dir="$tmp/bun-http" ./src/factory/pool/client.test.ts ./src/factory/pool/service-routes.test.ts
-bun test --timeout 30000 --coverage --coverage-reporter=lcov --coverage-dir="$tmp/bun-postgres-http" ./tests/postgres/factory-pool-http.test.ts
-bun test --timeout 30000 --coverage --coverage-reporter=lcov --coverage-dir="$tmp/bun-process" ./src/factory/pool/process.test.ts ./src/factory/pool/readiness.test.ts
+source scripts/lib/watchdog.sh # EZ_POOL_TEST_TIMEOUT_MS, the pool's per-test budget (one definition)
+bun test --timeout "$EZ_POOL_TEST_TIMEOUT_MS" --coverage --coverage-reporter=lcov --coverage-dir="$tmp/bun-ledger" ./src/factory/pool/ledger.integration.test.ts
+bun test --timeout "$EZ_POOL_TEST_TIMEOUT_MS" --coverage --coverage-reporter=lcov --coverage-dir="$tmp/bun-postgres-ledger" ./tests/postgres/factory-pool.test.ts
+bun test --timeout "$EZ_POOL_TEST_TIMEOUT_MS" --coverage --coverage-reporter=lcov --coverage-dir="$tmp/bun-service" ./tests/postgres/factory-pool-service.test.ts
+bun test --timeout "$EZ_POOL_TEST_TIMEOUT_MS" --coverage --coverage-reporter=lcov --coverage-dir="$tmp/bun-token" ./src/factory/pool/service-token.test.ts
+bun test --timeout "$EZ_POOL_TEST_TIMEOUT_MS" --coverage --coverage-reporter=lcov --coverage-dir="$tmp/bun-http" ./src/factory/pool/client.test.ts ./src/factory/pool/service-routes.test.ts
+bun test --timeout "$EZ_POOL_TEST_TIMEOUT_MS" --coverage --coverage-reporter=lcov --coverage-dir="$tmp/bun-postgres-http" ./tests/postgres/factory-pool-http.test.ts
+bun test --timeout "$EZ_POOL_TEST_TIMEOUT_MS" --coverage --coverage-reporter=lcov --coverage-dir="$tmp/bun-process" ./src/factory/pool/process.test.ts ./src/factory/pool/readiness.test.ts
 bun test --timeout 60000 ./tests/postgres/factory-pool-process.test.ts
-NODE_V8_COVERAGE="$tmp/node-v8" FACTORY_POOL_NODE_V8_BUNDLE="$tmp/server.mjs" bun test --timeout 30000 ./tests/postgres/factory-pool-mtls.test.ts
+NODE_V8_COVERAGE="$tmp/node-v8" FACTORY_POOL_NODE_V8_BUNDLE="$tmp/server.mjs" bun test --timeout "$EZ_POOL_TEST_TIMEOUT_MS" ./tests/postgres/factory-pool-mtls.test.ts
 node scripts/node-v8-to-lcov.mjs "$tmp/node-v8" "$tmp/server.mjs" "$tmp/server.mjs" "$tmp/server.lcov" src/factory/pool/service-server.ts
 mkdir "$tmp/lcov"
 cp "$tmp/bun-ledger/lcov.info" "$tmp/lcov/ledger.info"

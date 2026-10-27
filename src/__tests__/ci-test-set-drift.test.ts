@@ -281,7 +281,7 @@ describe("web/src pass/fail gating", () => {
    * gated. Every entry needs a CONCRETE environmental reason (needs Docker, a
    * live server, a seeded DB…) — "it was flaky once" is not a reason, it is an
    * undiagnosed bug. Empty today: all 34 scoped web files were verified
-   * deterministic under isolated `bun test ./<f> --timeout 30000`, 3 runs each.
+   * deterministic under isolated `bun test ./<f> --timeout $EZ_POOL_TEST_TIMEOUT_MS`, 3 runs each.
    */
   const WEB_GATING_EXCEPTIONS: ReadonlyArray<{ file: string; reason: string }> = [];
 

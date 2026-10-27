@@ -13,7 +13,8 @@ TMPDIR=$(mktemp -d)
 trap 'rm -rf "$TMPDIR"' EXIT
 
 cd "$REPO_ROOT"
-bun test --timeout 30000 --coverage --coverage-reporter=lcov --coverage-dir="$TMPDIR/raw" ./worker/src/index.test.ts
+source scripts/lib/watchdog.sh # EZ_POOL_TEST_TIMEOUT_MS, the pool's per-test budget (one definition)
+bun test --timeout "$EZ_POOL_TEST_TIMEOUT_MS" --coverage --coverage-reporter=lcov --coverage-dir="$TMPDIR/raw" ./worker/src/index.test.ts
 bun scripts/filter-lcov-sources.ts "$TMPDIR/raw/lcov.info" --output "$COV_OUT/lcov.info" worker/src/index.ts
 
 lines_found=$(awk -F: '$1 == "LF" { print $2 }' "$COV_OUT/lcov.info")

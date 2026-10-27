@@ -103,6 +103,7 @@ import {
 import { extensions, toolCalls, settings, auditLog, users } from "../db/schema";
 import { eq } from "drizzle-orm";
 import type { ExtensionManifestV2, JsonRpcRequest, JsonRpcResponse } from "../extensions/types";
+import { POOL_TEST_TIMEOUT_MS } from "./helpers/pool-test-timeout";
 
 const EXT_NAME = "project-walker";
 let installDir: string;
@@ -165,8 +166,8 @@ async function withProvenance<T>(fn: (tok: string) => Promise<T>): Promise<T> {
 const savedProjectRoot = process.env.EZCORP_PROJECT_ROOT;
 
 /**
- * Explicit hook timeout. `scripts/test.sh:109` runs the pool with
- * `--timeout 30000` because a DB-heavy file shares the host with parallel
+ * Explicit hook timeout. `scripts/test.sh` runs the pool with the 30 s
+ * `--timeout` EZ_POOL_TEST_TIMEOUT_MS because a DB-heavy file shares the host with parallel
  * PGlite siblings, but a bare targeted `bun test ./this-file` gets bun's
  * 5s default — and `setupTestDb()` replays the migrated-snapshot build on
  * a cold process. When that hook times out the file reports a bare
@@ -174,7 +175,7 @@ const savedProjectRoot = process.env.EZCORP_PROJECT_ROOT;
  * rather than a timeout. Pinning it here makes the targeted run behave
  * like the pool run.
  */
-const DB_HOOK_TIMEOUT_MS = 30_000;
+const DB_HOOK_TIMEOUT_MS = Number(POOL_TEST_TIMEOUT_MS);
 
 beforeAll(async () => {
   process.env.EZCORP_PROJECT_ROOT = APP_ROOT;
