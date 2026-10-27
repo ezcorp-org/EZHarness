@@ -58,7 +58,7 @@ concurrency:
 jobs:
   shard-plan:
     name: Plan mutation shards
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     outputs:
       count: ${{ steps.shards.outputs.count }}
       matrix: ${{ steps.shards.outputs.matrix }}
@@ -83,7 +83,7 @@ jobs:
 
   mutation-shard:
     name: Mutation shard ${{ matrix.shard }}
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     needs: [shard-plan]
     # The cap stays generous so a shard that draws the static-mutant-heavy
     # files is not killed mid-run.
@@ -132,7 +132,7 @@ jobs:
 
   summary:
     name: Merge shards + quality summary
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 15
     needs: [shard-plan, mutation-shard]
     # Runs even when a shard failed — that is exactly when the merge must say

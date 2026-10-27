@@ -94,7 +94,7 @@ describe("factory runner readiness", () => {
       jobs: Record<string, { name?: string; "runs-on"?: string; "timeout-minutes"?: number; steps?: Array<{ run?: string; env?: Record<string, string>; "continue-on-error"?: boolean }> }>;
     };
     const job = workflow.jobs["factory-runner-readiness"];
-    expect(job).toMatchObject({ name: "Factory runner readiness precheck", "runs-on": "ubuntu-latest", "timeout-minutes": 5 });
+    expect(job).toMatchObject({ name: "Factory runner readiness precheck", "runs-on": "ubuntu-24.04", "timeout-minutes": 5 });
     const step = job?.steps?.find((candidate) => candidate.run?.includes("check-factory-runners.ts"));
     expect(step?.env).toMatchObject({ FACTORY_TEST_TENANT_COUNT: "10" });
     expect(step?.["continue-on-error"]).not.toBe(true);

@@ -59,7 +59,7 @@ concurrency:
 jobs:
   external-postgres:
     name: External Postgres (Bun.sql)
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 15
 
     services:
@@ -259,7 +259,7 @@ jobs:
   # check carried the contract's lane name.
   factory-assurance-release:
     name: Factory assurance and release
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 20
 
     services:
