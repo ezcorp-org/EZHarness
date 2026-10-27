@@ -11,6 +11,8 @@
  * Its reach: single-file `.info` uploads, whose name the workflow states, in the gate's workflow and the reusable
  * workflows it calls directly. A directory upload (`path: coverage-shard`) carries the names its producer script
  * writes (lcov_<shard>_<leg>.info, lcov_security.info, lcov_web_vitest_<i>.info); the workflow text does not show them.
+ * A matrix upload writes one distinct file per entry only when its file name carries every expression of its artifact
+ * name (db-postgres.yml factory-storage: lcov_factory_storage_${{ matrix.shard }}.info).
  */
 import { describe, expect, test } from "bun:test";
 import { basename, join, resolve } from "node:path";
@@ -21,7 +23,12 @@ const UPLOAD = /^actions\/upload-artifact@/;
 const DOWNLOAD = /^actions\/download-artifact@/;
 const REUSABLE = /^\.\/\.github\/workflows\/([^/]+\.ya?ml)$/;
 /** A matrix expression in an artifact name: the one upload step becomes one artifact per matrix entry. */
-const MATRIX = /\$\{\{/;
+const MATRIX = /\$\{\{[^}]*\}\}/g;
+
+/** Whether each matrix entry of this upload writes the same file: its artifact varies and its file name does not vary with it. */
+function sharedByEntries(artifact: string, file: string): boolean {
+  return (artifact.match(MATRIX) ?? []).some((expression) => !file.includes(expression));
+}
 
 /** A download step that merges every artifact matching `pattern` into `folder`, and the workflows whose artifacts it sees. */
 export interface MergedDownload { readonly where: string; readonly pattern: string; readonly folder: string; readonly run: readonly Workflow[] }
@@ -57,7 +64,7 @@ export function lcovNameCollisions(workflows: readonly Workflow[]): string[] {
   return mergedDownloads(workflows).flatMap((download) => {
     const writers = new Map<string, string[]>();
     for (const { artifact, file } of landedUploads(download)) {
-      if (file !== undefined) writers.set(file, [...(writers.get(file) ?? []), ...(MATRIX.test(artifact) ? [`${artifact} (every matrix entry)`, ""] : [artifact])]);
+      if (file !== undefined) writers.set(file, [...(writers.get(file) ?? []), ...(sharedByEntries(artifact, file) ? [`${artifact} (every matrix entry)`, ""] : [artifact])]);
     }
     return [...writers]
       .filter(([, artifacts]) => artifacts.length > 1)
@@ -79,7 +86,7 @@ const SINGLE_FILE_PRODUCERS = {
   "lcov-cov-factory-pool": "lcov_factory_pool.info",
   "lcov-cov-factory-provisioning": "lcov_factory_provisioning.info",
   "lcov-cov-factory-python": "lcov_factory_python.info",
-  "lcov-cov-factory-storage": "lcov_factory_storage.info",
+  [`lcov-cov-factory-storage-${ghExpr("matrix.shard")}`]: `lcov_factory_storage_${ghExpr("matrix.shard")}.info`,
 };
 
 describe("coverage artifacts write distinct file names into the gate's merged download (W4H-15)", () => {
@@ -123,7 +130,14 @@ describe("coverage artifacts write distinct file names into the gate's merged do
         jobs: {
           caller: { uses: "./.github/workflows/called.yml" },
           one: { steps: [upload("cov-one", "c/lcov.info"), upload("other-one", "d/lcov.info"), upload("cov-dir", "coverage-shard")] },
-          matrix: { steps: [upload(`cov-m-${ghExpr("matrix.i")}`, "e/lcov_m.info"), upload("cov-n", "f/lcov.json")] },
+          matrix: {
+            steps: [
+              upload(`cov-m-${ghExpr("matrix.i")}`, "e/lcov_m.info"),
+              upload("cov-n", "f/lcov.json"),
+              upload(`cov-p-${ghExpr("matrix.i")}`, `g/lcov_p_${ghExpr("matrix.i")}.info`),
+              upload(`cov-q-${ghExpr("matrix.i")}-${ghExpr("matrix.j")}`, `h/lcov_q_${ghExpr("matrix.i")}.info`),
+            ],
+          },
           merged: download({ pattern: "cov-*", "merge-multiple": true }),
           apart: download({ pattern: "cov-*", "merge-multiple": false }),
           byName: download({ name: "cov-one", "merge-multiple": true }),
@@ -134,6 +148,7 @@ describe("coverage artifacts write distinct file names into the gate's merged do
     expect(lcovNameCollisions(runs)).toEqual([
       "main.yml merged (merged): lcov.info is written into merged by cov-called, cov-one",
       `main.yml merged (merged): lcov_m.info is written into merged by cov-m-${ghExpr("matrix.i")} (every matrix entry)`,
+      `main.yml merged (merged): lcov_q_${ghExpr("matrix.i")}.info is written into merged by cov-q-${ghExpr("matrix.i")}-${ghExpr("matrix.j")} (every matrix entry)`,
     ]);
   });
 });

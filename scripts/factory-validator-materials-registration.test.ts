@@ -1,12 +1,13 @@
 import { describe, expect, test } from "bun:test";
 import { readFile } from "node:fs/promises";
+import { ghExpr } from "./lib/ci-registration.ts";
 
 function registrationIssues(workflow: string, thresholds: string): string[] {
   const required = [
     ["PostgreSQL and S3 conformance", "./tests/postgres/factory-validator-materials.test.ts"],
     ["package preparation conformance", "./tests/postgres/factory-package-preparation.test.ts"],
-    ["coverage artifact", "name: lcov-cov-factory-storage"],
-    ["coverage receipt", "path: coverage-factory-storage/lcov_factory_storage.info"],
+    ["coverage artifact", `name: lcov-cov-factory-storage-${ghExpr("matrix.shard")}`],
+    ["coverage receipt", `path: coverage-factory-storage/lcov_factory_storage_${ghExpr("matrix.shard")}.info`],
     ["missing-report failure", "if-no-files-found: error"],
   ] as const;
   const sources = [

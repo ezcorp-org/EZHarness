@@ -6,7 +6,8 @@
  * one committed recipe: scripts/setup-factory-storage.sh and compose.factory-storage.local.yml. Hosted run
  * 37138524741 also showed the stop step running `down` in external-postgres when the start step never ran (an
  * earlier step had failed), which failed the job a second time with "Set the generated credential directory before
- * stop." A stop step therefore runs only when its job's start step ran.
+ * stop." A stop step therefore runs only when its job's start step ran. The external-postgres storage step now runs
+ * in its own job, db-postgres.yml factory-storage.
  */
 import { describe, expect, test } from "bun:test";
 import { readdirSync, readFileSync } from "node:fs";
@@ -72,7 +73,7 @@ describe("factory object storage in CI (W4H-5)", () => {
   test("the three storage jobs use the action, and no workflow runs the script itself", () => {
     expect(storageJobs().map((job) => job.where)).toEqual([
       "ci.yml factory-deployment-operations",
-      "db-postgres.yml external-postgres",
+      "db-postgres.yml factory-storage",
       "db-postgres.yml factory-assurance-release",
     ]);
     expect(workflows().filter(({ text }) => text.includes(SCRIPT)).map(({ file }) => file)).toEqual([]);
