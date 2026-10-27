@@ -12,6 +12,8 @@ cd "$repo_root"
 # else because the cleanup trap below drives compose too.
 # shellcheck source=scripts/lib/container-engine.sh
 source scripts/lib/container-engine.sh
+# shellcheck source=scripts/lib/image-identity.sh
+source scripts/lib/image-identity.sh
 resolve_compose
 : "${EZ_PRODUCTION_IMAGE:?Set the exact production image tag}"
 : "${EZ_PRODUCTION_RECEIPT_DIR:?Set an empty owned receipt directory}"
@@ -194,7 +196,8 @@ export EZ_PRODUCTION_PORT="$port" EZ_PRODUCTION_APP_CONTAINER="$container"
 {
   printf 'launcher_source=%s\n' "$(git rev-parse HEAD)"
   printf 'image=%s\nrunner_image=%s\nproject=%s\ncontainer=%s\nport=%s\n' "$EZ_PRODUCTION_IMAGE" "$runner_image" "$project" "$container" "$port"
-  "$ENGINE" image inspect "$EZ_PRODUCTION_IMAGE" --format 'image_id={{.Id}} revision={{index .Config.Labels "org.opencontainers.image.revision"}}'
+  printf 'image_id=%s ' "$(image_identity "$ENGINE" "$EZ_PRODUCTION_IMAGE")"
+  "$ENGINE" image inspect "$EZ_PRODUCTION_IMAGE" --format 'revision={{index .Config.Labels "org.opencontainers.image.revision"}}'
 } > "$receipt_dir/provenance.txt"
 
 bash scripts/start-extension-runner-e2e.sh > "$receipt_dir/runner.log" 2>&1 & runner_pid=$!

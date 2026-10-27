@@ -116,6 +116,7 @@ export const SOURCE_GLOBS: readonly string[] = [
   "scripts/check-required-checks.ts",
   "scripts/check-schema-generate-drift.ts",
   "scripts/lib/ci-registration.ts",
+  "scripts/production-image-artifact.ts",
   "web/src/**/*.ts",
   "web/src/**/*.svelte",
   "packages/@ezcorp/sdk/src/**/*.ts",

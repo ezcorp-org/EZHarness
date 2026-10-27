@@ -51,6 +51,7 @@
   "scripts/check-schema-generate-drift.ts": 100,
   "scripts/setup-factory-python-base.ts": 100,
   "scripts/lib/ci-registration.ts": 100,
+  "scripts/production-image-artifact.ts": 100,
   "scripts/lib/container-engine.ts": 100,
   "scripts/lib/factory-storage-cli.ts": 100,
   "scripts/lib/verify-factory-storage-cli.ts": 100,

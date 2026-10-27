@@ -155,12 +155,14 @@ snapshot_count() {
 ensure_archived_image "$PREVIOUS_SOURCE" "$IMAGE_A" "upgrade-${RUN_ID}-previous" || die "Historical build failed"
 [[ "$PREVIOUS_SOURCE" != "$SOURCE_B" ]] || die "Previous and candidate source are identical"
 IMAGE_A_SOURCE="$("$ENGINE" image inspect "$IMAGE_A" --format '{{index .Config.Labels "org.opencontainers.image.revision"}}')"
-IMAGE_A_ID="$("$ENGINE" image inspect "$IMAGE_A" --format '{{.Id}}' | sed 's/^sha256://')"
 if [[ -n "$IMAGE_A_SOURCE" && "$IMAGE_A_SOURCE" != "<no value>" && "$IMAGE_A_SOURCE" != "unknown" ]]; then
   [[ "$IMAGE_A_SOURCE" == "$PREVIOUS_SOURCE" ]] || die "Previous image label provenance is $IMAGE_A_SOURCE, expected $PREVIOUS_SOURCE"
 else
   # The retained audit image predates OCI revision labels. Its immutable image
   # ID is recorded with source 3ec53e in the checked-in independent receipt.
+  # That ID is the image CONFIG digest; read it from the saved image, not from
+  # `.Id`, which on Docker's containerd image store is the manifest list's.
+  IMAGE_A_ID="$(bun scripts/production-image-artifact.ts config-digest "$ENGINE" "$IMAGE_A" | sed 's/^sha256://')"
   [[ "$IMAGE_A_ID" == "$PREVIOUS_IMAGE_ID" ]] || die "Previous unlabelled image ID is $IMAGE_A_ID, expected $PREVIOUS_IMAGE_ID"
 fi
 
