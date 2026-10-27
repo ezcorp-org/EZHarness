@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
 import { createReadStream } from "node:fs";
-import { lstat, mkdir, readFile, rename, unlink, writeFile } from "node:fs/promises";
+import { lstat, mkdir, mkdtemp, readFile, rename, rm, unlink, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 export const ARCHIVE_FILENAME = "candidate-image.tar.zst";
@@ -11,11 +12,16 @@ const IMAGE_ID = /^sha256:[a-f0-9]{64}$/;
 const REVISION = /^[a-f0-9]{40}$/;
 const IMAGE_REFERENCE = /^[a-z0-9][a-z0-9._/-]*(?::[A-Za-z0-9][A-Za-z0-9._-]*)?$/;
 
+/**
+ * `imageId` is the archive's image CONFIG digest. `manifestDigests` are the manifest and manifest-list digests the
+ * archive lists, any of which Docker's containerd image store may report as `.Id` for the same image (version 2).
+ */
 type ArtifactMetadata = Readonly<{
-  schemaVersion: 1;
+  schemaVersion: 2;
   image: string;
   revision: string;
   imageId: string;
+  manifestDigests: readonly string[];
   archiveSha256: string;
 }>;
 
@@ -154,24 +160,32 @@ export function isArchiveImage(identity: ArchiveIdentity, reportedId: string): b
   return reportedId === identity.configDigest || identity.manifestDigests.includes(reportedId);
 }
 
-/** Reads archive members through the compressor and `tar`; one pass lists the archive, one pass reads each member. */
-function compressedArchiveReader(archive: string): ArchiveReader {
+/** Reads archive members through `tar` (and the compressor, for a `.zst`); one pass lists, one pass reads each member. */
+function archiveReader(archive: string, compressed: boolean): ArchiveReader {
+  const source = compressed ? 'zstd -d --no-progress -q -c "$1"' : 'cat "$1"';
   let members: Promise<Set<string>> | undefined;
   return async (member) => {
-    members ??= pipeline("archive listing", 'zstd -d --no-progress -q -c "$1" | tar -t -f -', [archive]).then((list) => new Set(list.split("\n")));
+    members ??= pipeline("archive listing", `${source} | tar -t -f -`, [archive]).then((list) => new Set(list.split("\n")));
     if (!(await members).has(member)) return null;
-    return pipeline(`archive read of ${member}`, 'zstd -d --no-progress -q -c "$1" | tar -x -O -f - "$2"', [archive, member]);
+    return pipeline(`archive read of ${member}`, `${source} | tar -x -O -f - "$2"`, [archive, member]);
   };
+}
+
+function sameIdentity(a: ArchiveIdentity, b: ArchiveIdentity): boolean {
+  return a.configDigest === b.configDigest && a.manifestDigests.length === b.manifestDigests.length && a.manifestDigests.every((digest, index) => digest === b.manifestDigests[index]);
 }
 
 function parseMetadata(value: unknown): ArtifactMetadata {
   if (!value || typeof value !== "object" || Array.isArray(value)) fail("metadata must be a JSON object");
   const record = value as Record<string, unknown>;
-  const expected = ["archiveSha256", "image", "imageId", "revision", "schemaVersion"];
+  const expected = ["archiveSha256", "image", "imageId", "manifestDigests", "revision", "schemaVersion"];
   const keys = Object.keys(record).sort();
   if (keys.length !== expected.length || keys.some((key, index) => key !== expected[index])) fail("metadata has an invalid field set");
-  if (record.schemaVersion !== 1 || typeof record.image !== "string" || typeof record.revision !== "string" || typeof record.imageId !== "string" || typeof record.archiveSha256 !== "string") {
+  if (record.schemaVersion !== 2 || typeof record.image !== "string" || typeof record.revision !== "string" || typeof record.imageId !== "string" || typeof record.archiveSha256 !== "string") {
     fail("metadata has invalid field types");
+  }
+  if (!Array.isArray(record.manifestDigests) || record.manifestDigests.some((digest) => typeof digest !== "string" || !IMAGE_ID.test(digest))) {
+    fail("metadata manifest digests are invalid");
   }
   requireImageReference(record.image);
   requireRevision(record.revision);
@@ -234,14 +248,15 @@ export async function pack(image: string, revision: string, outdir: string): Pro
 
   // The recorded ID is the archive's CONFIG digest, the one ID every engine and image store agrees on. Docker's own
   // `.Id` must be this archive's image, but under the containerd store it is the manifest list's digest, not the config.
-  const identity = await archiveIdentity(compressedArchiveReader(archive));
+  const identity = await archiveIdentity(archiveReader(archive, true));
   if (!isArchiveImage(identity, producerImageId)) fail(`docker image ID ${producerImageId} is not the image in the saved archive (config ${identity.configDigest})`);
 
   const metadata: ArtifactMetadata = {
-    schemaVersion: 1,
+    schemaVersion: 2,
     image,
     revision,
     imageId: identity.configDigest,
+    manifestDigests: identity.manifestDigests,
     archiveSha256: await checksum(archive),
   };
   await writeMetadata(metadataPath, metadata);
@@ -265,8 +280,9 @@ export async function load(outdir: string, revision: string, expectedImageId: st
   if (metadata.revision !== revision) fail("metadata revision does not match the expected revision");
   if (metadata.imageId !== expectedImageId) fail("metadata image ID does not match the expected producer image ID");
   if ((await checksum(archive)) !== metadata.archiveSha256) fail("archive SHA-256 does not match metadata");
-  const identity = await archiveIdentity(compressedArchiveReader(archive));
+  const identity = await archiveIdentity(archiveReader(archive, true));
   if (identity.configDigest !== expectedImageId) fail(`archive config digest ${identity.configDigest} does not match expected image ID ${expectedImageId}`);
+  if (!sameIdentity(identity, { configDigest: metadata.imageId, manifestDigests: metadata.manifestDigests })) fail("archive manifest digests do not match metadata");
 
   for (const engine of ["docker", "podman"] as const) {
     await pipeline(`${engine} image load`, 'zstd -d --no-progress --threads=2 -q -c "$1" | "$2" image load', [archive, engine]);
@@ -275,6 +291,52 @@ export async function load(outdir: string, revision: string, expectedImageId: st
     if (!isArchiveImage(identity, actualImageId)) fail(`${engine} image ID ${actualImageId} does not match expected image ID ${expectedImageId}`);
     if (actualRevision !== revision) fail(`${engine} revision label ${JSON.stringify(actualRevision)} does not match ${revision}`);
   }
+}
+
+/**
+ * The ID every check compares for one image in one engine: for the packed candidate (`outdir` holds its artifact and
+ * names `image`), the archive's config digest, once the engine's `.Id` is shown to be that archive's image; for any
+ * other image, or with no artifact, the engine's own `.Id`. This is the one place the proof scripts read an image ID.
+ */
+export async function identify(outdir: string, engine: "docker" | "podman", image: string): Promise<string> {
+  const reported = await imageId(engine, image);
+  const metadataPath = join(outdir, METADATA_FILENAME);
+  if (!(await Bun.file(metadataPath).exists())) return reported;
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(await readFile(metadataPath, "utf8"));
+  } catch {
+    fail("metadata is not valid JSON");
+  }
+  const metadata = parseMetadata(parsed);
+  if (metadata.image !== image) return reported;
+  if (!isArchiveImage({ configDigest: metadata.imageId, manifestDigests: metadata.manifestDigests }, reported)) {
+    fail(`${engine} image ID ${reported} is not the packed candidate ${metadata.imageId}`);
+  }
+  return metadata.imageId;
+}
+
+/**
+ * An image's config digest when no artifact holds it (an archived historical build): the engine saves it, and the
+ * saved archive names its config. The engine's `.Id` must be that archive's image.
+ */
+export async function savedConfigDigest(engine: "docker" | "podman", image: string): Promise<string> {
+  const dir = await mkdtemp(join(tmpdir(), "image-config-digest-"));
+  try {
+    const archive = join(dir, "image.tar");
+    await command(engine, ["image", "save", "-o", archive, image]);
+    const identity = await archiveIdentity(archiveReader(archive, false));
+    const reported = await imageId(engine, image);
+    if (!isArchiveImage(identity, reported)) fail(`${engine} image ID ${reported} is not the image it saved (config ${identity.configDigest})`);
+    return identity.configDigest;
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+}
+
+function requireEngine(value: string | undefined): "docker" | "podman" {
+  if (value !== "docker" && value !== "podman") fail("engine must be docker or podman");
+  return value;
 }
 
 export async function runProductionImageArtifactCli(args: string[], write: (line: string) => void = console.log): Promise<void> {
@@ -287,7 +349,15 @@ export async function runProductionImageArtifactCli(args: string[], write: (line
     await load(rest[0]!, rest[1]!, rest[2]!);
     return;
   }
-  fail("usage: bun scripts/production-image-artifact.ts pack IMAGE REVISION OUTDIR | load OUTDIR REVISION EXPECTED_IMAGE_ID");
+  if (operation === "identify" && rest.length === 3) {
+    write(await identify(rest[0]!, requireEngine(rest[1]), rest[2]!));
+    return;
+  }
+  if (operation === "config-digest" && rest.length === 2) {
+    write(await savedConfigDigest(requireEngine(rest[0]), rest[1]!));
+    return;
+  }
+  fail("usage: bun scripts/production-image-artifact.ts pack IMAGE REVISION OUTDIR | load OUTDIR REVISION EXPECTED_IMAGE_ID | identify OUTDIR ENGINE IMAGE | config-digest ENGINE IMAGE");
 }
 
 if (import.meta.main) await runProductionImageArtifactCli(process.argv.slice(2));

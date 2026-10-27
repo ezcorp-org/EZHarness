@@ -39,9 +39,13 @@ umask 077
 docker image inspect "$candidate" >/dev/null
 # The production app runs through Docker while its isolated extension runner
 # uses rootless Podman. The workflow loads this candidate before this suite;
-# prove both engines refer to the same immutable image ID.
-docker_id="$(docker image inspect "$candidate" --format '{{.Id}}')"
-podman_id="$(podman image inspect "$candidate" --format '{{.Id}}')"
+# prove both engines refer to the same immutable image. Each ID is the
+# candidate archive's config digest (scripts/lib/image-identity.sh), so the
+# comparison means the same on Docker's classic and containerd image stores.
+# shellcheck source=scripts/lib/image-identity.sh
+source scripts/lib/image-identity.sh
+docker_id="$(image_identity docker "$candidate")"
+podman_id="$(image_identity podman "$candidate")"
 canonical_docker_id="${docker_id#sha256:}"
 canonical_podman_id="${podman_id#sha256:}"
 [[ "$canonical_docker_id" == "$canonical_podman_id" ]] || {

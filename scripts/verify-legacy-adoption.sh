@@ -11,6 +11,8 @@ cd "$repo_root"
 # replays may set DOCKER_HOST explicitly.
 # shellcheck source=scripts/lib/build-archived-image.sh
 source scripts/lib/build-archived-image.sh
+# shellcheck source=scripts/lib/image-identity.sh
+source scripts/lib/image-identity.sh
 legacy_base_image="${VERIFY_LEGACY_ADOPTION_BASE_IMAGE:-localhost/ezcorp-extension-v4:legacy-main-537f074e}"
 legacy_image="${VERIFY_LEGACY_ADOPTION_IMAGE:-${legacy_base_image}-derived}"
 legacy_source="${VERIFY_LEGACY_ADOPTION_LEGACY_SOURCE:-537f074e7303ecdf3cbef1a7af4fd60a3244b0a3}"
@@ -78,7 +80,8 @@ ensure_archived_image "$legacy_source" "$legacy_base_image" "legacy-base" || exi
 legacy_base_id="$(docker image inspect "$legacy_base_image" --format '{{.Id}}')"
 legacy_base_revision="$(docker image inspect "$legacy_base_image" --format '{{index .Config.Labels "org.opencontainers.image.revision"}}')"
 [[ "$legacy_base_revision" == "$legacy_source" ]] || { echo "Wrong legacy base OCI revision" >&2; exit 1; }
-candidate_actual_id="$(docker image inspect "$candidate_image" --format '{{.Id}}')"
+# The candidate ID is compared with the suite's, which is the archive's config digest; read it the same way.
+candidate_actual_id="$(image_identity docker "$candidate_image")"
 [[ "${candidate_actual_id#sha256:}" == "${candidate_id#sha256:}" ]] || { echo "Wrong candidate image ID" >&2; exit 1; }
 [[ "${candidate_actual_id#sha256:}" != "${legacy_base_id#sha256:}" ]] || { echo "Legacy base and candidate image IDs must differ" >&2; exit 1; }
 candidate_revision="$(docker image inspect "$candidate_image" --format '{{index .Config.Labels "org.opencontainers.image.revision"}}')"
