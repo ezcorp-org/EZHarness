@@ -41,7 +41,12 @@ type BrowserCoverageModules = {
   createCoverageMap: () => CoverageMap;
   parseAstAsync: (code: string) => Promise<unknown>;
   mergeProcessCovs: (coverages: Array<{ result: ScriptCoverage[] }>) => { result: ScriptCoverage[] };
+  decodeMappings: (mappings: string) => Segment[][];
+  encodeMappings: (lines: Segment[][]) => string;
 };
+
+/** One decoded source-map segment: `[generatedColumn]` is an explicit unmapped segment. */
+export type Segment = number[];
 
 /** Load the browser-only transitive packages without making root typecheck
  * resolve deep web workspace paths, which have no declaration entry point. */
@@ -51,11 +56,14 @@ const browserCoverageModules: Promise<BrowserCoverageModules> = (async () => {
   const istanbulModule = await import(pathToFileURL(resolve(webModules, "istanbul-lib-coverage/index.js")).href) as unknown as { createCoverageMap: () => CoverageMap };
   const viteModule = await import(pathToFileURL(resolve(webModules, "vite/dist/node/index.js")).href) as unknown as { parseAstAsync: (code: string) => Promise<unknown> };
   const v8MergeModule = await import(pathToFileURL(resolve(webModules, "@bcoe/v8-coverage/src/lib/index.js")).href) as unknown as { mergeProcessCovs: (coverages: Array<{ result: ScriptCoverage[] }>) => { result: ScriptCoverage[] } };
+  const codecModule = await import(pathToFileURL(resolve(webModules, "@jridgewell/sourcemap-codec/dist/sourcemap-codec.mjs")).href) as unknown as { decode: (mappings: string) => Segment[][]; encode: (lines: Segment[][]) => string };
   return {
     convert: astModule.default,
     createCoverageMap: istanbulModule.createCoverageMap,
     parseAstAsync: viteModule.parseAstAsync,
     mergeProcessCovs: v8MergeModule.mergeProcessCovs,
+    decodeMappings: codecModule.decode,
+    encodeMappings: codecModule.encode,
   };
 })();
 
@@ -150,13 +158,157 @@ function outputLcov(coverage: CoverageMap): string {
   return output;
 }
 
+/** AST node types whose location ast-v8-to-istanbul 1.0.7 looks up (its walker), plus the branch arms it locates. */
+const LOCATED_NODE_TYPES = new Set([
+  "FunctionDeclaration", "FunctionExpression", "ArrowFunctionExpression", "MethodDefinition", "Property",
+  "ExpressionStatement", "BreakStatement", "ContinueStatement", "DebuggerStatement", "ReturnStatement",
+  "ThrowStatement", "TryStatement", "ForStatement", "ForInStatement", "ForOfStatement", "WhileStatement",
+  "DoWhileStatement", "WithStatement", "LabeledStatement", "VariableDeclarator", "ClassBody", "IfStatement",
+  "SwitchStatement", "SwitchCase", "ConditionalExpression", "LogicalExpression", "AssignmentPattern",
+  "BlockStatement",
+]);
+
+type AstNode = { type: string; start: number; end: number; [key: string]: unknown };
+
+function locatedNodes(ast: unknown): AstNode[] {
+  const nodes: AstNode[] = [];
+  const visit = (value: unknown): void => {
+    if (Array.isArray(value)) {
+      for (const item of value) visit(item);
+      return;
+    }
+    if (!value || typeof value !== "object") return;
+    const node = value as AstNode;
+    if (typeof node.type === "string" && typeof node.start === "number" && typeof node.end === "number" && node.end > node.start) {
+      if (LOCATED_NODE_TYPES.has(node.type)) nodes.push(node);
+      // A branch arm is located even when its own type is not in the walker's list (`a ? b() : c`).
+      for (const arm of [node.consequent, node.alternate]) {
+        if (arm && typeof arm === "object" && (node.type === "ConditionalExpression" || node.type === "IfStatement")) nodes.push(arm as AstNode);
+      }
+      if (node.type === "LogicalExpression") for (const side of [node.left, node.right]) nodes.push(side as AstNode);
+    }
+    for (const [key, child] of Object.entries(node)) if (key !== "parent") visit(child);
+  };
+  visit(ast);
+  return nodes;
+}
+
+/**
+ * ast-v8-to-istanbul resolves a node's start and its end-1 with the nearest source-map segment at or before that
+ * position, and when that one is unmapped, with the first segment after it. Rolldown (vite 8.3.3+) writes explicit
+ * unmapped segments at many statement boundaries. When a node's last character starts one, the end lookup returns
+ * nothing, the walk back finds no mapped line end in a one-line chunk, and the converter DROPS the node although it
+ * ran (#357: the `row` snippet of ActiveAgentsList.svelte, count 5).
+ *
+ * This repairs only that failing end lookup, and only for a node whose start is mapped inside the node: it inserts
+ * a copy of the node's last MAPPED segment at end-1, then an unmapped segment right after it, so no position after
+ * the node changes. When nodes share the end, the copy comes from the intersection of their ranges, so it lies
+ * inside each of them. Every lookup that resolves today is left exactly as it is, and a node with an unmapped start
+ * stays dropped, so the repair only restores a node at the line where its own code starts.
+ */
+export function repairUnmappedLookups(code: string, lines: Segment[][], ast: unknown): { lines: Segment[][]; repaired: number } {
+  const lineStarts = [0];
+  for (let i = 0; i < code.length; i++) if (code[i] === "\n") lineStarts.push(i + 1);
+  const position = (offset: number) => {
+    let low = 0;
+    let high = lineStarts.length - 1;
+    while (low < high) {
+      const mid = (low + high + 1) >> 1;
+      if (lineStarts[mid]! <= offset) low = mid;
+      else high = mid - 1;
+    }
+    return { line: low, column: offset - lineStarts[low]! };
+  };
+  const offsetOf = (line: number, column: number) => lineStarts[line]! + column;
+  const segmentsOf = (line: number) => lines[line] ?? [];
+  // Today's lookup (ast-v8-to-istanbul getPosition): the segment at or before the position; when that one is
+  // unmapped, the first segment at or after it. Null when neither is mapped.
+  const resolves = (line: number, column: number): boolean => {
+    let before: Segment | undefined;
+    let after: Segment | undefined;
+    for (const segment of segmentsOf(line)) {
+      if (segment[0]! <= column) before = segment;
+      else if (!after) after = segment;
+    }
+    if (before && before.length >= 4) return true;
+    const retry = before?.[0] === column ? before : after;
+    return !!retry && retry.length >= 4;
+  };
+  const mappedIn = (start: number, end: number, last: boolean): Segment | undefined => {
+    let found: Segment | undefined;
+    const from = position(start).line;
+    const to = position(end - 1).line;
+    for (let line = from; line <= to; line++) {
+      for (const segment of segmentsOf(line)) {
+        const offset = offsetOf(line, segment[0]!);
+        if (offset < start || offset >= end || segment.length < 4) continue;
+        if (!last) return segment;
+        found = segment;
+      }
+    }
+    return found;
+  };
+
+  // Repair only an END lookup that fails today (end-1 does not resolve, and neither does the walk back with column
+  // Infinity from the end's line to the start's), and only for a node whose start resolves today to a mapped segment
+  // INSIDE the node. A node whose start is unmapped stays dropped: its next mapped segment can lie in code that
+  // never ran, and restoring the node would put its count on that line.
+  const startMappedInside = (node: AstNode) => {
+    const { line, column } = position(node.start);
+    let before: Segment | undefined;
+    for (const segment of segmentsOf(line)) if (segment[0]! <= column) before = segment;
+    return !!before && before.length >= 4 && offsetOf(line, before[0]!) >= node.start;
+  };
+  const endFails = (node: AstNode) => {
+    const { line, column } = position(node.end - 1);
+    if (resolves(line, column)) return false;
+    for (let back = line; back >= position(node.start).line; back--) if (resolves(back, Number.POSITIVE_INFINITY)) return false;
+    return true;
+  };
+
+  // Every repairable node, grouped by its end-1 position. The copy must lie inside ALL of them, so it comes from the
+  // intersection of their ranges: the last mapped segment there.
+  const failing = new Map<number, { start: number; end: number }>();
+  for (const node of locatedNodes(ast)) {
+    if (!startMappedInside(node) || !endFails(node)) continue;
+    const offset = node.end - 1;
+    const group = failing.get(offset) ?? { start: node.start, end: node.end };
+    group.start = Math.max(group.start, node.start);
+    group.end = Math.min(group.end, node.end);
+    failing.set(offset, group);
+  }
+
+  const repaired = lines.map((line) => line.map((segment) => [...segment]));
+  const insert = (offset: number, segment: Segment) => {
+    const { line, column } = position(offset);
+    const target = (repaired[line] ??= []);
+    const index = target.findIndex((existing) => existing[0]! >= column);
+    if (index === -1) target.push(segment);
+    else if (target[index]![0] === column) target[index] = segment;
+    else target.splice(index, 0, segment);
+  };
+  const segmentStartsAt = (offset: number) => {
+    const { line, column } = position(offset);
+    return (repaired[line] ?? []).some((segment) => segment[0] === column);
+  };
+  let count = 0;
+  for (const [offset, group] of [...failing].sort((a, b) => a[0] - b[0])) {
+    const source = mappedIn(group.start, group.end, true);
+    if (!source) continue;
+    insert(offset, [position(offset).column, source[1]!, source[2]!, source[3]!]);
+    if (group.end < code.length && !segmentStartsAt(group.end)) insert(group.end, [position(group.end).column]);
+    count++;
+  }
+  return { lines: repaired, repaired: count };
+}
+
 /**
  * Uses the same AST-aware V8-to-Istanbul converter that Vitest uses. It maps
  * executable statements, functions, and branches, rather than marking every
  * source-map point hit merely because its generated root range executed.
  */
 export async function coverageToLcov(raw: RawCoverage, readAsset: AssetReader): Promise<string> {
-  const { convert, createCoverageMap, parseAstAsync } = await browserCoverageModules;
+  const { convert, createCoverageMap, parseAstAsync, decodeMappings, encodeMappings } = await browserCoverageModules;
   const coverage = createCoverageMap();
   const assets = new Map<string, Promise<{ code: string; sourceMap: SourceMap; ast: unknown }>>();
   for (const script of raw.result) {
@@ -179,7 +331,9 @@ export async function coverageToLcov(raw: RawCoverage, readAsset: AssetReader): 
         if (sourceMap.version !== 3 || !Array.isArray(sourceMap.sources) || typeof sourceMap.mappings !== "string") {
           throw new Error(`browser coverage: ${script.url} has an invalid source-map shape`);
         }
-        return { code, sourceMap: resolveSourceMapSources(sourceMap, sourceMapAsset), ast: await parseAstAsync(code) };
+        const ast = await parseAstAsync(code);
+        const { lines } = repairUnmappedLookups(code, decodeMappings(sourceMap.mappings), ast);
+        return { code, sourceMap: resolveSourceMapSources({ ...sourceMap, mappings: encodeMappings(lines) }, sourceMapAsset), ast };
       })();
       assets.set(script.url, cached);
     }
