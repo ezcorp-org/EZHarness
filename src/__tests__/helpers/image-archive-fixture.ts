@@ -6,6 +6,7 @@
 import { chmod, mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
+import { runProductionImageArtifactCli } from "../../../scripts/production-image-artifact.ts";
 
 export const IMAGE = "localhost/ezcorp-testing-review:a4f44e5be";
 export const REVISION = "a".repeat(40);
@@ -131,12 +132,20 @@ fi
   } };
 }
 
+/**
+ * Runs the CLI in this process, so coverage counts it, with `process.env` set to the fixture's environment for the
+ * call: the fake engines on PATH and the IDs they report. Returns what the CLI printed.
+ */
 export async function cli(fixture: Fixture, args: string[]): Promise<string> {
-  const child = Bun.spawn([process.execPath, "scripts/production-image-artifact.ts", ...args], {
-    cwd: join(import.meta.dir, "..", "..", ".."), env: fixture.env, stdout: "pipe", stderr: "pipe",
-  });
-  const [stdout, stderr, exit] = await Promise.all([new Response(child.stdout).text(), new Response(child.stderr).text(), child.exited]);
-  if (exit !== 0) throw new Error(stderr.trim());
-  return stdout.trim();
+  const saved = { ...process.env };
+  const lines: string[] = [];
+  for (const key of Object.keys(process.env)) delete process.env[key];
+  Object.assign(process.env, fixture.env);
+  try {
+    await runProductionImageArtifactCli(args, (line) => lines.push(line));
+  } finally {
+    for (const key of Object.keys(process.env)) delete process.env[key];
+    Object.assign(process.env, saved);
+  }
+  return lines.join("\n");
 }
-

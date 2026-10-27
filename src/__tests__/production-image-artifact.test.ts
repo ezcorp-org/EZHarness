@@ -104,15 +104,25 @@ const reader = (members: Record<string, string>) => async (member: string) => me
 
 test("an archive's identity is its config digest, from either save shape", async () => {
   expect(await archiveIdentity(reader(classicArchive()))).toEqual({ configDigest: IMAGE_ID, manifestDigests: [] });
-  expect(await archiveIdentity(reader(ociIndexArchive()))).toEqual({ configDigest: IMAGE_ID, manifestDigests: [LIST_ID, MANIFEST_ID, ATTESTATION_ID] });
+  expect(await archiveIdentity(reader(ociIndexArchive()))).toEqual({ configDigest: IMAGE_ID, manifestDigests: [LIST_ID, MANIFEST_ID] });
   const { "manifest.json": _compat, ...ociOnly } = ociIndexArchive();
-  expect(await archiveIdentity(reader(ociOnly))).toEqual({ configDigest: IMAGE_ID, manifestDigests: [LIST_ID, MANIFEST_ID, ATTESTATION_ID] });
+  expect(await archiveIdentity(reader(ociOnly))).toEqual({ configDigest: IMAGE_ID, manifestDigests: [LIST_ID, MANIFEST_ID] });
 });
 
 test("an engine's ID is the archive's image when it is the config digest or a manifest digest the archive lists", async () => {
   const identity = await archiveIdentity(reader(ociIndexArchive()));
   expect([IMAGE_ID, LIST_ID, MANIFEST_ID].map((id) => isArchiveImage(identity, id))).toEqual([true, true, true]);
   expect(isArchiveImage(identity, `sha256:${"b".repeat(64)}`)).toBe(false);
+});
+
+test("an attestation manifest's digest is not the archive's image", async () => {
+  expect(isArchiveImage(await archiveIdentity(reader(ociIndexArchive())), ATTESTATION_ID)).toBe(false);
+});
+
+test("pack refuses a Docker image ID that is the archive's attestation manifest", async () => {
+  await writeTar(value.env.SAVE_TAR!, ociIndexArchive());
+  value.env.DOCKER_IMAGE_ID = ATTESTATION_ID;
+  await expect(cli(value, ["pack", IMAGE, REVISION, value.outdir])).rejects.toThrow("is not the image in the saved archive");
 });
 
 test("an archive that names no config, two configs, or a manifest it does not contain is refused", async () => {
@@ -135,7 +145,7 @@ test("packs and loads under Docker's containerd image store, where docker report
   value.env.PODMAN_IMAGE_ID = hex(IMAGE_ID);
   // The recorded and printed ID is the config digest, which Podman reports too.
   await expect(cli(value, ["pack", IMAGE, REVISION, outdir])).resolves.toBe(IMAGE_ID);
-  expect(JSON.parse(await readFile(join(outdir, METADATA_FILENAME), "utf8"))).toMatchObject({ imageId: IMAGE_ID, manifestDigests: [LIST_ID, MANIFEST_ID, ATTESTATION_ID] });
+  expect(JSON.parse(await readFile(join(outdir, METADATA_FILENAME), "utf8"))).toMatchObject({ imageId: IMAGE_ID, manifestDigests: [LIST_ID, MANIFEST_ID] });
   await expect(cli(value, ["load", outdir, REVISION, IMAGE_ID])).resolves.toBe("");
 });
 
@@ -155,4 +165,19 @@ test("load refuses an archive whose config is not the expected image, before eit
   await writeFile(metadataPath, `${JSON.stringify(metadata)}\n`);
   await expect(cli(value, ["load", outdir, REVISION, IMAGE_ID])).rejects.toThrow("archive config digest");
   expect(await readFile(log, "utf8")).not.toContain("image load");
+});
+
+test("load and identify refuse metadata that is not JSON or has invalid fields, and the CLI refuses an unknown operation", async () => {
+  const { outdir } = value;
+  await cli(value, ["pack", IMAGE, REVISION, outdir]);
+  const metadataPath = join(outdir, METADATA_FILENAME);
+  const metadata = JSON.parse(await readFile(metadataPath, "utf8"));
+  await writeFile(metadataPath, "{");
+  await expect(cli(value, ["load", outdir, REVISION, IMAGE_ID])).rejects.toThrow("metadata is not valid JSON");
+  await expect(cli(value, ["identify", outdir, "docker", IMAGE])).rejects.toThrow("metadata is not valid JSON");
+  await writeFile(metadataPath, JSON.stringify({ ...metadata, schemaVersion: 1 }));
+  await expect(cli(value, ["identify", outdir, "docker", IMAGE])).rejects.toThrow("metadata has invalid field types");
+  await writeFile(metadataPath, JSON.stringify({ ...metadata, manifestDigests: ["latest"] }));
+  await expect(cli(value, ["load", outdir, REVISION, IMAGE_ID])).rejects.toThrow("metadata manifest digests are invalid");
+  await expect(cli(value, ["unpack", outdir])).rejects.toThrow("usage: bun scripts/production-image-artifact.ts pack");
 });

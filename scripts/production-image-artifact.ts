@@ -14,7 +14,8 @@ const IMAGE_REFERENCE = /^[a-z0-9][a-z0-9._/-]*(?::[A-Za-z0-9][A-Za-z0-9._-]*)?$
 
 /**
  * `imageId` is the archive's image CONFIG digest. `manifestDigests` are the manifest and manifest-list digests the
- * archive lists, any of which Docker's containerd image store may report as `.Id` for the same image (version 2).
+ * archive lists (attestation manifests excluded), any of which Docker's containerd image store may report as `.Id` for
+ * the same image (version 2).
  */
 type ArtifactMetadata = Readonly<{
   schemaVersion: 2;
@@ -47,8 +48,9 @@ function requireImageReference(image: string): void {
   if (!IMAGE_REFERENCE.test(image)) fail("image must be a lowercase container image reference");
 }
 
+/** The child gets the current `process.env`, read at the call, and finds `binary` on its PATH. */
 async function command(binary: string, args: string[]): Promise<string> {
-  const child = Bun.spawn([binary, ...args], { stdout: "pipe", stderr: "pipe" });
+  const child = Bun.spawn([binary, ...args], { env: process.env, stdout: "pipe", stderr: "pipe" });
   const [stdout, stderr, exit] = await Promise.all([
     new Response(child.stdout).text(),
     new Response(child.stderr).text(),
@@ -138,8 +140,10 @@ export async function archiveIdentity(read: ArchiveReader): Promise<ArchiveIdent
     while (pending.length > 0) {
       const descriptor = pending.shift()!;
       const digest = requireDigest(descriptor.digest, "index.json");
-      manifestDigests.push(digest);
+      // An attestation manifest (platform unknown/unknown) describes the image; it is not the image, so its digest
+      // never counts as one an engine may report for it.
       if (descriptor.platform?.os === ATTESTATION_PLATFORM) continue;
+      manifestDigests.push(digest);
       const blob = await read(blobMember(digest));
       if (blob === null) fail(`archive lists ${digest} but does not contain it`);
       const parsed = parseJson(blob, blobMember(digest)) as { mediaType?: string; manifests?: Descriptor[]; config?: { digest?: unknown } };
@@ -192,6 +196,16 @@ function parseMetadata(value: unknown): ArtifactMetadata {
   requireImageId(record.imageId);
   if (!SHA256.test(record.archiveSha256)) fail("metadata archive SHA-256 is invalid");
   return record as ArtifactMetadata;
+}
+
+async function readMetadata(path: string): Promise<ArtifactMetadata> {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(await readFile(path, "utf8"));
+  } catch {
+    fail("metadata is not valid JSON");
+  }
+  return parseMetadata(parsed);
 }
 
 async function regularFile(path: string, description: string): Promise<void> {
@@ -270,13 +284,7 @@ export async function load(outdir: string, revision: string, expectedImageId: st
   const metadataPath = join(outdir, METADATA_FILENAME);
   await Promise.all([regularFile(archive, "archive"), regularFile(metadataPath, "metadata")]);
 
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(await readFile(metadataPath, "utf8"));
-  } catch {
-    fail("metadata is not valid JSON");
-  }
-  const metadata = parseMetadata(parsed);
+  const metadata = await readMetadata(metadataPath);
   if (metadata.revision !== revision) fail("metadata revision does not match the expected revision");
   if (metadata.imageId !== expectedImageId) fail("metadata image ID does not match the expected producer image ID");
   if ((await checksum(archive)) !== metadata.archiveSha256) fail("archive SHA-256 does not match metadata");
@@ -302,13 +310,7 @@ export async function identify(outdir: string, engine: "docker" | "podman", imag
   const reported = await imageId(engine, image);
   const metadataPath = join(outdir, METADATA_FILENAME);
   if (!(await Bun.file(metadataPath).exists())) return reported;
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(await readFile(metadataPath, "utf8"));
-  } catch {
-    fail("metadata is not valid JSON");
-  }
-  const metadata = parseMetadata(parsed);
+  const metadata = await readMetadata(metadataPath);
   if (metadata.image !== image) return reported;
   if (!isArchiveImage({ configDigest: metadata.imageId, manifestDigests: metadata.manifestDigests }, reported)) {
     fail(`${engine} image ID ${reported} is not the packed candidate ${metadata.imageId}`);
