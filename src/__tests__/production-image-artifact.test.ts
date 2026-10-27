@@ -3,11 +3,58 @@ import { createHash } from "node:crypto";
 import { chmod, mkdir, mkdtemp, readFile, rm, unlink, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import { ARCHIVE_FILENAME, METADATA_FILENAME } from "../../scripts/production-image-artifact.ts";
+import { ARCHIVE_FILENAME, archiveIdentity, isArchiveImage, METADATA_FILENAME } from "../../scripts/production-image-artifact.ts";
 
 const IMAGE = "localhost/ezcorp-testing-review:a4f44e5be";
 const REVISION = "a".repeat(40);
 const IMAGE_ID = `sha256:${"a".repeat(64)}`;
+/** The containerd store's `.Id` for the same image: the digest of the manifest list it exports. */
+const LIST_ID = `sha256:${"c".repeat(64)}`;
+const MANIFEST_ID = `sha256:${"d".repeat(64)}`;
+const ATTESTATION_ID = `sha256:${"e".repeat(64)}`;
+const hex = (digest: string) => digest.slice("sha256:".length);
+
+/** Archive members, by name, for the two `docker image save` shapes. */
+function classicArchive(config = IMAGE_ID): Record<string, string> {
+  return {
+    "manifest.json": JSON.stringify([{ Config: `${hex(config)}.json`, RepoTags: [IMAGE], Layers: [] }]),
+    [`${hex(config)}.json`]: JSON.stringify({ config: { Labels: { "org.opencontainers.image.revision": REVISION } } }),
+  };
+}
+
+/** The containerd store's save: an OCI layout whose index names a manifest list, plus the compatibility manifest.json. */
+function ociIndexArchive(config = IMAGE_ID): Record<string, string> {
+  return {
+    "oci-layout": JSON.stringify({ imageLayoutVersion: "1.0.0" }),
+    "index.json": JSON.stringify({ schemaVersion: 2, manifests: [{ mediaType: "application/vnd.oci.image.index.v1+json", digest: LIST_ID, annotations: { "io.containerd.image.name": IMAGE } }] }),
+    [`blobs/sha256/${hex(LIST_ID)}`]: JSON.stringify({
+      schemaVersion: 2,
+      mediaType: "application/vnd.oci.image.index.v1+json",
+      manifests: [
+        { mediaType: "application/vnd.oci.image.manifest.v1+json", digest: MANIFEST_ID, platform: { os: "linux", architecture: "amd64" } },
+        { mediaType: "application/vnd.oci.image.manifest.v1+json", digest: ATTESTATION_ID, platform: { os: "unknown", architecture: "unknown" } },
+      ],
+    }),
+    [`blobs/sha256/${hex(MANIFEST_ID)}`]: JSON.stringify({ schemaVersion: 2, mediaType: "application/vnd.oci.image.manifest.v1+json", config: { mediaType: "application/vnd.oci.image.config.v1+json", digest: config }, layers: [] }),
+    [`blobs/sha256/${hex(config)}`]: JSON.stringify({ config: { Labels: { "org.opencontainers.image.revision": REVISION } } }),
+    "manifest.json": JSON.stringify([{ Config: `blobs/sha256/${hex(config)}`, RepoTags: [IMAGE], Layers: [] }]),
+  };
+}
+
+/** Writes the members as a real tar, member names exactly as given, the way `docker image save` names them. */
+async function writeTar(path: string, members: Record<string, string>): Promise<void> {
+  const dir = await mkdtemp(join(tmpdir(), "image-archive-"));
+  try {
+    for (const [name, text] of Object.entries(members)) {
+      await mkdir(join(dir, name, ".."), { recursive: true });
+      await writeFile(join(dir, name), text);
+    }
+    const tar = Bun.spawnSync(["tar", "-c", "-f", path, "-C", dir, ...Object.keys(members)]);
+    if (tar.exitCode !== 0) throw new Error(tar.stderr.toString());
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+}
 
 type Fixture = { root: string; outdir: string; log: string; env: Record<string, string | undefined> };
 
@@ -27,7 +74,7 @@ if [ "$1" = image ] && [ "$2" = inspect ]; then
     if [ "$(basename "$0")" = podman ]; then printf '%s\\n' "$PODMAN_REVISION"; else printf '%s\\n' "$DOCKER_REVISION"; fi
   fi
 elif [ "$1" = image ] && [ "$2" = save ]; then
-  printf 'fake docker save bytes\\n'
+  cat "$SAVE_TAR"
 elif [ "$1" = image ] && [ "$2" = load ]; then
   cat >/dev/null
   if [ "\${ENGINE_LOAD_FAILURE:-}" = "$(basename "$0")" ]; then exit 44; fi
@@ -58,10 +105,12 @@ fi
     writeFile(join(bin, "zstd"), zstd, { mode: 0o755 }),
   ]);
   await Promise.all([chmod(join(bin, "docker"), 0o755), chmod(join(bin, "podman"), 0o755), chmod(join(bin, "zstd"), 0o755)]);
+  await writeTar(join(root, "save.tar"), classicArchive());
   return { root, outdir, log, env: {
     ...process.env,
     PATH: `${bin}:${process.env.PATH}`,
     ENGINE_LOG: log,
+    SAVE_TAR: join(root, "save.tar"),
     DOCKER_IMAGE_ID: IMAGE_ID,
     PODMAN_IMAGE_ID: IMAGE_ID.slice("sha256:".length),
     DOCKER_REVISION: REVISION,
@@ -158,8 +207,10 @@ test("checksums a multi-megabyte compressed archive before loading it", async ()
   await withFixture(async (value) => {
     const { outdir } = value;
     await cli(value, ["pack", IMAGE, REVISION, outdir]);
-    const bytes = Buffer.alloc(8 * 1024 * 1024, "a");
-    await writeFile(join(outdir, ARCHIVE_FILENAME), bytes);
+    // A real archive with an 8 MiB layer member, so the identity read after the checksum still finds its image.
+    await writeTar(join(outdir, ARCHIVE_FILENAME), { ...classicArchive(), "layer.tar": "a".repeat(8 * 1024 * 1024) });
+    const bytes = await readFile(join(outdir, ARCHIVE_FILENAME));
+    expect(bytes.length).toBeGreaterThan(8 * 1024 * 1024);
     const metadataPath = join(outdir, METADATA_FILENAME);
     const metadata = JSON.parse(await readFile(metadataPath, "utf8"));
     metadata.archiveSha256 = createHash("sha256").update(bytes).digest("hex");
@@ -183,5 +234,69 @@ test("cleans up a partial archive when compression fails", async () => {
     value.env.ZSTD_FAILURE = "pack";
     await expect(cli(value, ["pack", IMAGE, REVISION, value.outdir])).rejects.toThrow("archive creation failed");
     expect(await Bun.file(join(value.outdir, ARCHIVE_FILENAME)).exists()).toBe(false);
+  });
+});
+
+/** An in-memory reader over archive members, for the parsing tests. */
+const reader = (members: Record<string, string>) => async (member: string) => members[member] ?? null;
+
+test("an archive's identity is its config digest, from either save shape", async () => {
+  expect(await archiveIdentity(reader(classicArchive()))).toEqual({ configDigest: IMAGE_ID, manifestDigests: [] });
+  expect(await archiveIdentity(reader(ociIndexArchive()))).toEqual({ configDigest: IMAGE_ID, manifestDigests: [LIST_ID, MANIFEST_ID, ATTESTATION_ID] });
+  const { "manifest.json": _compat, ...ociOnly } = ociIndexArchive();
+  expect(await archiveIdentity(reader(ociOnly))).toEqual({ configDigest: IMAGE_ID, manifestDigests: [LIST_ID, MANIFEST_ID, ATTESTATION_ID] });
+});
+
+test("an engine's ID is the archive's image when it is the config digest or a manifest digest the archive lists", async () => {
+  const identity = await archiveIdentity(reader(ociIndexArchive()));
+  expect([IMAGE_ID, LIST_ID, MANIFEST_ID].map((id) => isArchiveImage(identity, id))).toEqual([true, true, true]);
+  expect(isArchiveImage(identity, `sha256:${"b".repeat(64)}`)).toBe(false);
+});
+
+test("an archive that names no config, two configs, or a manifest it does not contain is refused", async () => {
+  await expect(archiveIdentity(reader({}))).rejects.toThrow("neither manifest.json nor index.json");
+  await expect(archiveIdentity(reader({ "manifest.json": "[]" }))).rejects.toThrow("exactly one image");
+  await expect(archiveIdentity(reader({ "manifest.json": JSON.stringify([{ Config: "not-a-digest" }]) }))).rejects.toThrow("names no config digest");
+  await expect(archiveIdentity(reader({ "manifest.json": "{" }))).rejects.toThrow("manifest.json is not valid JSON");
+  const disagreeing = { ...ociIndexArchive(), "manifest.json": classicArchive(`sha256:${"b".repeat(64)}`)["manifest.json"]! };
+  await expect(archiveIdentity(reader(disagreeing))).rejects.toThrow("exactly one image config, found 2");
+  const { [`blobs/sha256/${hex(MANIFEST_ID)}`]: _manifest, ...missing } = ociIndexArchive();
+  await expect(archiveIdentity(reader(missing))).rejects.toThrow(`lists ${MANIFEST_ID} but does not contain it`);
+  const noDigest = { "index.json": JSON.stringify({ manifests: [{ digest: "latest" }] }) };
+  await expect(archiveIdentity(reader(noDigest))).rejects.toThrow("index.json names no sha256 digest");
+});
+
+test("packs and loads under Docker's containerd image store, where docker reports the manifest list's digest", async () => {
+  await withFixture(async (value) => {
+    const { outdir } = value;
+    await writeTar(value.env.SAVE_TAR!, ociIndexArchive());
+    value.env.DOCKER_IMAGE_ID = LIST_ID;
+    value.env.PODMAN_IMAGE_ID = hex(IMAGE_ID);
+    // The recorded and printed ID is the config digest, which Podman reports too.
+    await expect(cli(value, ["pack", IMAGE, REVISION, outdir])).resolves.toBe(IMAGE_ID);
+    expect(JSON.parse(await readFile(join(outdir, METADATA_FILENAME), "utf8")).imageId).toBe(IMAGE_ID);
+    await expect(cli(value, ["load", outdir, REVISION, IMAGE_ID])).resolves.toBe("");
+  });
+});
+
+test("pack refuses a Docker image ID that is not the image in the saved archive", async () => {
+  await withFixture(async (value) => {
+    value.env.DOCKER_IMAGE_ID = `sha256:${"b".repeat(64)}`;
+    await expect(cli(value, ["pack", IMAGE, REVISION, value.outdir])).rejects.toThrow("is not the image in the saved archive");
+  });
+});
+
+test("load refuses an archive whose config is not the expected image, before either engine loads it", async () => {
+  await withFixture(async (value) => {
+    const { outdir, log } = value;
+    await cli(value, ["pack", IMAGE, REVISION, outdir]);
+    const archive = join(outdir, ARCHIVE_FILENAME);
+    await writeTar(archive, classicArchive(`sha256:${"b".repeat(64)}`));
+    const metadataPath = join(outdir, METADATA_FILENAME);
+    const metadata = JSON.parse(await readFile(metadataPath, "utf8"));
+    metadata.archiveSha256 = createHash("sha256").update(await readFile(archive)).digest("hex");
+    await writeFile(metadataPath, `${JSON.stringify(metadata)}\n`);
+    await expect(cli(value, ["load", outdir, REVISION, IMAGE_ID])).rejects.toThrow("archive config digest");
+    expect(await readFile(log, "utf8")).not.toContain("image load");
   });
 });

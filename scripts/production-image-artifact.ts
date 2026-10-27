@@ -74,6 +74,96 @@ async function revisionLabel(binary: "docker" | "podman", image: string): Promis
   return inspect(binary, image, '{{ index .Config.Labels "org.opencontainers.image.revision" }}');
 }
 
+/**
+ * What a saved image archive says about its own identity: the image CONFIG digest, and every manifest or index digest
+ * it lists. The config digest is the one ID every engine and store agrees on. Podman reports it as `.Id`, and so does
+ * Docker's classic store. Docker's containerd image store (ubuntu-26.04's default) reports the digest of the
+ * manifest list it exported instead, which this archive lists in `index.json`.
+ */
+export type ArchiveIdentity = Readonly<{ configDigest: string; manifestDigests: readonly string[] }>;
+
+/** Reads one member of the archive as text, or null when the archive has no such member. */
+export type ArchiveReader = (member: string) => Promise<string | null>;
+
+const IMAGE_INDEX_TYPES = new Set(["application/vnd.oci.image.index.v1+json", "application/vnd.docker.distribution.manifest.list.v2+json"]);
+const ATTESTATION_PLATFORM = "unknown";
+
+type Descriptor = { mediaType?: string; digest?: string; platform?: { os?: string; architecture?: string } };
+
+function parseJson(text: string, member: string): unknown {
+  try {
+    return JSON.parse(text);
+  } catch {
+    fail(`archive ${member} is not valid JSON`);
+  }
+}
+
+function requireDigest(value: unknown, member: string): string {
+  if (typeof value !== "string" || !IMAGE_ID.test(value)) fail(`archive ${member} names no sha256 digest`);
+  return value;
+}
+
+function blobMember(digest: string): string {
+  return `blobs/sha256/${digest.slice("sha256:".length)}`;
+}
+
+/** `manifest.json`'s one entry names its config as `<hex>.json` (docker save) or `blobs/sha256/<hex>` (OCI-layout save). */
+function configDigestFromDockerManifest(text: string): string {
+  const entries = parseJson(text, "manifest.json");
+  if (!Array.isArray(entries) || entries.length !== 1) fail("archive manifest.json must describe exactly one image");
+  const config = (entries[0] as { Config?: unknown }).Config;
+  const hex = typeof config === "string" ? /^(?:blobs\/sha256\/)?([a-f0-9]{64})(?:\.json)?$/.exec(config)?.[1] : undefined;
+  if (!hex) fail("archive manifest.json names no config digest");
+  return `sha256:${hex}`;
+}
+
+/**
+ * The archive's identity. `manifest.json` (written by every `docker image save`) names the config; `index.json`, when
+ * present, lists the manifests and manifest lists the engine may report as `.Id`. Both are read when both exist, and
+ * they must name the same config.
+ */
+export async function archiveIdentity(read: ArchiveReader): Promise<ArchiveIdentity> {
+  const [dockerManifest, ociIndex] = await Promise.all([read("manifest.json"), read("index.json")]);
+  if (dockerManifest === null && ociIndex === null) fail("archive has neither manifest.json nor index.json");
+  const manifestDigests: string[] = [];
+  const configs = new Set<string>();
+  if (ociIndex !== null) {
+    const pending: Descriptor[] = [...(((parseJson(ociIndex, "index.json") as { manifests?: Descriptor[] }).manifests) ?? [])];
+    while (pending.length > 0) {
+      const descriptor = pending.shift()!;
+      const digest = requireDigest(descriptor.digest, "index.json");
+      manifestDigests.push(digest);
+      if (descriptor.platform?.os === ATTESTATION_PLATFORM) continue;
+      const blob = await read(blobMember(digest));
+      if (blob === null) fail(`archive lists ${digest} but does not contain it`);
+      const parsed = parseJson(blob, blobMember(digest)) as { mediaType?: string; manifests?: Descriptor[]; config?: { digest?: unknown } };
+      if (IMAGE_INDEX_TYPES.has(descriptor.mediaType ?? "") || IMAGE_INDEX_TYPES.has(parsed.mediaType ?? "") || Array.isArray(parsed.manifests)) {
+        pending.push(...(parsed.manifests ?? []));
+      } else {
+        configs.add(requireDigest(parsed.config?.digest, blobMember(digest)));
+      }
+    }
+  }
+  if (dockerManifest !== null) configs.add(configDigestFromDockerManifest(dockerManifest));
+  if (configs.size !== 1) fail(`archive must name exactly one image config, found ${configs.size}`);
+  return { configDigest: [...configs][0]!, manifestDigests };
+}
+
+/** True when an engine's reported image ID is this archive's image: its config digest or one of its manifest digests. */
+export function isArchiveImage(identity: ArchiveIdentity, reportedId: string): boolean {
+  return reportedId === identity.configDigest || identity.manifestDigests.includes(reportedId);
+}
+
+/** Reads archive members through the compressor and `tar`; one pass lists the archive, one pass reads each member. */
+function compressedArchiveReader(archive: string): ArchiveReader {
+  let members: Promise<Set<string>> | undefined;
+  return async (member) => {
+    members ??= pipeline("archive listing", 'zstd -d --no-progress -q -c "$1" | tar -t -f -', [archive]).then((list) => new Set(list.split("\n")));
+    if (!(await members).has(member)) return null;
+    return pipeline(`archive read of ${member}`, 'zstd -d --no-progress -q -c "$1" | tar -x -O -f - "$2"', [archive, member]);
+  };
+}
+
 function parseMetadata(value: unknown): ArtifactMetadata {
   if (!value || typeof value !== "object" || Array.isArray(value)) fail("metadata must be a JSON object");
   const record = value as Record<string, unknown>;
@@ -142,15 +232,20 @@ export async function pack(image: string, revision: string, outdir: string): Pro
     throw error;
   }
 
+  // The recorded ID is the archive's CONFIG digest, the one ID every engine and image store agrees on. Docker's own
+  // `.Id` must be this archive's image, but under the containerd store it is the manifest list's digest, not the config.
+  const identity = await archiveIdentity(compressedArchiveReader(archive));
+  if (!isArchiveImage(identity, producerImageId)) fail(`docker image ID ${producerImageId} is not the image in the saved archive (config ${identity.configDigest})`);
+
   const metadata: ArtifactMetadata = {
     schemaVersion: 1,
     image,
     revision,
-    imageId: producerImageId,
+    imageId: identity.configDigest,
     archiveSha256: await checksum(archive),
   };
   await writeMetadata(metadataPath, metadata);
-  return producerImageId;
+  return identity.configDigest;
 }
 
 export async function load(outdir: string, revision: string, expectedImageId: string): Promise<void> {
@@ -170,12 +265,14 @@ export async function load(outdir: string, revision: string, expectedImageId: st
   if (metadata.revision !== revision) fail("metadata revision does not match the expected revision");
   if (metadata.imageId !== expectedImageId) fail("metadata image ID does not match the expected producer image ID");
   if ((await checksum(archive)) !== metadata.archiveSha256) fail("archive SHA-256 does not match metadata");
+  const identity = await archiveIdentity(compressedArchiveReader(archive));
+  if (identity.configDigest !== expectedImageId) fail(`archive config digest ${identity.configDigest} does not match expected image ID ${expectedImageId}`);
 
   for (const engine of ["docker", "podman"] as const) {
     await pipeline(`${engine} image load`, 'zstd -d --no-progress --threads=2 -q -c "$1" | "$2" image load', [archive, engine]);
 
     const [actualImageId, actualRevision] = await Promise.all([imageId(engine, metadata.image), revisionLabel(engine, metadata.image)]);
-    if (actualImageId !== expectedImageId) fail(`${engine} image ID ${actualImageId} does not match expected image ID ${expectedImageId}`);
+    if (!isArchiveImage(identity, actualImageId)) fail(`${engine} image ID ${actualImageId} does not match expected image ID ${expectedImageId}`);
     if (actualRevision !== revision) fail(`${engine} revision label ${JSON.stringify(actualRevision)} does not match ${revision}`);
   }
 }
