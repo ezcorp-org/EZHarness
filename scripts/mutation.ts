@@ -138,6 +138,35 @@ export function mutationExitCode(
   return { code, reason: `Stryker exited ${code}: score under the break threshold` };
 }
 
+/**
+ * The `path:start-end` mutation ranges for the lines this diff ADDED in each selected file (Stryker's --mutate form;
+ * paths are web-relative, touchedLines is keyed by repo-relative path). A file whose diff only deleted lines has no
+ * range: there is nothing new to mutate in it. Empty means Stryker must not run at all — given an empty --mutate it
+ * instruments 0 files, its dry run finds no tests, and it exits 1 with no report, which reads as an infrastructure
+ * failure (PR #362, ci 40203977355).
+ */
+export function changedLineRanges(selected: readonly string[], touchedLines: ReadonlyMap<string, ReadonlySet<number>>): string[] {
+  const ranges: string[] = [];
+  for (const f of selected) {
+    const lines = [...(touchedLines.get(`web/${f}`) ?? new Set<number>())].sort((a, b) => a - b);
+    if (lines.length === 0) continue;
+    // Collapse the changed line numbers into contiguous runs.
+    let start = lines[0] as number;
+    let prev = start;
+    for (const ln of lines.slice(1)) {
+      if (ln === prev + 1) {
+        prev = ln;
+        continue;
+      }
+      ranges.push(`${f}:${start}-${prev}`);
+      start = ln;
+      prev = ln;
+    }
+    ranges.push(`${f}:${start}-${prev}`);
+  }
+  return ranges;
+}
+
 export type Shard = { index: number; count: number };
 
 /** Parse `I/N` (0-based index, 1-based count). Throws on anything else. */
@@ -344,19 +373,23 @@ async function main(): Promise<void> {
       );
     }
 
-    if (selected.length === 0) {
-      console.log(
-        `Mutation: no mutatable file in the diff against ${baseRef} ` +
-          `(scope: ${gates.mutation.mutateGlobs.join(", ")}) — nothing to do.`,
-      );
+    // Both "nothing to mutate" outcomes are decided here, before Stryker starts, and leave the same receipt.
+    const skipChanged = async (reason: string, detail: string): Promise<never> => {
+      console.log(`Mutation: ${detail} — nothing to do.`);
       await writeReport(MUTATION_SKIPPED_FILE, {
         generatedAt: new Date().toISOString(),
         mode: "changed",
         skipped: true,
-        reason: "no mutatable files in diff",
+        reason,
         threshold: gates.mutation.scoreThreshold,
       });
       process.exit(0);
+    };
+    if (selected.length === 0) {
+      await skipChanged(
+        "no mutatable files in diff",
+        `no mutatable file in the diff against ${baseRef} (scope: ${gates.mutation.mutateGlobs.join(", ")})`,
+      );
     }
     // Mutate only the LINES this PR touched, not whole files. Stryker accepts a
     // mutation range (`path:startLine-endLine`), and using it makes this gate
@@ -365,23 +398,13 @@ async function main(): Promise<void> {
     // module: measured on main, `src/lib/format-duration.ts` scores 9.46%, so a
     // one-line change there would fail a PR for assertions its author never
     // wrote. That is how a gate gets bypassed instead of obeyed.
-    const ranges: string[] = [];
-    for (const f of selected) {
-      const lines = [...(touchedLines.get(`web/${f}`) ?? new Set<number>())].sort((a, b) => a - b);
-      if (lines.length === 0) continue;
-      // Collapse the changed line numbers into contiguous runs.
-      let start = lines[0] as number;
-      let prev = start;
-      for (const ln of lines.slice(1)) {
-        if (ln === prev + 1) {
-          prev = ln;
-          continue;
-        }
-        ranges.push(`${f}:${start}-${prev}`);
-        start = ln;
-        prev = ln;
-      }
-      ranges.push(`${f}:${start}-${prev}`);
+    const ranges = changedLineRanges(selected, touchedLines);
+    if (ranges.length === 0) {
+      await skipChanged(
+        "no added lines in mutatable files",
+        `${selected.length} mutatable file(s) in the diff against ${baseRef} only lost lines ` +
+          `(${selected.map((f) => `web/${f}`).join(", ")})`,
+      );
     }
     console.log(
       `Mutation: ${selected.length} changed file(s), ${ranges.length} changed line-range(s) in scope:`,

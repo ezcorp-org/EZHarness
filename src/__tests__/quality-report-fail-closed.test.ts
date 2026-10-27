@@ -11,6 +11,9 @@
  *                                verdict. A Stryker exit with no report is an
  *                                infrastructure failure and still fails.
  *                                --shard I/N partitions the scope exactly.
+ *                                --changed decides "nothing to mutate" before
+ *                                Stryker starts, so a diff that only deleted
+ *                                lines leaves a skipped receipt, not a red.
  *   scripts/merge-mutation-reports.ts
  *                              — the nightly's N shard reports merge into one
  *                                without overlap, and score the way Stryker
@@ -25,6 +28,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { mergeMutationReports } from "../../scripts/merge-mutation-reports.ts";
 import {
+  changedLineRanges,
   deriveStrykerRunConfig,
   filesWithoutCoverage,
   mutationExitCode,
@@ -496,6 +500,31 @@ describe("survivorsWithoutTests — a survivor no test ran is a toolchain failur
       [],
     );
     expect(survivorsWithoutTests({ files: {} })).toEqual([]);
+  });
+});
+
+describe("changedLineRanges — what --changed hands Stryker", () => {
+  const touched = (entries: Record<string, number[]>) => new Map(Object.entries(entries).map(([path, lines]) => [path, new Set(lines)]));
+
+  test("added lines collapse into contiguous web-relative ranges", () => {
+    expect(changedLineRanges(["src/lib/a.ts"], touched({ "web/src/lib/a.ts": [9, 3, 4, 5, 12] }))).toEqual([
+      "src/lib/a.ts:3-5",
+      "src/lib/a.ts:9-9",
+      "src/lib/a.ts:12-12",
+    ]);
+  });
+
+  // PR #362 (ci 40203977355): the diff only deleted lines in an in-scope file. The file was selected, but it has no
+  // added line, so there is no range — and the wrapper must skip before Stryker rather than run it on an empty --mutate.
+  test("a file whose diff only deleted lines yields no range", () => {
+    expect(changedLineRanges(["src/lib/timeline-normalize.ts"], touched({ "web/src/lib/timeline-normalize.ts": [] }))).toEqual([]);
+    expect(changedLineRanges(["src/lib/timeline-normalize.ts"], touched({}))).toEqual([]);
+  });
+
+  test("only selected files contribute, each from its own repo-relative key", () => {
+    expect(
+      changedLineRanges(["src/lib/a.ts", "src/lib/b.ts"], touched({ "web/src/lib/a.ts": [], "web/src/lib/b.ts": [7, 8], "web/src/lib/c.ts": [1] })),
+    ).toEqual(["src/lib/b.ts:7-8"]);
   });
 });
 
