@@ -5,8 +5,8 @@
     "": {
       "name": "web",
       "dependencies": {
-        "@electric-sql/pglite": "0.5.8",
-        "@electric-sql/pglite-pgvector": "0.0.9",
+        "@electric-sql/pglite": "0.5.10",
+        "@electric-sql/pglite-pgvector": "0.0.11",
         "@huggingface/transformers": "^4.3.0",
         "@xyflow/svelte": "1.7.0",
         "ansi_up": "^6.0.6",
@@ -158,9 +158,9 @@
 
     "@csstools/css-tokenizer": ["@csstools/css-tokenizer@4.0.2", "", {}, "sha512-OoKoR0f76dCY666JlcbhmVTs2drYj1GUXZTYTcbUgJjh9Nv41aFfZ21bPQTERm5+L5cBDo466NltB2lplS5GBw=="],
 
-    "@electric-sql/pglite": ["@electric-sql/pglite@0.5.8", "", {}, "sha512-n9tsbUOhwx2epK1V0ZG9Ar4SHWUju04dhmzZXiSBXwBoleOvIfals33NAaWgagQVAL4Rbvx/Ptsu3P+pA09f6Q=="],
+    "@electric-sql/pglite": ["@electric-sql/pglite@0.5.10", "", {}, "sha512-tXc/25U3ulOkiRQuTFdwIv+JhBqtMdAF7Gvo6CfZZWtSB4+hgC4Wr2vwK5ngvvN5PJfAAEGIsfyCVy1JhCOBYw=="],
 
-    "@electric-sql/pglite-pgvector": ["@electric-sql/pglite-pgvector@0.0.9", "", { "peerDependencies": { "@electric-sql/pglite": "0.5.8" } }, "sha512-ue4iBW651gDQwBwn97Ekv1lYGPvXa1ymHbRbTCSL0Ib286PRDD1VDOwzwEoekZuO/wctMbTzKzlwdgDwYrqZ8A=="],
+    "@electric-sql/pglite-pgvector": ["@electric-sql/pglite-pgvector@0.0.11", "", { "peerDependencies": { "@electric-sql/pglite": "0.5.10" } }, "sha512-pUukU2iqI5TLBv/0D5Bk9R9zVyms+7Do6yscl4WRKW5pD2wNl8FlzGWDXphXj/Q42SsVIJHbP4+oqwjQC9fasg=="],
 
     "@emnapi/runtime": ["@emnapi/runtime@1.11.3", "", { "dependencies": { "tslib": "^2.4.0" } }, "sha512-Xz4Tpyki7XyrpbUK1jR1AhdAdaXyhhY4lZ3neLodmhpuWfy2PAQN5B46sAiU4liOXGLkHypn/qU+jvfWSCYYLA=="],
 

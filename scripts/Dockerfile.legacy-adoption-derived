@@ -2,29 +2,30 @@
 # 537f074e image; this adds only the PGlite pgvector bundle its generated
 # server chunk resolves at boot.
 #
-# The base runs PGlite 0.5.7 and the candidate now runs 0.5.8, so the asset
-# crosses a PGlite version here. That is safe because it is not a new build:
-# `pglite-pgvector` 0.0.9's tarball extracts to the same bytes as 0.0.8's — the
-# same `vector.so`, headers, and `vector--*.sql` — and only the tar mtimes
-# moved. Both PGlite versions also bundle the same PostgreSQL 18.3, so the
-# extension ABI on each side is the one this `vector.so` was built for. The
-# checksum comment in scripts/verify-legacy-adoption.sh carries the recipe that
-# proved it; re-run it before the asset crosses a wider gap than this one.
+# That release's web package did not list pgvector, so its server chunk lacks
+# `vector.tar.gz`. Its ROOT install does ship `@electric-sql/pglite-pgvector`
+# 0.0.8, peer-pinned to the PGlite 0.5.7 it runs, so the asset comes from the
+# legacy image itself: the bytes its own release locked. It used to be copied
+# from the candidate, which broke when pgvector 0.0.11 was rebuilt for PGlite
+# 0.5.10 (its `vector.so` needs symbols only PGlite 0.5.9 and later export).
+#
+# The pinned version and sha256 live in ONE place,
+# scripts/legacy-adoption-vector-asset.pin. scripts/verify-legacy-adoption.sh
+# passes them in as VECTOR_VERSION and VECTOR_SHA256; neither has a default,
+# and scripts/lib/legacy-vector-asset.sh fails the build on any other bytes.
 ARG LEGACY_BASE=localhost/ezcorp-extension-v4:legacy-main-537f074e
-ARG ASSET_SOURCE=localhost/ezcorp-extension-v4:terra-final-26541024
-FROM ${ASSET_SOURCE} AS asset_source
 FROM ${LEGACY_BASE}
 ARG LEGACY_BASE_ID
-# Kept in step with `asset_sha256` in scripts/verify-legacy-adoption.sh, which
-# overrides it with the value it measured on the candidate. Read the comment
-# there before moving either: the asset is repacked on every pgvector release,
-# so the pin moves without the extension changing.
-ARG VECTOR_SHA256=881caf1c550dc4ecde6bfae95018d90684c6a61189273f13e0071595819513a2
+ARG VECTOR_SHA256
+ARG VECTOR_VERSION
 USER root
-COPY --from=asset_source /app/web/node_modules/@electric-sql/pglite-pgvector/dist/vector.tar.gz /app/web/build/server/chunks/vector.tar.gz
-RUN echo "${VECTOR_SHA256}  /app/web/build/server/chunks/vector.tar.gz" | sha256sum -c - \
-  && chown bun:bun /app/web/build/server/chunks/vector.tar.gz
+COPY scripts/lib/legacy-vector-asset.sh /tmp/legacy-vector-asset.sh
+RUN sh /tmp/legacy-vector-asset.sh /app/node_modules/@electric-sql/pglite-pgvector \
+      /app/web/build/server/chunks/vector.tar.gz "${VECTOR_SHA256}" "${VECTOR_VERSION}" \
+  && chown bun:bun /app/web/build/server/chunks/vector.tar.gz \
+  && rm /tmp/legacy-vector-asset.sh
 LABEL org.opencontainers.image.revision="537f074e7303ecdf3cbef1a7af4fd60a3244b0a3" \
       org.ezcorp.legacy-adoption.base-image="${LEGACY_BASE_ID}" \
-      org.ezcorp.legacy-adoption.delta="pglite-pgvector-0.0.9 vector.tar.gz from candidate with PGlite 0.5.7"
+      org.ezcorp.legacy-adoption.vector-sha256="${VECTOR_SHA256}" \
+      org.ezcorp.legacy-adoption.delta="pglite-pgvector-${VECTOR_VERSION} vector.tar.gz from the legacy image's own root install (PGlite 0.5.7)"
 USER bun

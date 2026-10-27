@@ -19,32 +19,16 @@ legacy_source="${VERIFY_LEGACY_ADOPTION_LEGACY_SOURCE:-537f074e7303ecdf3cbef1a7a
 candidate_image="${VERIFY_LEGACY_ADOPTION_CANDIDATE_IMAGE:?Set the candidate image}"
 candidate_id="${VERIFY_LEGACY_ADOPTION_CANDIDATE_IMAGE_ID:?Set the exact candidate image ID}"
 candidate_source="${VERIFY_LEGACY_ADOPTION_CANDIDATE_SOURCE:?Set the full candidate source SHA}"
-# `@electric-sql/pglite-pgvector@0.0.9`'s `dist/vector.tar.gz`. This pin is
-# what makes the derived legacy image a KNOWN quantity: the proof copies this
-# exact tarball out of the candidate into the PGlite 0.5.7 legacy main image,
-# so an asset that moved unread would silently change what the legacy half of
-# the proof runs.
-#
-# Upstream repacks the tarball on EVERY release, so the pin moves on every
-# pgvector bump even when the extension did not change. Never move it blind —
-# the derived image runs it under 0.5.7, not under the candidate's PGlite.
-# Compare the EXTRACTED trees, which ignores the tar mtimes that always differ:
-#
-#   for v in <old> <new>; do
-#     mkdir -p "pkg$v" "ext$v"
-#     curl -sSL "https://registry.npmjs.org/@electric-sql/pglite-pgvector/-/pglite-pgvector-$v.tgz" > "$v.tgz"
-#     tar xzf "$v.tgz" -C "pkg$v"
-#     tar xzf "pkg$v/package/dist/vector.tar.gz" -C "ext$v"
-#   done
-#   diff -r ext<old> ext<new>
-#
-# 0.0.8 -> 0.0.9 was empty: same `lib/postgresql/vector.so` (sha256
-# a56170fc4336f51589ad0698f030826ab2bb5d9a251a24ab70713c178076892c), same 3
-# headers, same 36 `vector--*.sql`, same `vector.control` at default_version
-# 0.8.1. Upstream agrees — 0.0.9 carries no change but a peer bump to PGlite
-# 0.5.8. A NON-empty diff means a real rebuild, which needs its own 0.5.7
-# evidence before this line moves.
-asset_sha256="${VERIFY_LEGACY_ADOPTION_ASSET_SHA256:-881caf1c550dc4ecde6bfae95018d90684c6a61189273f13e0071595819513a2}"
+# The pgvector asset the derived legacy image installs (the legacy release's own,
+# from its root node_modules) is pinned in ONE place,
+# scripts/legacy-adoption-vector-asset.pin. The derived build refuses other bytes.
+vector_pin=scripts/legacy-adoption-vector-asset.pin
+pin_value() { sed -n "s/^$1=//p" "$vector_pin"; }
+pinned_asset_sha256="$(pin_value asset_sha256)"
+pinned_asset_version="$(pin_value version)"
+[[ "$pinned_asset_sha256" =~ ^[0-9a-f]{64}$ ]] || { echo "No asset_sha256 in $vector_pin" >&2; exit 2; }
+[[ -n "$pinned_asset_version" ]] || { echo "No version in $vector_pin" >&2; exit 2; }
+asset_sha256="${VERIFY_LEGACY_ADOPTION_ASSET_SHA256:-$pinned_asset_sha256}"
 run_id="${VERIFY_LEGACY_ADOPTION_RUN_ID:-$(openssl rand -hex 6)}"
 receipt_root="${VERIFY_LEGACY_ADOPTION_RECEIPT_DIR:-$(mktemp -d /tmp/ezcorp-legacy-adoption-receipts-XXXXXXXX)}"
 
@@ -83,12 +67,10 @@ candidate_actual_id="$(docker image inspect "$candidate_image" --format '{{.Id}}
 [[ "${candidate_actual_id#sha256:}" != "${legacy_base_id#sha256:}" ]] || { echo "Legacy base and candidate image IDs must differ" >&2; exit 1; }
 candidate_revision="$(docker image inspect "$candidate_image" --format '{{index .Config.Labels "org.opencontainers.image.revision"}}')"
 [[ "$candidate_revision" == "$candidate_source" ]] || { echo "Wrong candidate OCI revision" >&2; exit 1; }
-actual_asset_sha256="$(docker run --rm --entrypoint sha256sum "$candidate_image" /app/web/node_modules/@electric-sql/pglite-pgvector/dist/vector.tar.gz | awk '{print $1}')"
-[[ "$actual_asset_sha256" == "$asset_sha256" ]] || { echo "Candidate vector asset checksum mismatch" >&2; exit 1; }
 if ! docker image inspect "$legacy_image" >/dev/null 2>&1; then
   docker build --load -f scripts/Dockerfile.legacy-adoption-derived \
     --build-arg LEGACY_BASE="$legacy_base_image" --build-arg LEGACY_BASE_ID="$legacy_base_id" \
-    --build-arg ASSET_SOURCE="$candidate_image" --build-arg VECTOR_SHA256="$actual_asset_sha256" \
+    --build-arg VECTOR_SHA256="$asset_sha256" --build-arg VECTOR_VERSION="$pinned_asset_version" \
     -t "$legacy_image" . >"$receipt_build_root/legacy-derived-build.log" 2>&1
 fi
 legacy_id="$(docker image inspect "$legacy_image" --format '{{.Id}}')"
@@ -96,7 +78,10 @@ legacy_revision="$(docker image inspect "$legacy_image" --format '{{index .Confi
 legacy_base="$(docker image inspect "$legacy_image" --format '{{index .Config.Labels "org.ezcorp.legacy-adoption.base-image"}}')"
 [[ "$legacy_revision" == "$legacy_source" ]] || { echo "Wrong legacy OCI revision" >&2; exit 1; }
 [[ "$legacy_base" == "$legacy_base_id" ]] || { echo "Derived legacy image has the wrong base" >&2; exit 1; }
-printf 'legacy_image_id=%s\nlegacy_revision=%s\nlegacy_base_image_id=%s\ncandidate_image_id=%s\ncandidate_revision=%s\nasset_sha256=%s\n' "$legacy_id" "$legacy_revision" "$legacy_base_id" "$candidate_actual_id" "$candidate_revision" "$actual_asset_sha256" > "$receipt_root/provenance.txt"
+# A derived image left from an earlier run is reused by tag, so check it carries the asset this run pins.
+legacy_vector="$(docker image inspect "$legacy_image" --format '{{index .Config.Labels "org.ezcorp.legacy-adoption.vector-sha256"}}')"
+[[ "$legacy_vector" == "$asset_sha256" ]] || { echo "Derived legacy image carries a different vector asset; remove $legacy_image and re-run" >&2; exit 1; }
+printf 'legacy_image_id=%s\nlegacy_revision=%s\nlegacy_base_image_id=%s\ncandidate_image_id=%s\ncandidate_revision=%s\nasset_sha256=%s\n' "$legacy_id" "$legacy_revision" "$legacy_base_id" "$candidate_actual_id" "$candidate_revision" "$asset_sha256" > "$receipt_root/provenance.txt"
 
 run_image() {
   local image="$1"

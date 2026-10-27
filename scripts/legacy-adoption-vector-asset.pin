@@ -1,0 +1,27 @@
+# The pgvector asset the legacy-adoption proof installs into the legacy image.
+#
+# The legacy main release (`source`) did not list pgvector in its web package, so its server chunk lacks
+# `vector.tar.gz`. scripts/Dockerfile.legacy-adoption-derived installs the asset that release's OWN root install
+# locked (`/app/node_modules/@electric-sql/pglite-pgvector`, peer-pinned to the PGlite 0.5.7 it runs), through
+# scripts/lib/legacy-vector-asset.sh, which refuses any other version or bytes. Both that build and
+# scripts/verify-legacy-adoption.sh read these values from here and nowhere else.
+# src/__tests__/legacy-adoption-vector-pin.test.ts checks `version` and `integrity` against `source`'s bun.lock (kept
+# as src/__tests__/fixtures/legacy-main-537f074e-bun.lock.txt).
+#
+# Because the asset is the legacy release's own, it does not move with the candidate's pgvector. It moves only if the
+# legacy source moves.
+#
+# History:
+#   Until 0.0.11 the derived image copied the CANDIDATE's asset. That held while pgvector only repacked the same build
+#   (0.0.8 -> 0.0.9: an empty extracted diff, the same `vector.so` a56170fc...6892c, PostgreSQL 18.3 on both sides).
+#   pgvector 0.0.11 is a real rebuild for PGlite 0.5.10 (pgvector 0.8.1 -> 0.8.7, `vector.so` d217e764...0db75), and its
+#   `vector.so` needs core symbols only PGlite 0.5.9 and later export: under PGlite 0.5.7, `CREATE EXTENSION vector`
+#   fails with "could not load library ... vector.so ... bad export type for 'bitlength'". The legacy app then exits
+#   at boot. That was #367's red. The legacy image now uses its own 0.0.8, which loads under 0.5.7.
+#   (The 0.0.8 and 0.0.9 assets differ only in tar mtimes, so the legacy proof runs the same extension as before.)
+source=537f074e7303ecdf3cbef1a7af4fd60a3244b0a3
+package=@electric-sql/pglite-pgvector
+version=0.0.8
+integrity=sha512-Ll1OEF7TLmcvDWT0RkaG/PjYbJ3Xj/YJ6L1GgLsyUp+9N8WIH4Dryj39D0IiEg8IeknZ6AKyBgpba4XJjABEQQ==
+asset=dist/vector.tar.gz
+asset_sha256=bc318f06884e68874ba57613ca2ae88e93e9845445c2a0f19383606b041f77cc
