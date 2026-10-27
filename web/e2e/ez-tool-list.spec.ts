@@ -1,4 +1,5 @@
 import { test, expect, captureEvidence } from "./fixtures/test-base.js";
+import { backdropLook, expectFullViewportBackdrop } from "./fixtures/backdrop.js";
 import { makeProject, makeMode } from "./fixtures/data.js";
 
 /**
@@ -81,6 +82,12 @@ test.describe("EZ mode — tool list visibility", () => {
 		await expect(popover).toContainText("scan");
 		// Chip count reflects the fetched list.
 		await expect(page.getByTestId("ez-panel-tools")).toContainText("4");
+		// The close-on-outside-click button fills a ModalBackdrop at layer 40 and spans the viewport.
+		const catcher = page.getByTestId("ez-panel-tools-backdrop");
+		await expectFullViewportBackdrop(catcher, { onTop: false });
+		expect((await backdropLook(catcher.locator(".."))).zIndex).toBe("40");
 		await captureEvidence(page, testInfo, "ez-panel-tools-popover");
+		await catcher.click({ position: { x: 4, y: 4 } });
+		await expect(popover).toBeHidden();
 	});
 });

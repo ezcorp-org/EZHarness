@@ -23,6 +23,7 @@
  * normal mock run stays byte-identical.
  */
 import { test, expect, captureEvidence } from "./fixtures/test-base.js";
+import { expectFullViewportBackdrop } from "./fixtures/backdrop.js";
 import { makeProject, makeWorkflow } from "./fixtures/data.js";
 import {
 	expectReadable,
@@ -782,6 +783,8 @@ test.describe("Delegation consent dialog", () => {
 		await page.getByTestId("grant-job-ref").fill("nightly-ship");
 		await page.getByTestId("grant-review").click();
 		await expect(page.getByTestId("token-bound-exclusions")).toBeVisible();
+		// The dialog's backdrop dims the whole viewport, the bottom strip included.
+		await expectFullViewportBackdrop(page.getByTestId("delegation-consent-backdrop"));
 		await captureEvidence(page, testInfo, "delegation-consent-dialog");
 
 		// The dialog body scrolls INSIDE a fixed-height modal, so `fullPage`

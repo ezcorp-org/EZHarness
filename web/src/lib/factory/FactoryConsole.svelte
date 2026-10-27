@@ -1,4 +1,5 @@
 <script lang="ts">
+	import ModalBackdrop from "$lib/components/ui/ModalBackdrop.svelte";
 	import {
 		AlertTriangle,
 		Archive,
@@ -640,7 +641,7 @@
 </section>
 
 {#if starting && selected}
-	<div class="modal-backdrop" role="presentation" onclick={event => event.target === event.currentTarget && (starting = null)}>
+	<ModalBackdrop variant="console" z={70} class="px-[18px] py-[4vh]" role="presentation" onclose={() => (starting = null)}>
 		<div class="start-modal" role="dialog" aria-modal="true" aria-labelledby="start-title">
 			<header>
 				<div><p class="eyebrow">Queue a run</p><h2 id="start-title">Start {selected.factoryId} {starting.version}</h2></div>
@@ -664,11 +665,11 @@
 				{/if}
 			</footer>
 		</div>
-	</div>
+	</ModalBackdrop>
 {/if}
 
 {#if publishOpen && source && selected}
-	<div class="modal-backdrop" role="presentation" onclick={event => event.target === event.currentTarget && (publishOpen = false)}>
+	<ModalBackdrop variant="console" z={70} class="px-[18px] py-[4vh]" role="presentation" onclose={() => (publishOpen = false)}>
 		<div class="publish-modal" role="dialog" aria-modal="true" aria-labelledby="publish-title">
 			<header>
 				<div><p class="eyebrow">Immutable publication</p><h2 id="publish-title">Review version {source.version}</h2></div>
@@ -709,7 +710,7 @@
 				<div><button class="button-secondary" onclick={() => publishOpen = false}>Cancel</button><button class="button-publish" disabled={publishing} onclick={publishVersion}>{publishing ? "Publishing…" : "Publish " + source.version}</button></div>
 			</footer>
 		</div>
-	</div>
+	</ModalBackdrop>
 {/if}
 
 <style>
@@ -821,7 +822,6 @@
 	.start-done { margin: 0; color: var(--color-green-700); font-size: 12px; }
 	.start-modal footer { display: flex; justify-content: flex-end; gap: 8px; border-top: 1px solid var(--color-border); padding: 12px 18px; }
 	.version-ledger small, .version-ledger code { color: var(--color-text-muted); font-size: 10px; }
-	.modal-backdrop { position: fixed; inset: 0; z-index: 70; display: grid; overflow: auto; place-items: start center; background: rgb(4 8 18 / .72); padding: 4vh 18px; }
 	.publish-modal { width: min(980px, 100%); border: 1px solid var(--color-border-strong); border-top: 4px solid var(--color-brand); border-radius: 4px; background: var(--color-surface); box-shadow: var(--shadow-2xl); }
 	.publish-modal > header { display: flex; align-items: center; justify-content: space-between; border-bottom: 1px solid var(--color-border); padding: 17px 20px; }
 	.publish-modal h2 { margin: 3px 0 0; font-size: 22px; }

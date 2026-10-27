@@ -12,6 +12,7 @@
   project-scoped.
 -->
 <script lang="ts">
+	import ModalBackdrop from "$lib/components/ui/ModalBackdrop.svelte";
 	import { onMount } from "svelte";
 	import { goto } from "$app/navigation";
 	import { setBreadcrumbTail } from "$lib/breadcrumb-tail.svelte.js";
@@ -429,7 +430,7 @@
      input is host-owned; only the validated prompt display strings come
      from the page tree. -->
 {#if promptAction?.prompt}
-	<div class="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4" data-testid="hub-prompt-dialog">
+	<ModalBackdrop dim={50} class="flex items-center justify-center p-4" data-testid="hub-prompt-dialog">
 		<div
 			role="dialog"
 			aria-modal="true"
@@ -504,14 +505,14 @@
 				</button>
 			</div>
 		</div>
-	</div>
+	</ModalBackdrop>
 {/if}
 
 <!-- Host-rendered multi-field form dialog (sibling of the prompt dialog).
      Every input is host-owned; only the validated form display strings come
      from the page tree. Save merges EVERY field (empty = clear-to-empty). -->
 {#if formAction?.form}
-	<div class="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4" data-testid="hub-form-dialog">
+	<ModalBackdrop dim={50} class="flex items-center justify-center p-4" data-testid="hub-form-dialog">
 		<div
 			role="dialog"
 			aria-modal="true"
@@ -567,12 +568,12 @@
 				</button>
 			</div>
 		</div>
-	</div>
+	</ModalBackdrop>
 {/if}
 
 <!-- Host-rendered confirm dialog -->
 {#if confirmAction}
-	<div class="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4" data-testid="hub-confirm-dialog">
+	<ModalBackdrop dim={50} class="flex items-center justify-center p-4" data-testid="hub-confirm-dialog">
 		<div
 			role="dialog"
 			aria-modal="true"
@@ -604,5 +605,5 @@
 				</button>
 			</div>
 		</div>
-	</div>
+	</ModalBackdrop>
 {/if}

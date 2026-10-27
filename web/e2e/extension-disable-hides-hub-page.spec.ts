@@ -18,6 +18,7 @@
  * worse than no screenshot.
  */
 import { test, expect, captureEvidence } from "./fixtures/test-base.js";
+import { expectFullViewportBackdrop } from "./fixtures/backdrop.js";
 import { makeExtension, makeProject } from "./fixtures/data.js";
 import { expectReadable, useLightTheme } from "./fixtures/readable.js";
 
@@ -223,6 +224,8 @@ test.describe("@evidence Disabling an extension hides its Hub page", () => {
 		const dialog = page.getByTestId("uninstall-dialog");
 		await expect(dialog).toBeVisible();
 		await expect(dialog).toContainText("release history, settings, secrets, stored data and files are kept");
+		// The dialog is its own ModalBackdrop: it dims the whole viewport, the bottom strip included.
+		await expectFullViewportBackdrop(dialog);
 
 		await captureEvidence(page, testInfo, "extension-detail-uninstall");
 	});

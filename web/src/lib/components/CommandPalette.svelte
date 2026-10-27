@@ -1,4 +1,5 @@
 <script lang="ts">
+	import ModalBackdrop from "$lib/components/ui/ModalBackdrop.svelte";
 	import { page } from "$app/stores";
 	import { goto } from "$app/navigation";
 	import MentionText from "./MentionText.svelte";
@@ -226,13 +227,6 @@
 		degraded = false;
 		searchToken++; // invalidate any in-flight debounced search
 		clearTimeout(debounceTimer);
-	}
-
-	function handleBackdropClick(e: MouseEvent) {
-		if (e.target === e.currentTarget) {
-			resetState();
-			onclose();
-		}
 	}
 
 	function executeCommand(cmd: Command) {
@@ -716,10 +710,13 @@
 		</div>
 	{:else}
 		<!-- Desktop: centered modal with its own a11y + focus-restore-on-close. -->
-		<!-- svelte-ignore a11y_no_static_element_interactions -->
-		<div
-			class="fixed inset-0 z-50 flex items-start justify-center bg-black/60 pt-[15vh]"
-			onclick={handleBackdropClick}
+		<ModalBackdrop
+			dim={60}
+			class="flex items-start justify-center pt-[15vh]"
+			onclose={() => {
+				resetState();
+				onclose();
+			}}
 			onkeydown={handleKeydown}
 		>
 			<div
@@ -731,6 +728,6 @@
 			>
 				{@render body()}
 			</div>
-		</div>
+		</ModalBackdrop>
 	{/if}
 {/if}

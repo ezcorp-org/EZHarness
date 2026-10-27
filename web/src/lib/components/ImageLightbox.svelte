@@ -1,4 +1,5 @@
 <script lang="ts">
+	import ModalBackdrop from "$lib/components/ui/ModalBackdrop.svelte";
 	import { lightbox } from "$lib/image-lightbox.svelte.js";
 
 	function handleKey(e: KeyboardEvent) {
@@ -7,20 +8,15 @@
 			lightbox.hide();
 		}
 	}
-
-	function handleBackdropClick(e: MouseEvent) {
-		if (e.target === e.currentTarget) lightbox.hide();
-	}
 </script>
 
 <svelte:window onkeydown={handleKey} />
 
 {#if lightbox.open}
-	<!-- svelte-ignore a11y_click_events_have_key_events -->
-	<!-- svelte-ignore a11y_no_static_element_interactions -->
-	<div
-		class="lightbox-backdrop"
-		onclick={handleBackdropClick}
+	<ModalBackdrop
+		variant="lightbox"
+		z={100}
+		onclose={() => lightbox.hide()}
 		role="dialog"
 		aria-modal="true"
 		aria-label={lightbox.alt || "Image preview"}
@@ -38,22 +34,10 @@
 			</svg>
 		</button>
 		<img class="lightbox-img" src={lightbox.src} alt={lightbox.alt} />
-	</div>
+	</ModalBackdrop>
 {/if}
 
 <style>
-	.lightbox-backdrop {
-		position: fixed;
-		inset: 0;
-		z-index: 100;
-		display: flex;
-		align-items: center;
-		justify-content: center;
-		padding: 2rem;
-		background: rgba(0, 0, 0, 0.85);
-		backdrop-filter: blur(4px);
-		cursor: zoom-out;
-	}
 	.lightbox-img {
 		max-width: 100%;
 		max-height: 100%;

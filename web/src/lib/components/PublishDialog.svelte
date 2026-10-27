@@ -1,4 +1,5 @@
 <script lang="ts">
+	import ModalBackdrop from "$lib/components/ui/ModalBackdrop.svelte";
 	import { publishToMarketplace } from "$lib/api.js";
 
 	let {
@@ -72,10 +73,10 @@
 </script>
 
 {#if open}
-	<!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
-	<div
-		class="fixed inset-0 z-50 flex items-center justify-center bg-black/60"
-		onclick={onclose}
+	<ModalBackdrop
+		dim={60}
+		class="flex items-center justify-center"
+		{onclose}
 		onkeydown={(e) => { if (e.key === 'Escape') onclose(); }}
 		role="dialog"
 		aria-modal="true"
@@ -155,5 +156,5 @@
 				</div>
 			</div>
 		</div>
-	</div>
+	</ModalBackdrop>
 {/if}

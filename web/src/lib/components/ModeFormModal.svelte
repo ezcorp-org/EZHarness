@@ -1,4 +1,5 @@
 <script lang="ts">
+	import ModalBackdrop from "$lib/components/ui/ModalBackdrop.svelte";
 	import { createMode, updateMode as apiUpdateMode, type Mode } from "$lib/api";
 	import Tooltip from "$lib/components/Tooltip.svelte";
 	import InfoTooltip from "$lib/components/InfoTooltip.svelte";
@@ -141,10 +142,6 @@
 		onclose();
 	}
 
-	function handleBackdropClick(e: MouseEvent) {
-		if (e.target === e.currentTarget) handleClose();
-	}
-
 	function handleKeydown(e: KeyboardEvent) {
 		if (e.key === "Escape") handleClose();
 	}
@@ -170,10 +167,10 @@
 </script>
 
 {#if open}
-	<!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
-	<div
-		class="fixed inset-0 z-50 flex items-center justify-center bg-black/50"
-		onclick={handleBackdropClick}
+	<ModalBackdrop
+		dim={50}
+		class="flex items-center justify-center"
+		onclose={handleClose}
 		onkeydown={handleKeydown}
 		role="dialog"
 		aria-modal="true"
@@ -361,7 +358,7 @@
 				</div>
 			</div>
 		</div>
-	</div>
+	</ModalBackdrop>
 
 	<!-- Visual extension attach picker (parity with AgentConfigForm). Mounted
 	     at modal scope so it overlays the form. -->

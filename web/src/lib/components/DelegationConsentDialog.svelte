@@ -19,6 +19,7 @@
 	   authority, which is a different act.
 -->
 <script lang="ts">
+	import ModalBackdrop from "$lib/components/ui/ModalBackdrop.svelte";
 	import {
 		OWNER_KIND_CHOICES,
 		closureWarnings,
@@ -210,15 +211,14 @@
 	}
 </script>
 
-<!-- svelte-ignore a11y_no_static_element_interactions -->
-<div
-	class="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4"
+<ModalBackdrop
+	data-testid="delegation-consent-backdrop"
+	dim={50}
+	class="flex items-center justify-center p-4"
 	onkeydown={(e) => {
 		if (e.key === "Escape") onclose();
 	}}
-	onclick={(e) => {
-		if (e.target === e.currentTarget) onclose();
-	}}
+	{onclose}
 >
 	<div
 		class="flex max-h-[85vh] w-full max-w-2xl flex-col overflow-hidden rounded-lg border border-[var(--color-border)] bg-[var(--color-surface-secondary)] shadow-xl"
@@ -614,4 +614,4 @@
 			</div>
 		</div>
 	</div>
-</div>
+</ModalBackdrop>

@@ -1,4 +1,5 @@
 import { test, expect, captureEvidence } from "./fixtures/test-base.js";
+import { expectFullViewportBackdrop } from "./fixtures/backdrop.js";
 import { makeProject, makeConversation, makeMessage } from "./fixtures/data.js";
 
 /**
@@ -69,6 +70,8 @@ test.describe("@evidence routing retry-with-model", () => {
 		await expect(menu.getByTestId("ab-retry-model-current")).toBeVisible();
 		await expect(menu.getByText("Opus 4.5")).toBeVisible();
 		await expect(menu.getByText("Haiku 4.5")).toBeVisible();
+		// The click-catcher behind the menu is a ModalBackdrop that spans the viewport.
+		await expectFullViewportBackdrop(page.getByTestId("ab-retry-model-backdrop"), { onTop: false });
 
 		await captureEvidence(page, testInfo, "routing-retry-with-model");
 	});

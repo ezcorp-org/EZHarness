@@ -1,4 +1,5 @@
 import { test, expect, captureEvidence } from "./fixtures/test-base.js";
+import { expectFullViewportBackdrop } from "./fixtures/backdrop.js";
 import { sendComposerMessage, threadMessages } from "./fixtures/composer.js";
 import { makeProject, makeConversation, makeMessage } from "./fixtures/data.js";
 
@@ -411,6 +412,8 @@ test.describe("Keyboard Shortcuts", () => {
 		await expect(page.getByRole("heading", { name: "Keyboard Shortcuts" })).toBeVisible();
 		const close = page.getByRole("button", { name: "Close" });
 		await expect(close).toBeFocused();
+		// The help panel's backdrop dims the whole viewport, the bottom strip included.
+		await expectFullViewportBackdrop(page.getByRole("dialog", { name: "Keyboard shortcuts" }).locator(".."));
 		await captureEvidence(page, testInfo, "keyboard-shortcuts-open");
 		await expect(close).toBeFocused();
 

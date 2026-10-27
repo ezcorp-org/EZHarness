@@ -1,4 +1,5 @@
 <script lang="ts">
+	import ModalBackdrop from "$lib/components/ui/ModalBackdrop.svelte";
 	import MentionText from "$lib/components/MentionText.svelte";
 	import Tooltip from "$lib/components/Tooltip.svelte";
 	import ContextUsageIndicator from "$lib/components/ContextUsageIndicator.svelte";
@@ -221,8 +222,7 @@
 				<span class="text-[10px] ml-0.5">{loadedTools.length}</span>
 			</button>
 			{#if toolsOpen}
-				<!-- svelte-ignore a11y_no_static_element_interactions -->
-				<div data-testid="tools-backdrop" class="fixed inset-0 z-40" onclick={() => ontoolstoggle(false)} onkeydown={() => {}}></div>
+				<ModalBackdrop data-testid="tools-backdrop" z={40} onclose={() => ontoolstoggle(false)} onkeydown={() => {}} />
 				<!-- Below md the badge sits ~216px from the left edge, so an
 				     absolute right-0 anchor would push the 16rem popover past
 				     the viewport's left edge. `fixed` with auto top keeps the

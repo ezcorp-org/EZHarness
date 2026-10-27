@@ -1,4 +1,5 @@
 <script lang="ts">
+	import ModalBackdrop from "$lib/components/ui/ModalBackdrop.svelte";
 	import { onMount } from "svelte";
 	import {
 		type PermissionMode,
@@ -52,8 +53,7 @@
 	</button>
 
 	{#if dropdownOpen}
-		<!-- svelte-ignore a11y_no_static_element_interactions -->
-		<div class="fixed inset-0 z-40" onclick={() => (dropdownOpen = false)} onkeydown={() => {}}></div>
+		<ModalBackdrop z={40} onclose={() => (dropdownOpen = false)} onkeydown={() => {}} />
 		<div class="absolute right-0 top-full z-50 mt-1 w-52 rounded-lg border border-[var(--color-border)] bg-[var(--color-surface-secondary)] shadow-lg overflow-hidden">
 			{#each PERMISSION_MODES as mode}
 				<button

@@ -1,4 +1,5 @@
 <script lang="ts">
+	import ModalBackdrop from "$lib/components/ui/ModalBackdrop.svelte";
 	import { addToast } from "$lib/toast.svelte.js";
 
 	type ShareEntry = {
@@ -108,20 +109,16 @@
 		}
 	}
 
-	function handleBackdrop(e: MouseEvent) {
-		if (e.target === e.currentTarget) onclose();
-	}
-
 	function handleKeydown(e: KeyboardEvent) {
 		if (e.key === "Escape") onclose();
 	}
 </script>
 
 {#if open}
-	<!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
-	<div
-		class="fixed inset-0 z-50 flex items-center justify-center bg-black/60"
-		onclick={handleBackdrop}
+	<ModalBackdrop
+		dim={60}
+		class="flex items-center justify-center"
+		{onclose}
 		onkeydown={handleKeydown}
 		role="dialog"
 		aria-modal="true"
@@ -212,5 +209,5 @@
 				</div>
 			{/if}
 		</div>
-	</div>
+	</ModalBackdrop>
 {/if}

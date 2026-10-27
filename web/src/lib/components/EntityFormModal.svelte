@@ -21,6 +21,7 @@
 -->
 
 <script lang="ts">
+  import ModalBackdrop from "$lib/components/ui/ModalBackdrop.svelte";
   import { inputClass } from "$lib/styles.js";
   import type { JsonSchema, JsonSchemaObject } from "@ezcorp/sdk/entities";
 
@@ -163,8 +164,9 @@
 </script>
 
 {#if open}
-  <div
-    class="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4"
+  <ModalBackdrop
+    dim={60}
+    class="flex items-center justify-center p-4"
     role="dialog"
     aria-modal="true"
     aria-label={`${mode === "create" ? "Create" : "Edit"} ${label}`}
@@ -412,5 +414,5 @@
         <input type="hidden" name="extensionId" value={extensionId} />
       </form>
     </div>
-  </div>
+  </ModalBackdrop>
 {/if}

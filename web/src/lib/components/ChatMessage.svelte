@@ -1,4 +1,5 @@
 <script lang="ts">
+	import ModalBackdrop from "$lib/components/ui/ModalBackdrop.svelte";
 	import type { Message } from "$lib/api.js";
 	import type { ToolCallState, AgentCallState, ContentBlock } from "$lib/stores.svelte.js";
 	import MarkdownRenderer from "./MarkdownRenderer.svelte";
@@ -745,8 +746,7 @@
 								<svg class="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" d="M19 9l-7 7-7-7" /></svg>
 							</button>
 							{#if retryPickerOpen}
-								<!-- svelte-ignore a11y_no_static_element_interactions -->
-								<div class="fixed inset-0 z-40" onclick={() => (retryPickerOpen = false)} onkeydown={() => {}}></div>
+								<ModalBackdrop data-testid="ab-retry-model-backdrop" z={40} onclose={() => (retryPickerOpen = false)} onkeydown={() => {}} />
 								<div
 									class="absolute left-0 top-full z-50 mt-1 max-h-72 w-64 overflow-y-auto rounded-lg border border-[var(--color-border)] bg-[var(--color-surface-secondary)] shadow-lg"
 									data-testid="ab-retry-model-menu"

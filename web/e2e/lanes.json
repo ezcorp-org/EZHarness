@@ -338,6 +338,7 @@
       "web/e2e/mobile-navigation.spec.ts",
       "web/e2e/mobile-tab-bar.spec.ts",
       "web/e2e/mobile-ux.spec.ts",
+      "web/e2e/modal-overlay-viewport.spec.ts",
       "web/e2e/modes-extensions.spec.ts",
       "web/e2e/modes.spec.ts",
       "web/e2e/multi-agent.spec.ts",

@@ -222,8 +222,8 @@ describe("SwipeDrawer default z-index", () => {
 		expect(swipeDrawerSrc).toContain("zIndex = 40");
 	});
 
-	test("zIndex applied via style:z-index", () => {
-		expect(swipeDrawerSrc).toContain("style:z-index={zIndex}");
+	test("zIndex reaches the ModalBackdrop layer, which applies it as style:z-index", () => {
+		expect(swipeDrawerSrc).toContain("<ModalBackdrop\n\t\tz={zIndex}");
 	});
 });
 

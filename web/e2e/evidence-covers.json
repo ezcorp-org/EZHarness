@@ -613,5 +613,10 @@
   ],
   "web/e2e/admin-dashboard-edges.spec.ts": [
     "web/src/routes/(app)/admin/dashboard/+page.svelte"
+  ],
+  "web/e2e/modal-overlay-viewport.spec.ts": [
+    "web/src/lib/components/ui/ModalBackdrop.svelte",
+    "web/src/lib/components/ModeFormModal.svelte",
+    "web/src/lib/components/DeleteConfirmDialog.svelte"
   ]
 }

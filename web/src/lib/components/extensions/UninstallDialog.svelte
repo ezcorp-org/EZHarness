@@ -1,4 +1,5 @@
 <script lang="ts">
+	import ModalBackdrop from "$lib/components/ui/ModalBackdrop.svelte";
 	let {
 		open = false,
 		extensionName,
@@ -19,21 +20,19 @@
 		if (e.key === "Escape" && !busy) oncancel();
 	}
 
-	function handleBackdropClick(e: MouseEvent) {
-		if (e.target === e.currentTarget && !busy) oncancel();
-	}
-
 	function confirm() {
 		if (!busy) onconfirm({ purgeData: false });
 	}
 </script>
 
 {#if open}
-	<!-- svelte-ignore a11y_no_static_element_interactions -->
-	<div
-		class="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4"
+	<ModalBackdrop
+		dim={50}
+		class="flex items-center justify-center p-4"
 		onkeydown={handleKeydown}
-		onclick={handleBackdropClick}
+		onclose={() => {
+			if (!busy) oncancel();
+		}}
 		role="dialog"
 		aria-modal="true"
 		aria-labelledby="uninstall-dialog-title"
@@ -70,5 +69,5 @@
 				</button>
 			</div>
 		</div>
-	</div>
+	</ModalBackdrop>
 {/if}
