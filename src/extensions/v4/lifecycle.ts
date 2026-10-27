@@ -15,6 +15,27 @@ export function runnerBusyRetryMs(fence: number): number {
   return Math.min(1_000 * 2 ** Math.min(Math.max(fence - 1, 0), 5), 30_000);
 }
 
+// A runner that could not be reached (it restarted or stopped while a build was open) is retried on the
+// same backoff as a busy one, but only this many unreachable attempts per build: a runner that never comes
+// back must not keep the build queued forever. The count is the operation's own runner_unavailable
+// diagnostics, kept across busy re-queues, so busy retries neither use up nor reset it. At the maximum the
+// build fails with a named, classified diagnostic.
+export const RUNNER_UNAVAILABLE_MAX_ATTEMPTS = 6;
+
+const isUnavailable = (diagnostic: { code: string }) => diagnostic.code === "runner_unavailable";
+
+/**
+ * The ONE writer of an operation's diagnostics. While a build can still retry, it keeps the build's earlier
+ * runner_unavailable entries, which are its unreachable-attempt count, and replaces everything else with
+ * `diagnostics`; a runner that answers build() and then hangs up at collectArtifacts() therefore cannot reset the
+ * count. `final: true` is for the verified write only: the count has no use after a successful build, and the
+ * extension author page lists every diagnostic, so a recovered build must not show the old unreachable entries.
+ * Every write in this file goes through here; lifecycle-runner-unavailable.test.ts refuses a direct one.
+ */
+function writeDiagnostics(operation: LifecycleOperation, diagnostics: LifecycleOperation["diagnostics"], options: { final?: boolean } = {}): void {
+  operation.diagnostics = [...(options.final ? [] : operation.diagnostics.filter(isUnavailable)), ...diagnostics];
+}
+
 export class ExtensionLifecycle {
   private readonly now: () => number;
   private readonly leaseMs: number;
@@ -224,6 +245,7 @@ export class ExtensionLifecycle {
       runner_busy: "The runner is busy; retry after the current build.",
       runner_timeout: "The runner request timed out.",
       runner_unconfigured: "The runner is unavailable.",
+      runner_unavailable: "The runner could not be reached; retry after it restarts.",
       // trusted-local only: the runner found no live human acknowledgement
       // for this exact digest. Named here so it reaches the operation record
       // instead of collapsing into "operation_failed".
@@ -238,8 +260,14 @@ export class ExtensionLifecycle {
       const operation = this.operation(state, operationId);
       if (operation.lease?.holder !== holder || operation.lease.fence !== fence || ["cancelled", "reconciling", "active", "verified"].includes(operation.state)) return;
       const runner = this.safeRunnerFailure(error);
-      if (operation.kind === "build" && runner?.code === "runner_busy" && runner.retryable) {
-        operation.diagnostics = [{ ...runner, stage: "runner" }];
+      if (operation.kind === "build" && runner?.retryable && (runner.code === "runner_busy" || runner.code === "runner_unavailable")) {
+        // Earlier unreachable attempts stay on the record: they are this build's unavailable count.
+        if (runner.code === "runner_unavailable" && operation.diagnostics.filter(isUnavailable).length + 1 >= RUNNER_UNAVAILABLE_MAX_ATTEMPTS) {
+          writeDiagnostics(operation, [{ code: "runner_unavailable", stage: "runner", message: `The runner could not be reached after ${RUNNER_UNAVAILABLE_MAX_ATTEMPTS} attempts.`, retryable: false }]);
+          this.transition(operation, "failed");
+          return;
+        }
+        writeDiagnostics(operation, [{ ...runner, stage: "runner" }]);
         operation.lease.until = this.now() + runnerBusyRetryMs(operation.lease.fence);
         this.transition(operation, "queued");
         return;
@@ -250,7 +278,7 @@ export class ExtensionLifecycle {
       // (it may carry paths or internals), so this log line is the ONLY
       // place its cause survives. Without it a failed build was a dead end.
       if (!runner && !known) log.error("Operation failed with an unclassified error", { installationId: state.installation.id, operationId, kind: operation.kind, error: error instanceof Error ? error.message : String(error), stack: error instanceof Error ? error.stack : undefined });
-      operation.diagnostics.push(runner ? { ...runner, stage: "runner" } : { code: known ? error.code : "operation_failed", stage: operation.kind, message: known ? error.message : "Operation failed. See host diagnostics.", retryable: false });
+      writeDiagnostics(operation, [...operation.diagnostics.filter((diagnostic) => !isUnavailable(diagnostic)), runner ? { ...runner, stage: "runner" } : { code: known ? error.code : "operation_failed", stage: operation.kind, message: known ? error.message : "Operation failed. See host diagnostics.", retryable: false }]);
       this.transition(operation, "failed");
     });
   }
@@ -266,7 +294,7 @@ export class ExtensionLifecycle {
       const files = await getFiles(this.dependencies.blobs, operation.sourceDigest!);
       if (!Object.hasOwn(files, operation.entrypoint!)) throw new LifecycleError("missing_entrypoint", "The selected entrypoint is absent from this source snapshot.");
       const result = validateWire("buildResult", await this.dependencies.runner.build({ operationId: holder, sourceDigest: operation.sourceDigest!, files, entrypoint: operation.entrypoint!, limits: this.dependencies.buildLimits }));
-      await this.transaction(actor, installationId, (state) => { const current = this.operation(state, operationId); this.assertLease(current, holder, fence); current.diagnostics = result.diagnostics; });
+      await this.transaction(actor, installationId, (state) => { const current = this.operation(state, operationId); this.assertLease(current, holder, fence); writeDiagnostics(current, result.diagnostics); });
       if (result.state !== "succeeded" || result.operationId !== holder || result.sourceDigest !== operation.sourceDigest || !result.artifactDigest || !result.manifest || !/^[a-f0-9]{64}$/.test(result.artifactDigest)) throw new LifecycleError("build_failed", "The isolated build did not produce a valid release.");
       validateManifest(result.manifest);
       if (digestObject(result.manifest) !== result.evidence.discoveryDigest) throw new LifecycleError("discovery_mismatch", "Discovered metadata does not match its evidence digest.");
@@ -291,7 +319,7 @@ export class ExtensionLifecycle {
         if (state.installation.uninstalled) throw new LifecycleError("uninstalled", "This installation has been uninstalled.");
         state.releases[release.id] = release;
         current.releaseId = release.id;
-        current.diagnostics = result.diagnostics;
+        writeDiagnostics(current, result.diagnostics, { final: true });
         this.transition(current, "verified");
       });
     } catch (error) {
