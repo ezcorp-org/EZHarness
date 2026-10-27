@@ -25,7 +25,7 @@ const reportedCatalogGaps = new Set<string>();
 import { getCircuitBreaker } from "./circuit-breaker";
 import { tryGetCredential } from "./credentials";
 import { getSetting } from "../db/queries/settings";
-import { isTestSurfaceEnabled, MOCK_PROVIDER, mockLlmBaseUrl } from "../test-surface";
+import { isE2eProviderIsolationEnabled, isTestSurfaceEnabled, MOCK_PROVIDER, mockLlmBaseUrl } from "../test-surface";
 // Tier vocabulary lives in the pure routing classifier (single source of
 // truth). Type-only import — erased at build, so it adds no runtime dep.
 import type { RoutingTier } from "../runtime/tier-classifier";
@@ -188,15 +188,6 @@ async function getPreferenceOrder(customModels: readonly CustomModelEntry[]): Pr
 }
 
 // ── Model Resolution ─────────────────────────────────────────────────
-
-/**
- * Real-browser tests opt in to this hard outbound boundary. It prevents a
- * failed deterministic mock turn (or an accidental UI default) from using a
- * developer credential and reaching a real provider.
- */
-function isE2eProviderIsolationEnabled(): boolean {
-  return isTestSurfaceEnabled() && process.env.PI_E2E_ISOLATE_PROVIDERS === "1";
-}
 
 /** Resolve a harness model without consulting user-configured provider URLs. */
 function resolveMockModel(model: string): { provider: string; model: string; piModel: AnyModel } {

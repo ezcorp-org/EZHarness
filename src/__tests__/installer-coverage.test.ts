@@ -1,9 +1,10 @@
 /** Source admission coverage for v4 local and GitHub staging. */
-import { afterAll, beforeEach, expect, test } from "bun:test";
+import { afterAll, beforeEach, expect, mock, test } from "bun:test";
 import { link, symlink, writeFile } from "node:fs/promises";
 import {
   createInstallerV4SourceTree,
   githubFetchFixture,
+  installSourceFetch,
   resetInstallerV4SourceFixture,
   restoreInstallerV4SourceFixture,
   sourceActor,
@@ -293,4 +294,56 @@ test("an empty directory selection cannot reinterpret a repository root as a sou
 test("a commit response without a tree cannot begin source collection", async () => {
   const fetcher = sourceFetch(async () => Response.json({ commit: {} }));
   await expect(collectGitHubSource({ kind: "github", repository: "owner/repo" }, { fetch: fetcher, resolveHost: async () => ["93.184.216.34"] })).rejects.toMatchObject({ code: "invalid_source" });
+});
+
+// The real-auth e2e imports this pinned public commit through the visible source form (extension-source-import.spec.ts).
+const PINNED_GITHUB_SOURCE = { kind: "github", repository: "ezcorp-org/EZHarness", ref: "2fea009e0a3015d6aec73eec35bbe45555edbb7c", directory: "docs/extensions/examples/harness-smoke-test" } as const;
+type BoundaryEnv = Record<"PI_E2E_REAL" | "EZCORP_ALLOW_TEST_SURFACE" | "PI_E2E_ISOLATE_PROVIDERS" | "NODE_ENV", string | undefined>;
+/** The real-auth harness's server env (web/playwright.real.config.ts): the fail-closed test surface plus the opt-in. */
+const E2E_HARNESS: BoundaryEnv = { PI_E2E_REAL: "1", EZCORP_ALLOW_TEST_SURFACE: "1", PI_E2E_ISOLATE_PROVIDERS: "1", NODE_ENV: "test" };
+
+/** Run `body` under `env`, with a live GitHub that answers 403. */
+async function withLiveGitHub403(env: BoundaryEnv, body: (live: ReturnType<typeof mock>) => Promise<void>): Promise<void> {
+  const saved = Object.fromEntries(Object.keys(env).map((key) => [key, process.env[key]]));
+  for (const [key, value] of Object.entries(env)) {
+    if (value === undefined) delete process.env[key];
+    else process.env[key] = value;
+  }
+  const live = mock(async () => new Response(JSON.stringify({ message: "API rate limit exceeded" }), { status: 403 }));
+  const restoreFetch = installSourceFetch(sourceFetch(live));
+  try { await body(live); } finally {
+    restoreFetch();
+    for (const [key, value] of Object.entries(saved)) {
+      if (value === undefined) delete process.env[key];
+      else process.env[key] = value;
+    }
+  }
+}
+
+/** The import fetched live GitHub, so its 403 failed the import the way the CI run failed. */
+async function expectLiveGitHub403(live: ReturnType<typeof mock>): Promise<void> {
+  await expect(importExtensionSource(sourceActor, PINNED_GITHUB_SOURCE)).rejects.toMatchObject({ code: "source_fetch_failed", message: "Source server returned 403" });
+  expect(live).toHaveBeenCalledTimes(1);
+  expect(stagingCalls().workspace).not.toHaveBeenCalled();
+}
+
+test("without the e2e boundary a GitHub import fetches GitHub, so a GitHub 403 fails it (the CI red)", async () => {
+  await withLiveGitHub403({ ...E2E_HARNESS, PI_E2E_ISOLATE_PROVIDERS: undefined }, expectLiveGitHub403);
+});
+
+// The recording is reachable only inside the fail-closed test surface: the opt-in alone never selects it.
+test("a production config never serves the recording, even with PI_E2E_ISOLATE_PROVIDERS set", async () => {
+  await withLiveGitHub403({ ...E2E_HARNESS, NODE_ENV: "production" }, expectLiveGitHub403);
+  await withLiveGitHub403({ ...E2E_HARNESS, EZCORP_ALLOW_TEST_SURFACE: undefined }, expectLiveGitHub403);
+  await withLiveGitHub403({ ...E2E_HARNESS, PI_E2E_REAL: undefined }, expectLiveGitHub403);
+});
+
+test("under the e2e boundary the same import stages the recorded commit and never fetches GitHub", async () => {
+  await withLiveGitHub403(E2E_HARNESS, async (live) => {
+    const result = await importExtensionSource(sourceActor, PINNED_GITHUB_SOURCE);
+    expect(result.workspace.id).toBe("workspace");
+    expect(live).not.toHaveBeenCalled();
+    const files = (stagingCalls().workspace.mock.calls[0]![1] as { files: Record<string, unknown> }).files;
+    expect(Object.keys(files).sort()).toEqual(["README.md", "extension-source.json", "extension.test.ts", "extension.ts", "ezcorp.config.ts", "index.test.ts", "index.ts"]);
+  });
 });
