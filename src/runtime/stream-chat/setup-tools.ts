@@ -35,6 +35,7 @@ import { getCredential } from "../../providers/credentials";
 import { assertFactoryExecutionContext, type FactoryExecutionContext } from "../factory-execution";
 import { extensionToAgentTool, ToolExecutor, type ArgsResolver } from "../../extensions/tool-executor";
 import { ExtensionRegistry } from "../../extensions/registry";
+import { awaitingApprovalOf, reportAwaitingApproval } from "../../extensions/bundled-extension-state";
 import type { AgentRun, TeamMember, TeamMemberOverrides, TeamToolScope } from "../../types";
 import type { StreamChatContext } from "./context";
 import type { StreamChatHost, PendingPermissionInfo } from "./host";
@@ -1297,9 +1298,16 @@ export async function setupTools(
           const { ensureTaskTrackingWired } = await import("../task-tracking-host");
           await ensureTaskTrackingWired(conversationId);
         } catch (taskWireErr) {
-          log.warn("Task-tracking wire failed — task tools unavailable this turn", {
-            error: String(taskWireErr),
-          });
+          // A staged task-tracking release that awaits approval is the designed
+          // state of a fresh install: say so once, not as a fault every turn.
+          const awaiting = awaitingApprovalOf(taskWireErr);
+          if (awaiting) {
+            reportAwaitingApproval(log, awaiting);
+          } else {
+            log.warn("Task-tracking wire failed — task tools unavailable this turn", {
+              error: String(taskWireErr),
+            });
+          }
         }
         // ask-user: auto-wire-every-turn so the LLM can ask the user a
         // question on any conversation. Wire BEFORE the generic

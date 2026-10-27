@@ -27,7 +27,7 @@ import { LifecycleError } from "../extensions/v4/types";
 import { verifyInvocationLocks } from "../extensions/runtime-locks";
 import { canonicalJson, sha256 } from "@ezcorp/extension-contract";
 import { conversationExtensions } from "../db/schema";
-import { getExtensionByName } from "../db/queries/extensions";
+import { awaitingApprovalMessage, bundledExtensionResolver, markAwaitingApproval } from "../extensions/bundled-extension-state";
 import {
   getStorageValue,
   setStorageValue,
@@ -68,7 +68,7 @@ export const STORAGE_KEY = "tasks";
 
 // ── Extension-id resolution (cached) ────────────────────────────────
 
-let cachedExtId: string | undefined;
+const taskTrackingExtension = bundledExtensionResolver("task-tracking");
 const snapshotRevisions = new WeakMap<object, string>();
 
 /**
@@ -81,32 +81,43 @@ const snapshotRevisions = new WeakMap<object, string>();
  * panel once the panel started consuming that route.
  */
 export class TaskTrackingNotInstalledError extends Error {
-  constructor() {
-    super("task-tracking extension not installed — did ensureBundledExtensions() run?");
+  constructor(message = "task-tracking extension not installed — did ensureBundledExtensions() run?") {
+    super(message);
     this.name = "TaskTrackingNotInstalledError";
   }
 }
 
 /**
- * Resolve the installed `task-tracking` extension's DB id. Cached
- * module-local after the first hit; resets on a fresh process only.
- * Throws {@link TaskTrackingNotInstalledError} if the extension isn't
- * installed — every bundled install happens in `ensureBundledExtensions()`,
- * so this only fires on a completely uninitialized boot.
+ * Thrown when task-tracking is staged but its release still awaits an
+ * administrator's approval: the designed state of a fresh install, not a
+ * missing boot step. A subclass, so every "no tasks yet" handler of
+ * {@link TaskTrackingNotInstalledError} keeps working unchanged.
+ */
+export class TaskTrackingAwaitingApprovalError extends TaskTrackingNotInstalledError {
+  constructor() {
+    super(awaitingApprovalMessage("task-tracking"));
+    this.name = "TaskTrackingAwaitingApprovalError";
+    markAwaitingApproval(this, "task-tracking");
+  }
+}
+
+/**
+ * Resolve the installed `task-tracking` extension's DB id, cached once
+ * installed. Throws {@link TaskTrackingAwaitingApprovalError} while its
+ * staged release awaits approval (every fresh install), and
+ * {@link TaskTrackingNotInstalledError} when no installation exists at all
+ * (an uninitialized boot).
  */
 export async function getTaskTrackingExtensionId(): Promise<string> {
-  if (cachedExtId) return cachedExtId;
-  const row = await getExtensionByName("task-tracking");
-  if (!row) {
-    throw new TaskTrackingNotInstalledError();
-  }
-  cachedExtId = row.id;
-  return cachedExtId;
+  const state = await taskTrackingExtension.state();
+  if (state.kind === "awaiting_approval") throw new TaskTrackingAwaitingApprovalError();
+  if (state.kind === "missing") throw new TaskTrackingNotInstalledError();
+  return state.id;
 }
 
 /** Test-only: clear the cached extension id so mocks re-resolve. */
 export function _resetTaskTrackingExtensionIdCache(): void {
-  cachedExtId = undefined;
+  taskTrackingExtension.reset();
 }
 
 // ── Snapshot read/write ────────────────────────────────────────────

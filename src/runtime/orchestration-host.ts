@@ -26,7 +26,7 @@
 import type { AgentTool } from "@earendil-works/pi-agent-core";
 import { getDb } from "../db/connection";
 import { conversationExtensions } from "../db/schema";
-import { getExtensionByName } from "../db/queries/extensions";
+import { bundledExtensionResolver, reportAwaitingApproval } from "../extensions/bundled-extension-state";
 import { getSetting } from "../db/queries/settings";
 import type { ExtensionRegistry } from "../extensions/registry";
 import { ToolExecutor, extensionToAgentTool } from "../extensions/tool-executor";
@@ -66,12 +66,12 @@ async function resolveInvokeTimeoutMs(): Promise<number> {
 
 // ── Extension-id resolution (cached) ────────────────────────────────
 
-let cachedExtId: string | undefined;
+const orchestrationExtension = bundledExtensionResolver("orchestration");
 
 /**
- * Resolve the installed `orchestration` extension's DB id. Cached
- * module-local after the first hit; resets on a fresh process only.
- * Returns `undefined` if the extension isn't installed — we bubble that
+ * Resolve the installed `orchestration` extension's DB id, cached once
+ * installed. Returns `undefined` if the extension isn't installed or still
+ * awaits approval — we bubble that
  * up as a non-throwing `ensureOrchestrationWired → false` so a
  * misconfigured boot skips orchestration for the turn rather than
  * killing the whole run.
@@ -83,16 +83,13 @@ let cachedExtId: string | undefined;
  * `collect_agent_result` available on a follow-up turn that @mentions no agent.
  */
 export async function getOrchestrationExtensionId(): Promise<string | undefined> {
-  if (cachedExtId) return cachedExtId;
-  const row = await getExtensionByName("orchestration");
-  if (!row) return undefined;
-  cachedExtId = row.id;
-  return cachedExtId;
+  const state = await orchestrationExtension.state();
+  return state.kind === "installed" ? state.id : undefined;
 }
 
 /** Test-only: clear the cached extension id so mocks re-resolve. */
 export function _resetOrchestrationExtensionIdCache(): void {
-  cachedExtId = undefined;
+  orchestrationExtension.reset();
 }
 
 // ── Wiring helper ───────────────────────────────────────────────────
@@ -111,17 +108,22 @@ export function _resetOrchestrationExtensionIdCache(): void {
 export async function ensureOrchestrationWired(
   conversationId: string,
 ): Promise<boolean> {
-  let extId: string | undefined;
+  let extId: string;
   try {
-    extId = await getOrchestrationExtensionId();
+    const state = await orchestrationExtension.state();
+    if (state.kind === "awaiting_approval") {
+      reportAwaitingApproval(log, "orchestration");
+      return false;
+    }
+    if (state.kind === "missing") {
+      log.warn("Orchestration extension not installed — did ensureBundledExtensions() run?");
+      return false;
+    }
+    extId = state.id;
   } catch (err) {
     log.warn("Failed to resolve orchestration extension id", {
       error: String(err),
     });
-    return false;
-  }
-  if (!extId) {
-    log.warn("Orchestration extension not installed — did ensureBundledExtensions() run?");
     return false;
   }
 
@@ -240,14 +242,19 @@ export async function wireOrchestrationToolsForTurn(
   //     (its `agentConfigId` is enum-constrained to exactly those; an empty
   //     enum is unsatisfiable — and exposing it un-constrained is the exact
   //     allowlist-bypass the single-source fix removes).
-  const extId = await getOrchestrationExtensionId();
-  if (!extId) {
+  const state = await orchestrationExtension.state();
+  if (state.kind === "awaiting_approval") {
+    reportAwaitingApproval(log, "orchestration");
+    return;
+  }
+  if (state.kind === "missing") {
     log.warn(
       "Orchestration extension not installed — skipping invoke_agent wiring for turn",
       { conversationId, runId },
     );
     return;
   }
+  const extId = state.id;
 
   const registeredTools = registry.getToolsForExtension(extId);
 

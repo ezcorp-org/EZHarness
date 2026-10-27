@@ -1,4 +1,3 @@
-import { createHash } from "node:crypto";
 import { snapshotFirstPartyExtension } from "../../scripts/migrate-extension-v4";
 import { getDb } from "../db/connection";
 import { DatabaseLifecycleRepository } from "../db/queries/extension-releases";
@@ -6,6 +5,7 @@ import { getExtensionByName, updateExtension } from "../db/queries/extensions";
 import { listUsers } from "../db/queries/users";
 import { extensionLogger } from "../logger";
 import { getExtensionLifecycle } from "./extension-lifecycle-service";
+import { bundledInstallationId } from "./bundled-installation-id";
 import { getProjectRoot } from "./project-root";
 import { isExtensionRunnerConfigured } from "./runner-connection";
 import { digestObject } from "./v4/blobs";
@@ -16,10 +16,7 @@ import type { InstallationState, LifecycleActor, LifecycleOperation } from "./v4
 const log = extensionLogger("bundled", "bootstrap");
 let buildQueue = Promise.resolve();
 
-export function bundledInstallationId(name: string): string {
-  const digest = createHash("sha256").update(`ezcorp-first-party-v4:${name}`).digest("hex");
-  return `${digest.slice(0, 8)}-${digest.slice(8, 12)}-4${digest.slice(13, 16)}-a${digest.slice(17, 20)}-${digest.slice(20, 32)}`;
-}
+export { bundledInstallationId };
 
 // A host that boots before its extension runner exists fails every bundled build
 // with this one diagnostic and nothing else. That is the only outcome the
