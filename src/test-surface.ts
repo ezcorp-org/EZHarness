@@ -39,6 +39,17 @@ export function isTestSurfaceEnabled(): boolean {
   );
 }
 
+/**
+ * Real-browser tests opt in to this hard outbound boundary (`PI_E2E_ISOLATE_PROVIDERS=1` in
+ * `web/playwright.real.config.ts`, inside the test surface). No turn reaches a real LLM provider: a failed
+ * deterministic mock turn or an accidental UI default cannot use a developer credential
+ * (`src/providers/router.ts`). No GitHub source import reaches api.github.com: it is answered from a recording
+ * (`src/extensions/recorded-github-source.ts`), so a GitHub rate limit cannot red the gate.
+ */
+export function isE2eProviderIsolationEnabled(): boolean {
+  return isTestSurfaceEnabled() && process.env.PI_E2E_ISOLATE_PROVIDERS === "1";
+}
+
 /** The synthetic provider id used to select the deterministic mock LLM. */
 export const MOCK_PROVIDER = "ezcorp-mock";
 

@@ -11,6 +11,7 @@ import { allowedInstallRoots } from "./install-roots";
 import { getProjectRoot } from "./project-root";
 import { LifecycleError, type LifecycleActor } from "./v4/types";
 import { guardedFetch, type ResolveHost } from "../search/egress";
+import { isE2eProviderIsolationEnabled } from "../test-surface";
 
 import { parseExtensionSourceInput, type ExtensionSourceInput } from "./source-input";
 export { parseExtensionSourceInput, type ExtensionSourceInput } from "./source-input";
@@ -109,6 +110,13 @@ export async function collectGitHubSource(input: Extract<ExtensionSourceInput, {
   return files;
 }
 
+/** The e2e harness's outbound boundary answers GitHub from a recording; everywhere else the import fetches GitHub. */
+async function githubSourceTransport(): Promise<{ fetch?: typeof fetch; resolveHost?: ResolveHost }> {
+  if (!isE2eProviderIsolationEnabled()) return {};
+  const { recordedGitHubSourceFetch, recordedGitHubSourceResolveHost } = await import("./recorded-github-source");
+  return { fetch: recordedGitHubSourceFetch as typeof fetch, resolveHost: recordedGitHubSourceResolveHost };
+}
+
 async function authorizeSource(actor: LifecycleActor, targetInstallationId?: string, hostLocal = false): Promise<LifecycleActor> {
   const user = await getUserById(actor.principalId);
   if (user?.status !== "active") throw new LifecycleError("forbidden", "An active user is required");
@@ -125,7 +133,7 @@ export async function importExtensionSource(actor: LifecycleActor, source: Exten
   actor = await authorizeSource(actor, targetInstallationId, input.kind === "local" || input.kind === "bundled");
   let files: WorkspaceFiles;
   if (input.kind === "marketplace") files = await collectMarketplaceSource(input.versionId);
-  else if (input.kind === "github") files = await collectGitHubSource(input, { resolveCredential: () => sourceCredentialResolver(actor, input.repository, input.projectId) });
+  else if (input.kind === "github") files = await collectGitHubSource(input, { resolveCredential: () => sourceCredentialResolver(actor, input.repository, input.projectId), ...(await githubSourceTransport()) });
   else {
     if (input.kind === "bundled") files = (await snapshotFirstPartyExtension(getProjectRoot(), input.name)).files;
     else {

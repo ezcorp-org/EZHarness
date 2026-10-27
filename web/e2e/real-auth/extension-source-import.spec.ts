@@ -260,6 +260,9 @@ test("administrator imports a host-owned local source directory through the visi
   }
 });
 
+// The harness's outbound boundary (PI_E2E_ISOLATE_PROVIDERS) answers this import from a recording of the pinned
+// commit (src/extensions/recorded-github-source.ts); the route, guard, collection and build stay real, and a GitHub
+// rate limit cannot red the gate.
 test("administrator imports a pinned public GitHub source through the visible source form", async ({ page, request, baseURL }) => {
   test.setTimeout(360000);
   const { client } = await extensionClient(request, baseURL!);

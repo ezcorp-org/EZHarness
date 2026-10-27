@@ -182,6 +182,7 @@
   "src/extensions/mcp-workspace-credentials.ts": 100,
   "src/db/migrations/add-mcp-workspace-credentials.ts": 100,
   "src/extensions/source-import.ts": 100,
+  "src/extensions/recorded-github-source.ts": 100,
   "src/extensions/source-input.ts": 100,
   "src/runtime/briefing/completion-intents.ts": 100,
   "src/db/migrations/add-run-domain-event-intents.ts": 100,
