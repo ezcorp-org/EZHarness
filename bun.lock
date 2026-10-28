@@ -10,8 +10,8 @@
         "@balena/dockerignore": "1.0.2",
         "@earendil-works/pi-agent-core": "0.99.2",
         "@earendil-works/pi-ai": "0.99.2",
-        "@electric-sql/pglite": "0.5.8",
-        "@electric-sql/pglite-pgvector": "0.0.9",
+        "@electric-sql/pglite": "0.5.10",
+        "@electric-sql/pglite-pgvector": "0.0.11",
         "@ezcorp/ai-kit": "workspace:*",
         "@ezcorp/extension-contract": "workspace:*",
         "@ezcorp/extension-runner": "workspace:*",
@@ -229,9 +229,9 @@
 
     "@earendil-works/pi-telemetry": ["@earendil-works/pi-telemetry@0.99.2", "", {}, "sha512-WThYU4XM6jjjzH4FzLdreN7QAPS9SDdokL0W0Ldheg1ssCIJkfpK7PgebFm7/PoQub7OiXx+SRF6B/oF7z7lXA=="],
 
-    "@electric-sql/pglite": ["@electric-sql/pglite@0.5.8", "", {}, "sha512-n9tsbUOhwx2epK1V0ZG9Ar4SHWUju04dhmzZXiSBXwBoleOvIfals33NAaWgagQVAL4Rbvx/Ptsu3P+pA09f6Q=="],
+    "@electric-sql/pglite": ["@electric-sql/pglite@0.5.10", "", {}, "sha512-tXc/25U3ulOkiRQuTFdwIv+JhBqtMdAF7Gvo6CfZZWtSB4+hgC4Wr2vwK5ngvvN5PJfAAEGIsfyCVy1JhCOBYw=="],
 
-    "@electric-sql/pglite-pgvector": ["@electric-sql/pglite-pgvector@0.0.9", "", { "peerDependencies": { "@electric-sql/pglite": "0.5.8" } }, "sha512-ue4iBW651gDQwBwn97Ekv1lYGPvXa1ymHbRbTCSL0Ib286PRDD1VDOwzwEoekZuO/wctMbTzKzlwdgDwYrqZ8A=="],
+    "@electric-sql/pglite-pgvector": ["@electric-sql/pglite-pgvector@0.0.11", "", { "peerDependencies": { "@electric-sql/pglite": "0.5.10" } }, "sha512-pUukU2iqI5TLBv/0D5Bk9R9zVyms+7Do6yscl4WRKW5pD2wNl8FlzGWDXphXj/Q42SsVIJHbP4+oqwjQC9fasg=="],
 
     "@emnapi/runtime": ["@emnapi/runtime@1.11.3", "", { "dependencies": { "tslib": "^2.4.0" } }, "sha512-Xz4Tpyki7XyrpbUK1jR1AhdAdaXyhhY4lZ3neLodmhpuWfy2PAQN5B46sAiU4liOXGLkHypn/qU+jvfWSCYYLA=="],
 
