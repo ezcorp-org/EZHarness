@@ -54,18 +54,18 @@
     "gate:report": "bun scripts/quality-report.ts --text"
   },
   "devDependencies": {
-    "@biomejs/biome": "2.5.14",
-    "@types/bun": "1.4.2",
+    "@biomejs/biome": "2.6.2",
+    "@types/bun": "1.4.3",
     "@types/js-yaml": "^4.0.9",
-    "@types/node": "^26.6.3",
+    "@types/node": "^26.6.5",
     "drizzle-kit": "^0.31.11"
   },
   "peerDependencies": {
     "typescript": "^5.9.3"
   },
   "dependencies": {
-    "@aws-sdk/client-kms": "3.1131.0",
-    "@aws-sdk/client-s3": "3.1131.0",
+    "@aws-sdk/client-kms": "3.1154.0",
+    "@aws-sdk/client-s3": "3.1154.0",
     "@balena/dockerignore": "1.0.2",
     "@earendil-works/pi-agent-core": "0.99.2",
     "@earendil-works/pi-ai": "0.99.2",
@@ -77,13 +77,13 @@
     "@ezcorp/factory-sdk": "workspace:*",
     "@ezcorp/harness-client": "workspace:*",
     "@ezcorp/sdk": "workspace:*",
-    "@huggingface/transformers": "^4.3.0",
+    "@huggingface/transformers": "^4.3.1",
     "@modelcontextprotocol/sdk": "^1.32.2",
     "@zxing/library": "^0.23.0",
-    "drizzle-orm": "^0.45.3",
+    "drizzle-orm": "^0.45.4",
     "exceljs": "^4.4.0",
     "fast-png": "^8.0.0",
-    "file-type": "^22.1.1",
+    "file-type": "^22.2.0",
     "jpeg-js": "^0.4.4",
     "pdf-parse": "^2.4.5",
     "yaml": "^2.9.1",

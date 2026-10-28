@@ -80,8 +80,8 @@
   },
   "dependencies": { "@ezcorp/extension-contract": "workspace:*", "@modelcontextprotocol/sdk": "1.32.2" },
   "devDependencies": {
-    "@types/bun": "1.4.2",
-    "@types/node": "^26.6.3",
+    "@types/bun": "1.4.3",
+    "@types/node": "^26.6.5",
     "typescript": "^5.9.3"
   }
 }
